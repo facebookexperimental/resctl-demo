@@ -1,0 +1,302 @@
+use clap::{App, AppSettings, ArgMatches};
+use lazy_static::lazy_static;
+use serde::{Deserialize, Serialize};
+
+use super::Params;
+use util::*;
+
+const HELP_BODY: &str = "\
+Resource-control demo hash daemon.
+
+[ OVERVIEW ]
+
+rd-hashd is a workload simulator for resource control demonstration. Its
+primary goal is emulating a latency-senstive and throttleable primary workload
+which can saturate the machine in all local resources.
+
+Imagine a latency-sensitive user-request-servicing application which is load
+balanced and configured to use all available resources of the machine under
+full load. Under nominal load, it'd consume lower amounts of resources and
+show tighter latency profile. As load gets close to full, it'll consume most
+of the machine and the latencies would increase but stay within a certain
+envelope. If the application gets stalled for whatever reason including any
+resource conflicts, it'd experience latency spike and the load balancer would
+allocate it less requests until it can catch up.
+
+rd-hashd emulates such workload in a self-contained manner. It sets up
+testfiles with random contents and keeps calculating SHA1s of different parts
+using concurrent worker threads. The concurrency level is modulated so that
+RPS converges on the target while not exceeding the latency limit. The targets
+can be dynamically modified while rd-hashd is running.  OThe workers also
+sleep randomly, generate anonymous memory accesses and writes to the log file.
+
+[ CONFIGURATION, REPORT AND LOG FILES ]
+
+Configuration is composed of two parts - command line arguments and runtime
+parameters. The former can be specified as command line options or using the
+--args file. The latter can only be specified using the --params file and can
+be dynamically updated while rd-hashd is running - just edit and save, the
+changes will be applied immediately.
+
+If the specified --args and/or --params files don't exist, they will be
+created with the default values. Any configurations in --args can be
+overridden on the command line and the changes will be saved in the file.
+--params is optional. If not specified, default parameters will be used.
+
+rd-hashd reports the current status in the optional --report file and the hash
+results are saved in the optional --log file.
+
+The following will create the --args and --params configuration files and
+exit.
+
+  $ rd-hashd --testfiles ~/rd-hashd/testfiles --args ~/rd-hashd/args.json \\
+             --params ~/rd-hashd/params.json --report ~/rd-hashd/report.json \\
+             --log ~/rd-hashd/log --interval 1 --prepare-config
+
+After that, rd-hashd can be run with the same configurations with the
+following.
+
+  $ rd-hashd --args ~/rd-hashd/args.json
+
+[ BENCHMARKING ]
+
+It can be challenging to figure out the right set of parameters to maximize
+resource utilization. To help determining the configurations, --bench runs a
+series of tests and records the determined parameters in the specified --args
+and --params files.
+
+With the resulting configurations, rd-hashd should closely saturate CPU and
+memory and use some amount of IO when running with the target p99 latency
+100ms. Its memory (and thus IO) usages will be sensitive to RPS so that any
+stalls or resource shortages will lead to lowered RPS and resource
+consumptions.
+
+--bench may take over ten minutes and the system should be idle otherwise.
+While it tries its best, due to long tail memory accesses and changing IO
+performance characteristics, there's a low chance that the resulting
+configuration might not hit the right balance between CPU and memory in
+extended runs. If rd-hashd fails to keep CPU saturated, try lowering the
+runtime parameter file_total_frac. If not enough IO is being generated, try
+raising.
+
+While --bench preserves the parameters in the configuration files as much as
+possible, it's advisable to clear existing configurations and start with
+default parameters.
+
+[ USAGE EXAMPLE ]
+
+The following is an example workflow. It clears existing configurations,
+performs benchmark to determine the parameters and then starts a normal run.
+
+  $ mkdir -p ~/rd-hashd
+  $ rm -f ~/rd-hashd/*.json
+  $ rd-hashd --args ~/rd-hashd/args.json --testfiles ~/rd-hashd/testfiles \\
+             --params ~/rd-hashd/params.json --report ~/rd-hashd/report.json \\
+             --log ~/rd-hashd/log --interval 1 --bench
+  $ rd-hashd --args ~/rd-hashd-/args.json
+
+[ COMMAND LINE HELP ]
+";
+
+lazy_static! {
+    static ref ARGS_STR: String = {
+        let dfl: Args = Default::default();
+        format!(
+            "-t, --testfiles=[DIR]   'Testfiles directory'
+             -s, --size=[SIZE]       'Total number of bytes in testfiles (default: {dfl_size:.2}G)'
+             -p, --params=[FILE]     'Runtime updatable parameters, will be created if non-existent'
+             -r, --report=[FILE]     'Runtime report file, FILE.staging will be used for staging'
+             -l, --log=[LOG_PATH]    'Record hash results to the file at LOG_PATH'
+             -L, --log-size=[SIZE]   'Size before rotating to LOG_PATH.old (default: {dfl_log_size}M)'
+             -i, --interval=[SECS]   'Summary report interval, 0 to disable (default: {dfl_intv}s)'
+             -R, --rotational=[BOOL] 'Force rotational detection to either true or false'
+             -k, --keep-caches       'Don't drop caches for testfiles on startup'
+                 --clear-testfiles   'Clear testfiles before preparing them'
+                 --prepare-config    'Prepare config files and exit'
+                 --prepare           'Prepare config files and testfiles and exit'
+                 --bench             'Benchmark and record results in args and params file'
+             -a, --args=[FILE]       'Load base command line arguments from FILE'
+             -v...                   'Sets the level of verbosity'",
+            dfl_size=to_gb(dfl.size),
+            dfl_log_size=to_mb(dfl.log_size),
+            dfl_intv=dfl.interval)
+    };
+}
+
+const ARGS_DOC: &str = "\
+//
+// rd-hashd command line arguments
+//
+// This file provides the base values for a subset of command line arguments.
+// They can be overridden from command line.
+//
+";
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Args {
+    pub testfiles: Option<String>,
+    pub size: u64,
+    pub params: Option<String>,
+    pub report: Option<String>,
+    pub log: Option<String>,
+    pub log_size: u64,
+    pub interval: u32,
+    pub rotational: Option<bool>,
+    pub keep_caches: bool,
+
+    #[serde(skip)]
+    pub clear_testfiles: bool,
+    #[serde(skip)]
+    pub prepare_testfiles: bool,
+    #[serde(skip)]
+    pub prepare_and_exit: bool,
+    #[serde(skip)]
+    pub bench: bool,
+    #[serde(skip)]
+    pub verbosity: u32,
+}
+
+impl Default for Args {
+    fn default() -> Self {
+        let tf_frac = 0.8 / (Params::DFL_ANON_RATIO + 1.0);
+        let size: u64 = (*TOTAL_MEMORY as f64 * tf_frac) as u64;
+
+        Self {
+            testfiles: None,
+            size,
+            params: None,
+            report: None,
+            log: None,
+            log_size: 128 << 20,
+            interval: 10,
+            rotational: None,
+            clear_testfiles: false,
+            keep_caches: false,
+            prepare_testfiles: true,
+            prepare_and_exit: false,
+            bench: false,
+            verbosity: 0,
+        }
+    }
+}
+
+impl JsonLoad for Args {}
+
+impl JsonSave for Args {
+    fn preamble() -> Option<String> {
+        Some(ARGS_DOC.to_string())
+    }
+}
+
+impl JsonArgs for Args {
+    fn match_cmdline() -> ArgMatches<'static> {
+        App::new("rd-hashd")
+            .version("0.1")
+            .author("Tejun Heo <tj@kernel.org>")
+            .about(HELP_BODY)
+            .args_from_usage(&ARGS_STR)
+            .setting(AppSettings::UnifiedHelpMessage)
+            .setting(AppSettings::DeriveDisplayOrder)
+            .get_matches()
+    }
+
+    fn verbosity(matches: &ArgMatches) -> u32 {
+        matches.occurrences_of("v") as u32
+    }
+
+    fn process_cmdline(&mut self, matches: &ArgMatches) -> bool {
+        let dfl: Args = Default::default();
+        let mut updated_base = false;
+
+        if let Some(v) = matches.value_of("testfiles") {
+            self.testfiles = if v.len() > 0 {
+                Some(v.to_string())
+            } else {
+                None
+            };
+            updated_base = true;
+        }
+        if let Some(v) = matches.value_of("size") {
+            self.size = if v.len() > 0 {
+                v.parse::<u64>().unwrap()
+            } else {
+                dfl.size
+            };
+            updated_base = true;
+        }
+        if let Some(v) = matches.value_of("params") {
+            self.params = if v.len() > 0 {
+                Some(v.to_string())
+            } else {
+                None
+            };
+            updated_base = true;
+        }
+        if let Some(v) = matches.value_of("report") {
+            self.report = if v.len() > 0 {
+                Some(v.to_string())
+            } else {
+                None
+            };
+            updated_base = true;
+        }
+        if let Some(v) = matches.value_of("log") {
+            self.log = if v.len() > 0 {
+                Some(v.to_string())
+            } else {
+                None
+            };
+            updated_base = true;
+        }
+        if let Some(v) = matches.value_of("log-size") {
+            self.log_size = if v.len() > 0 {
+                v.parse::<u64>().unwrap()
+            } else {
+                dfl.log_size
+            };
+            updated_base = true;
+        }
+        if let Some(v) = matches.value_of("interval") {
+            self.interval = if v.len() > 0 {
+                v.parse::<u32>().unwrap()
+            } else {
+                dfl.interval
+            };
+            updated_base = true;
+        }
+        if let Some(v) = matches.value_of("rotational") {
+            self.rotational = if v.len() > 0 {
+                Some(v.parse::<bool>().unwrap())
+            } else {
+                None
+            };
+            updated_base = true;
+        }
+        if self.keep_caches != matches.is_present("keep-caches") {
+            self.keep_caches = !self.keep_caches;
+            updated_base = true;
+        }
+
+        self.clear_testfiles = matches.is_present("clear-testfiles");
+
+        let prep_cfg = matches.is_present("prepare-config");
+        let prep_all = matches.is_present("prepare");
+        if prep_cfg || prep_all {
+            self.prepare_testfiles = prep_all;
+            self.prepare_and_exit = true;
+        }
+
+        self.bench = matches.is_present("bench");
+        self.verbosity = Self::verbosity(matches);
+
+        if self.prepare_and_exit {
+            self.bench = false;
+        }
+        if self.bench {
+            self.prepare_testfiles = false;
+        }
+
+        updated_base
+    }
+}

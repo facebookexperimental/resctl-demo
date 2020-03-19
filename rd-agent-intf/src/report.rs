@@ -1,0 +1,218 @@
+use chrono::prelude::*;
+use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
+use std::ops;
+use std::time::UNIX_EPOCH;
+use util::*;
+
+use super::RunnerState;
+
+const REPORT_DOC: &str = "\
+//
+// rd-agent summary report
+//
+// svc.name is an empty string if the service doesn't exist. svc.state
+// is either Running, Exited, Failed or Other.
+//
+//  timestamp: When this report was generated
+//  seq: Incremented on each execution, used for temporary settings
+//  state: Idle, Running, BenchHashd or BenchIOCost
+//  oomd.svc.name: OOMD systemd service name
+//  oomd.svc.state: OOMD systemd service state
+//  oomd.work_mem_pressure: Memory pressure based kill enabled in workload.slice
+//  oomd.work_senpai: Senpai enabled on workload.slice
+//  oomd.sys_mem_pressure: Memory pressure based kill enabled in system.slice
+//  oomd.sys_senpai: Senpai enabled on system.slice
+//  sideloader.svc.name: sideloader systemd service name
+//  sideloader.svc.state: sideloader systemd service state
+//  sideloader.sysconf_warnings: sideloader system configuration warnings
+//  sideloader.overload: sideloader is in overloaded state
+//  sideloader.overload_why: the reason for overloaded state
+//  sideloader.critical: sideloader is in crticial state
+//  sideloader.overload_why: the reason for critical state
+//  bench.hashd.svc.name: rd-hashd benchmark systemd service name
+//  bench.hashd.svc.state: rd-hashd benchmark systemd service state
+//  bench.iocost.svc.name: iocost benchmark systemd service name
+//  bench.iocost.svc.state: iocost benchmark systemd service state
+//  hashd[].svc.name: rd-hashd systemd service name
+//  hashd[].svc.state: rd-hashd systemd service state
+//  hashd[].load: Current rps / rps_max
+//  hashd[].rps: Current rps
+//  hashd[].lat_p99: Current p99 latency
+//  sysloads{}.svc.name: Sysload systemd service name
+//  sysloads{}.svc.state: Sysload systemd service state
+//  sideloads{}.svc.name: Sideload systemd service name
+//  sideloads{}.svc.state: Sideload systemd service state
+//
+";
+
+pub const REPORT_RETENTION: u64 = 60 * 60;
+pub const REPORT_1MIN_RETENTION: u64 = 24 * 60 * 60;
+
+#[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SvcStateReport {
+    Running,
+    Exited,
+    Failed,
+    Other,
+}
+
+impl Default for SvcStateReport {
+    fn default() -> Self {
+        Self::Other
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize, Default)]
+pub struct SvcReport {
+    pub name: String,
+    pub state: SvcStateReport,
+}
+
+#[derive(Clone, Serialize, Deserialize, Default)]
+pub struct ResCtlReport {
+    pub cpu: bool,
+    pub mem: bool,
+    pub io: bool,
+}
+
+#[derive(Clone, Serialize, Deserialize, Default)]
+pub struct OomdReport {
+    pub svc: SvcReport,
+    pub work_mem_pressure: bool,
+    pub work_senpai: bool,
+    pub sys_mem_pressure: bool,
+    pub sys_senpai: bool,
+}
+
+#[derive(Clone, Serialize, Deserialize, Default)]
+pub struct BenchReport {
+    pub svc: SvcReport,
+}
+
+#[derive(Clone, Serialize, Deserialize, Default)]
+pub struct SideloaderReport {
+    pub svc: SvcReport,
+    pub sysconf_warnings: Vec<String>,
+    pub overload: bool,
+    pub overload_why: String,
+    pub critical: bool,
+    pub critical_why: String,
+}
+
+#[derive(Clone, Serialize, Deserialize, Default)]
+pub struct HashdReport {
+    pub svc: SvcReport,
+    pub load: f64,
+    pub rps: f64,
+    pub lat_p99: f64,
+}
+
+impl ops::AddAssign<&HashdReport> for HashdReport {
+    fn add_assign(&mut self, rhs: &HashdReport) {
+        self.load += rhs.load;
+        self.rps += rhs.rps;
+        self.lat_p99 += rhs.lat_p99;
+    }
+}
+
+impl<T: Into<f64>> ops::DivAssign<T> for HashdReport {
+    fn div_assign(&mut self, rhs: T) {
+        let div = rhs.into();
+        self.load /= div;
+        self.rps /= div;
+        self.lat_p99 /= div;
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct SysloadReport {
+    pub svc: SvcReport,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct SideloadReport {
+    pub svc: SvcReport,
+}
+
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+pub struct UsageReport {
+    pub cpu_usage: f64,
+    pub mem_bytes: u64,
+    pub swap_bytes: u64,
+    pub io_rbps: u64,
+    pub io_wbps: u64,
+    pub cpu_pressure: f64,
+    pub mem_pressure: f64,
+    pub io_pressure: f64,
+}
+
+impl ops::AddAssign<&UsageReport> for UsageReport {
+    fn add_assign(&mut self, rhs: &UsageReport) {
+        self.cpu_usage += rhs.cpu_usage;
+        self.mem_bytes += rhs.mem_bytes;
+        self.swap_bytes += rhs.swap_bytes;
+        self.io_rbps += rhs.io_rbps;
+        self.io_wbps += rhs.io_wbps;
+        self.cpu_pressure += rhs.cpu_pressure;
+        self.mem_pressure += rhs.mem_pressure;
+        self.io_pressure += rhs.io_pressure;
+    }
+}
+
+impl<T: Into<f64>> ops::DivAssign<T> for UsageReport {
+    fn div_assign(&mut self, rhs: T) {
+        let div = rhs.into();
+        self.cpu_usage /= div;
+        self.mem_bytes = (self.mem_bytes as f64 / div).round() as u64;
+        self.swap_bytes = (self.swap_bytes as f64 / div).round() as u64;
+        self.io_rbps = (self.io_rbps as f64 / div).round() as u64;
+        self.io_wbps = (self.io_wbps as f64 / div).round() as u64;
+        self.cpu_pressure /= div;
+        self.mem_pressure /= div;
+        self.io_pressure /= div;
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct Report {
+    pub timestamp: DateTime<Local>,
+    pub seq: u64,
+    pub state: RunnerState,
+    pub resctl: ResCtlReport,
+    pub oomd: OomdReport,
+    pub sideloader: SideloaderReport,
+    pub bench_hashd: BenchReport,
+    pub bench_iocost: BenchReport,
+    pub hashd: [HashdReport; 2],
+    pub sysloads: BTreeMap<String, SysloadReport>,
+    pub sideloads: BTreeMap<String, SideloadReport>,
+    pub usages: BTreeMap<String, UsageReport>,
+}
+
+impl Default for Report {
+    fn default() -> Self {
+        Self {
+            timestamp: DateTime::from(UNIX_EPOCH),
+            seq: 1,
+            state: RunnerState::Idle,
+            resctl: Default::default(),
+            oomd: Default::default(),
+            sideloader: Default::default(),
+            bench_hashd: Default::default(),
+            bench_iocost: Default::default(),
+            hashd: Default::default(),
+            sysloads: Default::default(),
+            sideloads: Default::default(),
+            usages: Default::default(),
+        }
+    }
+}
+
+impl JsonLoad for Report {}
+
+impl JsonSave for Report {
+    fn preamble() -> Option<String> {
+        Some(REPORT_DOC.to_string())
+    }
+}
