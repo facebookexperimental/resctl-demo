@@ -1,0 +1,5 @@
+[workspace]
+members = ["rd-hashd", "rd-agent", "resctl-demo"]
+
+[profile.release]
+debug = 1
