@@ -1,36 +1,29 @@
 ## Copyright (c) Facebook, Inc. and its affiliates.
 %% id intro                      : Welcome to resouce control demo
-%% reset all
+%% reset all-workloads
+%% reset protections
 
 *Welcome*\n
 *=======*
 
-Hello, ___**pleasantries**___. The file format understands
-paragraphs.
+***(WARNING)*** *Failed to meet %MissedSysReqs% system requirements. rd-agent is
+force started but some demos won't behave as expected. Please visit the system
+requirements page for more details.*
 
-***[WARNING]*** Failed to meet %MissedSysReqs% system requirements. rd-agent is force
-started but some demos won't behave as expected. Please visit the
-following page for more details.
+%% jump sysreqs                  : %MissedSysReqs%[ System Requirements ]
 
-%% jump sysreqs                  : %MissedSysReqs%* System Requirements
+%NeedBench%First of all, some components used by resctl-demo requires benchmarks
+for configuration. As they can take more than 10 minutes, let's start them right
+away. Please keep the system idle while the benchmarks are in progress.
 
-The followings are what you can do.
+%% on bench-hashd                : %NeedBenchHashd%[ Start hashd benchmark ]
+%% on bench-iocost               : %NeedBenchIoCost%[ Start iocost benchmark ]
 
-%% on hashd                      : [ Start hashd ]
-%% off hashd                     : [ Stop hashd ]
+The rest of introduction comes here.
+
+%NeedBench%Once benchmarks are finished, press refresh to reveal other options.
+
+%% jump intro                    : %NeedBench%[ Refresh ]
+%% jump intro.second             : %HaveBench%[ Next page ]
 %%
-%% knob hashd-load               : Adjust the load level: 
-%%
-%% toggle oomd                   : Tempt the fate by toggling OOMD
-%% toggle oomd-work-mem-pressure : or by toggling workload mempressure protection
-%% toggle oomd-work-senpai       : NOTICE ME SENPAI!
-
-When you leave this page, everything will be shutdown.
-
-%% jump intro.second             : * Next page
-%% jump index                    : * Exit to index
-
-##
-## Shutdown everything
-##
-$$ reset all
+%% jump index                    : [ Exit to index ]

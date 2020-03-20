@@ -20,17 +20,16 @@ use markup_rd::{RdCmd, RdDoc, RdKnob, RdPara, RdReset, RdSwitch};
 use rd_agent_intf::{HashdCmd, SysReq};
 
 lazy_static! {
-    pub static ref DOCS: BTreeMap<String, RdDoc> = load_docs();
-    static ref DUMMY_DOC: RdDoc = RdDoc {
+    pub static ref DOCS: BTreeMap<String, &'static str> = load_docs();
+    static ref CUR_DOC: Mutex<RdDoc> = Mutex::new(RdDoc {
         id: "__dummy__".into(),
         ..Default::default()
-    };
-    static ref CUR_DOC: Mutex<&'static RdDoc> = Mutex::new(&DUMMY_DOC);
+    });
     pub static ref SIDELOAD_NAMES: Mutex<BTreeSet<(String, String)>> = Mutex::new(BTreeSet::new());
     pub static ref SYSLOAD_NAMES: Mutex<BTreeSet<(String, String)>> = Mutex::new(BTreeSet::new());
 }
 
-fn load_docs() -> BTreeMap<String, RdDoc> {
+fn load_docs() -> BTreeMap<String, &'static str> {
     let mut docs = BTreeMap::new();
     let mut targets = HashSet::new();
 
@@ -77,7 +76,7 @@ fn load_docs() -> BTreeMap<String, RdDoc> {
             }
         }
 
-        docs.insert(doc.id.clone(), doc);
+        docs.insert(doc.id.clone(), src);
     }
 
     info!("SIDELOAD_NAMES: {:?}", &SIDELOAD_NAMES.lock().unwrap());
@@ -97,6 +96,8 @@ fn load_docs() -> BTreeMap<String, RdDoc> {
 
 fn format_markup_tags(tag: &str) -> Option<StyledString> {
     let sysreqs = AGENT_FILES.sysreqs();
+    let bench = AGENT_FILES.bench();
+    let empty_some = Some(StyledString::plain(""));
 
     if tag.starts_with("SysReq::") {
         for req in SysReq::into_enum_iter() {
@@ -114,6 +115,34 @@ fn format_markup_tags(tag: &str) -> Option<StyledString> {
                 let missed = sysreqs.missed.len();
                 if missed > 0 {
                     return Some(StyledString::plain(format!("{}", missed)));
+                } else {
+                    return None;
+                }
+            }
+            "NeedBenchHashd" => {
+                if bench.hashd_seq > 0 {
+                    return None;
+                } else {
+                    return empty_some;
+                }
+            }
+            "NeedBenchIoCost" => {
+                if bench.iocost_seq > 0 {
+                    return None;
+                } else {
+                    return empty_some;
+                }
+            }
+            "NeedBench" => {
+                if bench.hashd_seq > 0 && bench.iocost_seq > 0 {
+                    return None;
+                } else {
+                    return empty_some;
+                }
+            }
+            "HaveBench" => {
+                if bench.hashd_seq > 0 && bench.iocost_seq > 0 {
+                    return empty_some;
                 } else {
                     return None;
                 }
@@ -358,25 +387,25 @@ fn refresh_docs(siv: &mut Cursive) {
 }
 
 pub fn show_doc(siv: &mut Cursive, target: &str, jump: bool) {
-    let doc = DOCS.get(target).unwrap();
+    let doc = RdDoc::parse(DOCS.get(target).unwrap().as_bytes()).unwrap();
+    let mut cur_doc = CUR_DOC.lock().unwrap();
 
     if jump {
-        let cur_doc = *CUR_DOC.lock().unwrap();
         for cmd in &cur_doc.post_cmds {
             exec_cmd(siv, cmd);
         }
 
         info!("doc: jumping to {:?}", target);
 
-        *CUR_DOC.lock().unwrap() = doc;
         for cmd in &doc.pre_cmds {
             exec_cmd(siv, cmd);
         }
     }
+    *cur_doc = doc;
 
-    siv.call_on_name("doc", move |d: &mut Dialog| {
-        d.set_title(format!("[{}] {} - 'i': index", &doc.id, &doc.desc));
-        d.set_content(render_doc(doc));
+    siv.call_on_name("doc", |d: &mut Dialog| {
+        d.set_title(format!("[{}] {} - 'i': index", &cur_doc.id, &cur_doc.desc));
+        d.set_content(render_doc(&cur_doc));
     });
     refresh_docs(siv);
 }
