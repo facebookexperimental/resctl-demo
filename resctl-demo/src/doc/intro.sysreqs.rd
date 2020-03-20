@@ -1,5 +1,5 @@
 ## Copyright (c) Facebook, Inc. and its affiliates.
-%% id sysreqs                    : System Requirements
+%% id intro.sysreqs              : System Requirements
 
 *System Requirements*\n
 *===================*

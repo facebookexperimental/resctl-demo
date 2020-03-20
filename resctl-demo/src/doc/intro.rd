@@ -10,7 +10,7 @@
 force started but some demos won't behave as expected. Please visit the system
 requirements page for more details.*
 
-%% jump sysreqs                  : %MissedSysReqs%[ System Requirements ]
+%% jump intro.sysreqs            : %MissedSysReqs%[ System Requirements ]
 
 %NeedBench%First of all, some components used by resctl-demo requires benchmarks
 for configuration. As they can take more than 10 minutes, let's start them right
