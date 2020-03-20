@@ -168,6 +168,14 @@ fn exec_cmd(siv: &mut Cursive, cmd: &RdCmd) {
                 RdSwitch::BenchIoCost => {
                     cs.bench_iocost_next = cs.bench_iocost_cur + if is_on { 1 } else { 0 };
                 }
+                RdSwitch::BenchNeeded => {
+                    if cs.bench_hashd_cur == 0 {
+                        cs.bench_hashd_next = 1;
+                    }
+                    if cs.bench_iocost_cur == 0 {
+                        cs.bench_iocost_next = 1;
+                    }
+                }
                 RdSwitch::HashdA => cs.hashd[0].active = is_on,
                 RdSwitch::HashdB => cs.hashd[1].active = is_on,
                 RdSwitch::Sideload(tag, id) => {

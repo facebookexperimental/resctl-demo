@@ -16,8 +16,7 @@ requirements page for more details.*
 for configuration. As they can take more than 10 minutes, let's start them right
 away. Please keep the system idle while the benchmarks are in progress.
 
-%% on bench-hashd                : %NeedBenchHashd%[ Start hashd benchmark ]
-%% on bench-iocost               : %NeedBenchIoCost%[ Start iocost benchmark ]
+%% on bench-needed               : %NeedBench%[ Start benchmarks ]
 
 The rest of introduction comes here.
 
