@@ -95,6 +95,7 @@ fn load_docs() -> BTreeMap<String, &'static str> {
 }
 
 fn format_markup_tags(tag: &str) -> Option<StyledString> {
+    AGENT_FILES.refresh();
     let sysreqs = AGENT_FILES.sysreqs();
     let bench = AGENT_FILES.bench();
     let empty_some = Some(StyledString::plain(""));
@@ -161,8 +162,12 @@ fn exec_cmd(siv: &mut Cursive, cmd: &RdCmd) {
         RdCmd::On(sw) | RdCmd::Off(sw) => {
             let is_on = if let RdCmd::On(_) = cmd { true } else { false };
             match sw {
-                RdSwitch::BenchHashd => cs.bench_hashd = is_on,
-                RdSwitch::BenchIoCost => cs.bench_iocost = is_on,
+                RdSwitch::BenchHashd => {
+                    cs.bench_hashd_next = cs.bench_hashd_cur + if is_on { 1 } else { 0 };
+                }
+                RdSwitch::BenchIoCost => {
+                    cs.bench_iocost_next = cs.bench_iocost_cur + if is_on { 1 } else { 0 };
+                }
                 RdSwitch::HashdA => cs.hashd[0].active = is_on,
                 RdSwitch::HashdB => cs.hashd[1].active = is_on,
                 RdSwitch::Sideload(tag, id) => {
@@ -227,8 +232,8 @@ fn exec_cmd(siv: &mut Cursive, cmd: &RdCmd) {
 
             match reset {
                 RdReset::Benches => {
-                    cs.bench_hashd = false;
-                    cs.bench_iocost = false;
+                    cs.bench_hashd_next = cs.bench_hashd_cur;
+                    cs.bench_iocost_next = cs.bench_iocost_cur;
                 }
                 RdReset::Hashds => reset_hashds(&mut cs),
                 RdReset::Sideloads => cs.sideloads.clear(),
@@ -299,11 +304,11 @@ fn exec_knob(siv: &mut Cursive, cmd: &RdCmd, val: usize, range: usize) {
 fn refresh_toggles(siv: &mut Cursive, cs: &CmdState) {
     siv.call_on_name(
         &format!("{:?}", RdSwitch::BenchHashd),
-        |c: &mut Checkbox| c.set_checked(cs.bench_hashd),
+        |c: &mut Checkbox| c.set_checked(cs.bench_hashd_next > cs.bench_hashd_cur),
     );
     siv.call_on_name(
         &format!("{:?}", RdSwitch::BenchIoCost),
-        |c: &mut Checkbox| c.set_checked(cs.bench_iocost),
+        |c: &mut Checkbox| c.set_checked(cs.bench_iocost_next > cs.bench_iocost_cur),
     );
     siv.call_on_name(&format!("{:?}", RdSwitch::HashdA), |c: &mut Checkbox| {
         c.set_checked(cs.hashd[0].active)

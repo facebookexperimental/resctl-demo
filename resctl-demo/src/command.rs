@@ -13,10 +13,10 @@ lazy_static! {
 
 #[derive(Default)]
 pub struct CmdState {
-    pub bench_hashd: bool,
-    pub bench_iocost: bool,
-    pub bench_hashd_ready: bool,
-    pub bench_iocost_ready: bool,
+    pub bench_hashd_next: u64,
+    pub bench_iocost_next: u64,
+    pub bench_hashd_cur: u64,
+    pub bench_iocost_cur: u64,
 
     pub hashd: [HashdCmd; 2],
 
@@ -46,10 +46,10 @@ impl CmdState {
             &af.report.data,
         );
 
-        self.bench_hashd = cmd.bench_hashd_seq > bench.hashd_seq;
-        self.bench_iocost = cmd.bench_iocost_seq > bench.iocost_seq;
-        self.bench_hashd_ready = bench.hashd_seq > 0;
-        self.bench_iocost_ready = bench.iocost_seq > 0;
+        self.bench_hashd_next = cmd.bench_hashd_seq;
+        self.bench_iocost_next = cmd.bench_iocost_seq;
+        self.bench_hashd_cur = bench.hashd_seq;
+        self.bench_iocost_cur = bench.iocost_seq;
 
         self.hashd = cmd.hashd.clone();
         self.sideloads = cmd.sideloads.clone();
@@ -74,16 +74,10 @@ impl CmdState {
             af.slices.data.clone(),
             af.oomd.data.clone(),
         );
-        let (bench, report) = (&af.bench.data, &af.report.data);
+        let report = &af.report.data;
 
-        cmd.bench_hashd_seq = match self.bench_hashd {
-            true => bench.hashd_seq + 1,
-            false => 0,
-        };
-        cmd.bench_iocost_seq = match self.bench_iocost {
-            true => bench.iocost_seq + 1,
-            false => 0,
-        };
+        cmd.bench_hashd_seq = self.bench_hashd_next;
+        cmd.bench_iocost_seq = self.bench_iocost_next;
 
         cmd.hashd = self.hashd.clone();
         if cmd.hashd[0].rps_target_ratio == 1.0 {
