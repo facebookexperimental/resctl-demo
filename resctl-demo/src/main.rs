@@ -35,7 +35,7 @@ use rd_agent_intf::{
     SYSLOAD_SVC_PREFIX,
 };
 
-static AGENT_ZV_REQ: AtomicBool = AtomicBool::new(false);
+static AGENT_ZV_REQ: AtomicBool = AtomicBool::new(true);
 
 pub const UNIT_WIDTH: usize = 76;
 pub const STATUS_HEIGHT: usize = 9;
@@ -494,6 +494,7 @@ fn main() {
     });
 
     refresh_layout_and_kick(&mut siv);
+    update_agent_zoomed_view(&mut siv);
 
     // Run the event loop
     siv.run();

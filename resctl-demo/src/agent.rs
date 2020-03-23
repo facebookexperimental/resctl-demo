@@ -163,7 +163,7 @@ impl AgentMinder {
             dev: agent_args.dev.as_deref().unwrap_or("").into(),
             force: false,
             keep,
-            seen_running: true,
+            seen_running: false,
             started_at: UNIX_EPOCH,
             svc: None,
         };

@@ -188,6 +188,7 @@ fn prepare_linux_tar(cfg: &Config) -> Result<()> {
     info!("side: Downloading linux tarball, you can specify local file with --linux-tar");
     let xz_path = cfg.scr_path.clone() + "/linux.tar.xz";
     if !Command::new("wget")
+        .arg("--progress=dot:mega")
         .arg(LINUX_TAR_XZ_URL)
         .arg("-O")
         .arg(&xz_path)
