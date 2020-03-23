@@ -89,7 +89,7 @@ fn plot_graph(
                 ymax = g2.max
             );
         } else {
-        cmd += "set y2range [0:];\n";
+            cmd += "set y2range [0:];\n";
         }
     }
     cmd += &format!(
@@ -98,19 +98,24 @@ fn plot_graph(
         idx = 2,
         title = g1.title
     );
+
+    let y2 = if let Some(_) = &g3 { "y1" } else { "y2" };
+
     if let Some(g2) = &g2 {
         cmd += &format!(
-            ", \"{data}\" using 1:{idx} with lines axis x1y2 title \"{title}\"\n",
+            ", \"{data}\" using 1:{idx} with lines axis x1{y2} title \"{title}\"\n",
             data = data,
             idx = 3,
+            y2 = y2,
             title = g2.title
         );
     }
     if let Some(g3) = &g3 {
         cmd += &format!(
-            ", \"{data}\" using 1:{idx} with lines axis x1y2 title \"{title}\"\n",
+            ", \"{data}\" using 1:{idx} with lines axis x1{y2} title \"{title}\"\n",
             data = data,
             idx = 4,
+            y2 = y2,
             title = g3.title
         );
     }
@@ -348,6 +353,12 @@ enum PlotId {
     WorkMem,
     SideMem,
     SysMem,
+    WorkRBps,
+    SideRBps,
+    SysRBps,
+    WorkWBps,
+    SideWBps,
+    SysWBps,
     WorkCpuPsi,
     WorkMemPsi,
     WorkIoPsi,
@@ -396,6 +407,28 @@ fn plot_spec_factory(id: PlotId) -> PlotSpec {
             max: 100.0,
         }
     }
+    fn io_read_spec(slice: &'static str) -> PlotSpec {
+        let title = format!("{}-read-Mbps", slice.trim_end_matches(".slice"));
+        PlotSpec {
+            sel: Box::new(move |rep: &Report| {
+                rep.usages.get(slice).unwrap().io_rbps as f64 / (1024.0 * 1024.0)
+            }),
+            title,
+            min: 0.0,
+            max: 0.0,
+        }
+    }
+    fn io_write_spec(slice: &'static str) -> PlotSpec {
+        let title = format!("{}-write-Mbps", slice.trim_end_matches(".slice"));
+        PlotSpec {
+            sel: Box::new(move |rep: &Report| {
+                rep.usages.get(slice).unwrap().io_wbps as f64 / (1024.0 * 1024.0)
+            }),
+            title,
+            min: 0.0,
+            max: 0.0,
+        }
+    }
     fn cpu_psi_spec(slice: &'static str) -> PlotSpec {
         let title = format!("{}-cpu-pressure", slice.trim_end_matches(".slice"));
         PlotSpec {
@@ -435,6 +468,12 @@ fn plot_spec_factory(id: PlotId) -> PlotSpec {
         PlotId::WorkMem => mem_spec("workload.slice"),
         PlotId::SideMem => mem_spec("sideload.slice"),
         PlotId::SysMem => mem_spec("system.slice"),
+        PlotId::WorkRBps => io_read_spec("workload.slice"),
+        PlotId::SideRBps => io_read_spec("sideload.slice"),
+        PlotId::SysRBps => io_read_spec("system.slice"),
+        PlotId::WorkWBps => io_write_spec("workload.slice"),
+        PlotId::SideWBps => io_write_spec("sideload.slice"),
+        PlotId::SysWBps => io_write_spec("system.slice"),
         PlotId::WorkCpuPsi => cpu_psi_spec("workload.slice"),
         PlotId::WorkMemPsi => mem_psi_spec("workload.slice"),
         PlotId::WorkIoPsi => io_psi_spec("workload.slice"),
@@ -473,6 +512,16 @@ static ALL_GRAPHS: &[(&str, &str, &[PlotId])] = &[
         "mem-util",
         "Memory util in top-level slices",
         &[PlotId::WorkMem, PlotId::SideMem, PlotId::SysMem],
+    ),
+    (
+        "read-bps",
+        "IO read Mbps in top-level slices",
+        &[PlotId::WorkRBps, PlotId::SideRBps, PlotId::SysRBps],
+    ),
+    (
+        "write-bps",
+        "IO write Mbps in top-level slices",
+        &[PlotId::WorkWBps, PlotId::SideWBps, PlotId::SysWBps],
     ),
     (
         "mem-psi",
@@ -562,21 +611,20 @@ pub fn layout_factory(id: GraphSetId) -> Box<dyn View> {
             let mut panels = all_graph_panels(&name);
             if layout.horiz {
                 Box::new(
-                    LinearLayout::vertical()
+                    LinearLayout::horizontal()
                         .child(
-                            LinearLayout::horizontal()
+                            LinearLayout::vertical()
                                 .child(resize_zleft(&layout, panels.remove("hashd-A").unwrap()))
-                                .child(resize_zright(&layout, panels.remove("cpu-util").unwrap())),
-                        )
-                        .child(
-                            LinearLayout::horizontal()
                                 .child(resize_zleft(&layout, panels.remove("mem-psi").unwrap()))
-                                .child(resize_zright(&layout, panels.remove("mem-util").unwrap())),
+                                .child(resize_zleft(&layout, panels.remove("io-psi").unwrap()))
+                                .child(resize_zleft(&layout, panels.remove("cpu-psi").unwrap())),
                         )
                         .child(
-                            LinearLayout::horizontal()
-                                .child(resize_zleft(&layout, panels.remove("io-psi").unwrap()))
-                                .child(resize_zright(&layout, panels.remove("cpu-psi").unwrap())),
+                            LinearLayout::vertical()
+                                .child(resize_zright(&layout, panels.remove("cpu-util").unwrap()))
+                                .child(resize_zright(&layout, panels.remove("mem-util").unwrap()))
+                                .child(resize_zright(&layout, panels.remove("read-bps").unwrap()))
+                                .child(resize_zright(&layout, panels.remove("write-bps").unwrap())),
                         ),
                 )
             } else {
@@ -584,10 +632,12 @@ pub fn layout_factory(id: GraphSetId) -> Box<dyn View> {
                     LinearLayout::vertical()
                         .child(resize_zleft(&layout, panels.remove("hashd-A").unwrap()))
                         .child(resize_zleft(&layout, panels.remove("cpu-util").unwrap()))
+                        .child(resize_zleft(&layout, panels.remove("cpu-psi").unwrap()))
                         .child(resize_zleft(&layout, panels.remove("mem-util").unwrap()))
                         .child(resize_zleft(&layout, panels.remove("mem-psi").unwrap()))
-                        .child(resize_zleft(&layout, panels.remove("io-psi").unwrap()))
-                        .child(resize_zleft(&layout, panels.remove("cpu-psi").unwrap())),
+                        .child(resize_zleft(&layout, panels.remove("read-bps").unwrap()))
+                        .child(resize_zleft(&layout, panels.remove("write-bps").unwrap()))
+                        .child(resize_zleft(&layout, panels.remove("io-psi").unwrap())),
                 )
             }
         }
