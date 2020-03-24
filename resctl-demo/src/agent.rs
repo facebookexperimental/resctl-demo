@@ -145,6 +145,7 @@ pub struct AgentMinder {
     dir: String,
     scratch: String,
     dev: String,
+    linux_tar: String,
     force: bool,
     keep: bool,
     seen_running: bool,
@@ -161,6 +162,7 @@ impl AgentMinder {
             dir: dir.into(),
             scratch: agent_args.scratch.as_deref().unwrap_or("").into(),
             dev: agent_args.dev.as_deref().unwrap_or("").into(),
+            linux_tar: agent_args.linux_tar.as_deref().unwrap_or("").into(),
             force: false,
             keep,
             seen_running: false,
@@ -188,6 +190,10 @@ impl AgentMinder {
             "--dev".into(),
             self.dev.clone(),
         ];
+        if self.linux_tar.len() > 0 {
+            args.push("--linux-tar".into());
+            args.push(self.linux_tar.clone());
+        }
         if self.force {
             args.push("--force".into());
         }
@@ -214,11 +220,11 @@ impl AgentMinder {
             if !self.seen_running {
                 self.seen_running = true;
                 AGENT_ZV_REQ.store(false, Ordering::Relaxed);
+                let _ = cb_sink.send(Box::new(|siv| doc::show_doc(siv, "intro", true)));
             }
         } else if self.seen_running {
             self.seen_running = false;
             AGENT_ZV_REQ.store(true, Ordering::Relaxed);
-            let _ = cb_sink.send(Box::new(|siv| doc::show_doc(siv, "intro", true)));
         }
         cb_sink
             .send(Box::new(|siv| update_agent_zoomed_view(siv)))
@@ -291,11 +297,12 @@ fn update_agent_state(siv: &mut Cursive, start: bool, force: bool) {
         am.dir = if v.len() > 0 { v } else { DFL_TOP.into() };
         am.scratch = read_text_view(siv, "agent-arg-scr");
         am.dev = read_text_view(siv, "agent-arg-dev");
+        am.linux_tar = read_text_view(siv, "agent-arg-linux-tar");
         am.force = force;
 
         info!(
-            "agent: dir={:?} scr={:?} dev={:?} force={}",
-            &am.dir, &am.scratch, &am.dev, am.force
+            "agent: dir={:?} scr={:?} dev={:?} linux-tar={:?} force={}",
+            &am.dir, &am.scratch, &am.dev, &am.linux_tar, am.force
         );
 
         if let Err(e) = am.restart() {
@@ -327,17 +334,22 @@ lazy_static! {
         "\
 rd-agent configures the system and manages workloads. If {agent_svc} is already \
 running on startup, it's assumed to be configured and running correctly and used \
-as-is. Otherwise, it's started automatically with the parameters below. Changing \
-them may interfere with the demo. See `rd-agent --help` for explanation of the \
-parameters.",
+as-is. Otherwise, it's started with the parameters below. Changing them may \
+interfere with the demo. See `rd-agent --help`.",
         agent_svc = AGENT_SVC_NAME
     );
 }
 
+const HELP_LINUX_TAR: &str = "\
+On the first startup, rd-agent downloads linux source code which is used for \
+build workloads. You can use a local copy by specifying the path to the \
+uncompressed tarball in the prompt below and starting rd-agent again.";
+
 const HELP_START: &str = "\
 rd-agent verifies requirements on start-up and refuses to start if not all \
 requirements are met. While you can force-start, missing requirements will \
-impact how the demo behaves.";
+impact how the demo behaves. Once rd-agent starts, this dialog will close \
+automatically. You can also close and summon this dialog with 'a'.";
 
 pub fn layout_factory() -> Box<impl View> {
     let layout = get_layout();
@@ -355,7 +367,7 @@ pub fn layout_factory() -> Box<impl View> {
         .child(DummyView)
         .child(
             LinearLayout::horizontal()
-                .child(TextView::new("dir     : "))
+                .child(TextView::new("dir       : "))
                 .child(
                     EditView::new()
                         .content(&am.dir)
@@ -365,7 +377,7 @@ pub fn layout_factory() -> Box<impl View> {
         )
         .child(
             LinearLayout::horizontal()
-                .child(TextView::new("scratch : "))
+                .child(TextView::new("scratch   : "))
                 .child(
                     EditView::new()
                         .content(&am.scratch)
@@ -375,11 +387,24 @@ pub fn layout_factory() -> Box<impl View> {
         )
         .child(
             LinearLayout::horizontal()
-                .child(TextView::new("dev     : "))
+                .child(TextView::new("dev       : "))
                 .child(
                     EditView::new()
                         .content(&am.dev)
                         .with_name("agent-arg-dev")
+                        .full_width(),
+                ),
+        )
+        .child(DummyView)
+        .child(TextView::new(HELP_LINUX_TAR.clone()))
+        .child(DummyView)
+        .child(
+            LinearLayout::horizontal()
+                .child(TextView::new("linux-tar : "))
+                .child(
+                    EditView::new()
+                        .content(&am.linux_tar)
+                        .with_name("agent-arg-linux-tar")
                         .full_width(),
                 ),
         )
