@@ -423,6 +423,17 @@ pub fn show_doc(siv: &mut Cursive, target: &str, jump: bool) {
     refresh_docs(siv);
 }
 
+fn create_button<F>(prompt: &str, cb: F) -> impl View
+where
+    F: 'static + Fn(&mut Cursive),
+{
+    let trimmed = prompt.trim_start();
+    let indent = &prompt[0..prompt.len() - trimmed.len()];
+    LinearLayout::horizontal()
+        .child(TextView::new(indent))
+        .child(Button::new_raw(trimmed, cb))
+}
+
 fn render_cmd(prompt: &str, cmd: &RdCmd) -> impl View {
     let width = get_layout().doc.x - 2;
     let mut view = LinearLayout::horizontal();
@@ -430,7 +441,7 @@ fn render_cmd(prompt: &str, cmd: &RdCmd) -> impl View {
 
     match cmd {
         RdCmd::On(_) | RdCmd::Off(_) => {
-            view = view.child(Button::new_raw(prompt, move |siv| exec_cmd(siv, &cmdc)));
+            view = view.child(create_button(prompt, move |siv| exec_cmd(siv, &cmdc)));
         }
         RdCmd::Toggle(sw) => {
             let name = format!("{:?}", sw);
@@ -464,11 +475,11 @@ fn render_cmd(prompt: &str, cmd: &RdCmd) -> impl View {
             );
         }
         RdCmd::Reset(_) => {
-            view = view.child(Button::new_raw(prompt, move |siv| exec_cmd(siv, &cmdc)));
+            view = view.child(create_button(prompt, move |siv| exec_cmd(siv, &cmdc)));
         }
         RdCmd::Jump(target) => {
             let t = target.clone();
-            view = view.child(Button::new_raw(prompt, move |siv| show_doc(siv, &t, true)));
+            view = view.child(create_button(prompt, move |siv| show_doc(siv, &t, true)));
         }
         _ => panic!("invalid cmd {:?} for prompt {:?}", cmd, prompt),
     }
