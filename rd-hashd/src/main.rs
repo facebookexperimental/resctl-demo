@@ -1,5 +1,6 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
 use chrono::prelude::*;
+use console::Term;
 use indicatif::{ProgressBar, ProgressStyle};
 use log::{debug, error, info, warn};
 use num::Integer;
@@ -56,7 +57,10 @@ fn report_tick(rf: &mut JsonReportFile<Report>, throttle: bool) {
 
 struct TestFilesProgressBar {
     bar: ProgressBar,
+    log: bool,
     nr_files: u64,
+    last_at: Instant,
+    last_pos: u64,
 }
 
 impl TestFilesProgressBar {
@@ -66,7 +70,10 @@ impl TestFilesProgressBar {
                 false => ProgressBar::new(nr_files as u64 * TESTFILE_UNIT_SIZE),
                 true => ProgressBar::hidden(),
             },
+            log: !hidden && !Term::stderr().is_term(),
             nr_files,
+            last_at: Instant::now(),
+            last_pos: 0,
         };
 
         tfbar.bar.set_style(ProgressStyle::default_bar()
@@ -75,12 +82,28 @@ impl TestFilesProgressBar {
         tfbar
     }
 
-    fn progress(&self, pos: u64) {
+    fn progress(&mut self, pos: u64) {
         if pos < self.nr_files {
             self.bar.set_position(pos * TESTFILE_UNIT_SIZE);
         } else {
             self.bar.finish_and_clear();
         }
+
+        if !self.log {
+            return;
+        }
+        let now = Instant::now();
+
+        if pos == self.last_pos || now.duration_since(self.last_at) < Duration::from_secs(1) {
+            return;
+        }
+
+        self.last_at = now;
+        self.last_pos = pos;
+
+        info!("testfiles: {:6.2}% ({:.2}G / {:.2}G)", pos as f64 / self.nr_files as f64 * TO_PCT,
+              to_gb(pos * TESTFILE_UNIT_SIZE),
+              to_gb(self.nr_files * TESTFILE_UNIT_SIZE));
     }
 }
 
@@ -187,7 +210,7 @@ fn main() {
         );
 
         // Lay out the testfiles while reporting progress.
-        let tfbar = TestFilesProgressBar::new(nr_files, args.verbosity > 0);
+        let mut tfbar = TestFilesProgressBar::new(nr_files, args.verbosity > 0);
         tf.setup(|pos| {
             tfbar.progress(pos);
             report_file.data.testfiles_progress = pos as f64 / nr_files as f64;
