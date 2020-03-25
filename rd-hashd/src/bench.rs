@@ -15,7 +15,7 @@ use util::*;
 
 use super::hasher;
 use super::testfiles::TestFiles;
-use super::{create_logger, Args, TestFilesProgressBar, TESTFILE_UNIT_SIZE};
+use super::{create_logger, report_tick, Args, TestFilesProgressBar, TESTFILE_UNIT_SIZE};
 
 const HIST_MAX: usize = 600;
 
@@ -196,7 +196,7 @@ impl TestHasher {
                     }
 
                     drop(dh);
-                    super::report_tick(&mut rep, false);
+                    report_tick(&mut rep, false);
                 },
                 recv(term_rx) -> _ => break,
             }
@@ -514,8 +514,15 @@ impl Bench {
             TESTFILE_UNIT_SIZE,
             nr_files,
         );
-        let tfbar = TestFilesProgressBar::new(nr_files, self.bar_hidden);
-        tf.setup(|pos| tfbar.progress(pos)).unwrap();
+        let mut tfbar = TestFilesProgressBar::new(nr_files, self.bar_hidden);
+        let mut report_file = self.report_file.lock().unwrap();
+
+        tf.setup(|pos| {
+            tfbar.progress(pos);
+            report_file.data.testfiles_progress = pos as f64 / nr_files as f64;
+            report_tick(&mut report_file, true);
+        })
+        .unwrap();
         tf
     }
 
