@@ -1,4 +1,5 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
+use anyhow::{bail, Result};
 use clap;
 use cursive::theme::{BaseColor, Color, Effect, PaletteColor, Style};
 use cursive::utils::markup::StyledString;
@@ -6,6 +7,7 @@ use cursive::view::{Resizable, ScrollStrategy, Scrollable, SizeConstraint, View}
 use cursive::views::{BoxedView, LinearLayout, TextView};
 use cursive::{event, logger, Cursive, Vec2};
 use lazy_static::lazy_static;
+use libc;
 use log::{error, info};
 use std::collections::HashMap;
 use std::ffi::OsStr;
@@ -57,7 +59,8 @@ pub const COLOR_GRAPH_3: Color = Color::Light(BaseColor::Magenta);
 lazy_static! {
     static ref ARGS_STR: String = format!(
         "-d, --dir=[TOPDIR]     'Top-level dir for operation and scratch files (default: {dfl_dir})'
-         -k, --keep             'Do not shutdown rd-agent on exit'",
+         -k, --keep             'Do not shutdown rd-agent on exit'
+             --force            'Ignore startup check failures'",
         dfl_dir = DFL_TOP,
     );
     pub static ref ARGS: Mutex<Option<Args>> = Mutex::new(None);
@@ -108,6 +111,7 @@ lazy_static! {
 pub struct Args {
     pub dir: String,
     pub keep: bool,
+    pub force: bool,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -341,6 +345,33 @@ impl Drop for ExitGuard {
     }
 }
 
+fn startup_checks() -> Result<()> {
+    let mut nr_failed = 0;
+
+    let euid = unsafe { libc::geteuid() };
+    if euid != 0 {
+        eprintln!("Error: must be run as root");
+        nr_failed += 1;
+    }
+
+    if !read_one_line("/proc/self/cgroup").unwrap().starts_with("0::/hostcritical.slice/") {
+        eprintln!("Error: must be under hostcritical.slice, start with \
+                   \"sudo systemd-run --scope --unit resctl-demo \
+                   --slice hostcritical.slice resctl-demo\"");
+        nr_failed += 1;
+    }
+
+    if let None = find_bin("gnuplot", Option::<&str>::None) {
+        eprintln!("Error: gnuplot is missing");
+        nr_failed += 1;
+    }
+
+    if nr_failed > 0 {
+        bail!("{} startup checks failed", nr_failed);
+    }
+    Ok(())
+}
+
 fn set_cursive_theme(siv: &mut Cursive) {
     let mut theme = siv.current_theme().clone();
     theme.palette[PaletteColor::Background] = COLOR_BACKGROUND;
@@ -426,7 +457,17 @@ fn main() {
             None => DFL_TOP.into(),
         },
         keep: matches.is_present("keep"),
+        force: matches.is_present("force"),
     };
+
+    if let Err(e) = startup_checks() {
+        if args.force {
+            error!("Ignoring startup check failure: {}", &e);
+        } else {
+            panic!("Startup check failed: {}", &e);
+        }
+    }
+
     ARGS.lock().unwrap().replace(args);
 
     if std::env::var("RUST_LOG").is_ok() {
