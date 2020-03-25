@@ -1,7 +1,7 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
 use anyhow::Result;
 use lazy_static::lazy_static;
-use log::{debug, warn};
+use log::{debug, info, warn};
 use std::collections::VecDeque;
 use std::fmt::Display;
 use std::io;
@@ -38,17 +38,29 @@ struct ReportRecord {
 
 struct ReportRing {
     ring: VecDeque<ReportRecord>,
-    dir: String,
+    dir_fn: Box<dyn 'static + Fn() -> Option<String> + Send>,
     cadence: u64,
     tail_cadence: u64,
     retention: u64,
 }
 
 impl ReportRing {
-    fn new(dir: &str, cadence: u64, tail_cadence: u64, retention: u64) -> Self {
+    fn new(
+        dir_fn: Box<dyn 'static + Fn() -> Option<String> + Send>,
+        cadence: u64,
+        tail_cadence: u64,
+        retention: u64,
+    ) -> Self {
+        info!(
+            "ReportRing: dir={:?} cad={} tail_cad={} ret={}",
+            dir_fn(),
+            cadence,
+            tail_cadence,
+            retention
+        );
         Self {
             ring: Default::default(),
-            dir: dir.into(),
+            dir_fn,
             cadence,
             tail_cadence,
             retention,
@@ -56,6 +68,11 @@ impl ReportRing {
     }
 
     fn update(&mut self, now: u64) -> Result<()> {
+        let dir = match (self.dir_fn)() {
+            Some(v) => v,
+            None => return Ok(()),
+        };
+
         let now = now / self.cadence * self.cadence;
         let start = (now - self.retention) / self.tail_cadence * self.tail_cadence;
 
@@ -74,7 +91,7 @@ impl ReportRing {
         debug!("Loading {:?}..{:?}", load_from, now);
 
         for at in (load_from..=now).step_by(self.cadence as usize) {
-            let path = format!("{}/{}.json", self.dir, at);
+            let path = format!("{}/{}.json", &dir, at);
             let rep = match Report::load(&path) {
                 Ok(v) => v,
                 Err(e) => {
@@ -100,10 +117,33 @@ struct ReportRingSet {
 
 impl ReportRingSet {
     fn new() -> Self {
-        let index = AGENT_FILES.index();
         Self {
-            sec_ring: ReportRing::new(&index.report_d, 1, 60, REPORT_RETENTION),
-            min_ring: ReportRing::new(&index.report_1min_d, 60, 60, REPORT_1MIN_RETENTION),
+            sec_ring: ReportRing::new(
+                Box::new(|| {
+                    let path = AGENT_FILES.index().report_d;
+                    if path.len() > 0 {
+                        Some(path)
+                    } else {
+                        None
+                    }
+                }),
+                1,
+                60,
+                REPORT_RETENTION,
+            ),
+            min_ring: ReportRing::new(
+                Box::new(|| {
+                    let path = AGENT_FILES.index().report_1min_d;
+                    if path.len() > 0 {
+                        Some(path)
+                    } else {
+                        None
+                    }
+                }),
+                60,
+                60,
+                REPORT_1MIN_RETENTION,
+            ),
         }
     }
 

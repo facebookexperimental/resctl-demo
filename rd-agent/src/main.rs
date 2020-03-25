@@ -783,14 +783,6 @@ fn main() {
     });
 
     let mut cfg = Config::new(&args_file);
-    if let Err(e) = cfg.startup_checks() {
-        if args_file.data.force {
-            warn!("cfg: Ignoring startup check failures as per --force");
-        } else {
-            error!("cfg: {:?}", e);
-            panic!();
-        }
-    }
 
     if let Err(e) = update_index(&cfg) {
         error!("cfg: Failed to update {:?} ({:?})", &cfg.index_path, &e);
@@ -800,6 +792,19 @@ fn main() {
     if let Err(e) = side::prepare_sides(&cfg) {
         error!("cfg: Failed to prepare sideloads ({:?})", &e);
         panic!();
+    }
+
+    if let Err(e) = cfg.startup_checks() {
+        if args_file.data.force {
+            warn!("cfg: Ignoring startup check failures as per --force");
+        } else {
+            error!("cfg: {:?}", e);
+            panic!();
+        }
+    }
+
+    if args_file.data.prepare {
+        return;
     }
 
     let mut sobjs = SysObjs::new(&cfg);
