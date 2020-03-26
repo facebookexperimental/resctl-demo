@@ -42,10 +42,10 @@ pub fn graph_intv_next() {
 }
 
 pub struct PlotSpec {
-    pub sel: Box<dyn Fn(&Report) -> f64 + Send>,
-    pub title: String,
-    pub min: f64,
-    pub max: f64,
+    pub sel: Box<dyn 'static + Send + Fn(&Report) -> f64>,
+    pub title: Box<dyn 'static + Send + Fn() -> String>,
+    pub min: Box<dyn 'static + Send + Fn() -> f64>,
+    pub max: Box<dyn 'static + Send + Fn() -> f64>,
 }
 
 fn plot_graph(
@@ -71,22 +71,24 @@ fn plot_graph(
         ysize = size.1,
         xmin = -(span_len as i64),
     );
-    if g1.max > g1.min {
+    let (ymin, ymax) = ((g1.min)(), (g1.max)());
+    if ymax > ymin {
         cmd += &format!(
             "set yrange [{ymin}:{ymax}];\n",
-            ymin = g1.min,
-            ymax = g1.max
+            ymin = ymin,
+            ymax = ymax,
         );
     } else {
         cmd += "set yrange [0:];\n";
     }
     if let Some(g2) = &g2 {
         cmd += "set y2tics out;\n";
-        if g2.max > g2.min {
+        let (ymin, ymax) = ((g2.min)(), (g2.max)());
+        if ymax > ymin {
             cmd += &format!(
                 "set y2range [{ymin}:{ymax}];\n",
-                ymin = g2.min,
-                ymax = g2.max
+                ymin = ymin,
+                ymax = ymax
             );
         } else {
             cmd += "set y2range [0:];\n";
@@ -96,7 +98,7 @@ fn plot_graph(
         "plot \"{data}\" using 1:{idx} with lines axis x1y1 title \"{title}\"",
         data = data,
         idx = 2,
-        title = g1.title
+        title = (g1.title)()
     );
 
     let y2 = if let Some(_) = &g3 { "y1" } else { "y2" };
@@ -107,7 +109,7 @@ fn plot_graph(
             data = data,
             idx = 3,
             y2 = y2,
-            title = g2.title
+            title = (g2.title)()
         );
     }
     if let Some(g3) = &g3 {
@@ -116,7 +118,7 @@ fn plot_graph(
             data = data,
             idx = 4,
             y2 = y2,
-            title = g3.title
+            title = (g3.title)()
         );
     }
 
@@ -313,18 +315,8 @@ pub struct Updater {
 
 impl Updater {
     pub fn new(cb_sink: cursive::CbSink, name: &str, specs: Vec<PlotSpec>) -> Result<Self> {
-        match specs.len() {
-            1 | 2 => (),
-            3 => {
-                if specs[0].min != specs[1].min
-                    || specs[0].min != specs[2].min
-                    || specs[0].max != specs[1].max
-                    || specs[0].max != specs[2].max
-                {
-                    bail!("three timeseries set must share min/max");
-                }
-            }
-            v => bail!("invalid number of timeseries {} for a graph", v),
+        if specs.len() > 3 {
+            bail!("invalid number of timeseries for a graph");
         }
 
         let name: String = name.into();
@@ -374,86 +366,79 @@ fn plot_spec_factory(id: PlotId) -> PlotSpec {
     fn rps_spec(idx: usize) -> PlotSpec {
         PlotSpec {
             sel: Box::new(move |rep: &Report| rep.hashd[idx].rps),
-            title: "rps".into(),
-            min: 0.0,
-            max: AGENT_FILES.bench().hashd.rps_max as f64 * 1.1,
+            title: Box::new(|| "rps".into()),
+            min: Box::new(|| 0.0),
+            max: Box::new(|| AGENT_FILES.bench().hashd.rps_max as f64 * 1.1),
         }
     }
     fn lat_spec(idx: usize) -> PlotSpec {
         PlotSpec {
             sel: Box::new(move |rep: &Report| rep.hashd[idx].lat_p99 * 1000.0),
-            title: "lat(p99)".into(),
-            min: 0.0,
-            max: 150.0,
+            title: Box::new(|| "lat(p99)".into()),
+            min: Box::new(|| 0.0),
+            max: Box::new(|| 150.0),
         }
     }
     fn cpu_spec(slice: &'static str) -> PlotSpec {
-        let title = format!("{}-cpu", slice.trim_end_matches(".slice"));
         PlotSpec {
             sel: Box::new(move |rep: &Report| rep.usages.get(slice).unwrap().cpu_usage * 100.0),
-            title,
-            min: 0.0,
-            max: 100.0,
+            title: Box::new(move || format!("{}-cpu", slice.trim_end_matches(".slice"))),
+            min: Box::new(|| 0.0),
+            max: Box::new(|| 100.0),
         }
     }
     fn mem_spec(slice: &'static str) -> PlotSpec {
-        let title = format!("{}-mem", slice.trim_end_matches(".slice"));
         PlotSpec {
             sel: Box::new(move |rep: &Report| {
                 rep.usages.get(slice).unwrap().mem_bytes as f64 / *TOTAL_MEMORY as f64 * 100.0
             }),
-            title,
-            min: 0.0,
-            max: 100.0,
+            title: Box::new(move || format!("{}-mem", slice.trim_end_matches(".slice"))),
+            min: Box::new(|| 0.0),
+            max: Box::new(|| 100.0),
         }
     }
     fn io_read_spec(slice: &'static str) -> PlotSpec {
-        let title = format!("{}-read-Mbps", slice.trim_end_matches(".slice"));
         PlotSpec {
             sel: Box::new(move |rep: &Report| {
                 rep.usages.get(slice).unwrap().io_rbps as f64 / (1024.0 * 1024.0)
             }),
-            title,
-            min: 0.0,
-            max: 0.0,
+            title: Box::new(move || format!("{}-read-Mbps", slice.trim_end_matches(".slice"))),
+            min: Box::new(|| 0.0),
+            max: Box::new(|| 0.0),
         }
     }
     fn io_write_spec(slice: &'static str) -> PlotSpec {
-        let title = format!("{}-write-Mbps", slice.trim_end_matches(".slice"));
         PlotSpec {
             sel: Box::new(move |rep: &Report| {
                 rep.usages.get(slice).unwrap().io_wbps as f64 / (1024.0 * 1024.0)
             }),
-            title,
-            min: 0.0,
-            max: 0.0,
+            title: Box::new(move || format!("{}-write-Mbps", slice.trim_end_matches(".slice"))),
+            min: Box::new(|| 0.0),
+            max: Box::new(|| 0.0),
         }
     }
     fn cpu_psi_spec(slice: &'static str) -> PlotSpec {
-        let title = format!("{}-cpu-pressure", slice.trim_end_matches(".slice"));
         PlotSpec {
             sel: Box::new(move |rep: &Report| rep.usages.get(slice).unwrap().cpu_pressure * 100.0),
-            title,
-            min: 0.0,
-            max: 100.0,
+            title: Box::new(move || format!("{}-cpu-pressure", slice.trim_end_matches(".slice"))),
+            min: Box::new(|| 0.0),
+            max: Box::new(|| 100.0),
         }
     }
     fn mem_psi_spec(slice: &'static str) -> PlotSpec {
-        let title = format!("{}-mem-pressure", slice.trim_end_matches(".slice"));
         PlotSpec {
             sel: Box::new(move |rep: &Report| rep.usages.get(slice).unwrap().mem_pressure * 100.0),
-            title,
-            min: 0.0,
-            max: 100.0,
+            title: Box::new(move || format!("{}-mem-pressure", slice.trim_end_matches(".slice"))),
+            min: Box::new(|| 0.0),
+            max: Box::new(|| 100.0),
         }
     }
     fn io_psi_spec(slice: &'static str) -> PlotSpec {
-        let title = format!("{}-io-pressure", slice.trim_end_matches(".slice"));
         PlotSpec {
             sel: Box::new(move |rep: &Report| rep.usages.get(slice).unwrap().io_pressure * 100.0),
-            title,
-            min: 0.0,
-            max: 100.0,
+            title: Box::new(move || format!("{}-io-pressure", slice.trim_end_matches(".slice"))),
+            min: Box::new(|| 0.0),
+            max: Box::new(|| 100.0),
         }
     }
 

@@ -38,7 +38,7 @@ struct ReportRecord {
 
 struct ReportRing {
     ring: VecDeque<ReportRecord>,
-    dir_fn: Box<dyn 'static + Fn() -> Option<String> + Send>,
+    dir_cb: Box<dyn 'static + Fn() -> Option<String> + Send>,
     cadence: u64,
     tail_cadence: u64,
     retention: u64,
@@ -46,21 +46,21 @@ struct ReportRing {
 
 impl ReportRing {
     fn new(
-        dir_fn: Box<dyn 'static + Fn() -> Option<String> + Send>,
+        dir_cb: Box<dyn 'static + Fn() -> Option<String> + Send>,
         cadence: u64,
         tail_cadence: u64,
         retention: u64,
     ) -> Self {
         info!(
             "ReportRing: dir={:?} cad={} tail_cad={} ret={}",
-            dir_fn(),
+            dir_cb(),
             cadence,
             tail_cadence,
             retention
         );
         Self {
             ring: Default::default(),
-            dir_fn,
+            dir_cb,
             cadence,
             tail_cadence,
             retention,
@@ -68,7 +68,7 @@ impl ReportRing {
     }
 
     fn update(&mut self, now: u64) -> Result<()> {
-        let dir = match (self.dir_fn)() {
+        let dir = match (self.dir_cb)() {
             Some(v) => v,
             None => return Ok(()),
         };
