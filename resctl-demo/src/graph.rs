@@ -73,11 +73,7 @@ fn plot_graph(
     );
     let (ymin, ymax) = ((g1.min)(), (g1.max)());
     if ymax > ymin {
-        cmd += &format!(
-            "set yrange [{ymin}:{ymax}];\n",
-            ymin = ymin,
-            ymax = ymax,
-        );
+        cmd += &format!("set yrange [{ymin}:{ymax}];\n", ymin = ymin, ymax = ymax,);
     } else {
         cmd += "set yrange [0:];\n";
     }
@@ -85,11 +81,7 @@ fn plot_graph(
         cmd += "set y2tics out;\n";
         let (ymin, ymax) = ((g2.min)(), (g2.max)());
         if ymax > ymin {
-            cmd += &format!(
-                "set y2range [{ymin}:{ymax}];\n",
-                ymin = ymin,
-                ymax = ymax
-            );
+            cmd += &format!("set y2range [{ymin}:{ymax}];\n", ymin = ymin, ymax = ymax);
         } else {
             cmd += "set y2range [0:];\n";
         }

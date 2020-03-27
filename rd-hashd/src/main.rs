@@ -101,9 +101,12 @@ impl TestFilesProgressBar {
         self.last_at = now;
         self.last_pos = pos;
 
-        info!("testfiles: {:6.2}% ({:.2}G / {:.2}G)", pos as f64 / self.nr_files as f64 * TO_PCT,
-              to_gb(pos * TESTFILE_UNIT_SIZE),
-              to_gb(self.nr_files * TESTFILE_UNIT_SIZE));
+        info!(
+            "testfiles: {:6.2}% ({:.2}G / {:.2}G)",
+            pos as f64 / self.nr_files as f64 * TO_PCT,
+            to_gb(pos * TESTFILE_UNIT_SIZE),
+            to_gb(self.nr_files * TESTFILE_UNIT_SIZE)
+        );
     }
 }
 

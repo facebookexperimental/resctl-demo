@@ -354,10 +354,15 @@ fn startup_checks() -> Result<()> {
         nr_failed += 1;
     }
 
-    if !read_one_line("/proc/self/cgroup").unwrap().starts_with("0::/hostcritical.slice/") {
-        eprintln!("Error: must be under hostcritical.slice, start with \
+    if !read_one_line("/proc/self/cgroup")
+        .unwrap()
+        .starts_with("0::/hostcritical.slice/")
+    {
+        eprintln!(
+            "Error: must be under hostcritical.slice, start with \
                    \"sudo systemd-run --scope --unit resctl-demo \
-                   --slice hostcritical.slice resctl-demo\"");
+                   --slice hostcritical.slice resctl-demo\""
+        );
         nr_failed += 1;
     }
 
