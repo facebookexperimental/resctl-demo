@@ -288,7 +288,12 @@ fn verify_and_fix_mem_prot(parent: &str, file: &str, knob: MemoryKnob) -> Result
     Ok(())
 }
 
-fn verify_and_fix_one_slice(knobs: &SliceKnobs, slice: Slice, verify_mem_high: bool) -> Result<()> {
+fn verify_and_fix_one_slice(
+    knobs: &SliceKnobs,
+    slice: Slice,
+    verify_mem_high: bool,
+    recursive_mem_prot: bool,
+) -> Result<()> {
     let sk = knobs.slices.get(slice.name()).unwrap();
     let seq = super::instance_seq();
     let dseqs = &knobs.disable_seqs;
@@ -339,9 +344,12 @@ fn verify_and_fix_one_slice(knobs: &SliceKnobs, slice: Slice, verify_mem_high: b
             verify_and_fix_cgrp_mem(&(path.to_string() + "/memory.high"), true, sk.mem_high)?;
         }
 
-        if propagate_mem_prot(slice) {
+        if !recursive_mem_prot && propagate_mem_prot(slice) {
             verify_and_fix_mem_prot(path, "memory.min", sk.mem_min)?;
             verify_and_fix_mem_prot(path, "memory.low", sk.mem_low)?;
+        } else {
+            verify_and_fix_mem_prot(path, "memory.min", MemoryKnob::Size(0))?;
+            verify_and_fix_mem_prot(path, "memory.low", MemoryKnob::Size(0))?;
         }
     }
 
@@ -407,7 +415,11 @@ fn fix_overrides(dseqs: &DisableSeqKnobs) -> Result<()> {
     Ok(())
 }
 
-pub fn verify_and_fix_slices(knobs: &SliceKnobs, workload_senpai: bool) -> Result<()> {
+pub fn verify_and_fix_slices(
+    knobs: &SliceKnobs,
+    workload_senpai: bool,
+    recursive_mem_prot: bool,
+) -> Result<()> {
     let seq = super::instance_seq();
     let dseqs = &knobs.disable_seqs;
     let line = read_one_line("/sys/fs/cgroup/cgroup.subtree_control")?;
@@ -422,7 +434,7 @@ pub fn verify_and_fix_slices(knobs: &SliceKnobs, workload_senpai: bool) -> Resul
 
     for slice in Slice::into_enum_iter() {
         let verify_mem_high = slice != Slice::Work || !workload_senpai;
-        verify_and_fix_one_slice(knobs, slice, verify_mem_high)?;
+        verify_and_fix_one_slice(knobs, slice, verify_mem_high, recursive_mem_prot)?;
     }
 
     check_other_io_controllers(&mut HashSet::new());

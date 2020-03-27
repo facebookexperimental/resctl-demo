@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 use systemd::UnitState as US;
 use util::*;
 
-use rd_agent_intf::RunnerState;
+use rd_agent_intf::{RunnerState, SysReq};
 
 use super::hashd::HashdSet;
 use super::side::{SideRunner, Sideload, Sysload};
@@ -311,9 +311,11 @@ impl Runner {
 
             if now.duration_since(last_health_check_at) >= HEALTH_CHECK_INTV || verify_pending {
                 let workload_senpai = data.sobjs.oomd.workload_senpai_enabled();
-                if let Err(e) =
-                    slices::verify_and_fix_slices(&data.sobjs.slice_file.data, workload_senpai)
-                {
+                if let Err(e) = slices::verify_and_fix_slices(
+                    &data.sobjs.slice_file.data,
+                    workload_senpai,
+                    !data.cfg.sr_failed.contains(&SysReq::MemCgRecursiveProt),
+                ) {
                     warn!("cmd: Health check failed ({:?})", &e);
                 }
 

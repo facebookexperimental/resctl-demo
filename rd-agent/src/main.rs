@@ -136,7 +136,7 @@ pub struct Config {
     pub sys_scr_path: String,
     pub side_linux_tar_path: Option<String>,
 
-    sr_failed: HashSet<SysReq>,
+    pub sr_failed: HashSet<SysReq>,
     sr_wbt: Option<u64>,
     sr_wbt_path: Option<String>,
     sr_swappiness: Option<u32>,
@@ -392,7 +392,7 @@ impl Config {
             .spawn()
             .and_then(|mut x| x.wait())
         {
-            Ok(rc) if rc.success() => (),
+            Ok(rc) if rc.success() => info!("cfg: enabled async discard on {:?}", &mi.dest),
             Ok(rc) => {
                 sr_failed.insert(SysReq::BtrfsAsyncDiscard);
                 bail!(
@@ -466,6 +466,48 @@ impl Config {
         let sys = sysinfo::System::new();
 
         // check cgroup2 & controllers
+        match path_to_mountpoint("/sys/fs/cgroup") {
+            Ok(mi) => {
+                if mi.fstype != "cgroup2" {
+                    error!("cfg: /sys/fs/cgroup is not cgroup2 fs");
+                    self.sr_failed.insert(SysReq::Controllers);
+                }
+
+                if !mi.options.contains(&"memory_recursiveprot".to_string()) {
+                    match Command::new("mount")
+                        .arg("-o")
+                        .arg("remount,memory_recursiveprot")
+                        .arg(&mi.dest)
+                        .spawn()
+                        .and_then(|mut x| x.wait())
+                    {
+                        Ok(rc) if rc.success() => info!("cfg: enabled memcg recursive protection"),
+                        Ok(rc) => {
+                            error!(
+                                "cfg: failed to enable memcg recursive protection ({:?})",
+                                &rc
+                            );
+                            self.sr_failed.insert(SysReq::MemCgRecursiveProt);
+                        }
+                        Err(e) => {
+                            error!(
+                                "cfg: failed to enable memcg recursive protection ({:?})",
+                                &e
+                            );
+                            self.sr_failed.insert(SysReq::MemCgRecursiveProt);
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                error!(
+                    "cfg: failed to obtain mountinfo for /sys/fs/cgroup ({:?})",
+                    &e
+                );
+                self.sr_failed.insert(SysReq::Controllers);
+            }
+        }
+
         let mut buf = String::new();
         fs::File::open("/sys/fs/cgroup/cgroup.controllers")
             .and_then(|mut f| f.read_to_string(&mut buf))?;
@@ -826,7 +868,11 @@ fn main() {
         panic!();
     }
 
-    if let Err(e) = slices::verify_and_fix_slices(&sobjs.slice_file.data, workload_senpai) {
+    if let Err(e) = slices::verify_and_fix_slices(
+        &sobjs.slice_file.data,
+        workload_senpai,
+        !cfg.sr_failed.contains(&SysReq::MemCgRecursiveProt),
+    ) {
         error!(
             "cfg: Failed to verify and fix slice configurations ({:?})",
             &e

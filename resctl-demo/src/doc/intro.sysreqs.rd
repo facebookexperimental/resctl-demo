@@ -36,9 +36,17 @@ there, what automatic configurations resctl-demo may apply and how to resolve if
 * %SysReq::Freezer%: cgroup2 freezer is used to strictly limit the impact of
   side workloads under heavy load. Available in kernels >= v5.2.
 
+* %SysReq::MemCgRecursiveProt%: Recursive propagation for memory controller's
+  memory.min/low protections. This greatly simplifies protection configurations.
+  Available in kernels >= v5.6.
+
+  It can be enabled with cgroup2 "memory_recursiveprot" mount option. If
+  available, resctl-demo will automatically remount cgroup2 fs w/ the mount
+  option. For details: https://lkml.org/lkml/2019/12/19/1272
+
 * %SysReq::IoCost%: blk-iocost is the new IO controller which can
   comprehensively control IO capacity distribution proportionally. Available in
-  kernels >= v5.4 (CONFIG_BLK_CGROUP_IOCOST). For more details:
+  kernels >= v5.4 (CONFIG_BLK_CGROUP_IOCOST). For details:
   https://lwn.net/Articles/793460/
 
 * %SysReq::NoOtherIoControllers%: Other IO controllers - io.max and io.latency -
@@ -59,7 +67,7 @@ there, what automatic configurations resctl-demo may apply and how to resolve if
 
   It can be enabled with "discard=async" mount option on kernels >= v5.6. If
   available, resctl-demo will automatically remount the filesystem w/ the mount
-  option. For more details: https://lwn.net/Articles/805300/
+  option. For details: https://lwn.net/Articles/805300/
 
 * %SysReq::NoCompositeStorage%: Currently, composite block devices such as dm
   and md break the chain of custody for IOs allowing cgroups to escape IO
