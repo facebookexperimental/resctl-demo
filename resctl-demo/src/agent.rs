@@ -227,9 +227,6 @@ impl AgentMinder {
         } else if self.seen_running {
             self.seen_running = false;
             AGENT_ZV_REQ.store(true, Ordering::Relaxed);
-            let _ = cb_sink.send(Box::new(move |siv| {
-                doc::show_doc(siv, "intro.sysreqs", true)
-            }));
         }
         cb_sink
             .send(Box::new(|siv| update_agent_zoomed_view(siv)))
