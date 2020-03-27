@@ -119,5 +119,4 @@ there, what automatic configurations resctl-demo may apply and how to resolve if
 
   Install the needed packages.
 
-%% jump intro                    : [ Go back to intro ]
-%% jump index                    : [ Exit to index ]
+%% jump intro                    : [ Go to intro ]

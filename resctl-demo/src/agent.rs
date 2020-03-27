@@ -220,11 +220,16 @@ impl AgentMinder {
             if !self.seen_running {
                 self.seen_running = true;
                 AGENT_ZV_REQ.store(false, Ordering::Relaxed);
-                let _ = cb_sink.send(Box::new(|siv| doc::show_doc(siv, "intro", true)));
+                if AGENT_FILES.sysreqs().missed.len() == 0 {
+                    let _ = cb_sink.send(Box::new(move |siv| doc::show_doc(siv, "intro", true)));
+                };
             }
         } else if self.seen_running {
             self.seen_running = false;
             AGENT_ZV_REQ.store(true, Ordering::Relaxed);
+            let _ = cb_sink.send(Box::new(move |siv| {
+                doc::show_doc(siv, "intro.sysreqs", true)
+            }));
         }
         cb_sink
             .send(Box::new(|siv| update_agent_zoomed_view(siv)))
@@ -348,8 +353,9 @@ uncompressed tarball in the prompt below and starting rd-agent again.";
 const HELP_START: &str = "\
 rd-agent verifies requirements on start-up and refuses to start if not all \
 requirements are met. While you can force-start, missing requirements will \
-impact how the demo behaves. Once rd-agent starts, this dialog will close \
-automatically. You can also close and summon this dialog with 'a'.";
+impact how the demo behaves. To learn more about the requirements, dissmiss \
+this dialog with 'a' and read the documentation pane on the lower right \
+side. You can reopen this dialog by pressing 'a' again.";
 
 pub fn layout_factory() -> Box<impl View> {
     let layout = get_layout();
@@ -438,7 +444,7 @@ pub fn layout_factory() -> Box<impl View> {
             .title("rd-agent launcher")
             .resized(
                 SizeConstraint::Fixed((layout.screen.x * 4 / 5).max(UNIT_WIDTH + 6)),
-                SizeConstraint::Fixed((layout.main.y - layout.status.y).min(layout.screen.y - 2)),
+                SizeConstraint::Fixed(layout.main.y.min(layout.screen.y - 2)),
             ),
     )
 }

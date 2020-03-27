@@ -6,12 +6,6 @@
 *Welcome*\n
 *=======*
 
-  ***(WARNING)*** *Failed to meet %MissedSysReqs% system requirements. rd-agent
-  is force started but some demos won't behave as expected. Please visit the
-  system requirements page for more details.*
-
-%% jump intro.sysreqs            : %MissedSysReqs%  [ System Requirements ]
-
 %NeedBench%First of all, some components used by resctl-demo requires benchmarks
 for configuration. As they can take more than 10 minutes, let's start them right
 away. Please keep the system idle while the benchmarks are in progress.
