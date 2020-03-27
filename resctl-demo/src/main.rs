@@ -4,7 +4,7 @@ use clap;
 use cursive::theme::{BaseColor, Color, Effect, PaletteColor, Style};
 use cursive::utils::markup::StyledString;
 use cursive::view::{Resizable, ScrollStrategy, Scrollable, SizeConstraint, View};
-use cursive::views::{BoxedView, LinearLayout, TextView};
+use cursive::views::{BoxedView, Dialog, LinearLayout, TextView};
 use cursive::{event, logger, Cursive, Vec2};
 use lazy_static::lazy_static;
 use libc;
@@ -511,7 +511,10 @@ fn main() {
     siv.add_global_callback('~', |siv| siv.toggle_debug_console());
     siv.add_global_callback('i', |siv| doc::show_doc(siv, "index", true));
     siv.add_global_callback('!', |siv| doc::show_doc(siv, "doc-format", true));
-    siv.add_global_callback('q', |siv| siv.quit());
+    siv.add_global_callback('q', |siv| {
+        siv.add_layer(Dialog::around(TextView::new("Exiting...")));
+        siv.quit();
+    });
     siv.add_global_callback(event::Event::CtrlChar('l'), |siv| {
         siv.clear();
         siv.refresh();
