@@ -301,6 +301,10 @@ fn update_agent_zoomed_view(siv: &mut Cursive) {
             Some(ZoomedView::Agent) => {
                 siv.pop_layer();
                 zv.take();
+                AGENT_FILES.refresh();
+                if AGENT_FILES.sysreqs().missed.len() > 0 {
+                    doc::show_doc(siv, "intro.sysreqs", true);
+                }
             }
             _ => return,
         }
@@ -544,8 +548,6 @@ fn main() {
 
     refresh_layout_and_kick(&mut siv);
     update_agent_zoomed_view(&mut siv);
-
-    let _ = doc::show_doc(&mut siv, "intro.sysreqs", true);
 
     // Run the event loop
     siv.run();
