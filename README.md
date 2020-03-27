@@ -36,7 +36,7 @@ $ cargo build --release
 ## Installing resctl-demo
 
 ```
-$ sudo ./install.sh
+$ sudo ./install.sh /usr/local/bin
 ```
 
 ## Running resctl-demo

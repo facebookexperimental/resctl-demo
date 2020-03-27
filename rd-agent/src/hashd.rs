@@ -258,6 +258,9 @@ impl HashdSet {
     }
 
     pub fn report(&mut self, expiration: SystemTime) -> Result<[HashdReport; 2]> {
-        Ok([self.hashd[0].report(expiration)?, self.hashd[1].report(expiration)?])
+        Ok([
+            self.hashd[0].report(expiration)?,
+            self.hashd[1].report(expiration)?,
+        ])
     }
 }
