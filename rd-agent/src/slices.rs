@@ -275,7 +275,33 @@ fn verify_and_fix_cgrp_mem(path: &str, is_limit: bool, knob: MemoryKnob) -> Resu
         "resctl: {:?} should be {:?} but is {:?}, fixing",
         path, &expected, &line
     );
-    write_one_line(path, &expected)
+    write_one_line(path, &expected)?;
+
+    let file = Path::new(path)
+        .file_name()
+        .unwrap_or(OsStr::new(""))
+        .to_string_lossy();
+    let cgrp = Path::new(path)
+        .parent()
+        .unwrap_or(Path::new(""))
+        .file_name()
+        .unwrap_or(OsStr::new(""))
+        .to_string_lossy();
+
+    if !cgrp.ends_with(".service") && !cgrp.ends_with(".scope") && !cgrp.ends_with(".slice") {
+        return Ok(());
+    }
+
+    let mut unit = systemd::Unit::new(false, cgrp.into())?;
+    let nr_bytes = knob.nr_bytes(is_limit);
+    match &file[..] {
+        "memory.min" => unit.resctl.mem_min = Some(nr_bytes),
+        "memory.low" => unit.resctl.mem_low = Some(nr_bytes),
+        "memory.high" => unit.resctl.mem_high = Some(nr_bytes),
+        "memory.max" => unit.resctl.mem_max = Some(nr_bytes),
+        _ => (),
+    }
+    unit.apply()
 }
 
 fn verify_and_fix_mem_prot(parent: &str, file: &str, knob: MemoryKnob) -> Result<()> {
@@ -283,7 +309,12 @@ fn verify_and_fix_mem_prot(parent: &str, file: &str, knob: MemoryKnob) -> Result
         .unwrap()
         .filter_map(Result::ok)
     {
-        let _ = verify_and_fix_cgrp_mem(p.to_str().unwrap(), false, knob);
+        if let Err(e) = verify_and_fix_cgrp_mem(p.to_str().unwrap(), false, knob) {
+            warn!(
+                "resctl: failed to fix memory protection for {:?} ({:?})",
+                p, &e
+            );
+        }
     }
     Ok(())
 }
