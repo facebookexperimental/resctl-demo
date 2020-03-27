@@ -1,12 +1,15 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
 use anyhow::Result;
 use chrono::prelude::*;
+use crossbeam::channel::{self, Receiver, Sender};
 use log::{debug, error};
 use std::fs::{self, File};
 use std::io::prelude::*;
 use std::path::PathBuf;
+use std::thread::{spawn, JoinHandle};
 
-pub struct Logger {
+struct LogWorker {
+    log_rx: Receiver<String>,
     path: PathBuf,
     old_path: PathBuf,
     max_size: u64,
@@ -14,13 +17,13 @@ pub struct Logger {
     size: u64,
 }
 
-impl Logger {
-    pub fn new<P>(path: P, old_path: P, max_size: u64) -> Result<Self>
-    where
-        PathBuf: std::convert::From<P>,
-    {
-        let path = PathBuf::from(path);
-        let old_path = PathBuf::from(old_path);
+impl LogWorker {
+    fn new(
+        path: PathBuf,
+        old_path: PathBuf,
+        max_size: u64,
+        log_rx: Receiver<String>,
+    ) -> Result<Self> {
         match path.parent() {
             Some(p) => fs::create_dir_all(p)?,
             None => (),
@@ -42,7 +45,8 @@ impl Logger {
             size >> 20
         );
 
-        Ok(Logger {
+        Ok(LogWorker {
+            log_rx,
             path,
             old_path,
             max_size,
@@ -83,7 +87,7 @@ impl Logger {
         }
     }
 
-    pub fn log(&mut self, msg: &str) {
+    fn log(&mut self, msg: &str) {
         let now_str = Local::now().format("%Y-%m-%d %H:%M:%S");
 
         self.rotate();
@@ -100,5 +104,52 @@ impl Logger {
             self.file = None;
         }
         self.size += line.len() as u64;
+    }
+
+    fn run(mut self) {
+        loop {
+            match self.log_rx.recv() {
+                Ok(msg) => self.log(&msg),
+                Err(e) => {
+                    debug!("logger: log_rx terminated ({:?})", &e);
+                    break;
+                }
+            }
+        }
+    }
+}
+
+pub struct Logger {
+    log_tx: Option<Sender<String>>,
+    worker_jh: Option<JoinHandle<()>>,
+}
+
+impl Logger {
+    pub fn new<P>(path: P, old_path: P, max_size: u64) -> Result<Self>
+    where
+        PathBuf: std::convert::From<P>,
+    {
+        let path = PathBuf::from(path);
+        let old_path = PathBuf::from(old_path);
+
+        let (log_tx, log_rx) = channel::unbounded();
+        let worker = LogWorker::new(path, old_path, max_size, log_rx)?;
+        let worker_jh = spawn(move || worker.run());
+
+        Ok(Self {
+            log_tx: Some(log_tx),
+            worker_jh: Some(worker_jh),
+        })
+    }
+
+    pub fn log(&self, msg: &str) {
+        let _ = self.log_tx.as_ref().unwrap().send(msg.into());
+    }
+}
+
+impl Drop for Logger {
+    fn drop(&mut self) {
+        drop(self.log_tx.take());
+        self.worker_jh.take().unwrap().join().unwrap();
     }
 }
