@@ -275,7 +275,33 @@ fn verify_and_fix_cgrp_mem(path: &str, is_limit: bool, knob: MemoryKnob) -> Resu
         "resctl: {:?} should be {:?} but is {:?}, fixing",
         path, &expected, &line
     );
-    write_one_line(path, &expected)
+    write_one_line(path, &expected)?;
+
+    let file = Path::new(path)
+        .file_name()
+        .unwrap_or(OsStr::new(""))
+        .to_string_lossy();
+    let cgrp = Path::new(path)
+        .parent()
+        .unwrap_or(Path::new(""))
+        .file_name()
+        .unwrap_or(OsStr::new(""))
+        .to_string_lossy();
+
+    if !cgrp.ends_with(".service") && !cgrp.ends_with(".scope") && !cgrp.ends_with(".slice") {
+        return Ok(());
+    }
+
+    let mut unit = systemd::Unit::new(false, cgrp.into())?;
+    let nr_bytes = knob.nr_bytes(is_limit);
+    match &file[..] {
+        "memory.min" => unit.resctl.mem_min = Some(nr_bytes),
+        "memory.low" => unit.resctl.mem_low = Some(nr_bytes),
+        "memory.high" => unit.resctl.mem_high = Some(nr_bytes),
+        "memory.max" => unit.resctl.mem_max = Some(nr_bytes),
+        _ => (),
+    }
+    unit.apply()
 }
 
 fn verify_and_fix_mem_prot(parent: &str, file: &str, knob: MemoryKnob) -> Result<()> {
@@ -283,12 +309,22 @@ fn verify_and_fix_mem_prot(parent: &str, file: &str, knob: MemoryKnob) -> Result
         .unwrap()
         .filter_map(Result::ok)
     {
-        let _ = verify_and_fix_cgrp_mem(p.to_str().unwrap(), false, knob);
+        if let Err(e) = verify_and_fix_cgrp_mem(p.to_str().unwrap(), false, knob) {
+            warn!(
+                "resctl: failed to fix memory protection for {:?} ({:?})",
+                p, &e
+            );
+        }
     }
     Ok(())
 }
 
-fn verify_and_fix_one_slice(knobs: &SliceKnobs, slice: Slice, verify_mem_high: bool) -> Result<()> {
+fn verify_and_fix_one_slice(
+    knobs: &SliceKnobs,
+    slice: Slice,
+    verify_mem_high: bool,
+    recursive_mem_prot: bool,
+) -> Result<()> {
     let sk = knobs.slices.get(slice.name()).unwrap();
     let seq = super::instance_seq();
     let dseqs = &knobs.disable_seqs;
@@ -339,9 +375,12 @@ fn verify_and_fix_one_slice(knobs: &SliceKnobs, slice: Slice, verify_mem_high: b
             verify_and_fix_cgrp_mem(&(path.to_string() + "/memory.high"), true, sk.mem_high)?;
         }
 
-        if propagate_mem_prot(slice) {
+        if !recursive_mem_prot && propagate_mem_prot(slice) {
             verify_and_fix_mem_prot(path, "memory.min", sk.mem_min)?;
             verify_and_fix_mem_prot(path, "memory.low", sk.mem_low)?;
+        } else {
+            verify_and_fix_mem_prot(path, "memory.min", MemoryKnob::Size(0))?;
+            verify_and_fix_mem_prot(path, "memory.low", MemoryKnob::Size(0))?;
         }
     }
 
@@ -407,7 +446,11 @@ fn fix_overrides(dseqs: &DisableSeqKnobs) -> Result<()> {
     Ok(())
 }
 
-pub fn verify_and_fix_slices(knobs: &SliceKnobs, workload_senpai: bool) -> Result<()> {
+pub fn verify_and_fix_slices(
+    knobs: &SliceKnobs,
+    workload_senpai: bool,
+    recursive_mem_prot: bool,
+) -> Result<()> {
     let seq = super::instance_seq();
     let dseqs = &knobs.disable_seqs;
     let line = read_one_line("/sys/fs/cgroup/cgroup.subtree_control")?;
@@ -422,7 +465,7 @@ pub fn verify_and_fix_slices(knobs: &SliceKnobs, workload_senpai: bool) -> Resul
 
     for slice in Slice::into_enum_iter() {
         let verify_mem_high = slice != Slice::Work || !workload_senpai;
-        verify_and_fix_one_slice(knobs, slice, verify_mem_high)?;
+        verify_and_fix_one_slice(knobs, slice, verify_mem_high, recursive_mem_prot)?;
     }
 
     check_other_io_controllers(&mut HashSet::new());

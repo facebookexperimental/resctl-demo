@@ -16,6 +16,7 @@ const SYSREQ_DOC: &str = "\
 pub enum SysReq {
     Controllers,
     Freezer,
+    MemCgRecursiveProt,
     IoCost,
     NoOtherIoControllers,
     Btrfs,
