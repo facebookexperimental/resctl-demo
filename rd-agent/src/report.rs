@@ -1,5 +1,5 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
-use anyhow::Result;
+use anyhow::{bail, Result};
 use chrono::prelude::*;
 use enum_iterator::IntoEnumIterator;
 use linux_proc;
@@ -36,13 +36,43 @@ struct Usage {
     io_stall: f64,
 }
 
+fn read_stalls(path: &str) -> Result<(Option<f64>, Option<f64>)> {
+    let f = fs::OpenOptions::new().read(true).open(path)?;
+    let r = BufReader::new(f);
+    let (mut some, mut full) = (None, None);
+
+    for line in r.lines().filter_map(|x| x.ok()) {
+        if let Ok((which, v)) = scan_fmt!(
+            &line,
+            "{} avg10={*f} avg60={*f} avg300={*f} total={d}",
+            String,
+            u64
+        ) {
+            match (which.as_ref(), v) {
+                ("some", v) => some = Some(v as f64 / 1_000_000.0),
+                ("full", v) => full = Some(v as f64 / 1_000_000.0),
+                _ => (),
+            }
+        }
+    }
+
+    Ok((some, full))
+}
+
 fn read_some_stall(path: &str) -> Result<f64> {
-    Ok(scan_fmt!(
-        &read_one_line(path)?,
-        "some avg10={*f} avg60={*f} avg300={*f} total={d}",
-        u64
-    )? as f64
-        / 1_000_000.0)
+    let (some, _full) = read_stalls(path)?;
+    match some {
+        Some(v) => Ok(v),
+        None => bail!("failed to read {:?} some stall", path),
+    }
+}
+
+fn read_full_stall(path: &str) -> Result<f64> {
+    let (_some, full) = read_stalls(path)?;
+    match full {
+        Some(v) => Ok(v),
+        None => bail!("failed to read {:?} full stall", path),
+    }
 }
 
 fn read_system_usage(devnr: (u32, u32)) -> Result<(Usage, f64)> {
@@ -81,8 +111,8 @@ fn read_system_usage(devnr: (u32, u32)) -> Result<(Usage, f64)> {
             io_rbytes,
             io_wbytes,
             cpu_stall: read_some_stall("/proc/pressure/cpu")?,
-            mem_stall: read_some_stall("/proc/pressure/memory")?,
-            io_stall: read_some_stall("/proc/pressure/io")?,
+            mem_stall: read_full_stall("/proc/pressure/memory")?,
+            io_stall: read_full_stall("/proc/pressure/io")?,
         },
         cpu_total,
     ))
