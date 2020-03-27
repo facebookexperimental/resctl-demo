@@ -545,6 +545,8 @@ fn main() {
     refresh_layout_and_kick(&mut siv);
     update_agent_zoomed_view(&mut siv);
 
+    let _ = doc::show_doc(&mut siv, "intro.sysreqs", true);
+
     // Run the event loop
     siv.run();
 }

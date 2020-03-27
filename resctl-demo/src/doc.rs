@@ -1,7 +1,7 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
 use cursive::direction::Orientation;
 use cursive::utils::markup::StyledString;
-use cursive::view::{Nameable, Resizable, Scrollable, SizeConstraint, View};
+use cursive::view::{Nameable, Resizable, ScrollStrategy, Scrollable, SizeConstraint, View};
 use cursive::views::{Button, Checkbox, Dialog, DummyView, LinearLayout, SliderView, TextView};
 use cursive::Cursive;
 use enum_iterator::IntoEnumIterator;
@@ -512,9 +512,9 @@ fn render_doc(doc: &RdDoc) -> impl View {
             }
         }
     }
-    let mut view = view.scrollable().show_scrollbars(true);
-    view.scroll_to_top();
-    view
+    view.scrollable()
+        .show_scrollbars(true)
+        .scroll_strategy(ScrollStrategy::StickToTop)
 }
 
 pub fn layout_factory() -> impl View {
