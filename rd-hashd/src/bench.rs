@@ -58,6 +58,10 @@ struct CpuSatCfg {
 }
 
 struct MemSatCfg {
+    name: String,
+    pos_prefix: String,
+    fmt_pos: Box<dyn 'static + Fn(&Bench, f64) -> String>,
+
     lat: f64,
     term_err_good: f64,
     term_err_bad: f64,
@@ -119,6 +123,13 @@ impl Default for Cfg {
                 },
             },
             mem_sat: MemSatCfg {
+                name: "Memory".into(),
+                pos_prefix: "size".into(),
+                fmt_pos: Box::new(|bench, pos| {
+                    let (fsize, asize) = bench.mem_sizes(pos);
+                    format!("{:.2}G", to_gb(fsize + asize))
+                }),
+
                 lat: 100.0 * MSEC,
                 term_err_good: 10.0 * PCT,
                 term_err_bad: 50.0 * PCT,
@@ -658,11 +669,6 @@ impl Bench {
         (fsize, asize)
     }
 
-    fn mem_total_size(&self, file_frac: f64) -> usize {
-        let (fsize, asize) = self.mem_sizes(file_frac);
-        fsize + asize
-    }
-
     fn mem_one_round(&self, th: &TestHasher, cvg_cfg: &ConvergeCfg) -> (f64, f64) {
         let cfg = &self.cfg.mem_sat;
 
@@ -702,16 +708,21 @@ impl Bench {
     }
 
     fn show_bisection(&self, left: &VecDeque<f64>, frac: f64, right: &VecDeque<f64>) {
+        let cfg = &self.cfg.mem_sat;
+
         let mut buf = String::new();
         for v in left.iter().rev() {
             if *v != frac {
-                buf += &format!("{:.2}G ", to_gb(self.mem_total_size(*v)));
+                buf += &(cfg.fmt_pos)(self, *v);
+                buf += " ";
             }
         }
-        buf += &format!("*{:.2}G", to_gb(self.mem_total_size(frac)));
+        buf += "*";
+        buf += &(cfg.fmt_pos)(self, frac);
         for v in right.iter() {
             if *v != frac {
-                buf += &format!(" {:.2}G", to_gb(self.mem_total_size(*v)));
+                buf += " ";
+                buf += &(cfg.fmt_pos)(self, *v);
             }
         }
         info!("[ {} ]", buf);
@@ -738,10 +749,12 @@ impl Bench {
             th.disp_hist.lock().unwrap().disp.set_params(&params);
 
             info!(
-                "[ Memory saturation: up-round {}/9, rps {}, size {:.2}G ]",
+                "[ {} saturation: up-round {}/9, rps {}, {} {} ]",
+                cfg.name,
                 i,
                 self.rps_max,
-                to_gb(self.mem_total_size(params.file_total_frac))
+                cfg.pos_prefix,
+                &(cfg.fmt_pos)(self, params.file_total_frac)
             );
 
             if self.mem_bisect_round(&th, &cfg.up_converge) {
@@ -751,7 +764,8 @@ impl Bench {
         }
         if ridx == 0 {
             warn!(
-                "[ Memory saturation: {:.2}G is too small to saturate? ]",
+                "[ {} saturation: {:.2}G is too small to saturate? ]",
+                cfg.name,
                 to_gb(self.tf_size)
             );
             return 1.0;
@@ -769,9 +783,11 @@ impl Bench {
                 frac = (left[0] + right[0]) / 2.0;
 
                 info!(
-                    "[ Memory saturation: bisection, rps {}, size {:.2}G ]",
+                    "[ {} saturation: bisection, rps {}, {} {} ]",
+                    cfg.name,
                     self.rps_max,
-                    to_gb(self.mem_total_size(frac))
+                    cfg.pos_prefix,
+                    &(cfg.fmt_pos)(self, frac)
                 );
                 self.show_bisection(&left, frac, &right);
 
@@ -807,8 +823,10 @@ impl Bench {
             };
 
             info!(
-                "[ Memory saturation: re-verifying the opposite bound, size {:.2}G ]",
-                to_gb(self.mem_total_size(params.file_total_frac))
+                "[ {} saturation: re-verifying the opposite bound, {} {} ]",
+                cfg.name,
+                cfg.pos_prefix,
+                &(cfg.fmt_pos)(self, params.file_total_frac)
             );
             self.show_bisection(&left, params.file_total_frac, &right);
 
@@ -830,14 +848,6 @@ impl Bench {
                 }
             }
         }
-
-        let (fsize, asize) = self.mem_sizes(right[0]);
-        info!(
-            "[ Memory saturation bisect result: {:.2}G (file {:.2}G, anon {:.2}G) ]",
-            to_gb(fsize + asize),
-            to_gb(fsize),
-            to_gb(asize)
-        );
 
         right[0]
     }
@@ -862,11 +872,13 @@ impl Bench {
             }
 
             info!(
-                "[ Memory saturation: refine-round {}/{}, rps {}, size {:.2}G ]",
+                "[ {} saturation: refine-round {}/{}, rps {}, {} {} ]",
+                cfg.name,
                 i + 1,
                 cfg.refine_rounds,
                 self.rps_max,
-                to_gb(self.mem_total_size(frac))
+                cfg.pos_prefix,
+                &(cfg.fmt_pos)(self, frac),
             );
 
             params.file_total_frac = frac;
@@ -889,17 +901,7 @@ impl Bench {
         // Longer-runs might need more memory due to access from
         // accumulating long tails and other system disturbances.
         // Lower the frac to give the system some breathing room.
-        frac *= 100.0 * PCT - cfg.refine_buffer;
-
-        let (fsize, asize) = self.mem_sizes(frac);
-        info!(
-            "[ Memory saturation result: {:.2}G (file {:.2}G, anon {:.2}G) ]",
-            to_gb(fsize + asize),
-            to_gb(fsize),
-            to_gb(asize)
-        );
-
-        frac
+        frac * (100.0 * PCT - cfg.refine_buffer)
     }
 
     pub fn run(&mut self) {
@@ -909,9 +911,25 @@ impl Bench {
         self.params.file_size_mean = self.fsize_mean;
 
         self.rps_max = self.bench_cpu_saturation();
+
         self.tf_size = (*TOTAL_MEMORY as f64 * self.cfg.testfiles_frac) as u64;
         self.tf_frac = self.bench_mem_saturation_bisect();
+        let (fsize, asize) = self.mem_sizes(self.tf_frac);
+        info!(
+            "[ Memory saturation bisect result: {:.2}G (file {:.2}G, anon {:.2}G) ]",
+            to_gb(fsize + asize),
+            to_gb(fsize),
+            to_gb(asize)
+        );
+
         self.tf_frac = self.bench_mem_saturation_refine();
+        let (fsize, asize) = self.mem_sizes(self.tf_frac);
+        info!(
+            "[ Memory saturation result: {:.2}G (file {:.2}G, anon {:.2}G) ]",
+            to_gb(fsize + asize),
+            to_gb(fsize),
+            to_gb(asize)
+        );
 
         info!(
             "Bench results: testfiles {:.2} x {:.2}G, hash {:.2}M, rps {}",
