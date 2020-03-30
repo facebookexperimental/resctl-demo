@@ -61,6 +61,9 @@ struct MemSatCfg {
     name: String,
     pos_prefix: String,
     fmt_pos: Box<dyn 'static + Fn(&Bench, f64) -> String>,
+    set_pos: Box<dyn 'static + Fn(&mut Params, f64)>,
+    next_up_pos: Box<dyn 'static + Fn(&Params, Option<f64>) -> Option<f64>>,
+    next_refine_pos: Box<dyn 'static + Fn(&Params, Option<f64>) -> Option<f64>>,
 
     lat: f64,
     term_err_good: f64,
@@ -68,9 +71,7 @@ struct MemSatCfg {
     bisect_err: f64,
     bisect_dist: f64,
     refine_err: f64,
-    refine_step: f64,
     refine_buffer: f64,
-    refine_rounds: u32,
     up_converge: ConvergeCfg,
     bisect_converge: ConvergeCfg,
     refine_converge: ConvergeCfg,
@@ -129,6 +130,17 @@ impl Default for Cfg {
                     let (fsize, asize) = bench.mem_sizes(pos);
                     format!("{:.2}G", to_gb(fsize + asize))
                 }),
+                set_pos: Box::new(|params, pos| params.file_total_frac = pos),
+                next_up_pos: Box::new(|_params, pos| match pos {
+                    None => Some(10.0 * PCT),
+                    Some(v) if v < 91.0 * PCT => Some((v + 10.0 * PCT).min(100.0 * PCT)),
+                    _ => None,
+                }),
+                next_refine_pos: Box::new(|params, pos| match pos {
+                    None => Some(params.file_total_frac - 2.5 * PCT),
+                    Some(v) if v > 76.0 * PCT => Some(v - 2.5 * PCT),
+                    _ => None,
+                }),
 
                 lat: 100.0 * MSEC,
                 term_err_good: 10.0 * PCT,
@@ -136,9 +148,7 @@ impl Default for Cfg {
                 bisect_err: 25.0 * PCT,
                 bisect_dist: 2.5 * PCT,
                 refine_err: 10.0 * PCT,
-                refine_step: 2.5 * PCT,
                 refine_buffer: 12.5 * PCT,
-                refine_rounds: 10,
                 up_converge: ConvergeCfg {
                     which: Rps,
                     converges: 5,
@@ -729,7 +739,7 @@ impl Bench {
         let tf = self.prep_tf(self.tf_size, "memory saturation bench");
         params.p99_lat_target = cfg.lat;
         params.rps_target = self.rps_max;
-        params.file_total_frac = 10.0 * PCT;
+        (cfg.set_pos)(&mut params, 10.0 * PCT);
 
         let th = self.create_test_hasher(tf, &params, self.report_file.clone());
         //
@@ -738,32 +748,39 @@ impl Bench {
         // because too high a memory target can cause severe
         // system-wide thrashing.
         //
-        let mut ridx: usize = 0;
-        for i in 1..10 {
-            params.file_total_frac = i as f64 * 10.0 * PCT;
+        let mut round = 0;
+        let mut next_pos = None;
+        let mut pos = 0.0;
+        loop {
+            round += 1;
+            next_pos = (cfg.next_up_pos)(&params, next_pos);
+            if next_pos.is_none() {
+                break;
+            }
+            pos = next_pos.unwrap();
+            (cfg.set_pos)(&mut params, pos);
             th.disp_hist.lock().unwrap().disp.set_params(&params);
 
             info!(
                 "[ {} saturation: up-round {}/9, rps {}, {} {} ]",
                 cfg.name,
-                i,
+                round,
                 self.rps_max,
                 cfg.pos_prefix,
-                &(cfg.fmt_pos)(self, params.file_total_frac)
+                &(cfg.fmt_pos)(self, pos)
             );
 
             if self.mem_bisect_round(cfg, &cfg.up_converge, &th) {
-                ridx = i;
                 break;
             }
         }
-        if ridx == 0 {
+        if next_pos.is_none() {
             warn!(
-                "[ {} saturation: {:.2}G is too small to saturate? ]",
+                "[ {} saturation: {} is too small to saturate? ]",
                 cfg.name,
-                to_gb(self.tf_size)
+                (cfg.fmt_pos)(self, pos),
             );
-            return 1.0;
+            return pos;
         }
 
         //
@@ -771,28 +788,27 @@ impl Bench {
         // within cfg.bisect_dist error margin.
         //
         let mut left = VecDeque::<f64>::from(vec![0.0]);
-        let mut right = VecDeque::<f64>::from(vec![ridx as f64 * 10.0 * PCT]);
+        let mut right = VecDeque::<f64>::from(vec![pos]);
         loop {
-            let mut frac;
             loop {
-                frac = (left[0] + right[0]) / 2.0;
+                pos = (left[0] + right[0]) / 2.0;
 
                 info!(
                     "[ {} saturation: bisection, rps {}, {} {} ]",
                     cfg.name,
                     self.rps_max,
                     cfg.pos_prefix,
-                    &(cfg.fmt_pos)(self, frac)
+                    &(cfg.fmt_pos)(self, pos)
                 );
-                self.show_bisection(cfg, &left, frac, &right);
+                self.show_bisection(cfg, &left, pos, &right);
 
-                params.file_total_frac = frac;
+                (cfg.set_pos)(&mut params, pos);
                 th.disp_hist.lock().unwrap().disp.set_params(&params);
 
-                if self.mem_bisect_round(cfg,  &cfg.bisect_converge, &th) {
-                    right.push_front(frac);
+                if self.mem_bisect_round(cfg, &cfg.bisect_converge, &th) {
+                    right.push_front(pos);
                 } else {
-                    left.push_front(frac);
+                    left.push_front(pos);
                 }
 
                 if right[0] - left[0] < cfg.bisect_dist {
@@ -804,26 +820,27 @@ impl Bench {
             // wrong side.  If there's space to bisect on the other
             // side, make sure that it is behaving as expected and if
             // not shift in there.
-            let was_right = frac == right[0];
+            let was_right = pos == right[0];
             if was_right {
                 if left.len() == 1 {
                     break;
                 }
-                params.file_total_frac = left[0];
+                pos = left[0];
             } else {
                 if right.len() == 1 {
                     break;
                 }
-                params.file_total_frac = right[0];
+                pos = right[0];
             };
+            (cfg.set_pos)(&mut params, pos);
 
             info!(
                 "[ {} saturation: re-verifying the opposite bound, {} {} ]",
                 cfg.name,
                 cfg.pos_prefix,
-                &(cfg.fmt_pos)(self, params.file_total_frac)
+                &(cfg.fmt_pos)(self, pos)
             );
-            self.show_bisection(cfg, &left, params.file_total_frac, &right);
+            self.show_bisection(cfg, &left, pos, &right);
 
             th.disp_hist.lock().unwrap().disp.set_params(&params);
 
@@ -857,25 +874,27 @@ impl Bench {
 
         let th = self.create_test_hasher(tf, &params, self.report_file.clone());
 
-        let mut frac = self.tf_frac;
-        let step = frac * cfg.refine_step;
-        for i in 0..cfg.refine_rounds {
-            frac -= step;
-            if frac <= step {
+        let mut round = 0;
+        let mut next_pos = None;
+        let mut pos = 0.0;
+        loop {
+            round += 1;
+            next_pos = (cfg.next_refine_pos)(&params, next_pos);
+            if next_pos.is_none() {
                 break;
             }
+            pos = next_pos.unwrap();
 
             info!(
-                "[ {} saturation: refine-round {}/{}, rps {}, {} {} ]",
+                "[ {} saturation: refine-round {}, rps {}, {} {} ]",
                 cfg.name,
-                i + 1,
-                cfg.refine_rounds,
+                round,
                 self.rps_max,
                 cfg.pos_prefix,
-                &(cfg.fmt_pos)(self, frac),
+                &(cfg.fmt_pos)(self, pos),
             );
 
-            params.file_total_frac = frac;
+            (cfg.set_pos)(&mut params, pos);
             th.disp_hist.lock().unwrap().disp.set_params(&params);
 
             let (rps, err) = self.mem_one_round(cfg, &cfg.refine_converge, &th);
@@ -895,7 +914,7 @@ impl Bench {
         // Longer-runs might need more memory due to access from
         // accumulating long tails and other system disturbances.
         // Lower the frac to give the system some breathing room.
-        frac * (100.0 * PCT - cfg.refine_buffer)
+        pos * (100.0 * PCT - cfg.refine_buffer)
     }
 
     pub fn run(&mut self) {
