@@ -459,7 +459,6 @@ pub struct Bench {
     params_file: JsonConfigFile<Params>,
     report_file: Arc<Mutex<JsonReportFile<Report>>>,
     params: Params,
-    cfg: Cfg,
     bar_hidden: bool,
     fsize_mean: usize,
     rps_max: u32,
@@ -507,7 +506,6 @@ impl Bench {
             params_file,
             report_file: Arc::new(Mutex::new(report_file)),
             params: p,
-            cfg: Default::default(),
             bar_hidden: verbosity > 0,
             fsize_mean: 0,
             rps_max: 0,
@@ -562,9 +560,8 @@ impl Bench {
         Instant::now().duration_since(started_at).as_secs_f64()
     }
 
-    fn bench_cpu(&self) -> usize {
+    fn bench_cpu(&self, cfg: &CpuCfg) -> usize {
         const TIME_HASH_SIZE: usize = 128 * TESTFILE_UNIT_SIZE as usize;
-        let cfg = &self.cfg.cpu;
         let mut params: Params = self.params.clone();
         let mut nr_rounds = 0;
         let tf_size = cfg.size.max(TIME_HASH_SIZE as u64);
@@ -618,8 +615,7 @@ impl Bench {
         params.file_size_mean
     }
 
-    fn bench_cpu_saturation(&self) -> u32 {
-        let cfg = &self.cfg.cpu_sat;
+    fn bench_cpu_saturation(&self, cfg: &CpuSatCfg) -> u32 {
         let mut params: Params = self.params.clone();
         let mut nr_rounds = 0;
         let tf = self.prep_tf(cfg.size, "cpu saturation bench");
@@ -669,9 +665,7 @@ impl Bench {
         (fsize, asize)
     }
 
-    fn mem_one_round(&self, th: &TestHasher, cvg_cfg: &ConvergeCfg) -> (f64, f64) {
-        let cfg = &self.cfg.mem_sat;
-
+    fn mem_one_round(&self, cfg: &MemSatCfg, cvg_cfg: &ConvergeCfg, th: &TestHasher) -> (f64, f64) {
         let mut should_end = |now, streak, (lat, rps)| {
             if now < cvg_cfg.period / 2 {
                 None
@@ -693,10 +687,8 @@ impl Bench {
         (rps, (rps - self.rps_max as f64) / self.rps_max as f64)
     }
 
-    fn mem_bisect_round(&self, th: &TestHasher, cvg_cfg: &ConvergeCfg) -> bool {
-        let cfg = &self.cfg.mem_sat;
-
-        let (rps, err) = self.mem_one_round(th, cvg_cfg);
+    fn mem_bisect_round(&self, cfg: &MemSatCfg, cvg_cfg: &ConvergeCfg, th: &TestHasher) -> bool {
+        let (rps, err) = self.mem_one_round(cfg, cvg_cfg, th);
         info!(
             "Rps: {:.1} ~= {}, error: {:.2}% <= -{:.2}%",
             rps,
@@ -707,9 +699,13 @@ impl Bench {
         err <= -cfg.bisect_err
     }
 
-    fn show_bisection(&self, left: &VecDeque<f64>, frac: f64, right: &VecDeque<f64>) {
-        let cfg = &self.cfg.mem_sat;
-
+    fn show_bisection(
+        &self,
+        cfg: &MemSatCfg,
+        left: &VecDeque<f64>,
+        frac: f64,
+        right: &VecDeque<f64>,
+    ) {
         let mut buf = String::new();
         for v in left.iter().rev() {
             if *v != frac {
@@ -728,8 +724,7 @@ impl Bench {
         info!("[ {} ]", buf);
     }
 
-    fn bench_mem_saturation_bisect(&mut self) -> f64 {
-        let cfg = &self.cfg.mem_sat;
+    fn bench_mem_saturation_bisect(&mut self, cfg: &MemSatCfg) -> f64 {
         let mut params: Params = self.params.clone();
         let tf = self.prep_tf(self.tf_size, "memory saturation bench");
         params.p99_lat_target = cfg.lat;
@@ -757,7 +752,7 @@ impl Bench {
                 &(cfg.fmt_pos)(self, params.file_total_frac)
             );
 
-            if self.mem_bisect_round(&th, &cfg.up_converge) {
+            if self.mem_bisect_round(cfg, &cfg.up_converge, &th) {
                 ridx = i;
                 break;
             }
@@ -789,12 +784,12 @@ impl Bench {
                     cfg.pos_prefix,
                     &(cfg.fmt_pos)(self, frac)
                 );
-                self.show_bisection(&left, frac, &right);
+                self.show_bisection(cfg, &left, frac, &right);
 
                 params.file_total_frac = frac;
                 th.disp_hist.lock().unwrap().disp.set_params(&params);
 
-                if self.mem_bisect_round(&th, &cfg.bisect_converge) {
+                if self.mem_bisect_round(cfg,  &cfg.bisect_converge, &th) {
                     right.push_front(frac);
                 } else {
                     left.push_front(frac);
@@ -828,11 +823,11 @@ impl Bench {
                 cfg.pos_prefix,
                 &(cfg.fmt_pos)(self, params.file_total_frac)
             );
-            self.show_bisection(&left, params.file_total_frac, &right);
+            self.show_bisection(cfg, &left, params.file_total_frac, &right);
 
             th.disp_hist.lock().unwrap().disp.set_params(&params);
 
-            if self.mem_bisect_round(&th, &cfg.bisect_converge) {
+            if self.mem_bisect_round(cfg, &cfg.bisect_converge, &th) {
                 if was_right {
                     right.clear();
                     right.push_front(left.pop_front().unwrap());
@@ -854,8 +849,7 @@ impl Bench {
 
     /// Refine-rounds - Reset to tf_size and walk down from the
     /// saturation point looking for the first full performance point.
-    fn bench_mem_saturation_refine(&self) -> f64 {
-        let cfg = &self.cfg.mem_sat;
+    fn bench_mem_saturation_refine(&self, cfg: &MemSatCfg) -> f64 {
         let mut params: Params = self.params.clone();
         let tf = self.prep_tf(self.tf_size, "memory saturation bench - refine-rounds");
         params.p99_lat_target = cfg.lat;
@@ -884,7 +878,7 @@ impl Bench {
             params.file_total_frac = frac;
             th.disp_hist.lock().unwrap().disp.set_params(&params);
 
-            let (rps, err) = self.mem_one_round(&th, &cfg.refine_converge);
+            let (rps, err) = self.mem_one_round(cfg, &cfg.refine_converge, &th);
             info!(
                 "Rps: {:.1} ~= {}, error: |{:.2}%| <= {:.2}%",
                 rps,
@@ -905,15 +899,17 @@ impl Bench {
     }
 
     pub fn run(&mut self) {
+        let cfg = Cfg::default();
+
         // Run benchmarks.
-        self.fsize_mean = self.bench_cpu();
+        self.fsize_mean = self.bench_cpu(&cfg.cpu);
         // Needed for the following benches.  Assign early.
         self.params.file_size_mean = self.fsize_mean;
 
-        self.rps_max = self.bench_cpu_saturation();
+        self.rps_max = self.bench_cpu_saturation(&cfg.cpu_sat);
 
-        self.tf_size = (*TOTAL_MEMORY as f64 * self.cfg.testfiles_frac) as u64;
-        self.tf_frac = self.bench_mem_saturation_bisect();
+        self.tf_size = (*TOTAL_MEMORY as f64 * cfg.testfiles_frac) as u64;
+        self.tf_frac = self.bench_mem_saturation_bisect(&cfg.mem_sat);
         let (fsize, asize) = self.mem_sizes(self.tf_frac);
         info!(
             "[ Memory saturation bisect result: {:.2}G (file {:.2}G, anon {:.2}G) ]",
@@ -922,7 +918,7 @@ impl Bench {
             to_gb(asize)
         );
 
-        self.tf_frac = self.bench_mem_saturation_refine();
+        self.tf_frac = self.bench_mem_saturation_refine(&cfg.mem_sat);
         let (fsize, asize) = self.mem_sizes(self.tf_frac);
         info!(
             "[ Memory saturation result: {:.2}G (file {:.2}G, anon {:.2}G) ]",
