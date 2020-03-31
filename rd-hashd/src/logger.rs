@@ -10,6 +10,7 @@ use std::collections::VecDeque;
 use std::fs::{self, File};
 use std::io::prelude::*;
 use std::path::Path;
+use std::process::Command;
 use std::sync::atomic::{self, AtomicUsize};
 use std::sync::Arc;
 use std::thread::{spawn, JoinHandle};
@@ -48,6 +49,28 @@ impl LogWorker {
         )
     }
 
+    fn set_no_compression(path: &str) {
+        let output = match Command::new("btrfs")
+            .args(&["property", "set", path, "compression", ""])
+            .output()
+        {
+            Ok(v) => v,
+            Err(e) => {
+                error!(
+                    "logger: Failed to disable btrfs compression on ${} ({:?})",
+                    path, &e
+                );
+                return;
+            }
+        };
+        if !output.status.success() {
+            error!(
+                "logger: Failed to disable btrfs compression on ${} ({:?})",
+                path, &output
+            );
+        }
+    }
+
     fn new(
         dir_path: String,
         padding: Arc<AtomicUsize>,
@@ -64,6 +87,7 @@ impl LogWorker {
                 .append(true)
                 .open(&path)?,
         );
+        Self::set_no_compression(&path);
         let size = file.as_ref().unwrap().metadata()?.len();
 
         let prefix = format!("{}/{}-", &dir_path, LOG_FILENAME);
@@ -145,6 +169,7 @@ impl LogWorker {
             Ok(file) => {
                 self.file = Some(file);
                 self.size = 0;
+                Self::set_no_compression(&path);
             }
             Err(err) => {
                 error!(
