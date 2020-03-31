@@ -64,12 +64,12 @@ struct MemIoSatCfg {
     set_pos: Box<dyn 'static + Fn(&mut Params, f64)>,
     next_up_pos: Box<dyn 'static + Fn(&Params, Option<f64>) -> Option<f64>>,
     next_refine_pos: Box<dyn 'static + Fn(&Params, Option<f64>) -> Option<f64>>,
+    bisect_done: Box<dyn 'static + Fn(&Params, f64, f64) -> bool>,
 
     lat: f64,
     term_err_good: f64,
     term_err_bad: f64,
     bisect_err: f64,
-    bisect_dist: f64,
     refine_err: f64,
     up_converge: ConvergeCfg,
     bisect_converge: ConvergeCfg,
@@ -164,7 +164,9 @@ impl Default for Cfg {
                     let (fsize, asize) = bench.mem_sizes(pos);
                     format!("{:.2}G", to_gb(fsize + asize))
                 }),
+
                 set_pos: Box::new(|params, pos| params.file_total_frac = pos),
+
                 next_up_pos: Box::new(|_params, pos| match pos {
                     None => Some(10.0 * PCT),
                     Some(v) if v < 91.0 * PCT => Some((v + 10.0 * PCT).min(100.0 * PCT)),
@@ -175,12 +177,12 @@ impl Default for Cfg {
                     Some(v) if v > 76.0 * PCT => Some(v - 2.5 * PCT),
                     _ => None,
                 }),
+                bisect_done: Box::new(|_params, left, right| right - left < 2.5 * PCT),
 
                 lat: 100.0 * MSEC,
                 term_err_good: 10.0 * PCT,
                 term_err_bad: 50.0 * PCT,
                 bisect_err: 25.0 * PCT,
-                bisect_dist: 2.5 * PCT,
                 refine_err: 10.0 * PCT,
 
                 up_converge: MEMIO_UP_CVG_CFG,
@@ -801,8 +803,7 @@ impl Bench {
         }
 
         //
-        // Bisect-rounds - Bisect looking for the saturation point within
-        // cfg.bisect_dist error margin.
+        // Bisect-rounds - Bisect looking for the saturation point.
         //
         let mut left = VecDeque::<f64>::from(vec![0.0]);
         let mut right = VecDeque::<f64>::from(vec![pos]);
@@ -828,7 +829,7 @@ impl Bench {
                     left.push_front(pos);
                 }
 
-                if right[0] - left[0] < cfg.bisect_dist {
+                if (cfg.bisect_done)(&params, left[0], right[0]) {
                     break;
                 }
             }
