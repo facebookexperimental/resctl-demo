@@ -519,6 +519,7 @@ impl Bench {
             sleep_mean: uparams.sleep_mean,
             sleep_stdev_ratio: uparams.sleep_stdev_ratio,
             cpu_ratio: default.cpu_ratio,
+            log_padding: default.log_padding,
             lat_pid: uparams.lat_pid.clone(),
             rps_pid: uparams.rps_pid.clone(),
         };
@@ -567,7 +568,7 @@ impl Bench {
         TestHasher::new(
             tf,
             params,
-            create_logger(&self.args_file.data, true),
+            create_logger(&self.args_file.data, &self.params_file.data, true),
             HIST_MAX,
             report_file,
         )

@@ -111,7 +111,7 @@ impl TestFilesProgressBar {
     }
 }
 
-fn create_logger(args: &Args, quiet: bool) -> Option<Logger> {
+fn create_logger(args: &Args, params: &Params, quiet: bool) -> Option<Logger> {
     match args.log_dir.as_ref() {
         Some(log_dir) => {
             if !quiet {
@@ -121,7 +121,7 @@ fn create_logger(args: &Args, quiet: bool) -> Option<Logger> {
                     to_gb(args.log_size),
                 );
             }
-            match Logger::new(log_dir, LOGFILE_UNIT_SIZE, args.log_size) {
+            match Logger::new(log_dir, params.log_padding, LOGFILE_UNIT_SIZE, args.log_size) {
                 Ok(lg) => Some(lg),
                 Err(e) => {
                     error!("Failed to initialize hash log file ({:?})", &e);
@@ -257,7 +257,7 @@ fn main() {
         to_gb(asize)
     );
 
-    let mut dispatch = hasher::Dispatch::new(tf, &params, create_logger(args, false));
+    let mut dispatch = hasher::Dispatch::new(tf, &params, create_logger(args, &params, false));
 
     //
     // Monitor and report.

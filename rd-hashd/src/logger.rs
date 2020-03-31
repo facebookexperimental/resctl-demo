@@ -5,11 +5,13 @@ use crossbeam::channel::{self, Receiver, Sender};
 use glob::glob;
 use log::{debug, error};
 use scan_fmt::scan_fmt;
-use std::cmp::Ordering;
+use std::cmp;
 use std::collections::VecDeque;
 use std::fs::{self, File};
 use std::io::prelude::*;
 use std::path::Path;
+use std::sync::atomic::{self, AtomicUsize};
+use std::sync::Arc;
 use std::thread::{spawn, JoinHandle};
 use std::time::{SystemTime, UNIX_EPOCH};
 use util::*;
@@ -19,8 +21,10 @@ const LOG_FILENAME: &str = "rd-hashd.log";
 struct LogWorker {
     log_rx: Receiver<String>,
     dir_path: String,
+    padding: Arc<AtomicUsize>,
     unit_size: u64,
     nr_to_keep: usize,
+    buf: Vec<u8>,
     file: Option<File>,
     size: u64,
     old_logs: VecDeque<String>,
@@ -46,6 +50,7 @@ impl LogWorker {
 
     fn new(
         dir_path: String,
+        padding: Arc<AtomicUsize>,
         unit_size: u64,
         max_size: u64,
         log_rx: Receiver<String>,
@@ -73,7 +78,7 @@ impl LogWorker {
             let (b_sec, b_usec) =
                 scan_fmt!(&b[prefix.len()..], "{}.{}", u64, u64).unwrap_or((0, 0));
             match a_sec.cmp(&b_sec) {
-                Ordering::Equal => a_usec.cmp(&b_usec),
+                cmp::Ordering::Equal => a_usec.cmp(&b_usec),
                 v => v,
             }
         });
@@ -89,8 +94,10 @@ impl LogWorker {
         let mut lw = LogWorker {
             log_rx,
             dir_path,
+            padding,
             unit_size,
             nr_to_keep: ((max_size + unit_size - 1) / unit_size) as usize,
+            buf: Vec::new(),
             file,
             size,
             old_logs: VecDeque::from(old_logs),
@@ -150,6 +157,12 @@ impl LogWorker {
     }
 
     fn log(&mut self, msg: &str) {
+        let min_len = self.padding.load(atomic::Ordering::Relaxed);
+        if min_len > 0 && self.buf.len() != min_len {
+            self.buf = b".".repeat(min_len - 1);
+            self.buf.push(b'\n');
+        }
+
         let now_str = Local::now().format("%Y-%m-%d %H:%M:%S");
 
         self.rotate();
@@ -157,7 +170,19 @@ impl LogWorker {
             return;
         }
 
-        let line = format!("[{}] {}\n", now_str, msg);
+        let mut data = Vec::<u8>::new();
+        write!(&mut data, "[{}] {}\n", now_str, msg).unwrap();
+        let data_len = data.len();
+
+        let line = if data_len >= min_len {
+            &data
+        } else {
+            for i in 0..data_len - 1 {
+                self.buf[i] = data[i];
+            }
+            &self.buf
+        };
+
         if let Err(err) = self.file.as_mut().unwrap().write_all(line.as_ref()) {
             error!(
                 "logger: failed to write to {:?} ({}_, disabling",
@@ -167,6 +192,12 @@ impl LogWorker {
             self.file = None;
         }
         self.size += line.len() as u64;
+
+        if data_len < min_len {
+            for i in 0..data_len - 1 {
+                self.buf[i] = b'.';
+            }
+        }
     }
 
     fn run(mut self) {
@@ -184,11 +215,12 @@ impl LogWorker {
 
 pub struct Logger {
     log_tx: Option<Sender<String>>,
+    padding: Arc<AtomicUsize>,
     worker_jh: Option<JoinHandle<()>>,
 }
 
 impl Logger {
-    pub fn new<P>(dir_path: P, unit_size: u64, max_size: u64) -> Result<Self>
+    pub fn new<P>(dir_path: P, padding: usize, unit_size: u64, max_size: u64) -> Result<Self>
     where
         P: AsRef<Path>,
     {
@@ -199,13 +231,19 @@ impl Logger {
             .to_string();
 
         let (log_tx, log_rx) = channel::unbounded();
-        let worker = LogWorker::new(dir_path, unit_size, max_size, log_rx)?;
+        let padding = Arc::new(AtomicUsize::new(padding));
+        let worker = LogWorker::new(dir_path, padding.clone(), unit_size, max_size, log_rx)?;
         let worker_jh = spawn(move || worker.run());
 
         Ok(Self {
             log_tx: Some(log_tx),
+            padding,
             worker_jh: Some(worker_jh),
         })
+    }
+
+    pub fn set_padding(&self, size: usize) {
+        self.padding.store(size, atomic::Ordering::Relaxed);
     }
 
     pub fn log(&self, msg: &str) {
