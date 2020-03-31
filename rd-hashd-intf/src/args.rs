@@ -107,8 +107,8 @@ lazy_static! {
              -s, --size=[SIZE]       'Total number of bytes in testfiles (default: {dfl_size:.2}G)'
              -p, --params=[FILE]     'Runtime updatable parameters, will be created if non-existent'
              -r, --report=[FILE]     'Runtime report file, FILE.staging will be used for staging'
-             -l, --log=[LOG_PATH]    'Record hash results to the file at LOG_PATH'
-             -L, --log-size=[SIZE]   'Size before rotating to LOG_PATH.old (default: {dfl_log_size}M)'
+             -l, --log-dir=[PATH]    'Record hash results to the files in PATH'
+             -L, --log-size=[SIZE]   'Maximum log retention (default: {dfl_log_size:.2}G)'
              -i, --interval=[SECS]   'Summary report interval, 0 to disable (default: {dfl_intv}s)'
              -R, --rotational=[BOOL] 'Force rotational detection to either true or false'
              -k, --keep-caches       'Don't drop caches for testfiles on startup'
@@ -119,7 +119,7 @@ lazy_static! {
              -a, --args=[FILE]       'Load base command line arguments from FILE'
              -v...                   'Sets the level of verbosity'",
             dfl_size=to_gb(dfl.size),
-            dfl_log_size=to_mb(dfl.log_size),
+            dfl_log_size=to_gb(dfl.log_size),
             dfl_intv=dfl.interval)
     };
 }
@@ -140,7 +140,7 @@ pub struct Args {
     pub size: u64,
     pub params: Option<String>,
     pub report: Option<String>,
-    pub log: Option<String>,
+    pub log_dir: Option<String>,
     pub log_size: u64,
     pub interval: u32,
     pub rotational: Option<bool>,
@@ -168,8 +168,8 @@ impl Default for Args {
             size,
             params: None,
             report: None,
-            log: None,
-            log_size: 128 << 20,
+            log_dir: None,
+            log_size: size / 4,
             interval: 10,
             rotational: None,
             clear_testfiles: false,
@@ -242,8 +242,8 @@ impl JsonArgs for Args {
             };
             updated_base = true;
         }
-        if let Some(v) = matches.value_of("log") {
-            self.log = if v.len() > 0 {
+        if let Some(v) = matches.value_of("log-dir") {
+            self.log_dir = if v.len() > 0 {
                 Some(v.to_string())
             } else {
                 None

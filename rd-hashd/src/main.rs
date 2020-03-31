@@ -22,6 +22,7 @@ use logger::Logger;
 use testfiles::TestFiles;
 
 const TESTFILE_UNIT_SIZE: u64 = 1 << 20;
+const LOGFILE_UNIT_SIZE: u64 = 1 << 30;
 
 static ROTATIONAL: AtomicBool = AtomicBool::new(false);
 static ROTATIONAL_TESTFILES: AtomicBool = AtomicBool::new(false);
@@ -111,16 +112,16 @@ impl TestFilesProgressBar {
 }
 
 fn create_logger(args: &Args, quiet: bool) -> Option<Logger> {
-    match args.log.as_ref() {
-        Some(log_path) => {
+    match args.log_dir.as_ref() {
+        Some(log_dir) => {
             if !quiet {
                 info!(
-                    "Setting up hash logging at {} ({}M)",
-                    &log_path,
-                    args.log_size >> 20
+                    "Setting up hash logging at {} ({}G)",
+                    &log_dir,
+                    to_gb(args.log_size),
                 );
             }
-            match Logger::new(log_path, &(log_path.to_string() + ".old"), args.log_size) {
+            match Logger::new(log_dir, LOGFILE_UNIT_SIZE, args.log_size) {
                 Ok(lg) => Some(lg),
                 Err(e) => {
                     error!("Failed to initialize hash log file ({:?})", &e);

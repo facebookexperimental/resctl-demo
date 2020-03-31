@@ -1,33 +1,57 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use chrono::prelude::*;
 use crossbeam::channel::{self, Receiver, Sender};
+use glob::glob;
 use log::{debug, error};
+use scan_fmt::scan_fmt;
+use std::cmp::Ordering;
+use std::collections::VecDeque;
 use std::fs::{self, File};
 use std::io::prelude::*;
-use std::path::PathBuf;
+use std::path::Path;
 use std::thread::{spawn, JoinHandle};
+use std::time::{SystemTime, UNIX_EPOCH};
+use util::*;
+
+const LOG_FILENAME: &str = "rd-hashd.log";
 
 struct LogWorker {
     log_rx: Receiver<String>,
-    path: PathBuf,
-    old_path: PathBuf,
-    max_size: u64,
+    dir_path: String,
+    unit_size: u64,
+    nr_to_keep: usize,
     file: Option<File>,
     size: u64,
+    old_logs: VecDeque<String>,
 }
 
 impl LogWorker {
+    fn log_path(dir_path: &str) -> String {
+        format!("{}/{}", dir_path, LOG_FILENAME)
+    }
+
+    fn log_archive_path(&self) -> String {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_micros();
+        let now_secs = now / 1_000_000;
+        let now_usecs = now % 1_000_000;
+        format!(
+            "{}/{}-{}.{}",
+            self.dir_path, LOG_FILENAME, now_secs, now_usecs
+        )
+    }
+
     fn new(
-        path: PathBuf,
-        old_path: PathBuf,
+        dir_path: String,
+        unit_size: u64,
         max_size: u64,
         log_rx: Receiver<String>,
     ) -> Result<Self> {
-        match path.parent() {
-            Some(p) => fs::create_dir_all(p)?,
-            None => (),
-        }
+        fs::create_dir_all(&dir_path)?;
+        let path = Self::log_path(&dir_path);
         let file = Some(
             fs::OpenOptions::new()
                 .create(true)
@@ -37,41 +61,79 @@ impl LogWorker {
         );
         let size = file.as_ref().unwrap().metadata()?.len();
 
+        let prefix = format!("{}/{}-", &dir_path, LOG_FILENAME);
+        let mut old_logs: Vec<String> = glob(&format!("{}*", &prefix))
+            .unwrap()
+            .filter_map(|x| x.ok())
+            .filter_map(|x| x.to_str().map(|x| x.to_string()))
+            .collect();
+        old_logs.sort_unstable_by(|a, b| {
+            let (a_sec, a_usec) =
+                scan_fmt!(&a[prefix.len()..], "{}.{}", u64, u64).unwrap_or((0, 0));
+            let (b_sec, b_usec) =
+                scan_fmt!(&b[prefix.len()..], "{}.{}", u64, u64).unwrap_or((0, 0));
+            match a_sec.cmp(&b_sec) {
+                Ordering::Equal => a_usec.cmp(&b_usec),
+                v => v,
+            }
+        });
+
         debug!(
-            "logger: path={:?} old_path={:?} max_size={:.3}M size={:.3}M",
+            "logger: path={:?} max_size={:.3}G size={:.3}G old_logs={:?}",
             &path,
-            &old_path,
-            max_size >> 20,
-            size >> 20
+            to_gb(max_size),
+            to_gb(size),
+            &old_logs,
         );
 
-        Ok(LogWorker {
+        let mut lw = LogWorker {
             log_rx,
-            path,
-            old_path,
-            max_size,
+            dir_path,
+            unit_size,
+            nr_to_keep: ((max_size + unit_size - 1) / unit_size) as usize,
             file,
             size,
-        })
+            old_logs: VecDeque::from(old_logs),
+        };
+        lw.expire_old_logs();
+        Ok(lw)
+    }
+
+    fn expire_old_logs(&mut self) {
+        while self.old_logs.len() >= self.nr_to_keep {
+            let path = match self.old_logs.pop_front() {
+                Some(v) => v,
+                None => break,
+            };
+            if let Err(e) = fs::remove_file(&path) {
+                error!("logger: Failed to remove {:?} ({:?})", &path, &e);
+            }
+        }
     }
 
     fn rotate(&mut self) {
-        if self.size < self.max_size || self.file.is_none() {
+        if self.size < self.unit_size || self.file.is_none() {
             return;
         }
 
-        if let Err(err) = fs::rename(&self.path, &self.old_path) {
-            error!(
+        let lpath = Self::log_path(&self.dir_path);
+        let apath = self.log_archive_path();
+        match fs::rename(&lpath, &apath) {
+            Ok(()) => self.old_logs.push_back(apath),
+            Err(e) => error!(
                 "logger: failed to rename {:?} -> {:?} ({:?})",
-                &self.path, &self.old_path, &err
-            );
+                &lpath, &apath, &e
+            ),
         }
 
+        self.expire_old_logs();
+
+        let path = Self::log_path(&self.dir_path);
         match fs::OpenOptions::new()
             .create_new(true)
             .write(true)
             .append(true)
-            .open(&self.path)
+            .open(&path)
         {
             Ok(file) => {
                 self.file = Some(file);
@@ -80,7 +142,7 @@ impl LogWorker {
             Err(err) => {
                 error!(
                     "logger: failed to create {:?} ({:?}), disabling",
-                    &self.path, &err
+                    &path, &err
                 );
                 self.file = None;
             }
@@ -99,7 +161,8 @@ impl LogWorker {
         if let Err(err) = self.file.as_mut().unwrap().write_all(line.as_ref()) {
             error!(
                 "logger: failed to write to {:?} ({}_, disabling",
-                &self.path, err
+                &Self::log_path(&self.dir_path),
+                err
             );
             self.file = None;
         }
@@ -125,15 +188,18 @@ pub struct Logger {
 }
 
 impl Logger {
-    pub fn new<P>(path: P, old_path: P, max_size: u64) -> Result<Self>
+    pub fn new<P>(dir_path: P, unit_size: u64, max_size: u64) -> Result<Self>
     where
-        PathBuf: std::convert::From<P>,
+        P: AsRef<Path>,
     {
-        let path = PathBuf::from(path);
-        let old_path = PathBuf::from(old_path);
+        let dir_path = dir_path
+            .as_ref()
+            .to_str()
+            .ok_or_else(|| anyhow!("failed to convert path to string"))?
+            .to_string();
 
         let (log_tx, log_rx) = channel::unbounded();
-        let worker = LogWorker::new(path, old_path, max_size, log_rx)?;
+        let worker = LogWorker::new(dir_path, unit_size, max_size, log_rx)?;
         let worker_jh = spawn(move || worker.run());
 
         Ok(Self {
