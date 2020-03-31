@@ -207,6 +207,8 @@ fn exec_cmd(siv: &mut Cursive, cmd: &RdCmd) {
             RdKnob::HashdBLoad => cs.hashd[1].rps_target_ratio = *val,
             RdKnob::HashdAMem => cs.hashd[0].mem_ratio = *val,
             RdKnob::HashdBMem => cs.hashd[1].mem_ratio = *val,
+            RdKnob::HashdAWrite => cs.hashd[0].write_ratio = *val,
+            RdKnob::HashdBWrite => cs.hashd[1].write_ratio = *val,
             RdKnob::HashdAWeight => cs.hashd[0].weight = *val,
             RdKnob::HashdBWeight => cs.hashd[1].weight = *val,
         },
@@ -388,6 +390,8 @@ fn refresh_knobs(siv: &mut Cursive, cs: &CmdState) {
     refresh_one_knob(siv, RdKnob::HashdBLoad, cs.hashd[1].rps_target_ratio);
     refresh_one_knob(siv, RdKnob::HashdAMem, cs.hashd[0].mem_ratio);
     refresh_one_knob(siv, RdKnob::HashdBMem, cs.hashd[1].mem_ratio);
+    refresh_one_knob(siv, RdKnob::HashdAWrite, cs.hashd[0].write_ratio);
+    refresh_one_knob(siv, RdKnob::HashdBWrite, cs.hashd[1].write_ratio);
     refresh_one_knob(siv, RdKnob::HashdAWeight, cs.hashd[0].weight);
     refresh_one_knob(siv, RdKnob::HashdBWeight, cs.hashd[1].weight);
 }

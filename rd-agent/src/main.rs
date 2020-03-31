@@ -94,7 +94,7 @@ pub struct HashdPaths {
     pub params: String,
     pub report: String,
     pub tf: String,
-    pub log: String,
+    pub log_dir: String,
 }
 
 #[derive(Debug)]
@@ -328,7 +328,7 @@ impl Config {
                     params: top_path.clone() + "/hashd-A/params.json",
                     report: top_path.clone() + "/hashd-A/report.json",
                     tf: Self::prep_dir(&(scr_path.clone() + "/hashd-A/testfiles")),
-                    log: scr_path.clone() + "/hashd-A/log",
+                    log_dir: scr_path.clone() + "/hashd-A/logs",
                 },
                 HashdPaths {
                     bin: hashd_bin.clone(),
@@ -336,7 +336,7 @@ impl Config {
                     params: top_path.clone() + "/hashd-B/params.json",
                     report: top_path.clone() + "/hashd-B/report.json",
                     tf: Self::prep_dir(&(scr_path.clone() + "/hashd-B/testfiles")),
-                    log: scr_path.clone() + "/hashd-B/log",
+                    log_dir: scr_path.clone() + "/hashd-B/logs",
                 },
             ],
             iocost_paths: IOCostPaths {

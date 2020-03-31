@@ -34,6 +34,7 @@ const CMD_DOC: &str = "\
 //  hashd[].rps_target_ratio: RPS target as a ratio of bench::hashd.rps_max,
 //                            if >> 1.0, no practical rps limit
 //  hashd[].mem_ratio: Memory footprint adj [0.0, 1.0], defaults to 0.5
+//  hashd[].write_ratio: IO write bandwidth adj [0.0, 1.0]. defaults to 0.5
 //  hashd[].weight: Relative weight between the two hashd instances
 //  sysloads{}: \"NAME\": \"DEF_ID\" pairs for active sysloads
 //  sideloads{}: \"NAME\": \"DEF_ID\" pairs for active sideloads
@@ -51,6 +52,7 @@ pub struct HashdCmd {
     pub lat_target: f64,
     pub rps_target_ratio: f64,
     pub mem_ratio: f64,
+    pub write_ratio: f64,
     pub weight: f64,
 }
 
@@ -61,6 +63,7 @@ impl Default for HashdCmd {
             lat_target: 100.0 * MSEC,
             rps_target_ratio: 10.0,
             mem_ratio: 0.5,
+            write_ratio: 0.5,
             weight: 1.0,
         }
     }

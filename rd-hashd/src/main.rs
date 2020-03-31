@@ -22,6 +22,7 @@ use logger::Logger;
 use testfiles::TestFiles;
 
 const TESTFILE_UNIT_SIZE: u64 = 1 << 20;
+const LOGFILE_UNIT_SIZE: u64 = 1 << 30;
 
 static ROTATIONAL: AtomicBool = AtomicBool::new(false);
 static ROTATIONAL_TESTFILES: AtomicBool = AtomicBool::new(false);
@@ -110,20 +111,20 @@ impl TestFilesProgressBar {
     }
 }
 
-fn create_logger(args: &Args, quiet: bool) -> Option<Logger> {
-    match args.log.as_ref() {
-        Some(log_path) => {
+fn create_logger(args: &Args, params: &Params, quiet: bool) -> Option<Logger> {
+    match args.log_dir.as_ref() {
+        Some(log_dir) => {
             if !quiet {
                 info!(
-                    "Setting up hash logging at {} ({}M)",
-                    &log_path,
-                    args.log_size >> 20
+                    "Setting up hash logging at {} ({}G)",
+                    &log_dir,
+                    to_gb(args.log_size),
                 );
             }
-            match Logger::new(log_path, &(log_path.to_string() + ".old"), args.log_size) {
+            match Logger::new(log_dir, params.log_padding, LOGFILE_UNIT_SIZE, args.log_size) {
                 Ok(lg) => Some(lg),
                 Err(e) => {
-                    error!("Failed to initialize hash log file ({:?})", &e);
+                    error!("Failed to initialize hash log dir ({:?})", &e);
                     panic!();
                 }
             }
@@ -236,7 +237,7 @@ fn main() {
     //
     // Benchmark and exit if requested.
     //
-    if args.bench {
+    if args.bench_cpu || args.bench_mem || args.bench_io {
         let mut bench = bench::Bench::new(args_file, params_file, report_file);
         bench.run();
         exit(0);
@@ -256,7 +257,7 @@ fn main() {
         to_gb(asize)
     );
 
-    let mut dispatch = hasher::Dispatch::new(tf, &params, create_logger(args, false));
+    let mut dispatch = hasher::Dispatch::new(tf, &params, create_logger(args, &params, false));
 
     //
     // Monitor and report.

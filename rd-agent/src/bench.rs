@@ -52,14 +52,13 @@ pub fn update_hashd(knobs: &mut BenchKnobs, cfg: &Config, hashd_seq: u64) -> Res
     let args = rd_hashd_intf::Args::load(&cfg.hashd_paths(HashdSel::A).args)?;
     let params = rd_hashd_intf::Params::load(&cfg.hashd_paths(HashdSel::A).params)?;
 
-    let rps_max = params.rps_max;
     let file_size = args.size;
-    let file_frac = params.file_total_frac;
     let anon_ratio = params.anon_total_ratio;
 
-    knobs.hashd.rps_max = rps_max as u32;
+    knobs.hashd.rps_max = params.rps_max as u32;
     knobs.hashd.mem_size = (file_size as f64 * (1.0 + anon_ratio)).ceil() as u64;
-    knobs.hashd.mem_frac = file_frac;
+    knobs.hashd.mem_frac = params.file_total_frac;
+    knobs.hashd.log_padding = params.log_padding;
 
     knobs.hashd_seq = hashd_seq;
     knobs.timestamp = DateTime::from(SystemTime::now());

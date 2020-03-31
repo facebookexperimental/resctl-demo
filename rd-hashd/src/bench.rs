@@ -57,31 +57,74 @@ struct CpuSatCfg {
     converge: ConvergeCfg,
 }
 
-struct MemSatCfg {
-    testfiles_frac: f64,
+struct MemIoSatCfg {
+    name: String,
+    pos_prefix: String,
+    fmt_pos: Box<dyn 'static + Fn(&Bench, f64) -> String>,
+    set_pos: Box<dyn 'static + Fn(&mut Params, f64)>,
+    next_up_pos: Box<dyn 'static + Fn(&Params, Option<f64>) -> Option<f64>>,
+    bisect_done: Box<dyn 'static + Fn(&Params, f64, f64) -> bool>,
+    next_refine_pos: Box<dyn 'static + Fn(&Params, Option<f64>) -> Option<f64>>,
+
     lat: f64,
     term_err_good: f64,
     term_err_bad: f64,
     bisect_err: f64,
-    bisect_dist: f64,
     refine_err: f64,
-    refine_step: f64,
-    refine_buffer: f64,
-    refine_rounds: u32,
     up_converge: ConvergeCfg,
     bisect_converge: ConvergeCfg,
     refine_converge: ConvergeCfg,
 }
 
 struct Cfg {
+    testfiles_frac: f64,
+    mem_buffer: f64,
+    io_buffer: f64,
     cpu: CpuCfg,
     cpu_sat: CpuSatCfg,
-    mem_sat: MemSatCfg,
+    mem_sat: MemIoSatCfg,
+    io_sat: MemIoSatCfg,
 }
+
+const MEMIO_UP_CVG_CFG: ConvergeCfg = ConvergeCfg {
+    which: Rps,
+    converges: 5,
+    period: 15,
+    min_dur: 30,
+    max_dur: 90,
+    slope: 1.0 * PCT,
+    err_slope: 2.5 * PCT,
+    rot_mult: 4.0,
+};
+
+const MEMIO_BISECT_CVG_CFG: ConvergeCfg = ConvergeCfg {
+    which: Rps,
+    converges: 5,
+    period: 15,
+    min_dur: 30,
+    max_dur: 90,
+    slope: 1.0 * PCT,
+    err_slope: 2.5 * PCT,
+    rot_mult: 2.0,
+};
+
+const MEMIO_REFINE_CVG_CFG: ConvergeCfg = ConvergeCfg {
+    which: Rps,
+    converges: 5,
+    period: 15,
+    min_dur: 120,
+    max_dur: 240,
+    slope: 1.0 * PCT,
+    err_slope: 2.5 * PCT,
+    rot_mult: 2.0,
+};
 
 impl Default for Cfg {
     fn default() -> Self {
         Self {
+            testfiles_frac: 50.0 * PCT,
+            mem_buffer: 12.5 * PCT,
+            io_buffer: 25.0 * PCT,
             cpu: CpuCfg {
                 size: 1 << 30,
                 lat: 10.0 * MSEC,
@@ -117,47 +160,79 @@ impl Default for Cfg {
                     rot_mult: 1.0,
                 },
             },
-            mem_sat: MemSatCfg {
-                testfiles_frac: 50.0 * PCT,
+            mem_sat: MemIoSatCfg {
+                name: "Memory".into(),
+                pos_prefix: "size".into(),
+                fmt_pos: Box::new(|bench, pos| {
+                    let (fsize, asize) = bench.mem_sizes(pos);
+                    format!("{:.2}G", to_gb(fsize + asize))
+                }),
+
+                set_pos: Box::new(|params, pos| params.file_total_frac = pos),
+
+                next_up_pos: Box::new(|_params, pos| match pos {
+                    None => Some(10.0 * PCT),
+                    Some(v) if v < 91.0 * PCT => Some((v + 10.0 * PCT).min(100.0 * PCT)),
+                    _ => None,
+                }),
+
+                bisect_done: Box::new(|_params, left, right| right - left < 2.5 * PCT),
+
+                next_refine_pos: Box::new(|params, pos| {
+                    let step = 2.5 * PCT;
+                    let min = (params.file_total_frac - 25.0 * PCT).max(0.1 * PCT);
+                    match pos {
+                        None => Some(params.file_total_frac - step),
+                        Some(v) if v > min => Some(v - step),
+                        _ => None,
+                    }
+                }),
+
                 lat: 100.0 * MSEC,
                 term_err_good: 10.0 * PCT,
                 term_err_bad: 50.0 * PCT,
                 bisect_err: 25.0 * PCT,
-                bisect_dist: 2.5 * PCT,
                 refine_err: 10.0 * PCT,
-                refine_step: 2.5 * PCT,
-                refine_buffer: 12.5 * PCT,
-                refine_rounds: 10,
-                up_converge: ConvergeCfg {
-                    which: Rps,
-                    converges: 5,
-                    period: 15,
-                    min_dur: 30,
-                    max_dur: 90,
-                    slope: 1.0 * PCT,
-                    err_slope: 2.5 * PCT,
-                    rot_mult: 4.0,
-                },
-                bisect_converge: ConvergeCfg {
-                    which: Rps,
-                    converges: 5,
-                    period: 15,
-                    min_dur: 30,
-                    max_dur: 90,
-                    slope: 1.0 * PCT,
-                    err_slope: 2.5 * PCT,
-                    rot_mult: 2.0,
-                },
-                refine_converge: ConvergeCfg {
-                    which: Rps,
-                    converges: 5,
-                    period: 15,
-                    min_dur: 120,
-                    max_dur: 240,
-                    slope: 1.0 * PCT,
-                    err_slope: 2.5 * PCT,
-                    rot_mult: 2.0,
-                },
+
+                up_converge: MEMIO_UP_CVG_CFG,
+                bisect_converge: MEMIO_BISECT_CVG_CFG,
+                refine_converge: MEMIO_REFINE_CVG_CFG,
+            },
+            io_sat: MemIoSatCfg {
+                name: "IO".into(),
+                pos_prefix: "padding".into(),
+                fmt_pos: Box::new(|_bench, pos| format!("{:.2}k", to_kb(pos))),
+
+                set_pos: Box::new(|params, pos| params.log_padding = pos as u64),
+
+                next_up_pos: Box::new(|_params, pos| match pos {
+                    None => Some(64.0),
+                    Some(v) => Some(v * 4.0),
+                }),
+
+                bisect_done: Box::new(|_params, left, right| {
+                    right <= 64.0 || right - left < 5.0 * PCT * right
+                }),
+
+                next_refine_pos: Box::new(|params, pos| {
+                    let step = 2.5 * PCT * params.log_padding as f64;
+                    let min = 76.0 * PCT * params.log_padding as f64;
+                    match pos {
+                        None => Some(params.log_padding as f64 - step),
+                        Some(v) if v > min => Some(v - step),
+                        _ => None,
+                    }
+                }),
+
+                lat: 100.0 * MSEC,
+                term_err_good: 5.0 * PCT,
+                term_err_bad: 75.0 * PCT,
+                bisect_err: 10.0 * PCT,
+                refine_err: 10.0 * PCT,
+
+                up_converge: MEMIO_UP_CVG_CFG,
+                bisect_converge: MEMIO_BISECT_CVG_CFG,
+                refine_converge: MEMIO_REFINE_CVG_CFG,
             },
         }
     }
@@ -289,7 +364,7 @@ impl TestHasher {
             "Converging {}, |slope| <= {:.2}%, |error_slope| <= {:.2}%",
             match which {
                 Lat => "latency",
-                Rps => "rps",
+                Rps => "RPS",
             },
             target_slope * TO_PCT,
             target_err_slope * TO_PCT
@@ -448,12 +523,9 @@ pub struct Bench {
     params_file: JsonConfigFile<Params>,
     report_file: Arc<Mutex<JsonReportFile<Report>>>,
     params: Params,
-    cfg: Cfg,
     bar_hidden: bool,
     fsize_mean: usize,
-    rps_max: u32,
     tf_size: u64,
-    tf_frac: f64,
 }
 
 impl Bench {
@@ -486,6 +558,7 @@ impl Bench {
             sleep_mean: uparams.sleep_mean,
             sleep_stdev_ratio: uparams.sleep_stdev_ratio,
             cpu_ratio: default.cpu_ratio,
+            log_padding: default.log_padding,
             lat_pid: uparams.lat_pid.clone(),
             rps_pid: uparams.rps_pid.clone(),
         };
@@ -496,12 +569,9 @@ impl Bench {
             params_file,
             report_file: Arc::new(Mutex::new(report_file)),
             params: p,
-            cfg: Default::default(),
             bar_hidden: verbosity > 0,
             fsize_mean: 0,
-            rps_max: 0,
             tf_size: 0,
-            tf_frac: 0.0,
         }
     }
 
@@ -535,7 +605,7 @@ impl Bench {
         TestHasher::new(
             tf,
             params,
-            create_logger(&self.args_file.data, true),
+            create_logger(&self.args_file.data, &self.params_file.data, true),
             HIST_MAX,
             report_file,
         )
@@ -551,9 +621,8 @@ impl Bench {
         Instant::now().duration_since(started_at).as_secs_f64()
     }
 
-    fn bench_cpu(&self) -> usize {
+    fn bench_cpu(&self, cfg: &CpuCfg) -> usize {
         const TIME_HASH_SIZE: usize = 128 * TESTFILE_UNIT_SIZE as usize;
-        let cfg = &self.cfg.cpu;
         let mut params: Params = self.params.clone();
         let mut nr_rounds = 0;
         let tf_size = cfg.size.max(TIME_HASH_SIZE as u64);
@@ -607,8 +676,7 @@ impl Bench {
         params.file_size_mean
     }
 
-    fn bench_cpu_saturation(&self) -> u32 {
-        let cfg = &self.cfg.cpu_sat;
+    fn bench_cpu_saturation(&self, cfg: &CpuSatCfg) -> u32 {
         let mut params: Params = self.params.clone();
         let mut nr_rounds = 0;
         let tf = self.prep_tf(cfg.size, "cpu saturation bench");
@@ -652,170 +720,189 @@ impl Bench {
         last_rps.round() as u32
     }
 
-    fn mem_sizes(&self, file_frac: f64, tf_size: u64) -> (usize, usize) {
-        let fsize = (tf_size as f64 * file_frac) as usize;
+    fn mem_sizes(&self, file_frac: f64) -> (usize, usize) {
+        let fsize = (self.tf_size as f64 * file_frac) as usize;
         let asize = (fsize as f64 * self.params.anon_total_ratio) as usize;
         (fsize, asize)
     }
 
-    fn mem_total_size(&self, file_frac: f64, tf_size: u64) -> usize {
-        let (fsize, asize) = self.mem_sizes(file_frac, tf_size);
-        fsize + asize
-    }
-
-    fn mem_one_round(&self, th: &TestHasher, cvg_cfg: &ConvergeCfg) -> (f64, f64) {
-        let cfg = &self.cfg.mem_sat;
-
+    fn memio_one_round(
+        &self,
+        cfg: &MemIoSatCfg,
+        cvg_cfg: &ConvergeCfg,
+        th: &TestHasher,
+    ) -> (f64, f64) {
+        let rps_max = self.params.rps_max;
         let mut should_end = |now, streak, (lat, rps)| {
             if now < cvg_cfg.period / 2 {
                 None
-            } else if streak > 0 && rps > self.rps_max as f64 * (1.0 - cfg.term_err_good) {
-                info!("Rps high enough, using the current values");
+            } else if streak > 0 && rps > rps_max as f64 * (1.0 - cfg.term_err_good) {
+                info!("RPS high enough, using the current values");
                 Some((lat, rps))
             } else if !super::is_rotational()
                 && now >= 2 * cvg_cfg.period
                 && streak < 0
-                && rps < self.rps_max as f64 * (1.0 - cfg.term_err_bad)
+                && rps < rps_max as f64 * (1.0 - cfg.term_err_bad)
             {
-                info!("Rps too low, using the current values");
+                info!("RPS too low, using the current values");
                 Some((lat, rps))
             } else {
                 None
             }
         };
         let (_lat, rps) = th.converge_with_cfg_and_end(cvg_cfg, &mut should_end);
-        (rps, (rps - self.rps_max as f64) / self.rps_max as f64)
+        (rps, (rps - rps_max as f64) / rps_max as f64)
     }
 
-    fn mem_bisect_round(&self, th: &TestHasher, cvg_cfg: &ConvergeCfg) -> bool {
-        let cfg = &self.cfg.mem_sat;
-
-        let (rps, err) = self.mem_one_round(th, cvg_cfg);
+    fn memio_bisect_round(
+        &self,
+        cfg: &MemIoSatCfg,
+        cvg_cfg: &ConvergeCfg,
+        th: &TestHasher,
+    ) -> bool {
+        let (rps, err) = self.memio_one_round(cfg, cvg_cfg, th);
         info!(
-            "Rps: {:.1} ~= {}, error: {:.2}% <= -{:.2}%",
+            "RPS: {:.1} ~= {}, error: {:.2}% <= -{:.2}%",
             rps,
-            self.rps_max,
+            self.params.rps_max,
             err * TO_PCT,
             cfg.bisect_err * TO_PCT
         );
         err <= -cfg.bisect_err
     }
 
-    fn show_bisection(&self, left: &VecDeque<f64>, frac: f64, right: &VecDeque<f64>, tf_size: u64) {
+    fn show_bisection(
+        &self,
+        cfg: &MemIoSatCfg,
+        left: &VecDeque<f64>,
+        frac: f64,
+        right: &VecDeque<f64>,
+    ) {
         let mut buf = String::new();
         for v in left.iter().rev() {
             if *v != frac {
-                buf += &format!("{:.2}G ", to_gb(self.mem_total_size(*v, tf_size)));
+                buf += &(cfg.fmt_pos)(self, *v);
+                buf += " ";
             }
         }
-        buf += &format!("*{:.2}G", to_gb(self.mem_total_size(frac, tf_size)));
+        buf += "*";
+        buf += &(cfg.fmt_pos)(self, frac);
         for v in right.iter() {
             if *v != frac {
-                buf += &format!(" {:.2}G", to_gb(self.mem_total_size(*v, tf_size)));
+                buf += " ";
+                buf += &(cfg.fmt_pos)(self, *v);
             }
         }
         info!("[ {} ]", buf);
     }
 
-    fn bench_mem_saturation_bisect(&mut self) -> (u64, f64) {
-        let cfg = &self.cfg.mem_sat;
+    fn bench_memio_saturation_bisect(&mut self, cfg: &MemIoSatCfg) -> f64 {
         let mut params: Params = self.params.clone();
-        let tf_size: u64 = (*TOTAL_MEMORY as f64 * cfg.testfiles_frac) as u64;
-        let tf = self.prep_tf(tf_size, "memory saturation bench");
+        let tf = self.prep_tf(self.tf_size, &format!("{} saturation bench", cfg.name));
         params.p99_lat_target = cfg.lat;
-        params.rps_target = self.rps_max;
-        params.file_total_frac = 10.0 * PCT;
+        params.rps_target = self.params.rps_max;
 
         let th = self.create_test_hasher(tf, &params, self.report_file.clone());
         //
-        // Up-rounds - Coarsely scan up using bisect cfg to determine
-        // the first resistance point.  This phase is necessary
-        // because too high a memory target can cause severe
-        // system-wide thrashing.
+        // Up-rounds - Coarsely scan up using bisect cfg to determine the first
+        // resistance point. This phase is necessary because too high a memory
+        // or io target can cause severe system-wide thrashing.
         //
-        let mut ridx: usize = 0;
-        for i in 1..10 {
-            params.file_total_frac = i as f64 * 10.0 * PCT;
+        let mut round = 0;
+        let mut next_pos = None;
+        let mut pos = 0.0;
+        loop {
+            round += 1;
+            next_pos = (cfg.next_up_pos)(&params, next_pos);
+            if next_pos.is_none() {
+                break;
+            }
+            pos = next_pos.unwrap();
+            (cfg.set_pos)(&mut params, pos);
             th.disp_hist.lock().unwrap().disp.set_params(&params);
 
             info!(
-                "[ Memory saturation: up-round {}/9, rps {}, size {:.2}G ]",
-                i,
-                self.rps_max,
-                to_gb(self.mem_total_size(params.file_total_frac, tf_size))
+                "[ {} saturation: up-round {}, rps {}, {} {} ]",
+                cfg.name,
+                round,
+                self.params.rps_max,
+                cfg.pos_prefix,
+                &(cfg.fmt_pos)(self, pos)
             );
 
-            if self.mem_bisect_round(&th, &cfg.up_converge) {
-                ridx = i;
+            if self.memio_bisect_round(cfg, &cfg.up_converge, &th) {
                 break;
             }
         }
-        if ridx == 0 {
+        if next_pos.is_none() {
             warn!(
-                "[ Memory saturation: {:.2}G is too small to saturate? ]",
-                to_gb(tf_size)
+                "[ {} saturation: {} is too small to saturate? ]",
+                cfg.name,
+                (cfg.fmt_pos)(self, pos),
             );
-            return (tf_size, 1.0);
+            return pos;
         }
 
         //
-        // Bisect-rounds - Bisect looking for the saturation point
-        // within cfg.bisect_dist error margin.
+        // Bisect-rounds - Bisect looking for the saturation point.
         //
         let mut left = VecDeque::<f64>::from(vec![0.0]);
-        let mut right = VecDeque::<f64>::from(vec![ridx as f64 * 10.0 * PCT]);
+        let mut right = VecDeque::<f64>::from(vec![pos]);
         loop {
-            let mut frac;
             loop {
-                frac = (left[0] + right[0]) / 2.0;
+                pos = (left[0] + right[0]) / 2.0;
 
                 info!(
-                    "[ Memory saturation: bisection, rps {}, size {:.2}G ]",
-                    self.rps_max,
-                    to_gb(self.mem_total_size(frac, tf_size))
+                    "[ {} saturation: bisection, rps {}, {} {} ]",
+                    cfg.name,
+                    self.params.rps_max,
+                    cfg.pos_prefix,
+                    &(cfg.fmt_pos)(self, pos)
                 );
-                self.show_bisection(&left, frac, &right, tf_size);
+                self.show_bisection(cfg, &left, pos, &right);
 
-                params.file_total_frac = frac;
+                (cfg.set_pos)(&mut params, pos);
                 th.disp_hist.lock().unwrap().disp.set_params(&params);
 
-                if self.mem_bisect_round(&th, &cfg.bisect_converge) {
-                    right.push_front(frac);
+                if self.memio_bisect_round(cfg, &cfg.bisect_converge, &th) {
+                    right.push_front(pos);
                 } else {
-                    left.push_front(frac);
+                    left.push_front(pos);
                 }
 
-                if right[0] - left[0] < cfg.bisect_dist {
+                if (cfg.bisect_done)(&params, left[0], right[0]) {
                     break;
                 }
             }
 
-            // Memory response can be delayed and we can end up on the
-            // wrong side.  If there's space to bisect on the other
-            // side, make sure that it is behaving as expected and if
-            // not shift in there.
-            let was_right = frac == right[0];
+            // Memory response can be delayed and we can end up on the wrong
+            // side. If there's space to bisect on the other side, make sure
+            // that it is behaving as expected and if not shift in there.
+            let was_right = pos == right[0];
             if was_right {
                 if left.len() == 1 {
                     break;
                 }
-                params.file_total_frac = left[0];
+                pos = left[0];
             } else {
                 if right.len() == 1 {
                     break;
                 }
-                params.file_total_frac = right[0];
+                pos = right[0];
             };
+            (cfg.set_pos)(&mut params, pos);
 
             info!(
-                "[ Memory saturation: re-verifying the opposite bound, size {:.2}G ]",
-                to_gb(self.mem_total_size(params.file_total_frac, tf_size))
+                "[ {} saturation: re-verifying the opposite bound, {} {} ]",
+                cfg.name,
+                cfg.pos_prefix,
+                &(cfg.fmt_pos)(self, pos)
             );
-            self.show_bisection(&left, params.file_total_frac, &right, tf_size);
+            self.show_bisection(cfg, &left, pos, &right);
 
             th.disp_hist.lock().unwrap().disp.set_params(&params);
 
-            if self.mem_bisect_round(&th, &cfg.bisect_converge) {
+            if self.memio_bisect_round(cfg, &cfg.bisect_converge, &th) {
                 if was_right {
                     right.clear();
                     right.push_front(left.pop_front().unwrap());
@@ -832,52 +919,47 @@ impl Bench {
             }
         }
 
-        let (fsize, asize) = self.mem_sizes(right[0], tf_size);
-        info!(
-            "[ Memory saturation bisect result: {:.2}G (file {:.2}G, anon {:.2}G) ]",
-            to_gb(fsize + asize),
-            to_gb(fsize),
-            to_gb(asize)
-        );
-
-        (tf_size, right[0])
+        right[0]
     }
 
     /// Refine-rounds - Reset to tf_size and walk down from the
     /// saturation point looking for the first full performance point.
-    fn bench_mem_saturation_refine(&self) -> f64 {
-        let cfg = &self.cfg.mem_sat;
+    fn bench_memio_saturation_refine(&self, cfg: &MemIoSatCfg) -> f64 {
         let mut params: Params = self.params.clone();
         let tf = self.prep_tf(self.tf_size, "memory saturation bench - refine-rounds");
         params.p99_lat_target = cfg.lat;
-        params.rps_target = self.rps_max;
+        params.rps_target = self.params.rps_max;
 
         let th = self.create_test_hasher(tf, &params, self.report_file.clone());
 
-        let mut frac = self.tf_frac;
-        let step = frac * cfg.refine_step;
-        for i in 0..cfg.refine_rounds {
-            frac -= step;
-            if frac <= step {
+        let mut round = 0;
+        let mut next_pos = None;
+        let mut pos = 0.0;
+        loop {
+            round += 1;
+            next_pos = (cfg.next_refine_pos)(&params, next_pos);
+            if next_pos.is_none() {
                 break;
             }
+            pos = next_pos.unwrap();
 
             info!(
-                "[ Memory saturation: refine-round {}/{}, rps {}, size {:.2}G ]",
-                i + 1,
-                cfg.refine_rounds,
-                self.rps_max,
-                to_gb(self.mem_total_size(frac, self.tf_size))
+                "[ {} saturation: refine-round {}, rps {}, {} {} ]",
+                cfg.name,
+                round,
+                self.params.rps_max,
+                cfg.pos_prefix,
+                &(cfg.fmt_pos)(self, pos),
             );
 
-            params.file_total_frac = frac;
+            (cfg.set_pos)(&mut params, pos);
             th.disp_hist.lock().unwrap().disp.set_params(&params);
 
-            let (rps, err) = self.mem_one_round(&th, &cfg.refine_converge);
+            let (rps, err) = self.memio_one_round(cfg, &cfg.refine_converge, &th);
             info!(
-                "Rps: {:.1} ~= {}, error: |{:.2}%| <= {:.2}%",
+                "RPS: {:.1} ~= {}, error: |{:.2}%| <= {:.2}%",
                 rps,
-                self.rps_max,
+                self.params.rps_max,
                 err * TO_PCT,
                 cfg.refine_err * TO_PCT
             );
@@ -887,46 +969,89 @@ impl Bench {
             }
         }
 
-        // Longer-runs might need more memory due to access from
-        // accumulating long tails and other system disturbances.
-        // Lower the frac to give the system some breathing room.
-        frac *= 100.0 * PCT - cfg.refine_buffer;
-
-        let (fsize, asize) = self.mem_sizes(frac, self.tf_size);
-        info!(
-            "[ Memory saturation result: {:.2}G (file {:.2}G, anon {:.2}G) ]",
-            to_gb(fsize + asize),
-            to_gb(fsize),
-            to_gb(asize)
-        );
-
-        frac
+        pos
     }
 
     pub fn run(&mut self) {
-        // Run benchmarks.
-        self.fsize_mean = self.bench_cpu();
-        // Needed for the following benches.  Assign early.
-        self.params.file_size_mean = self.fsize_mean;
+        let cfg = Cfg::default();
 
-        self.rps_max = self.bench_cpu_saturation();
-        let (tf_size, tf_frac) = self.bench_mem_saturation_bisect();
-        self.tf_size = tf_size;
-        self.tf_frac = tf_frac;
-        self.tf_frac = self.bench_mem_saturation_refine();
+        // Run benchmarks.
+
+        //
+        // cpu bench
+        //
+        if self.args_file.data.bench_cpu {
+            self.fsize_mean = self.bench_cpu(&cfg.cpu);
+            self.params.file_size_mean = self.fsize_mean;
+            self.params.rps_max = self.bench_cpu_saturation(&cfg.cpu_sat);
+        } else {
+            self.params.file_size_mean = self.params_file.data.file_size_mean;
+            self.params.rps_max = self.params_file.data.rps_max;
+        }
+
+        //
+        // memory bench
+        //
+        if self.args_file.data.bench_mem {
+            self.tf_size = (*TOTAL_MEMORY as f64 * cfg.testfiles_frac) as u64;
+            self.params.file_total_frac = self.bench_memio_saturation_bisect(&cfg.mem_sat);
+            let (fsize, asize) = self.mem_sizes(self.params.file_total_frac);
+            info!(
+                "[ Memory saturation bisect result: {:.2}G (file {:.2}G, anon {:.2}G) ]",
+                to_gb(fsize + asize),
+                to_gb(fsize),
+                to_gb(asize)
+            );
+
+            self.params.file_total_frac = self.bench_memio_saturation_refine(&cfg.mem_sat);
+
+            // Longer-runs might need more memory due to access from
+            // accumulating long tails and other system disturbances. Lower the
+            // pos to give the system some breathing room.
+            self.params.file_total_frac *= 100.0 * PCT - cfg.mem_buffer;
+
+            let (fsize, asize) = self.mem_sizes(self.params.file_total_frac);
+            info!(
+                "[ Memory saturation result: {:.2}G (file {:.2}G, anon {:.2}G) ]",
+                to_gb(fsize + asize),
+                to_gb(fsize),
+                to_gb(asize)
+            );
+        } else {
+            self.tf_size = self.args_file.data.size;
+            self.params.file_total_frac = self.params_file.data.file_total_frac;
+        }
+
+        //
+        // io bench
+        //
+        if self.args_file.data.log_dir.is_some() && self.args_file.data.bench_io {
+            self.params.log_padding = self.bench_memio_saturation_bisect(&cfg.io_sat) as u64;
+            info!(
+                "[ IO saturation bisect result: log-padding {:.2}k ]",
+                to_kb(self.params.log_padding)
+            );
+
+            self.params.log_padding = self.bench_memio_saturation_refine(&cfg.io_sat) as u64;
+
+            // IO performance can be fairly variable. Give it some breathing room.
+            self.params.log_padding =
+                (self.params.log_padding as f64 * (100.0 * PCT - cfg.io_buffer)) as u64;
+        } else {
+            self.params.log_padding = self.params_file.data.log_padding;
+        }
 
         info!(
-            "Bench results: testfiles {:.2} x {:.2}G, hash {:.2}M, rps {}",
-            self.tf_frac,
+            "Bench results: testfiles {:.2} x {:.2}G, hash {:.2}M, rps {}, log-padding {:.2}k",
+            self.params.file_total_frac,
             to_gb(self.tf_size),
             to_mb(self.fsize_mean),
-            self.rps_max
+            self.params.rps_max,
+            to_kb(self.params.log_padding),
         );
 
         // Save results.
         self.args_file.data.size = self.tf_size;
-        self.params.rps_max = self.rps_max;
-        self.params.file_total_frac = self.tf_frac;
         self.params_file.data = self.params.clone();
 
         self.args_file.save().expect("failed to save args file");

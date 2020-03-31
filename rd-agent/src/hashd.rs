@@ -26,8 +26,8 @@ pub fn hashd_path_args(cfg: &Config, sel: HashdSel) -> Vec<String> {
         paths.report.clone(),
         "--testfiles".into(),
         paths.tf.clone(),
-        "--log".into(),
-        paths.log.clone(),
+        "--log-dir".into(),
+        paths.log_dir.clone(),
         "--interval".into(),
         "1".into(),
     ]
@@ -63,11 +63,13 @@ impl Hashd {
         lat: f64,
         rps_ratio: f64,
         mem_ratio: f64,
+        write_ratio: f64,
         frac: f64,
     ) -> Result<()> {
         self.rps_max = ((knobs.rps_max as f64 * frac).round() as u32).max(1);
         let rps_target = ((self.rps_max as f64 * rps_ratio).round() as u32).max(1);
         let file_total_frac = knobs.mem_frac * (mem_ratio / 0.5) * frac;
+        let log_padding = (knobs.log_padding as f64 * (write_ratio / 0.5)) as u64;
 
         let mut params = rd_hashd_intf::Params::load(&self.params_path)?;
         let mut changed = false;
@@ -88,10 +90,14 @@ impl Hashd {
             params.file_total_frac = file_total_frac;
             changed = true;
         }
+        if params.log_padding != log_padding {
+            params.log_padding = log_padding;
+            changed = true;
+        }
 
         if changed {
             info!(
-                "hashd: Updating {:?} to lat={:.2}ms rps={:.2} frac={:.2}",
+                "hashd: Updating {:?} to lat={:.2}ms rps={:.2} log_padding={:.2}k frac={:.2}",
                 AsRef::<Path>::as_ref(&self.params_path)
                     .parent()
                     .unwrap()
@@ -99,6 +105,7 @@ impl Hashd {
                     .unwrap(),
                 lat * TO_MSEC,
                 rps_target,
+                to_kb(log_padding),
                 frac
             );
             params.save(&self.params_path)?;
@@ -226,6 +233,7 @@ impl HashdSet {
                     cmd[i].lat_target,
                     cmd[i].rps_target_ratio,
                     cmd[i].mem_ratio,
+                    cmd[i].write_ratio,
                     fracs[i],
                 )?;
             }

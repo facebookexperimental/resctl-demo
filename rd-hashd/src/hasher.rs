@@ -374,6 +374,10 @@ impl DispatchThread {
             aa.resize(new_anon_total);
         }
 
+        if let Some(logger) = self.logger.as_mut() {
+            logger.set_padding(params.log_padding);
+        }
+
         self.params_at = Instant::now();
     }
 

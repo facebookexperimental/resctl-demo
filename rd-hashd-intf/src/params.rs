@@ -62,6 +62,7 @@ const PARAMS_DOC: &str = "\
 //  sleep_mean: Worker sleep duration average
 //  sleep_stdev_ratio: Standard deviation of sleep duration distribution
 //  cpu_ratio: CPU usage scaling - 1.0 hashes all file accesses
+//  log_padding: Pad each log entry to this size, used to scale IO write load
 //  lat_pid: PID controller parameters for latency convergence
 //  rps_pid: PID controller parameters for RPS convergence
 //
@@ -89,6 +90,7 @@ pub struct Params {
     pub sleep_mean: f64,
     pub sleep_stdev_ratio: f64,
     pub cpu_ratio: f64,
+    pub log_padding: u64,
     pub lat_pid: PidParams,
     pub rps_pid: PidParams,
 }
@@ -119,6 +121,7 @@ impl Default for Params {
             sleep_mean: 30.0 * MSEC,
             sleep_stdev_ratio: Self::DFL_STDEV,
             cpu_ratio: 100.0 * PCT,
+            log_padding: 0,
             lat_pid: PidParams {
                 kp: 0.25,
                 ki: 0.01,

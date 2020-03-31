@@ -68,6 +68,14 @@ where
     size_f64 / (1 << 20) as f64
 }
 
+pub fn to_kb<T>(size: T) -> f64
+where
+    T: num::ToPrimitive,
+{
+    let size_f64: f64 = size.to_f64().unwrap();
+    size_f64 / (1 << 10) as f64
+}
+
 fn is_executable<P: AsRef<Path>>(path_in: P) -> bool {
     let path = path_in.as_ref();
     match path.metadata() {

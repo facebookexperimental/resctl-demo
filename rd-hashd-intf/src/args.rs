@@ -45,14 +45,14 @@ overridden on the command line and the changes will be saved in the file.
 --params is optional. If not specified, default parameters will be used.
 
 rd-hashd reports the current status in the optional --report file and the hash
-results are saved in the optional --log file.
+results are saved in the optional log files in the --log-dir directory.
 
 The following will create the --args and --params configuration files and
 exit.
 
   $ rd-hashd --testfiles ~/rd-hashd/testfiles --args ~/rd-hashd/args.json \\
              --params ~/rd-hashd/params.json --report ~/rd-hashd/report.json \\
-             --log ~/rd-hashd/log --interval 1 --prepare-config
+             --log-dir ~/rd-hashd/logs --interval 1 --prepare-config
 
 After that, rd-hashd can be run with the same configurations with the
 following.
@@ -107,8 +107,8 @@ lazy_static! {
              -s, --size=[SIZE]       'Total number of bytes in testfiles (default: {dfl_size:.2}G)'
              -p, --params=[FILE]     'Runtime updatable parameters, will be created if non-existent'
              -r, --report=[FILE]     'Runtime report file, FILE.staging will be used for staging'
-             -l, --log=[LOG_PATH]    'Record hash results to the file at LOG_PATH'
-             -L, --log-size=[SIZE]   'Size before rotating to LOG_PATH.old (default: {dfl_log_size}M)'
+             -l, --log-dir=[PATH]    'Record hash results to the files in PATH'
+             -L, --log-size=[SIZE]   'Maximum log retention (default: {dfl_log_size:.2}G)'
              -i, --interval=[SECS]   'Summary report interval, 0 to disable (default: {dfl_intv}s)'
              -R, --rotational=[BOOL] 'Force rotational detection to either true or false'
              -k, --keep-caches       'Don't drop caches for testfiles on startup'
@@ -116,10 +116,13 @@ lazy_static! {
                  --prepare-config    'Prepare config files and exit'
                  --prepare           'Prepare config files and testfiles and exit'
                  --bench             'Benchmark and record results in args and params file'
+                 --bench-cpu         'Benchmark cpu'
+                 --bench-mem         'Benchmark memory'
+                 --bench-io          'Benchmark io'
              -a, --args=[FILE]       'Load base command line arguments from FILE'
              -v...                   'Sets the level of verbosity'",
             dfl_size=to_gb(dfl.size),
-            dfl_log_size=to_mb(dfl.log_size),
+            dfl_log_size=to_gb(dfl.log_size),
             dfl_intv=dfl.interval)
     };
 }
@@ -140,7 +143,7 @@ pub struct Args {
     pub size: u64,
     pub params: Option<String>,
     pub report: Option<String>,
-    pub log: Option<String>,
+    pub log_dir: Option<String>,
     pub log_size: u64,
     pub interval: u32,
     pub rotational: Option<bool>,
@@ -153,7 +156,11 @@ pub struct Args {
     #[serde(skip)]
     pub prepare_and_exit: bool,
     #[serde(skip)]
-    pub bench: bool,
+    pub bench_cpu: bool,
+    #[serde(skip)]
+    pub bench_mem: bool,
+    #[serde(skip)]
+    pub bench_io: bool,
     #[serde(skip)]
     pub verbosity: u32,
 }
@@ -168,15 +175,17 @@ impl Default for Args {
             size,
             params: None,
             report: None,
-            log: None,
-            log_size: 128 << 20,
+            log_dir: None,
+            log_size: size / 4,
             interval: 10,
             rotational: None,
             clear_testfiles: false,
             keep_caches: false,
             prepare_testfiles: true,
             prepare_and_exit: false,
-            bench: false,
+            bench_cpu: false,
+            bench_mem: false,
+            bench_io: false,
             verbosity: 0,
         }
     }
@@ -242,8 +251,8 @@ impl JsonArgs for Args {
             };
             updated_base = true;
         }
-        if let Some(v) = matches.value_of("log") {
-            self.log = if v.len() > 0 {
+        if let Some(v) = matches.value_of("log-dir") {
+            self.log_dir = if v.len() > 0 {
                 Some(v.to_string())
             } else {
                 None
@@ -288,15 +297,23 @@ impl JsonArgs for Args {
             self.prepare_and_exit = true;
         }
 
-        self.bench = matches.is_present("bench");
-        self.verbosity = Self::verbosity(matches);
+        if !self.prepare_and_exit {
+            self.bench_cpu = matches.is_present("bench-cpu");
+            self.bench_mem = matches.is_present("bench-mem");
+            self.bench_io = matches.is_present("bench-io");
 
-        if self.prepare_and_exit {
-            self.bench = false;
+            if matches.is_present("bench") {
+                self.bench_cpu = true;
+                self.bench_mem = true;
+                self.bench_io = true;
+            }
+
+            if self.bench_cpu || self.bench_mem || self.bench_io {
+                self.prepare_testfiles = false;
+            }
         }
-        if self.bench {
-            self.prepare_testfiles = false;
-        }
+
+        self.verbosity = Self::verbosity(matches);
 
         updated_base
     }
