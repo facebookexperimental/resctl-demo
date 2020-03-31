@@ -11,7 +11,7 @@ use std::fs;
 use std::io;
 use std::io::prelude::*;
 use std::os::unix::fs::PermissionsExt;
-use std::process::{Command, Stdio};
+use std::process::Command;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use util::*;
@@ -150,22 +150,10 @@ fn prepare_side_bins(cfg: &Config) -> Result<()> {
 }
 
 fn verify_linux_tar(path: &str) -> bool {
-    let md = match fs::metadata(path) {
-        Ok(v) => v,
-        Err(_) => return false,
-    };
-
-    if md.len() == 0 {
-        return false;
+    match fs::metadata(path) {
+        Ok(md) => md.len() > 0,
+        Err(_) => false,
     }
-
-    Command::new("tar")
-        .arg("tf")
-        .arg(path)
-        .stdout(Stdio::null())
-        .status()
-        .map(|x| x.success())
-        .unwrap_or(false)
 }
 
 fn prepare_linux_tar(cfg: &Config) -> Result<()> {
@@ -186,7 +174,8 @@ fn prepare_linux_tar(cfg: &Config) -> Result<()> {
     }
 
     info!("side: Downloading linux tarball, you can specify local file with --linux-tar");
-    let xz_path = cfg.scr_path.clone() + "/linux.tar.xz";
+    let tmp_path = cfg.scr_path.clone() + "/linux.tar.tmp";
+    let xz_path = cfg.scr_path.clone() + "/linux.tar.tmp.xz";
     if !Command::new("wget")
         .arg("--progress=dot:mega")
         .arg(LINUX_TAR_XZ_URL)
@@ -208,9 +197,7 @@ fn prepare_linux_tar(cfg: &Config) -> Result<()> {
         bail!("failed to decompress linux tarball");
     }
 
-    if !verify_linux_tar(&tar_path) {
-        bail!("downloaded tarball ${:?} is not a valid tarball", &tar_path);
-    }
+    fs::rename(&tmp_path, &tar_path)?;
 
     Ok(())
 }
