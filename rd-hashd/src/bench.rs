@@ -178,10 +178,14 @@ impl Default for Cfg {
 
                 bisect_done: Box::new(|_params, left, right| right - left < 2.5 * PCT),
 
-                next_refine_pos: Box::new(|params, pos| match pos {
-                    None => Some(params.file_total_frac - 2.5 * PCT),
-                    Some(v) if v > 76.0 * PCT => Some(v - 2.5 * PCT),
-                    _ => None,
+                next_refine_pos: Box::new(|params, pos| {
+                    let step = 2.5 * PCT;
+                    let min = (params.file_total_frac - 25.0 * PCT).max(0.1 * PCT);
+                    match pos {
+                        None => Some(params.file_total_frac - step),
+                        Some(v) if v > min => Some(v - step),
+                        _ => None,
+                    }
                 }),
 
                 lat: 100.0 * MSEC,
@@ -206,7 +210,9 @@ impl Default for Cfg {
                     Some(v) => Some(v * 4.0),
                 }),
 
-                bisect_done: Box::new(|_params, left, right| right - left < 5.0 * PCT * right),
+                bisect_done: Box::new(|_params, left, right| {
+                    right <= 64.0 || right - left < 5.0 * PCT * right
+                }),
 
                 next_refine_pos: Box::new(|params, pos| {
                     let step = 2.5 * PCT * params.log_padding as f64;
