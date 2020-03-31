@@ -97,7 +97,7 @@ impl Hashd {
 
         if changed {
             info!(
-                "hashd: Updating {:?} to lat={:.2}ms rps={:.2} log_padding={}k frac={:.2}",
+                "hashd: Updating {:?} to lat={:.2}ms rps={:.2} log_padding={:.2}k frac={:.2}",
                 AsRef::<Path>::as_ref(&self.params_path)
                     .parent()
                     .unwrap()
