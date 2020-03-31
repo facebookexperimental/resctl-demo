@@ -69,7 +69,7 @@ impl Hashd {
         self.rps_max = ((knobs.rps_max as f64 * frac).round() as u32).max(1);
         let rps_target = ((self.rps_max as f64 * rps_ratio).round() as u32).max(1);
         let file_total_frac = knobs.mem_frac * (mem_ratio / 0.5) * frac;
-        let log_padding = (knobs.log_padding as f64 * (write_ratio / 0.5)) as u64;
+        let log_padding = (knobs.log_padding as f64 * (write_ratio / 0.25)) as u64;
 
         let mut params = rd_hashd_intf::Params::load(&self.params_path)?;
         let mut changed = false;

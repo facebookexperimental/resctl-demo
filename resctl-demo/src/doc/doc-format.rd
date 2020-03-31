@@ -82,17 +82,33 @@ The followings are all available commands.
 A sideload is identified with the tag, "test-build" here. The following job ID
 points to an entry in sideload-defs.json and determines the specific workload.
 
-%% on sideload test-build build-linux-4x       : [ Start a linux build sideload ]
-%% off sideload test-build                     : [ Stop a linux build sideload ]
-%% toggle sideload test-build build-linux-4x   : Toggle a linux build sideload
+%% on sideload test-build build-linux-4x         : [ Start a linux build sideload ]
+%% off sideload test-build                       : [ Stop a linux build sideload ]
+%% toggle sideload test-build build-linux-4x     : Toggle a linux build sideload
+%%
+%% on sideload test-mem memory-growth-50mbps     : [ Start a 50MBPS memory growth sideload ]
+%% off sideload test-mem                         : [ Stop a 50MBPS memory growth sideload ]
+%% toggle sideload test-mem memory-growth-50mbps : Toggle a 50MBPS memory growth sideload
+%%
+%% on sideload test-io tar-bomb                  : [ Start an IO bomb sideload ]
+%% off sideload test-io                          : [ Stop an IO bomb sideload ]
+%% toggle sideload test-io tar-bomb              : Toggle an IO bomb sideload
 
 A sysload is a sideload which is run under system.slice without the supervision
 of sideloader and can be used to illustrate oomd workload protection or the need
 for sideloader.
 
-%% on sysload test-build build-linux-4x        : [ Start a linux build sysload ]
-%% off sysload test-build                      : [ Stop a linux build sysload ]
-%% toggle sysload test-build build-linux-4x    : Toggle a linux build sysload
+%% on sysload test-build build-linux-4x          : [ Start a linux build sysload ]
+%% off sysload test-build                        : [ Stop a linux build sysload ]
+%% toggle sysload test-build build-linux-4x      : Toggle a linux build sysload
+%%
+%% on sysload test-mem memory-growth-50mbps      : [ Start a 50MBPS memory growth sysload ]
+%% off sysload test-mem                          : [ Stop a 50MBPS memory growth sysload ]
+%% toggle sysload test-mem memory-growth-50mbps  : Toggle a 50MBPS memory growth sysload
+%%
+%% on sysload test-io tar-bomb                   : [ Start an IO bomb sysload ]
+%% off sysload test-io                           : [ Stop an IO bomb sysload ]
+%% toggle sysload test-io tar-bomb               : Toggle an IO bomb sysload
 %%
 %% on     cpu-resctl             : [ Turn on CPU resource protection ]
 %% off    cpu-resctl             : [ Turn off CPU resource protection ]

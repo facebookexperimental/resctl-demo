@@ -103,7 +103,7 @@ const TAR_BOMB_SH: &str = r#"#!/bin/bash
 set -xe
 
 mkdir -p io-bomb-dir-src
-(cd io-bomb-dir-src; tar xf ../../linux.tar.gz)
+(cd io-bomb-dir-src; tar xf ../../../linux.tar)
 
 for ((r=0;r<32;r++)); do
     for ((i=0;i<32;i++)); do
