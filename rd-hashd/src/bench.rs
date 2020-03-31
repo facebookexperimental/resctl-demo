@@ -63,8 +63,8 @@ struct MemIoSatCfg {
     fmt_pos: Box<dyn 'static + Fn(&Bench, f64) -> String>,
     set_pos: Box<dyn 'static + Fn(&mut Params, f64)>,
     next_up_pos: Box<dyn 'static + Fn(&Params, Option<f64>) -> Option<f64>>,
-    next_refine_pos: Box<dyn 'static + Fn(&Params, Option<f64>) -> Option<f64>>,
     bisect_done: Box<dyn 'static + Fn(&Params, f64, f64) -> bool>,
+    next_refine_pos: Box<dyn 'static + Fn(&Params, Option<f64>) -> Option<f64>>,
 
     lat: f64,
     term_err_good: f64,
@@ -175,12 +175,14 @@ impl Default for Cfg {
                     Some(v) if v < 91.0 * PCT => Some((v + 10.0 * PCT).min(100.0 * PCT)),
                     _ => None,
                 }),
+
+                bisect_done: Box::new(|_params, left, right| right - left < 2.5 * PCT),
+
                 next_refine_pos: Box::new(|params, pos| match pos {
                     None => Some(params.file_total_frac - 2.5 * PCT),
                     Some(v) if v > 76.0 * PCT => Some(v - 2.5 * PCT),
                     _ => None,
                 }),
-                bisect_done: Box::new(|_params, left, right| right - left < 2.5 * PCT),
 
                 lat: 100.0 * MSEC,
                 term_err_good: 10.0 * PCT,
@@ -203,6 +205,9 @@ impl Default for Cfg {
                     None => Some(64.0),
                     Some(v) => Some(v * 4.0),
                 }),
+
+                bisect_done: Box::new(|_params, left, right| right - left < 5.0 * PCT * right),
+
                 next_refine_pos: Box::new(|params, pos| {
                     let step = 2.5 * PCT * params.log_padding as f64;
                     let min = 76.0 * PCT * params.log_padding as f64;
@@ -212,12 +217,11 @@ impl Default for Cfg {
                         _ => None,
                     }
                 }),
-                bisect_done: Box::new(|_params, left, right| right - left < 5.0 * PCT * right),
 
                 lat: 100.0 * MSEC,
-                term_err_good: 10.0 * PCT,
-                term_err_bad: 50.0 * PCT,
-                bisect_err: 25.0 * PCT,
+                term_err_good: 5.0 * PCT,
+                term_err_bad: 75.0 * PCT,
+                bisect_err: 10.0 * PCT,
                 refine_err: 10.0 * PCT,
 
                 up_converge: MEMIO_UP_CVG_CFG,
