@@ -90,7 +90,7 @@ pub struct Params {
     pub sleep_mean: f64,
     pub sleep_stdev_ratio: f64,
     pub cpu_ratio: f64,
-    pub log_padding: usize,
+    pub log_padding: u64,
     pub lat_pid: PidParams,
     pub rps_pid: PidParams,
 }

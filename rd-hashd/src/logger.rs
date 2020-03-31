@@ -3,7 +3,7 @@ use anyhow::{anyhow, Result};
 use chrono::prelude::*;
 use crossbeam::channel::{self, Receiver, Sender};
 use glob::glob;
-use log::{debug, error};
+use log::{debug, warn, error};
 use scan_fmt::scan_fmt;
 use std::cmp;
 use std::collections::VecDeque;
@@ -11,7 +11,7 @@ use std::fs::{self, File};
 use std::io::prelude::*;
 use std::path::Path;
 use std::process::Command;
-use std::sync::atomic::{self, AtomicUsize};
+use std::sync::atomic::{self, AtomicU64};
 use std::sync::Arc;
 use std::thread::{spawn, JoinHandle};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -22,7 +22,7 @@ const LOG_FILENAME: &str = "rd-hashd.log";
 struct LogWorker {
     log_rx: Receiver<String>,
     dir_path: String,
-    padding: Arc<AtomicUsize>,
+    padding: Arc<AtomicU64>,
     unit_size: u64,
     nr_to_keep: usize,
     buf: Vec<u8>,
@@ -56,7 +56,7 @@ impl LogWorker {
         {
             Ok(v) => v,
             Err(e) => {
-                error!(
+                warn!(
                     "logger: Failed to disable btrfs compression on ${} ({:?})",
                     path, &e
                 );
@@ -64,7 +64,7 @@ impl LogWorker {
             }
         };
         if !output.status.success() {
-            error!(
+            warn!(
                 "logger: Failed to disable btrfs compression on ${} ({:?})",
                 path, &output
             );
@@ -73,7 +73,7 @@ impl LogWorker {
 
     fn new(
         dir_path: String,
-        padding: Arc<AtomicUsize>,
+        padding: Arc<AtomicU64>,
         unit_size: u64,
         max_size: u64,
         log_rx: Receiver<String>,
@@ -182,7 +182,7 @@ impl LogWorker {
     }
 
     fn log(&mut self, msg: &str) {
-        let min_len = self.padding.load(atomic::Ordering::Relaxed);
+        let min_len = self.padding.load(atomic::Ordering::Relaxed) as usize;
         if min_len > 0 && self.buf.len() != min_len {
             self.buf = b".".repeat(min_len - 1);
             self.buf.push(b'\n');
@@ -240,12 +240,12 @@ impl LogWorker {
 
 pub struct Logger {
     log_tx: Option<Sender<String>>,
-    padding: Arc<AtomicUsize>,
+    padding: Arc<AtomicU64>,
     worker_jh: Option<JoinHandle<()>>,
 }
 
 impl Logger {
-    pub fn new<P>(dir_path: P, padding: usize, unit_size: u64, max_size: u64) -> Result<Self>
+    pub fn new<P>(dir_path: P, padding: u64, unit_size: u64, max_size: u64) -> Result<Self>
     where
         P: AsRef<Path>,
     {
@@ -256,7 +256,7 @@ impl Logger {
             .to_string();
 
         let (log_tx, log_rx) = channel::unbounded();
-        let padding = Arc::new(AtomicUsize::new(padding));
+        let padding = Arc::new(AtomicU64::new(padding));
         let worker = LogWorker::new(dir_path, padding.clone(), unit_size, max_size, log_rx)?;
         let worker_jh = spawn(move || worker.run());
 
@@ -267,7 +267,7 @@ impl Logger {
         })
     }
 
-    pub fn set_padding(&self, size: usize) {
+    pub fn set_padding(&self, size: u64) {
         self.padding.store(size, atomic::Ordering::Relaxed);
     }
 

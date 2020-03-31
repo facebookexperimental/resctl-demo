@@ -132,9 +132,11 @@ a value argument or prompt.
 %% knob   hashd-load 0.6
 %% knob   hashd-load             : Set the main workload load level            :
 %% knob   hashd-mem              : Adjust the main workload memory footprint   :
-%% knob   hashd-A-weight         : The first instance's weight                 :
+%% knob   hashd-write            : Adjust the main workload write bandwidth    :
+%% knob   hashd-weight           : The first instance's weight                 :
 %% knob   hashd-B-load           : Set the second workload load level          :
 %% knob   hashd-B-mem            : Adjust the second workload memory footprint :
+%% knob   hashd-B-write          : Adjust the second workload write bandwidth  :
 %% knob   hashd-B-weight         : The second instance's weight                :
 
 Reset commands are shortcuts to restore to default configurations.

@@ -199,7 +199,7 @@ impl Default for Cfg {
                 pos_prefix: "padding".into(),
                 fmt_pos: Box::new(|_bench, pos| format!("{:.2}k", to_kb(pos))),
 
-                set_pos: Box::new(|params, pos| params.log_padding = pos as usize),
+                set_pos: Box::new(|params, pos| params.log_padding = pos as u64),
 
                 next_up_pos: Box::new(|_params, pos| match pos {
                     None => Some(64.0),
@@ -1019,18 +1019,18 @@ impl Bench {
         //
         // io bench
         //
-        if self.args_file.data.bench_io {
-            self.params.log_padding = self.bench_memio_saturation_bisect(&cfg.io_sat) as usize;
+        if self.args_file.data.log_dir.is_some() && self.args_file.data.bench_io {
+            self.params.log_padding = self.bench_memio_saturation_bisect(&cfg.io_sat) as u64;
             info!(
                 "[ IO saturation bisect result: log-padding {:.2}k ]",
                 to_kb(self.params.log_padding)
             );
 
-            self.params.log_padding = self.bench_memio_saturation_refine(&cfg.io_sat) as usize;
+            self.params.log_padding = self.bench_memio_saturation_refine(&cfg.io_sat) as u64;
 
             // IO performance can be fairly variable. Give it some breathing room.
             self.params.log_padding =
-                (self.params.log_padding as f64 * (100.0 * PCT - cfg.io_buffer)) as usize;
+                (self.params.log_padding as f64 * (100.0 * PCT - cfg.io_buffer)) as u64;
         } else {
             self.params.log_padding = self.params_file.data.log_padding;
         }

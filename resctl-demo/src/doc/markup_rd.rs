@@ -41,6 +41,8 @@ pub enum RdKnob {
     HashdBLoad,
     HashdAMem,
     HashdBMem,
+    HashdAWrite,
+    HashdBWrite,
     HashdAWeight,
     HashdBWeight,
 }
@@ -264,9 +266,11 @@ impl RdCmd {
                 let knob = match args[1] {
                     "hashd-load" | "hashd-A-load" => RdKnob::HashdALoad,
                     "hashd-mem" | "hashd-A-mem" => RdKnob::HashdAMem,
+                    "hashd-write" | "hashd-A-write" => RdKnob::HashdAWrite,
                     "hashd-weight" | "hashd-A-weight" => RdKnob::HashdAWeight,
                     "hashd-B-load" => RdKnob::HashdBLoad,
                     "hashd-B-mem" => RdKnob::HashdBMem,
+                    "hashd-B-write" => RdKnob::HashdBWrite,
                     "hashd-B-weight" => RdKnob::HashdBWeight,
                     _ => bail!("invalid knob target"),
                 };
