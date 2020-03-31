@@ -195,16 +195,13 @@ impl Default for Cfg {
             io_sat: MemIoSatCfg {
                 name: "IO".into(),
                 pos_prefix: "padding".into(),
-                fmt_pos: Box::new(|_bench, pos| {
-                    format!("{:.2}k", to_kb(pos))
-                }),
+                fmt_pos: Box::new(|_bench, pos| format!("{:.2}k", to_kb(pos))),
 
                 set_pos: Box::new(|params, pos| params.log_padding = pos as usize),
 
                 next_up_pos: Box::new(|_params, pos| match pos {
                     None => Some(64.0),
-                    Some(v) if v < 1024.0 => Some(v * 4.0),
-                    Some(v) => Some(v * 2.0),
+                    Some(v) => Some(v * 4.0),
                 }),
                 next_refine_pos: Box::new(|params, pos| {
                     let step = 2.5 * PCT * params.log_padding as f64;
@@ -973,52 +970,66 @@ impl Bench {
         //
         // cpu bench
         //
-        self.fsize_mean = self.bench_cpu(&cfg.cpu);
-        self.params.file_size_mean = self.fsize_mean;
-        self.params.rps_max = self.bench_cpu_saturation(&cfg.cpu_sat);
+        if self.args_file.data.bench_cpu {
+            self.fsize_mean = self.bench_cpu(&cfg.cpu);
+            self.params.file_size_mean = self.fsize_mean;
+            self.params.rps_max = self.bench_cpu_saturation(&cfg.cpu_sat);
+        } else {
+            self.params.file_size_mean = self.params_file.data.file_size_mean;
+            self.params.rps_max = self.params_file.data.rps_max;
+        }
 
         //
         // memory bench
         //
-        self.tf_size = (*TOTAL_MEMORY as f64 * cfg.testfiles_frac) as u64;
-        self.params.file_total_frac = self.bench_memio_saturation_bisect(&cfg.mem_sat);
-        let (fsize, asize) = self.mem_sizes(self.params.file_total_frac);
-        info!(
-            "[ Memory saturation bisect result: {:.2}G (file {:.2}G, anon {:.2}G) ]",
-            to_gb(fsize + asize),
-            to_gb(fsize),
-            to_gb(asize)
-        );
+        if self.args_file.data.bench_mem {
+            self.tf_size = (*TOTAL_MEMORY as f64 * cfg.testfiles_frac) as u64;
+            self.params.file_total_frac = self.bench_memio_saturation_bisect(&cfg.mem_sat);
+            let (fsize, asize) = self.mem_sizes(self.params.file_total_frac);
+            info!(
+                "[ Memory saturation bisect result: {:.2}G (file {:.2}G, anon {:.2}G) ]",
+                to_gb(fsize + asize),
+                to_gb(fsize),
+                to_gb(asize)
+            );
 
-        self.params.file_total_frac = self.bench_memio_saturation_refine(&cfg.mem_sat);
+            self.params.file_total_frac = self.bench_memio_saturation_refine(&cfg.mem_sat);
 
-        // Longer-runs might need more memory due to access from accumulating
-        // long tails and other system disturbances. Lower the pos to give the
-        // system some breathing room.
-        self.params.file_total_frac *= 100.0 * PCT - cfg.mem_buffer;
+            // Longer-runs might need more memory due to access from
+            // accumulating long tails and other system disturbances. Lower the
+            // pos to give the system some breathing room.
+            self.params.file_total_frac *= 100.0 * PCT - cfg.mem_buffer;
 
-        let (fsize, asize) = self.mem_sizes(self.params.file_total_frac);
-        info!(
-            "[ Memory saturation result: {:.2}G (file {:.2}G, anon {:.2}G) ]",
-            to_gb(fsize + asize),
-            to_gb(fsize),
-            to_gb(asize)
-        );
+            let (fsize, asize) = self.mem_sizes(self.params.file_total_frac);
+            info!(
+                "[ Memory saturation result: {:.2}G (file {:.2}G, anon {:.2}G) ]",
+                to_gb(fsize + asize),
+                to_gb(fsize),
+                to_gb(asize)
+            );
+        } else {
+            self.tf_size = self.args_file.data.size;
+            self.params.file_total_frac = self.params_file.data.file_total_frac;
+        }
 
         //
         // io bench
         //
-        self.params.log_padding = self.bench_memio_saturation_bisect(&cfg.io_sat) as usize;
-        info!(
-            "[ IO saturation bisect result: log-padding {:.2}k ]",
-            to_kb(self.params.log_padding)
-        );
+        if self.args_file.data.bench_io {
+            self.params.log_padding = self.bench_memio_saturation_bisect(&cfg.io_sat) as usize;
+            info!(
+                "[ IO saturation bisect result: log-padding {:.2}k ]",
+                to_kb(self.params.log_padding)
+            );
 
-        self.params.log_padding = self.bench_memio_saturation_refine(&cfg.io_sat) as usize;
+            self.params.log_padding = self.bench_memio_saturation_refine(&cfg.io_sat) as usize;
 
-        // IO performance can be fairly variable. Give it some breathing room.
-        self.params.log_padding =
-            (self.params.log_padding as f64 * (100.0 * PCT - cfg.io_buffer)) as usize;
+            // IO performance can be fairly variable. Give it some breathing room.
+            self.params.log_padding =
+                (self.params.log_padding as f64 * (100.0 * PCT - cfg.io_buffer)) as usize;
+        } else {
+            self.params.log_padding = self.params_file.data.log_padding;
+        }
 
         info!(
             "Bench results: testfiles {:.2} x {:.2}G, hash {:.2}M, rps {}, log-padding {:.2}k",

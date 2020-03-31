@@ -116,6 +116,9 @@ lazy_static! {
                  --prepare-config    'Prepare config files and exit'
                  --prepare           'Prepare config files and testfiles and exit'
                  --bench             'Benchmark and record results in args and params file'
+                 --bench-cpu         'Benchmark cpu'
+                 --bench-mem         'Benchmark memory'
+                 --bench-io          'Benchmark io'
              -a, --args=[FILE]       'Load base command line arguments from FILE'
              -v...                   'Sets the level of verbosity'",
             dfl_size=to_gb(dfl.size),
@@ -153,7 +156,11 @@ pub struct Args {
     #[serde(skip)]
     pub prepare_and_exit: bool,
     #[serde(skip)]
-    pub bench: bool,
+    pub bench_cpu: bool,
+    #[serde(skip)]
+    pub bench_mem: bool,
+    #[serde(skip)]
+    pub bench_io: bool,
     #[serde(skip)]
     pub verbosity: u32,
 }
@@ -176,7 +183,9 @@ impl Default for Args {
             keep_caches: false,
             prepare_testfiles: true,
             prepare_and_exit: false,
-            bench: false,
+            bench_cpu: false,
+            bench_mem: false,
+            bench_io: false,
             verbosity: 0,
         }
     }
@@ -288,15 +297,23 @@ impl JsonArgs for Args {
             self.prepare_and_exit = true;
         }
 
-        self.bench = matches.is_present("bench");
-        self.verbosity = Self::verbosity(matches);
+        if !self.prepare_and_exit {
+            self.bench_cpu = matches.is_present("bench-cpu");
+            self.bench_mem = matches.is_present("bench-mem");
+            self.bench_io = matches.is_present("bench-io");
 
-        if self.prepare_and_exit {
-            self.bench = false;
+            if matches.is_present("bench") {
+                self.bench_cpu = true;
+                self.bench_mem = true;
+                self.bench_io = true;
+            }
+
+            if self.bench_cpu || self.bench_mem || self.bench_io {
+                self.prepare_testfiles = false;
+            }
         }
-        if self.bench {
-            self.prepare_testfiles = false;
-        }
+
+        self.verbosity = Self::verbosity(matches);
 
         updated_base
     }

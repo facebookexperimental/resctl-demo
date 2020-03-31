@@ -237,7 +237,7 @@ fn main() {
     //
     // Benchmark and exit if requested.
     //
-    if args.bench {
+    if args.bench_cpu || args.bench_mem || args.bench_io {
         let mut bench = bench::Bench::new(args_file, params_file, report_file);
         bench.run();
         exit(0);
