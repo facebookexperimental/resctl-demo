@@ -124,7 +124,7 @@ fn create_logger(args: &Args, params: &Params, quiet: bool) -> Option<Logger> {
             match Logger::new(log_dir, params.log_padding, LOGFILE_UNIT_SIZE, args.log_size) {
                 Ok(lg) => Some(lg),
                 Err(e) => {
-                    error!("Failed to initialize hash log file ({:?})", &e);
+                    error!("Failed to initialize hash log dir ({:?})", &e);
                     panic!();
                 }
             }

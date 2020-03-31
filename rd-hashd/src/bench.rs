@@ -480,9 +480,7 @@ pub struct Bench {
     params: Params,
     bar_hidden: bool,
     fsize_mean: usize,
-    rps_max: u32,
     tf_size: u64,
-    tf_frac: f64,
 }
 
 impl Bench {
@@ -528,9 +526,7 @@ impl Bench {
             params: p,
             bar_hidden: verbosity > 0,
             fsize_mean: 0,
-            rps_max: 0,
             tf_size: 0,
-            tf_frac: 0.0,
         }
     }
 
@@ -691,16 +687,17 @@ impl Bench {
         cvg_cfg: &ConvergeCfg,
         th: &TestHasher,
     ) -> (f64, f64) {
+        let rps_max = self.params.rps_max;
         let mut should_end = |now, streak, (lat, rps)| {
             if now < cvg_cfg.period / 2 {
                 None
-            } else if streak > 0 && rps > self.rps_max as f64 * (1.0 - cfg.term_err_good) {
+            } else if streak > 0 && rps > rps_max as f64 * (1.0 - cfg.term_err_good) {
                 info!("Rps high enough, using the current values");
                 Some((lat, rps))
             } else if !super::is_rotational()
                 && now >= 2 * cvg_cfg.period
                 && streak < 0
-                && rps < self.rps_max as f64 * (1.0 - cfg.term_err_bad)
+                && rps < rps_max as f64 * (1.0 - cfg.term_err_bad)
             {
                 info!("Rps too low, using the current values");
                 Some((lat, rps))
@@ -709,7 +706,7 @@ impl Bench {
             }
         };
         let (_lat, rps) = th.converge_with_cfg_and_end(cvg_cfg, &mut should_end);
-        (rps, (rps - self.rps_max as f64) / self.rps_max as f64)
+        (rps, (rps - rps_max as f64) / rps_max as f64)
     }
 
     fn memio_bisect_round(
@@ -722,7 +719,7 @@ impl Bench {
         info!(
             "Rps: {:.1} ~= {}, error: {:.2}% <= -{:.2}%",
             rps,
-            self.rps_max,
+            self.params.rps_max,
             err * TO_PCT,
             cfg.bisect_err * TO_PCT
         );
@@ -758,8 +755,7 @@ impl Bench {
         let mut params: Params = self.params.clone();
         let tf = self.prep_tf(self.tf_size, "memory saturation bench");
         params.p99_lat_target = cfg.lat;
-        params.rps_target = self.rps_max;
-        (cfg.set_pos)(&mut params, 10.0 * PCT);
+        params.rps_target = self.params.rps_max;
 
         let th = self.create_test_hasher(tf, &params, self.report_file.clone());
         //
@@ -781,10 +777,10 @@ impl Bench {
             th.disp_hist.lock().unwrap().disp.set_params(&params);
 
             info!(
-                "[ {} saturation: up-round {}/9, rps {}, {} {} ]",
+                "[ {} saturation: up-round {}, rps {}, {} {} ]",
                 cfg.name,
                 round,
-                self.rps_max,
+                self.params.rps_max,
                 cfg.pos_prefix,
                 &(cfg.fmt_pos)(self, pos)
             );
@@ -814,7 +810,7 @@ impl Bench {
                 info!(
                     "[ {} saturation: bisection, rps {}, {} {} ]",
                     cfg.name,
-                    self.rps_max,
+                    self.params.rps_max,
                     cfg.pos_prefix,
                     &(cfg.fmt_pos)(self, pos)
                 );
@@ -887,7 +883,7 @@ impl Bench {
         let mut params: Params = self.params.clone();
         let tf = self.prep_tf(self.tf_size, "memory saturation bench - refine-rounds");
         params.p99_lat_target = cfg.lat;
-        params.rps_target = self.rps_max;
+        params.rps_target = self.params.rps_max;
 
         let th = self.create_test_hasher(tf, &params, self.report_file.clone());
 
@@ -906,7 +902,7 @@ impl Bench {
                 "[ {} saturation: refine-round {}, rps {}, {} {} ]",
                 cfg.name,
                 round,
-                self.rps_max,
+                self.params.rps_max,
                 cfg.pos_prefix,
                 &(cfg.fmt_pos)(self, pos),
             );
@@ -918,7 +914,7 @@ impl Bench {
             info!(
                 "Rps: {:.1} ~= {}, error: |{:.2}%| <= {:.2}%",
                 rps,
-                self.rps_max,
+                self.params.rps_max,
                 err * TO_PCT,
                 cfg.refine_err * TO_PCT
             );
@@ -935,15 +931,20 @@ impl Bench {
         let cfg = Cfg::default();
 
         // Run benchmarks.
+
+        //
+        // cpu bench
+        //
         self.fsize_mean = self.bench_cpu(&cfg.cpu);
-        // Needed for the following benches.  Assign early.
         self.params.file_size_mean = self.fsize_mean;
+        self.params.rps_max = self.bench_cpu_saturation(&cfg.cpu_sat);
 
-        self.rps_max = self.bench_cpu_saturation(&cfg.cpu_sat);
-
+        //
+        // memory bench
+        //
         self.tf_size = (*TOTAL_MEMORY as f64 * cfg.testfiles_frac) as u64;
-        self.tf_frac = self.bench_memio_saturation_bisect(&cfg.mem_sat);
-        let (fsize, asize) = self.mem_sizes(self.tf_frac);
+        self.params.file_total_frac = self.bench_memio_saturation_bisect(&cfg.mem_sat);
+        let (fsize, asize) = self.mem_sizes(self.params.file_total_frac);
         info!(
             "[ Memory saturation bisect result: {:.2}G (file {:.2}G, anon {:.2}G) ]",
             to_gb(fsize + asize),
@@ -951,12 +952,14 @@ impl Bench {
             to_gb(asize)
         );
 
-        self.tf_frac = self.bench_memio_saturation_refine(&cfg.mem_sat);
+        self.params.file_total_frac = self.bench_memio_saturation_refine(&cfg.mem_sat);
+
         // Longer-runs might need more memory due to access from accumulating
         // long tails and other system disturbances. Lower the pos to give the
         // system some breathing room.
-        self.tf_frac *= 100.0 * PCT - cfg.mem_buffer;
-        let (fsize, asize) = self.mem_sizes(self.tf_frac);
+        self.params.file_total_frac *= 100.0 * PCT - cfg.mem_buffer;
+
+        let (fsize, asize) = self.mem_sizes(self.params.file_total_frac);
         info!(
             "[ Memory saturation result: {:.2}G (file {:.2}G, anon {:.2}G) ]",
             to_gb(fsize + asize),
@@ -964,18 +967,8 @@ impl Bench {
             to_gb(asize)
         );
 
-        info!(
-            "Bench results: testfiles {:.2} x {:.2}G, hash {:.2}M, rps {}",
-            self.tf_frac,
-            to_gb(self.tf_size),
-            to_mb(self.fsize_mean),
-            self.rps_max
-        );
-
         // Save results.
         self.args_file.data.size = self.tf_size;
-        self.params.rps_max = self.rps_max;
-        self.params.file_total_frac = self.tf_frac;
         self.params_file.data = self.params.clone();
 
         self.args_file.save().expect("failed to save args file");

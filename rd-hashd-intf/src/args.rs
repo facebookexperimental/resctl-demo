@@ -45,14 +45,14 @@ overridden on the command line and the changes will be saved in the file.
 --params is optional. If not specified, default parameters will be used.
 
 rd-hashd reports the current status in the optional --report file and the hash
-results are saved in the optional --log file.
+results are saved in the optional log files in the --log-dir directory.
 
 The following will create the --args and --params configuration files and
 exit.
 
   $ rd-hashd --testfiles ~/rd-hashd/testfiles --args ~/rd-hashd/args.json \\
              --params ~/rd-hashd/params.json --report ~/rd-hashd/report.json \\
-             --log ~/rd-hashd/log --interval 1 --prepare-config
+             --log-dir ~/rd-hashd/logs --interval 1 --prepare-config
 
 After that, rd-hashd can be run with the same configurations with the
 following.
