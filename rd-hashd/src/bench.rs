@@ -57,17 +57,13 @@ struct CpuSatCfg {
     converge: ConvergeCfg,
 }
 
-struct MemIoSatCfgCbs {
+struct MemIoSatCfg {
+    name: String,
+    pos_prefix: String,
     fmt_pos: Box<dyn 'static + Fn(&Bench, f64) -> String>,
     set_pos: Box<dyn 'static + Fn(&mut Params, f64)>,
     next_up_pos: Box<dyn 'static + Fn(&Params, Option<f64>) -> Option<f64>>,
     next_refine_pos: Box<dyn 'static + Fn(&Params, Option<f64>) -> Option<f64>>,
-}
-
-struct MemIoSatCfg {
-    name: String,
-    pos_prefix: String,
-    cbs: Option<MemIoSatCfgCbs>,
 
     lat: f64,
     term_err_good: f64,
@@ -88,47 +84,37 @@ struct Cfg {
     mem_sat: MemIoSatCfg,
 }
 
-const MEMIO_SAT_CFG_COMMON: MemIoSatCfg = MemIoSatCfg {
-    name: String::new(),
-    pos_prefix: String::new(),
-    cbs: None,
+const MEMIO_UP_CVG_CFG: ConvergeCfg = ConvergeCfg {
+    which: Rps,
+    converges: 5,
+    period: 15,
+    min_dur: 30,
+    max_dur: 90,
+    slope: 1.0 * PCT,
+    err_slope: 2.5 * PCT,
+    rot_mult: 4.0,
+};
 
-    lat: 100.0 * MSEC,
-    term_err_good: 10.0 * PCT,
-    term_err_bad: 50.0 * PCT,
-    bisect_err: 25.0 * PCT,
-    bisect_dist: 2.5 * PCT,
-    refine_err: 10.0 * PCT,
-    up_converge: ConvergeCfg {
-        which: Rps,
-        converges: 5,
-        period: 15,
-        min_dur: 30,
-        max_dur: 90,
-        slope: 1.0 * PCT,
-        err_slope: 2.5 * PCT,
-        rot_mult: 4.0,
-    },
-    bisect_converge: ConvergeCfg {
-        which: Rps,
-        converges: 5,
-        period: 15,
-        min_dur: 30,
-        max_dur: 90,
-        slope: 1.0 * PCT,
-        err_slope: 2.5 * PCT,
-        rot_mult: 2.0,
-    },
-    refine_converge: ConvergeCfg {
-        which: Rps,
-        converges: 5,
-        period: 15,
-        min_dur: 120,
-        max_dur: 240,
-        slope: 1.0 * PCT,
-        err_slope: 2.5 * PCT,
-        rot_mult: 2.0,
-    },
+const MEMIO_BISECT_CVG_CFG: ConvergeCfg = ConvergeCfg {
+    which: Rps,
+    converges: 5,
+    period: 15,
+    min_dur: 30,
+    max_dur: 90,
+    slope: 1.0 * PCT,
+    err_slope: 2.5 * PCT,
+    rot_mult: 2.0,
+};
+
+const MEMIO_REFINE_CVG_CFG: ConvergeCfg = ConvergeCfg {
+    which: Rps,
+    converges: 5,
+    period: 15,
+    min_dur: 120,
+    max_dur: 240,
+    slope: 1.0 * PCT,
+    err_slope: 2.5 * PCT,
+    rot_mult: 2.0,
 };
 
 impl Default for Cfg {
@@ -174,24 +160,32 @@ impl Default for Cfg {
             mem_sat: MemIoSatCfg {
                 name: "Memory".into(),
                 pos_prefix: "size".into(),
-                cbs: Some(MemIoSatCfgCbs {
-                    fmt_pos: Box::new(|bench, pos| {
-                        let (fsize, asize) = bench.mem_sizes(pos);
-                        format!("{:.2}G", to_gb(fsize + asize))
-                    }),
-                    set_pos: Box::new(|params, pos| params.file_total_frac = pos),
-                    next_up_pos: Box::new(|_params, pos| match pos {
-                        None => Some(10.0 * PCT),
-                        Some(v) if v < 91.0 * PCT => Some((v + 10.0 * PCT).min(100.0 * PCT)),
-                        _ => None,
-                    }),
-                    next_refine_pos: Box::new(|params, pos| match pos {
-                        None => Some(params.file_total_frac - 2.5 * PCT),
-                        Some(v) if v > 76.0 * PCT => Some(v - 2.5 * PCT),
-                        _ => None,
-                    }),
+                fmt_pos: Box::new(|bench, pos| {
+                    let (fsize, asize) = bench.mem_sizes(pos);
+                    format!("{:.2}G", to_gb(fsize + asize))
                 }),
-                ..MEMIO_SAT_CFG_COMMON
+                set_pos: Box::new(|params, pos| params.file_total_frac = pos),
+                next_up_pos: Box::new(|_params, pos| match pos {
+                    None => Some(10.0 * PCT),
+                    Some(v) if v < 91.0 * PCT => Some((v + 10.0 * PCT).min(100.0 * PCT)),
+                    _ => None,
+                }),
+                next_refine_pos: Box::new(|params, pos| match pos {
+                    None => Some(params.file_total_frac - 2.5 * PCT),
+                    Some(v) if v > 76.0 * PCT => Some(v - 2.5 * PCT),
+                    _ => None,
+                }),
+
+                lat: 100.0 * MSEC,
+                term_err_good: 10.0 * PCT,
+                term_err_bad: 50.0 * PCT,
+                bisect_err: 25.0 * PCT,
+                bisect_dist: 2.5 * PCT,
+                refine_err: 10.0 * PCT,
+
+                up_converge: MEMIO_UP_CVG_CFG,
+                bisect_converge: MEMIO_BISECT_CVG_CFG,
+                refine_converge: MEMIO_REFINE_CVG_CFG,
             },
         }
     }
@@ -740,32 +734,30 @@ impl Bench {
         frac: f64,
         right: &VecDeque<f64>,
     ) {
-        let cbs = cfg.cbs.as_ref().unwrap();
         let mut buf = String::new();
         for v in left.iter().rev() {
             if *v != frac {
-                buf += &(cbs.fmt_pos)(self, *v);
+                buf += &(cfg.fmt_pos)(self, *v);
                 buf += " ";
             }
         }
         buf += "*";
-        buf += &(cbs.fmt_pos)(self, frac);
+        buf += &(cfg.fmt_pos)(self, frac);
         for v in right.iter() {
             if *v != frac {
                 buf += " ";
-                buf += &(cbs.fmt_pos)(self, *v);
+                buf += &(cfg.fmt_pos)(self, *v);
             }
         }
         info!("[ {} ]", buf);
     }
 
     fn bench_memio_saturation_bisect(&mut self, cfg: &MemIoSatCfg) -> f64 {
-        let cbs = cfg.cbs.as_ref().unwrap();
         let mut params: Params = self.params.clone();
         let tf = self.prep_tf(self.tf_size, "memory saturation bench");
         params.p99_lat_target = cfg.lat;
         params.rps_target = self.rps_max;
-        (cbs.set_pos)(&mut params, 10.0 * PCT);
+        (cfg.set_pos)(&mut params, 10.0 * PCT);
 
         let th = self.create_test_hasher(tf, &params, self.report_file.clone());
         //
@@ -778,12 +770,12 @@ impl Bench {
         let mut pos = 0.0;
         loop {
             round += 1;
-            next_pos = (cbs.next_up_pos)(&params, next_pos);
+            next_pos = (cfg.next_up_pos)(&params, next_pos);
             if next_pos.is_none() {
                 break;
             }
             pos = next_pos.unwrap();
-            (cbs.set_pos)(&mut params, pos);
+            (cfg.set_pos)(&mut params, pos);
             th.disp_hist.lock().unwrap().disp.set_params(&params);
 
             info!(
@@ -792,7 +784,7 @@ impl Bench {
                 round,
                 self.rps_max,
                 cfg.pos_prefix,
-                &(cbs.fmt_pos)(self, pos)
+                &(cfg.fmt_pos)(self, pos)
             );
 
             if self.memio_bisect_round(cfg, &cfg.up_converge, &th) {
@@ -803,7 +795,7 @@ impl Bench {
             warn!(
                 "[ {} saturation: {} is too small to saturate? ]",
                 cfg.name,
-                (cbs.fmt_pos)(self, pos),
+                (cfg.fmt_pos)(self, pos),
             );
             return pos;
         }
@@ -823,11 +815,11 @@ impl Bench {
                     cfg.name,
                     self.rps_max,
                     cfg.pos_prefix,
-                    &(cbs.fmt_pos)(self, pos)
+                    &(cfg.fmt_pos)(self, pos)
                 );
                 self.show_bisection(cfg, &left, pos, &right);
 
-                (cbs.set_pos)(&mut params, pos);
+                (cfg.set_pos)(&mut params, pos);
                 th.disp_hist.lock().unwrap().disp.set_params(&params);
 
                 if self.memio_bisect_round(cfg, &cfg.bisect_converge, &th) {
@@ -856,13 +848,13 @@ impl Bench {
                 }
                 pos = right[0];
             };
-            (cbs.set_pos)(&mut params, pos);
+            (cfg.set_pos)(&mut params, pos);
 
             info!(
                 "[ {} saturation: re-verifying the opposite bound, {} {} ]",
                 cfg.name,
                 cfg.pos_prefix,
-                &(cbs.fmt_pos)(self, pos)
+                &(cfg.fmt_pos)(self, pos)
             );
             self.show_bisection(cfg, &left, pos, &right);
 
@@ -891,7 +883,6 @@ impl Bench {
     /// Refine-rounds - Reset to tf_size and walk down from the
     /// saturation point looking for the first full performance point.
     fn bench_memio_saturation_refine(&self, cfg: &MemIoSatCfg) -> f64 {
-        let cbs = cfg.cbs.as_ref().unwrap();
         let mut params: Params = self.params.clone();
         let tf = self.prep_tf(self.tf_size, "memory saturation bench - refine-rounds");
         params.p99_lat_target = cfg.lat;
@@ -904,7 +895,7 @@ impl Bench {
         let mut pos = 0.0;
         loop {
             round += 1;
-            next_pos = (cbs.next_refine_pos)(&params, next_pos);
+            next_pos = (cfg.next_refine_pos)(&params, next_pos);
             if next_pos.is_none() {
                 break;
             }
@@ -916,10 +907,10 @@ impl Bench {
                 round,
                 self.rps_max,
                 cfg.pos_prefix,
-                &(cbs.fmt_pos)(self, pos),
+                &(cfg.fmt_pos)(self, pos),
             );
 
-            (cbs.set_pos)(&mut params, pos);
+            (cfg.set_pos)(&mut params, pos);
             th.disp_hist.lock().unwrap().disp.set_params(&params);
 
             let (rps, err) = self.memio_one_round(cfg, &cfg.refine_converge, &th);
