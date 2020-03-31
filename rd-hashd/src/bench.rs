@@ -79,9 +79,11 @@ struct MemIoSatCfg {
 struct Cfg {
     testfiles_frac: f64,
     mem_buffer: f64,
+    io_buffer: f64,
     cpu: CpuCfg,
     cpu_sat: CpuSatCfg,
     mem_sat: MemIoSatCfg,
+    io_sat: MemIoSatCfg,
 }
 
 const MEMIO_UP_CVG_CFG: ConvergeCfg = ConvergeCfg {
@@ -122,6 +124,7 @@ impl Default for Cfg {
         Self {
             testfiles_frac: 50.0 * PCT,
             mem_buffer: 12.5 * PCT,
+            io_buffer: 25.0 * PCT,
             cpu: CpuCfg {
                 size: 1 << 30,
                 lat: 10.0 * MSEC,
@@ -178,6 +181,41 @@ impl Default for Cfg {
                     _ => None,
                 }),
                 bisect_done: Box::new(|_params, left, right| right - left < 2.5 * PCT),
+
+                lat: 100.0 * MSEC,
+                term_err_good: 10.0 * PCT,
+                term_err_bad: 50.0 * PCT,
+                bisect_err: 25.0 * PCT,
+                refine_err: 10.0 * PCT,
+
+                up_converge: MEMIO_UP_CVG_CFG,
+                bisect_converge: MEMIO_BISECT_CVG_CFG,
+                refine_converge: MEMIO_REFINE_CVG_CFG,
+            },
+            io_sat: MemIoSatCfg {
+                name: "IO".into(),
+                pos_prefix: "padding".into(),
+                fmt_pos: Box::new(|_bench, pos| {
+                    format!("{:.2}k", to_kb(pos))
+                }),
+
+                set_pos: Box::new(|params, pos| params.log_padding = pos as usize),
+
+                next_up_pos: Box::new(|_params, pos| match pos {
+                    None => Some(64.0),
+                    Some(v) if v < 1024.0 => Some(v * 4.0),
+                    Some(v) => Some(v * 2.0),
+                }),
+                next_refine_pos: Box::new(|params, pos| {
+                    let step = 2.5 * PCT * params.log_padding as f64;
+                    let min = 76.0 * PCT * params.log_padding as f64;
+                    match pos {
+                        None => Some(params.log_padding as f64 - step),
+                        Some(v) if v > min => Some(v - step),
+                        _ => None,
+                    }
+                }),
+                bisect_done: Box::new(|_params, left, right| right - left < 5.0 * PCT * right),
 
                 lat: 100.0 * MSEC,
                 term_err_good: 10.0 * PCT,
@@ -319,7 +357,7 @@ impl TestHasher {
             "Converging {}, |slope| <= {:.2}%, |error_slope| <= {:.2}%",
             match which {
                 Lat => "latency",
-                Rps => "rps",
+                Rps => "RPS",
             },
             target_slope * TO_PCT,
             target_err_slope * TO_PCT
@@ -692,14 +730,14 @@ impl Bench {
             if now < cvg_cfg.period / 2 {
                 None
             } else if streak > 0 && rps > rps_max as f64 * (1.0 - cfg.term_err_good) {
-                info!("Rps high enough, using the current values");
+                info!("RPS high enough, using the current values");
                 Some((lat, rps))
             } else if !super::is_rotational()
                 && now >= 2 * cvg_cfg.period
                 && streak < 0
                 && rps < rps_max as f64 * (1.0 - cfg.term_err_bad)
             {
-                info!("Rps too low, using the current values");
+                info!("RPS too low, using the current values");
                 Some((lat, rps))
             } else {
                 None
@@ -717,7 +755,7 @@ impl Bench {
     ) -> bool {
         let (rps, err) = self.memio_one_round(cfg, cvg_cfg, th);
         info!(
-            "Rps: {:.1} ~= {}, error: {:.2}% <= -{:.2}%",
+            "RPS: {:.1} ~= {}, error: {:.2}% <= -{:.2}%",
             rps,
             self.params.rps_max,
             err * TO_PCT,
@@ -753,7 +791,7 @@ impl Bench {
 
     fn bench_memio_saturation_bisect(&mut self, cfg: &MemIoSatCfg) -> f64 {
         let mut params: Params = self.params.clone();
-        let tf = self.prep_tf(self.tf_size, "memory saturation bench");
+        let tf = self.prep_tf(self.tf_size, &format!("{} saturation bench", cfg.name));
         params.p99_lat_target = cfg.lat;
         params.rps_target = self.params.rps_max;
 
@@ -912,7 +950,7 @@ impl Bench {
 
             let (rps, err) = self.memio_one_round(cfg, &cfg.refine_converge, &th);
             info!(
-                "Rps: {:.1} ~= {}, error: |{:.2}%| <= {:.2}%",
+                "RPS: {:.1} ~= {}, error: |{:.2}%| <= {:.2}%",
                 rps,
                 self.params.rps_max,
                 err * TO_PCT,
@@ -965,6 +1003,30 @@ impl Bench {
             to_gb(fsize + asize),
             to_gb(fsize),
             to_gb(asize)
+        );
+
+        //
+        // io bench
+        //
+        self.params.log_padding = self.bench_memio_saturation_bisect(&cfg.io_sat) as usize;
+        info!(
+            "[ IO saturation bisect result: log-padding {:.2}k ]",
+            to_kb(self.params.log_padding)
+        );
+
+        self.params.log_padding = self.bench_memio_saturation_refine(&cfg.io_sat) as usize;
+
+        // IO performance can be fairly variable. Give it some breathing room.
+        self.params.log_padding =
+            (self.params.log_padding as f64 * (100.0 * PCT - cfg.io_buffer)) as usize;
+
+        info!(
+            "Bench results: testfiles {:.2} x {:.2}G, hash {:.2}M, rps {}, log-padding {:.2}k",
+            self.params.file_total_frac,
+            to_gb(self.tf_size),
+            to_mb(self.fsize_mean),
+            self.params.rps_max,
+            to_kb(self.params.log_padding),
         );
 
         // Save results.
