@@ -8,7 +8,7 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-util = { path = "../util" }
+rd-hashd-intf = { path = "../rd-hashd-intf" }
 
 anyhow = "1.0.26"
 clap = "2.33.0"
@@ -16,3 +16,4 @@ chrono = { version = "0.4.10", features = ["serde"] }
 enum-iterator = "0.5.0"
 lazy_static = "1.4.0"
 serde = { version = "1.0.104", features = ["derive"] }
+util = { path = "../util" }

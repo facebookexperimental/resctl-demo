@@ -146,14 +146,16 @@ A knob configures a value between 0.0 and 1.0. A knob command should either have
 a value argument or prompt.
 
 %% knob   hashd-load 0.6
-%% knob   hashd-load             : Set the main workload load level            :
-%% knob   hashd-mem              : Adjust the main workload memory footprint   :
-%% knob   hashd-write            : Adjust the main workload write bandwidth    :
-%% knob   hashd-weight           : The first instance's weight                 :
-%% knob   hashd-B-load           : Set the second workload load level          :
-%% knob   hashd-B-mem            : Adjust the second workload memory footprint :
-%% knob   hashd-B-write          : Adjust the second workload write bandwidth  :
-%% knob   hashd-B-weight         : The second instance's weight                :
+%% knob   hashd-load             : Set main workload load level                :
+%% knob   hashd-mem              : Adjust main workload memory footprint       :
+%% knob   hashd-file             : Adjust main workload pagecache proportion   :
+%% knob   hashd-write            : Adjust main workload write bandwidth        :
+%% knob   hashd-weight           : First instance weight                       :
+%% knob   hashd-B-load           : Set second workload load level              :
+%% knob   hashd-B-mem            : Adjust second workload memory footprint     :
+%% knob   hashd-B-file           : Adjust second workload pagecache proportion :
+%% knob   hashd-B-write          : Adjust second workload write bandwidth      :
+%% knob   hashd-B-weight         : Second instance weight                      :
 
 Reset commands are shortcuts to restore to default configurations.
 

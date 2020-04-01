@@ -57,30 +57,22 @@ impl Hashd {
         Ok(())
     }
 
-    fn update_params(
-        &mut self,
-        knobs: &HashdKnobs,
-        lat: f64,
-        rps_ratio: f64,
-        mem_ratio: f64,
-        write_ratio: f64,
-        frac: f64,
-    ) -> Result<()> {
+    fn update_params(&mut self, knobs: &HashdKnobs, cmd: &HashdCmd, frac: f64) -> Result<()> {
         self.rps_max = ((knobs.rps_max as f64 * frac).round() as u32).max(1);
-        let rps_target = ((self.rps_max as f64 * rps_ratio).round() as u32).max(1);
-        let log_padding = (knobs.log_padding as f64 * (write_ratio / 0.25)) as u64;
+        let rps_target = ((self.rps_max as f64 * cmd.rps_target_ratio).round() as u32).max(1);
+        let log_padding = (knobs.log_padding as f64 * (cmd.write_ratio / 0.25)) as u64;
 
-        let mem_frac = if mem_ratio < 0.5 {
-            knobs.mem_frac * mem_ratio / 0.5
+        let mem_frac = if cmd.mem_ratio < 0.5 {
+            knobs.mem_frac * cmd.mem_ratio / 0.5
         } else {
-            (knobs.mem_frac + (1.0 - knobs.mem_frac) * (mem_ratio - 0.5) / 0.5).min(1.0)
+            (knobs.mem_frac + (1.0 - knobs.mem_frac) * (cmd.mem_ratio - 0.5) / 0.5).min(1.0)
         };
 
         let mut params = rd_hashd_intf::Params::load(&self.params_path)?;
         let mut changed = false;
 
-        if params.p99_lat_target != lat {
-            params.p99_lat_target = lat;
+        if params.p99_lat_target != cmd.lat_target {
+            params.p99_lat_target = cmd.lat_target;
             changed = true;
         }
         if params.rps_max != self.rps_max {
@@ -93,6 +85,10 @@ impl Hashd {
         }
         if params.mem_frac != mem_frac {
             params.mem_frac = mem_frac;
+            changed = true;
+        }
+        if params.file_frac != cmd.file_ratio {
+            params.file_frac = cmd.file_ratio;
             changed = true;
         }
         if params.log_padding != log_padding {
@@ -108,7 +104,7 @@ impl Hashd {
                     .unwrap()
                     .file_name()
                     .unwrap(),
-                lat * TO_MSEC,
+                cmd.lat_target * TO_MSEC,
                 rps_target,
                 mem_frac * TO_PCT,
                 to_kb(log_padding),
@@ -234,14 +230,7 @@ impl HashdSet {
         // adjust the params files
         for i in 0..2 {
             if fracs[i] != 0.0 {
-                self.hashd[i].update_params(
-                    knobs,
-                    cmd[i].lat_target,
-                    cmd[i].rps_target_ratio,
-                    cmd[i].mem_ratio,
-                    cmd[i].write_ratio,
-                    fracs[i],
-                )?;
+                self.hashd[i].update_params(knobs, &cmd[i], fracs[i])?;
             }
         }
 

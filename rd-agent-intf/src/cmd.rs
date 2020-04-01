@@ -1,9 +1,13 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
+use lazy_static::lazy_static;
+use rd_hashd_intf::Params;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use util::*;
 
-const CMD_DOC: &str = "\
+lazy_static! {
+    static ref CMD_DOC: String = format!(
+        "\
 //
 // rd-agent command file
 //
@@ -33,13 +37,17 @@ const CMD_DOC: &str = "\
 //  hashd[].lat_target: Latency target, defaults to 0.1 meaning 100ms
 //  hashd[].rps_target_ratio: RPS target as a ratio of bench::hashd.rps_max,
 //                            if >> 1.0, no practical rps limit
-//  hashd[].mem_ratio: Memory footprint adj [0.0, 1.0], defaults to 0.5
-//  hashd[].write_ratio: IO write bandwidth adj [0.0, 1.0]. defaults to 0.25
+//  hashd[].mem_ratio: Memory footprint adj [0.0, 1.0], default 0.5
+//  hashd[].file_ratio: Pagecache portion of memory [0.0, 1.0], default ${dfl_file_ratio}
+//  hashd[].write_ratio: IO write bandwidth adj [0.0, 1.0]. default 0.25
 //  hashd[].weight: Relative weight between the two hashd instances
-//  sysloads{}: \"NAME\": \"DEF_ID\" pairs for active sysloads
-//  sideloads{}: \"NAME\": \"DEF_ID\" pairs for active sideloads
+//  sysloads{{}}: \"NAME\": \"DEF_ID\" pairs for active sysloads
+//  sideloads{{}}: \"NAME\": \"DEF_ID\" pairs for active sideloads
 //
-";
+",
+        dfl_file_ratio = Params::DFL_FILE_FRAC,
+    );
+}
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SideloaderCmd {
@@ -52,6 +60,7 @@ pub struct HashdCmd {
     pub lat_target: f64,
     pub rps_target_ratio: f64,
     pub mem_ratio: f64,
+    pub file_ratio: f64,
     pub write_ratio: f64,
     pub weight: f64,
 }
@@ -63,6 +72,7 @@ impl Default for HashdCmd {
             lat_target: 100.0 * MSEC,
             rps_target_ratio: 10.0,
             mem_ratio: 0.5,
+            file_ratio: Params::DFL_FILE_FRAC,
             write_ratio: 0.25,
             weight: 1.0,
         }
@@ -97,6 +107,6 @@ impl JsonLoad for Cmd {}
 
 impl JsonSave for Cmd {
     fn preamble() -> Option<String> {
-        Some(CMD_DOC.to_string())
+        Some(CMD_DOC.clone())
     }
 }
