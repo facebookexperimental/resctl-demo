@@ -123,8 +123,8 @@ impl Default for Cfg {
     fn default() -> Self {
         Self {
             testfiles_frac: 50.0 * PCT,
-            mem_buffer: 12.5 * PCT,
-            io_buffer: 25.0 * PCT,
+            mem_buffer: 15.0 * PCT,
+            io_buffer: 75.0 * PCT,
             cpu: CpuCfg {
                 size: 1 << 30,
                 lat: 10.0 * MSEC,
@@ -1006,8 +1006,9 @@ impl Bench {
             self.params.file_total_frac = self.bench_memio_saturation_refine(&cfg.mem_sat);
 
             // Longer-runs might need more memory due to access from
-            // accumulating long tails and other system disturbances. Lower the
-            // pos to give the system some breathing room.
+            // accumulating long tails and other system disturbances. Plus, IO
+            // saturation will come out of the buffer left by memory saturation.
+            // Lower the pos to give the system some breathing room.
             self.params.file_total_frac *= 100.0 * PCT - cfg.mem_buffer;
 
             let (fsize, asize) = self.mem_sizes(self.params.file_total_frac);
@@ -1034,7 +1035,9 @@ impl Bench {
 
             self.params.log_padding = self.bench_memio_saturation_refine(&cfg.io_sat) as u64;
 
-            // IO performance can be fairly variable. Give it some breathing room.
+            // On some SSDs, performance degrades significantly after sustained
+            // writes. We need to stay well below the measured saturation point
+            // to hold performance stable.
             self.params.log_padding =
                 (self.params.log_padding as f64 * (100.0 * PCT - cfg.io_buffer)) as u64;
         } else {
