@@ -123,7 +123,7 @@ impl Default for Params {
             cpu_ratio: 100.0 * PCT,
             log_padding: 0,
             lat_pid: PidParams {
-                kp: 0.25,
+                kp: 0.1,
                 ki: 0.01,
                 kd: 0.01,
             },
