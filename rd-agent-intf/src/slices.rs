@@ -3,6 +3,7 @@ use anyhow::Result;
 use enum_iterator::IntoEnumIterator;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use std::ops::{Index, IndexMut};
 use util::*;
 
 const SLICE_DOC: &str = "\
@@ -194,5 +195,19 @@ impl SliceKnobs {
     pub fn controlls_disabled(&self, seq: u64) -> bool {
         let dseqs = &self.disable_seqs;
         dseqs.cpu >= seq || dseqs.mem >= seq || dseqs.io >= seq
+    }
+}
+
+impl Index<Slice> for SliceKnobs {
+    type Output = SliceConfig;
+
+    fn index(&self, slc: Slice) -> &Self::Output {
+        self.slices.get(slc.name()).unwrap()
+    }
+}
+
+impl IndexMut<Slice> for SliceKnobs {
+    fn index_mut(&mut self, slc: Slice) -> &mut Self::Output {
+        self.slices.get_mut(slc.name()).unwrap()
     }
 }

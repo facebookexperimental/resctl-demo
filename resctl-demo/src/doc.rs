@@ -213,6 +213,8 @@ fn exec_cmd(siv: &mut Cursive, cmd: &RdCmd) {
             RdKnob::HashdBWrite => cs.hashd[1].write_ratio = *val,
             RdKnob::HashdAWeight => cs.hashd[0].weight = *val,
             RdKnob::HashdBWeight => cs.hashd[1].weight = *val,
+            RdKnob::SysCpuRatio => cs.sys_cpu_ratio = *val,
+            RdKnob::SysIoRatio => cs.sys_io_ratio = *val,
         },
         RdCmd::Reset(reset) => {
             fn reset_hashds(cs: &mut CmdState) {
@@ -398,6 +400,8 @@ fn refresh_knobs(siv: &mut Cursive, cs: &CmdState) {
     refresh_one_knob(siv, RdKnob::HashdBWrite, cs.hashd[1].write_ratio);
     refresh_one_knob(siv, RdKnob::HashdAWeight, cs.hashd[0].weight);
     refresh_one_knob(siv, RdKnob::HashdBWeight, cs.hashd[1].weight);
+    refresh_one_knob(siv, RdKnob::SysCpuRatio, cs.sys_cpu_ratio);
+    refresh_one_knob(siv, RdKnob::SysIoRatio, cs.sys_io_ratio);
 }
 
 fn refresh_docs(siv: &mut Cursive) {

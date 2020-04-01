@@ -360,10 +360,8 @@ pub fn layout_factory() -> Box<impl View> {
 
     let view = LinearLayout::vertical()
         .child(
-            BoxedView::new(journal::layout_factory(JournalViewId::AgentLauncher)).resized(
-                SizeConstraint::Full,
-                SizeConstraint::Full,
-            ),
+            BoxedView::new(journal::layout_factory(JournalViewId::AgentLauncher))
+                .resized(SizeConstraint::Full, SizeConstraint::Full),
         )
         .child(DummyView)
         .child(TextView::new(HELP_INTRO.clone()))

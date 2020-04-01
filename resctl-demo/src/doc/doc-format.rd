@@ -156,6 +156,9 @@ a value argument or prompt.
 %% knob   hashd-B-file           : Adjust second workload pagecache proportion :
 %% knob   hashd-B-write          : Adjust second workload write bandwidth      :
 %% knob   hashd-B-weight         : Second instance weight                      :
+%%
+%% knob   sys-cpu-ratio          : system CPU weight compared to workload      :
+%% knob   sys-io-ratio           : system IO weight compared to workload       :
 
 Reset commands are shortcuts to restore to default configurations.
 

@@ -47,6 +47,8 @@ pub enum RdKnob {
     HashdBWrite,
     HashdAWeight,
     HashdBWeight,
+    SysCpuRatio,
+    SysIoRatio,
 }
 
 #[derive(Debug, Clone)]
@@ -276,6 +278,8 @@ impl RdCmd {
                     "hashd-B-file" => RdKnob::HashdBFile,
                     "hashd-B-write" => RdKnob::HashdBWrite,
                     "hashd-B-weight" => RdKnob::HashdBWeight,
+                    "sys-cpu-ratio" => RdKnob::SysCpuRatio,
+                    "sys-io-ratio" => RdKnob::SysIoRatio,
                     _ => bail!("invalid knob target"),
                 };
                 RdCmd::Knob(knob, val)
