@@ -249,8 +249,9 @@ fn main() {
     //
     // Start the hasher.
     //
-    let fsize = args.size as f64 * params.file_total_frac;
-    let asize = fsize * params.anon_total_ratio;
+    let size = args.size as f64 * params.mem_frac;
+    let fsize = (size * params.file_frac).min(size);
+    let asize = size - fsize;
     info!(
         "Starting hasher (maxcon={} lat={:.1}ms rps={} file={:.2}G anon={:.2}G)",
         params.max_concurrency,

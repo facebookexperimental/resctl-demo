@@ -68,8 +68,13 @@ impl Hashd {
     ) -> Result<()> {
         self.rps_max = ((knobs.rps_max as f64 * frac).round() as u32).max(1);
         let rps_target = ((self.rps_max as f64 * rps_ratio).round() as u32).max(1);
-        let file_total_frac = knobs.mem_frac * (mem_ratio / 0.5) * frac;
         let log_padding = (knobs.log_padding as f64 * (write_ratio / 0.25)) as u64;
+
+        let mem_frac = if mem_ratio < 0.5 {
+            knobs.mem_frac * mem_ratio / 0.5
+        } else {
+            (knobs.mem_frac + (1.0 - knobs.mem_frac) * (mem_ratio - 0.5) / 0.5).min(1.0)
+        };
 
         let mut params = rd_hashd_intf::Params::load(&self.params_path)?;
         let mut changed = false;
@@ -86,8 +91,8 @@ impl Hashd {
             params.rps_target = rps_target;
             changed = true;
         }
-        if params.file_total_frac != file_total_frac {
-            params.file_total_frac = file_total_frac;
+        if params.mem_frac != mem_frac {
+            params.mem_frac = mem_frac;
             changed = true;
         }
         if params.log_padding != log_padding {
@@ -97,7 +102,7 @@ impl Hashd {
 
         if changed {
             info!(
-                "hashd: Updating {:?} to lat={:.2}ms rps={:.2} log_padding={:.2}k frac={:.2}",
+                "hashd: Updating {:?} to lat={:.2}ms rps={:.2} mem={:.2}% log={:.2}k frac={:.2}",
                 AsRef::<Path>::as_ref(&self.params_path)
                     .parent()
                     .unwrap()
@@ -105,6 +110,7 @@ impl Hashd {
                     .unwrap(),
                 lat * TO_MSEC,
                 rps_target,
+                mem_frac * TO_PCT,
                 to_kb(log_padding),
                 frac
             );

@@ -49,12 +49,12 @@ const PARAMS_DOC: &str = "\
 //  p99_lat_target: 99th percentile latency target
 //  rps_target: Request-per-second target
 //  rps_max: Reference maximum RPS, used to scale the amount of used memory
-//  file_total_frac: How much of total testfiles to use
+//  mem_frac: Memory footprint scaling factor - [0.0, 1.0]
+//  file_frac: Page cache proportion of memory footprint - [0.0, 1.0]
 //  file_size_mean: File access size average
 //  file_size_stdev_ratio: Standard deviation of file access sizes
 //  file_addr_stdev_ratio: Standard deviation of file access addresses
 //  file_addr_rps_base_frac: Memory scaling starting point for file accesses
-//  anon_total_ratio: Anonymous memory amount - 1.0 means equal size as file
 //  anon_size_ratio: Anon access size average - 1.0 means equal as file accesses
 //  anon_size_stdev_ratio: Standard deviation of anon access sizes
 //  anon_addr_stdev_ratio: Standard deviation of anon access addresses
@@ -77,12 +77,12 @@ pub struct Params {
     pub p99_lat_target: f64,
     pub rps_target: u32,
     pub rps_max: u32,
-    pub file_total_frac: f64,
+    pub mem_frac: f64,
+    pub file_frac: f64,
     pub file_size_mean: usize,
     pub file_size_stdev_ratio: f64,
     pub file_addr_stdev_ratio: f64,
     pub file_addr_rps_base_frac: f64,
-    pub anon_total_ratio: f64,
     pub anon_size_ratio: f64,
     pub anon_size_stdev_ratio: f64,
     pub anon_addr_stdev_ratio: f64,
@@ -97,7 +97,6 @@ pub struct Params {
 
 impl Params {
     pub const DFL_STDEV: f64 = 0.333333; /* 3 sigma == mean */
-    pub const DFL_ANON_RATIO: f64 = 400.0 * PCT;
 }
 
 impl Default for Params {
@@ -108,16 +107,16 @@ impl Default for Params {
             p99_lat_target: 100.0 * MSEC,
             rps_target: 65536,
             rps_max: 0,
-            file_total_frac: 100.0 * PCT,
+            mem_frac: 80.0 * PCT,
+            file_frac: 25.0 * PCT,
             file_size_mean: 4 << 20,
             file_size_stdev_ratio: Self::DFL_STDEV,
             file_addr_stdev_ratio: Self::DFL_STDEV,
-            file_addr_rps_base_frac: 50.0 * PCT,
-            anon_total_ratio: Self::DFL_ANON_RATIO,
-            anon_size_ratio: Self::DFL_ANON_RATIO,
+            file_addr_rps_base_frac: 25.0 * PCT,
+            anon_size_ratio: 100.0 * PCT,
             anon_size_stdev_ratio: Self::DFL_STDEV,
             anon_addr_stdev_ratio: Self::DFL_STDEV,
-            anon_addr_rps_base_frac: 10.0 * PCT,
+            anon_addr_rps_base_frac: 25.0 * PCT,
             sleep_mean: 30.0 * MSEC,
             sleep_stdev_ratio: Self::DFL_STDEV,
             cpu_ratio: 100.0 * PCT,

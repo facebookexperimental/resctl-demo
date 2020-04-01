@@ -3,7 +3,6 @@ use clap::{App, AppSettings, ArgMatches};
 use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
 
-use super::Params;
 use util::*;
 
 const HELP_BODY: &str = "\
@@ -104,7 +103,7 @@ lazy_static! {
         let dfl: Args = Default::default();
         format!(
             "-t, --testfiles=[DIR]   'Testfiles directory'
-             -s, --size=[SIZE]       'Total number of bytes in testfiles (default: {dfl_size:.2}G)'
+             -s, --size=[SIZE]       'Max memory footprint, testfiles size (default: {dfl_size:.2}G)'
              -p, --params=[FILE]     'Runtime updatable parameters, will be created if non-existent'
              -r, --report=[FILE]     'Runtime report file, FILE.staging will be used for staging'
              -l, --log-dir=[PATH]    'Record hash results to the files in PATH'
@@ -167,8 +166,7 @@ pub struct Args {
 
 impl Default for Args {
     fn default() -> Self {
-        let tf_frac = 0.8 / (Params::DFL_ANON_RATIO + 1.0);
-        let size: u64 = (*TOTAL_MEMORY as f64 * tf_frac) as u64;
+        let size: u64 = *TOTAL_MEMORY as u64;
 
         Self {
             testfiles: None,

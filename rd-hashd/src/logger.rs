@@ -3,7 +3,7 @@ use anyhow::{anyhow, Result};
 use chrono::prelude::*;
 use crossbeam::channel::{self, Receiver, Sender};
 use glob::glob;
-use log::{debug, warn, error};
+use log::{debug, error, warn};
 use scan_fmt::scan_fmt;
 use std::cmp;
 use std::collections::VecDeque;
