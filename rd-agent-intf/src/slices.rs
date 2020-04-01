@@ -10,9 +10,7 @@ const SLICE_DOC: &str = "\
 //
 // rd-agent top-level systemd slice resource configurations
 //
-// Memory configuration can be one of None, Size and Ratio,
-// respectively indicating no configuration, absolute number of bytes
-// and ratio of the total system memory.
+// Memory configuration can be either None or Bytes.
 //
 //  disable_seqs.cpu: Disable CPU control if >= report::seq
 //  disable_seqs.mem: Disable memory control if >= report::seq
@@ -62,8 +60,7 @@ impl Slice {
 #[derive(Debug, Copy, Clone, PartialEq, Serialize, Deserialize)]
 pub enum MemoryKnob {
     None,
-    Ratio(f64),
-    Size(u64),
+    Bytes(u64),
 }
 
 impl Default for MemoryKnob {
@@ -80,8 +77,7 @@ impl MemoryKnob {
         };
         match self {
             Self::None => nocfg,
-            Self::Ratio(r) => (*TOTAL_MEMORY as f64 * r) as u64,
-            Self::Size(s) => *s,
+            Self::Bytes(s) => *s,
         }
     }
 }
@@ -112,16 +108,16 @@ impl SliceConfig {
         match slice {
             Slice::Init => Self {
                 cpu_weight: 10,
-                mem_min: MemoryKnob::Size(16 << 20),
+                mem_min: MemoryKnob::Bytes(16 << 20),
                 ..Default::default()
             },
             Slice::Host => Self {
                 cpu_weight: 10,
-                mem_min: MemoryKnob::Size(128 << 20),
+                mem_min: MemoryKnob::Bytes(128 << 20),
                 ..Default::default()
             },
             Slice::User => Self {
-                mem_low: MemoryKnob::Ratio(10.0 * PCT),
+                mem_low: MemoryKnob::Bytes((*TOTAL_MEMORY / 10) as u64),
                 ..Default::default()
             },
             Slice::Sys => Self {
@@ -130,13 +126,13 @@ impl SliceConfig {
             },
             Slice::Work => Self {
                 io_weight: 400,
-                mem_low: MemoryKnob::Ratio(75.0 * PCT),
+                mem_low: MemoryKnob::Bytes((*TOTAL_MEMORY * 3 / 4) as u64),
                 ..Default::default()
             },
             Slice::Side => Self {
                 cpu_weight: 1,
                 io_weight: 1,
-                mem_high: MemoryKnob::Ratio(50.0 * PCT),
+                mem_high: MemoryKnob::Bytes((*TOTAL_MEMORY / 2) as u64),
                 ..Default::default()
             },
         }
