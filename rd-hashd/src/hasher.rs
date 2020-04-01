@@ -245,7 +245,7 @@ impl DispatchThread {
             ClampedNormal::new(
                 size_mean,
                 size_stdev,
-                tf.file_size() as f64,
+                tf.unit_size as f64,
                 2.0 * size_mean as f64,
             ),
             ClampedNormal::new(0.0, params.file_addr_stdev_ratio, -1.0, 1.0),
@@ -253,8 +253,7 @@ impl DispatchThread {
     }
 
     fn anon_total(params: &Params, tf: &TestFiles) -> usize {
-        ((tf.nr_files() * tf.file_size()) as f64 * params.file_total_frac * params.anon_total_ratio)
-            as usize
+        (tf.size as f64 * params.file_total_frac * params.anon_total_ratio) as usize
     }
 
     fn anon_normals(params: &Params) -> (ClampedNormal, f64) {
@@ -448,10 +447,10 @@ impl DispatchThread {
 
         while self.nr_in_flight < self.concurrency as u32 {
             // Determine input size and indices.
-            let nr_files = (fsn.sample() / tf.file_size() as f64).round() as u64;
+            let nr_files = (fsn.sample() / tf.unit_size as f64).round() as u64;
             let ids: Vec<u64> = (0..nr_files)
                 .map(|_| {
-                    Self::rel_to_file_idx(fin.sample() * faf, tf.nr_files(), params.file_total_frac)
+                    Self::rel_to_file_idx(fin.sample() * faf, tf.nr_files, params.file_total_frac)
                 })
                 .collect();
             let paths: Vec<PathBuf> = ids.iter().map(|&id| tf.path(id)).collect();

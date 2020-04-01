@@ -3,7 +3,6 @@ use chrono::prelude::*;
 use console::Term;
 use indicatif::{ProgressBar, ProgressStyle};
 use log::{debug, error, info, warn};
-use num::Integer;
 use std::process::exit;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::sleep;
@@ -59,20 +58,20 @@ fn report_tick(rf: &mut JsonReportFile<Report>, throttle: bool) {
 struct TestFilesProgressBar {
     bar: ProgressBar,
     log: bool,
-    nr_files: u64,
+    size: u64,
     last_at: Instant,
     last_pos: u64,
 }
 
 impl TestFilesProgressBar {
-    fn new(nr_files: u64, hidden: bool) -> Self {
+    fn new(size: u64, hidden: bool) -> Self {
         let tfbar = Self {
             bar: match hidden {
-                false => ProgressBar::new(nr_files as u64 * TESTFILE_UNIT_SIZE),
+                false => ProgressBar::new(size),
                 true => ProgressBar::hidden(),
             },
             log: !hidden && !Term::stderr().is_term(),
-            nr_files,
+            size,
             last_at: Instant::now(),
             last_pos: 0,
         };
@@ -84,8 +83,8 @@ impl TestFilesProgressBar {
     }
 
     fn progress(&mut self, pos: u64) {
-        if pos < self.nr_files {
-            self.bar.set_position(pos * TESTFILE_UNIT_SIZE);
+        if pos < self.size {
+            self.bar.set_position(pos);
         } else {
             self.bar.finish_and_clear();
         }
@@ -104,9 +103,9 @@ impl TestFilesProgressBar {
 
         info!(
             "testfiles: {:6.2}% ({:.2}G / {:.2}G)",
-            pos as f64 / self.nr_files as f64 * TO_PCT,
-            to_gb(pos * TESTFILE_UNIT_SIZE),
-            to_gb(self.nr_files * TESTFILE_UNIT_SIZE)
+            pos as f64 / self.size as f64 * TO_PCT,
+            to_gb(pos),
+            to_gb(self.size)
         );
     }
 }
@@ -121,7 +120,12 @@ fn create_logger(args: &Args, params: &Params, quiet: bool) -> Option<Logger> {
                     to_gb(args.log_size),
                 );
             }
-            match Logger::new(log_dir, params.log_padding, LOGFILE_UNIT_SIZE, args.log_size) {
+            match Logger::new(
+                log_dir,
+                params.log_padding,
+                LOGFILE_UNIT_SIZE,
+                args.log_size,
+            ) {
                 Ok(lg) => Some(lg),
                 Err(e) => {
                     error!("Failed to initialize hash log dir ({:?})", &e);
@@ -166,8 +170,7 @@ fn main() {
     // Create the testfiles root dir and determine whether we're on rotational
     // devices.
     //
-    let nr_files = args.size.div_ceil(&TESTFILE_UNIT_SIZE);
-    let mut tf = TestFiles::new(tf_path, TESTFILE_UNIT_SIZE, nr_files);
+    let mut tf = TestFiles::new(tf_path, TESTFILE_UNIT_SIZE, args.size);
     tf.prep_base_dir().unwrap();
 
     ROTATIONAL_TESTFILES.store(storage_info::is_path_rotational(tf_path), Ordering::Relaxed);
@@ -208,16 +211,16 @@ fn main() {
         info!(
             "Populating {} with {} {}M files ({:.2}G)",
             tf_path,
-            nr_files,
+            tf.nr_files,
             to_mb(TESTFILE_UNIT_SIZE),
             to_gb(args.size)
         );
 
         // Lay out the testfiles while reporting progress.
-        let mut tfbar = TestFilesProgressBar::new(nr_files, args.verbosity > 0);
+        let mut tfbar = TestFilesProgressBar::new(args.size, args.verbosity > 0);
         tf.setup(|pos| {
             tfbar.progress(pos);
-            report_file.data.testfiles_progress = pos as f64 / nr_files as f64;
+            report_file.data.testfiles_progress = pos as f64 / args.size as f64;
             report_tick(&mut report_file, true);
         })
         .unwrap();

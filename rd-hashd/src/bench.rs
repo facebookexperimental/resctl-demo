@@ -2,7 +2,6 @@
 use crossbeam::channel::{self, select, tick, Receiver, Sender};
 use linreg::linear_regression_of;
 use log::{debug, info, warn};
-use num::Integer;
 use pid::Pid;
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
@@ -578,18 +577,17 @@ impl Bench {
     fn prep_tf(&self, size: u64, why: &str) -> TestFiles {
         info!("Preparing {:.2}G testfiles for {}", to_gb(size), why);
 
-        let nr_files = size.div_ceil(&TESTFILE_UNIT_SIZE);
         let mut tf = TestFiles::new(
             self.args_file.data.testfiles.as_ref().unwrap(),
             TESTFILE_UNIT_SIZE,
-            nr_files,
+            size,
         );
-        let mut tfbar = TestFilesProgressBar::new(nr_files, self.bar_hidden);
+        let mut tfbar = TestFilesProgressBar::new(size, self.bar_hidden);
         let mut report_file = self.report_file.lock().unwrap();
 
         tf.setup(|pos| {
             tfbar.progress(pos);
-            report_file.data.testfiles_progress = pos as f64 / nr_files as f64;
+            report_file.data.testfiles_progress = pos as f64 / size as f64;
             report_tick(&mut report_file, true);
         })
         .unwrap();
