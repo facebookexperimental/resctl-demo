@@ -111,14 +111,13 @@ impl Hashd {
         Ok(())
     }
 
-    fn update_resctl(&mut self, knobs: &HashdKnobs, frac: f64) -> Result<()> {
-        let mem_size = knobs.actual_mem_size() as f64 * frac;
+    fn update_resctl(&mut self, mem_low: u64, frac: f64) -> Result<()> {
         let mut svc = self.svc.as_mut().unwrap();
 
         svc.unit.resctl = systemd::UnitResCtl {
             cpu_weight: Some((100.0 * frac).ceil() as u64),
             io_weight: Some((100.0 * frac).ceil() as u64),
-            mem_low: Some((mem_size * 0.75).ceil() as u64),
+            mem_low: Some((mem_low as f64 * frac).ceil() as u64),
             ..Default::default()
         };
 
@@ -211,7 +210,7 @@ impl HashdSet {
         }
     }
 
-    pub fn apply(&mut self, cmd: &[HashdCmd; 2], knobs: &HashdKnobs) -> Result<()> {
+    pub fn apply(&mut self, cmd: &[HashdCmd; 2], knobs: &HashdKnobs, mem_low: u64) -> Result<()> {
         let fracs = Self::weights_to_fracs(cmd);
         debug!("hashd: fracs={:?}", &fracs);
 
@@ -240,7 +239,7 @@ impl HashdSet {
         for i in 0..2 {
             if self.hashd[i].svc.is_some() {
                 debug!("hashd: updating resctl on {:?}", &self.hashd[i].name);
-                self.hashd[i].update_resctl(knobs, fracs[i])?;
+                self.hashd[i].update_resctl(mem_low, fracs[i])?;
             }
         }
 

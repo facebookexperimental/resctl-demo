@@ -12,7 +12,7 @@ use std::sync::Mutex;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use util::*;
 
-use rd_agent_intf::{AGENT_SVC_NAME, DFL_TOP};
+use rd_agent_intf::{Slice, AGENT_SVC_NAME, DFL_TOP};
 
 use super::doc;
 use super::journal::JournalViewId;
@@ -202,6 +202,7 @@ impl AgentMinder {
         self.started_at = SystemTime::now();
         let mut svc =
             TransientService::new_sys(AGENT_SVC_NAME.into(), args, Vec::new(), Some(0o002))?;
+        svc.set_slice(Slice::Host.name());
         svc.keep = self.keep;
         self.svc.replace(svc);
         self.svc.as_mut().unwrap().start()

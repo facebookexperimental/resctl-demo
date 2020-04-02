@@ -24,7 +24,7 @@ const OOMD_RULE_OVERVIEW: &str = r#"
                     {
                         "name": "dump_cgroup_overview",
                         "args": {
-                            "cgroup": "workload.slice"
+                            "cgroup": "workload.slice,system.slice"
                         }
                     }
                 ]
@@ -43,7 +43,7 @@ const OOMD_RULE_MEMORY: &str = r#"
             "name": "protection against heavy __SLICE__ thrashing",
             "detectors": [
                 [
-                    "__SLICE__ thrashes for a long time",
+                    "Sustained thrashing in __SLICE__",
                     {
                         "name": "pressure_above",
                         "args": {

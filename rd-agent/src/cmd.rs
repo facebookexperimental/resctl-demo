@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 use systemd::UnitState as US;
 use util::*;
 
-use rd_agent_intf::{RunnerState, SysReq};
+use rd_agent_intf::{RunnerState, Slice, SysReq};
 
 use super::hashd::HashdSet;
 use super::side::{SideRunner, Sideload, Sysload};
@@ -131,8 +131,11 @@ impl RunnerData {
     fn apply_workloads(&mut self) -> Result<()> {
         let cmd = &self.sobjs.cmd_file.data;
         let bench = &self.sobjs.bench_file.data;
+        let mem_low = self.sobjs.slice_file.data[Slice::Work]
+            .mem_low
+            .nr_bytes(false);
 
-        self.hashd_set.apply(&cmd.hashd, &bench.hashd)?;
+        self.hashd_set.apply(&cmd.hashd, &bench.hashd, mem_low)?;
         Ok(())
     }
 

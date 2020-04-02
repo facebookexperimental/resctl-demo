@@ -375,12 +375,14 @@ fn verify_and_fix_one_slice(
             verify_and_fix_cgrp_mem(&(path.to_string() + "/memory.high"), true, sk.mem_high)?;
         }
 
-        if !recursive_mem_prot && propagate_mem_prot(slice) {
-            verify_and_fix_mem_prot(path, "memory.min", sk.mem_min)?;
-            verify_and_fix_mem_prot(path, "memory.low", sk.mem_low)?;
-        } else {
-            verify_and_fix_mem_prot(path, "memory.min", MemoryKnob::Bytes(0))?;
-            verify_and_fix_mem_prot(path, "memory.low", MemoryKnob::Bytes(0))?;
+        if propagate_mem_prot(slice) {
+            if !recursive_mem_prot {
+                verify_and_fix_mem_prot(path, "memory.min", sk.mem_min)?;
+                verify_and_fix_mem_prot(path, "memory.low", sk.mem_low)?;
+            } else {
+                verify_and_fix_mem_prot(path, "memory.min", MemoryKnob::Bytes(0))?;
+                verify_and_fix_mem_prot(path, "memory.low", MemoryKnob::Bytes(0))?;
+            }
         }
     }
 
