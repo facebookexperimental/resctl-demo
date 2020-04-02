@@ -5,6 +5,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use util::*;
 
+pub const HASHD_CMD_WRITE_RATIO_MAX_MULT: u64 = 10;
+
 lazy_static! {
     static ref CMD_DOC: String = format!(
         "\
@@ -39,7 +41,7 @@ lazy_static! {
 //                            if >> 1.0, no practical rps limit
 //  hashd[].mem_ratio: Memory footprint adj [0.0, 1.0], default 0.5
 //  hashd[].file_ratio: Pagecache portion of memory [0.0, 1.0], default ${dfl_file_ratio}
-//  hashd[].write_ratio: IO write bandwidth adj [0.0, 1.0]. default 0.25
+//  hashd[].write_ratio: IO write bandwidth adj [0.0, 1.0]. default 0.5
 //  hashd[].weight: Relative weight between the two hashd instances
 //  sysloads{{}}: \"NAME\": \"DEF_ID\" pairs for active sysloads
 //  sideloads{{}}: \"NAME\": \"DEF_ID\" pairs for active sideloads
@@ -73,7 +75,7 @@ impl Default for HashdCmd {
             rps_target_ratio: 10.0,
             mem_ratio: 0.5,
             file_ratio: Params::DFL_FILE_FRAC,
-            write_ratio: 0.25,
+            write_ratio: 0.5,
             weight: 1.0,
         }
     }

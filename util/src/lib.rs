@@ -56,7 +56,7 @@ pub fn to_gb<T>(size: T) -> f64
 where
     T: num::ToPrimitive,
 {
-    let size_f64: f64 = size.to_f64().unwrap();
+    let size_f64 = size.to_f64().unwrap();
     size_f64 / (1 << 30) as f64
 }
 
@@ -64,7 +64,7 @@ pub fn to_mb<T>(size: T) -> f64
 where
     T: num::ToPrimitive,
 {
-    let size_f64: f64 = size.to_f64().unwrap();
+    let size_f64 = size.to_f64().unwrap();
     size_f64 / (1 << 20) as f64
 }
 
@@ -72,8 +72,27 @@ pub fn to_kb<T>(size: T) -> f64
 where
     T: num::ToPrimitive,
 {
-    let size_f64: f64 = size.to_f64().unwrap();
+    let size_f64 = size.to_f64().unwrap();
     size_f64 / (1 << 10) as f64
+}
+
+pub fn scale_ratio<T>(ratio: f64, (left, mid, right): (T, T, T)) -> T
+where
+    T: PartialOrd + num::FromPrimitive + num::ToPrimitive,
+{
+    let (left_f64, mid_f64, right_f64) = (
+        left.to_f64().unwrap(),
+        mid.to_f64().unwrap(),
+        right.to_f64().unwrap(),
+    );
+
+    let v = if ratio < 0.5 {
+        left_f64 + (mid_f64 - left_f64) * ratio / 0.5
+    } else {
+        mid_f64 + (right_f64 - mid_f64) * (ratio - 0.5) / 0.5
+    };
+
+    num::clamp(T::from_f64(v).unwrap(), left, right)
 }
 
 fn is_executable<P: AsRef<Path>>(path_in: P) -> bool {

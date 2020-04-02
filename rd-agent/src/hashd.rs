@@ -7,7 +7,10 @@ use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 use util::*;
 
-use rd_agent_intf::{HashdCmd, HashdKnobs, HashdReport, Slice, HASHD_A_SVC_NAME, HASHD_B_SVC_NAME};
+use rd_agent_intf::{
+    HashdCmd, HashdKnobs, HashdReport, Slice, HASHD_A_SVC_NAME, HASHD_B_SVC_NAME,
+    HASHD_CMD_WRITE_RATIO_MAX_MULT,
+};
 use rd_hashd_intf;
 
 use super::Config;
@@ -60,13 +63,15 @@ impl Hashd {
     fn update_params(&mut self, knobs: &HashdKnobs, cmd: &HashdCmd, frac: f64) -> Result<()> {
         self.rps_max = ((knobs.rps_max as f64 * frac).round() as u32).max(1);
         let rps_target = ((self.rps_max as f64 * cmd.rps_target_ratio).round() as u32).max(1);
-        let log_padding = (knobs.log_padding as f64 * (cmd.write_ratio / 0.25)) as u64;
-
-        let mem_frac = if cmd.mem_ratio < 0.5 {
-            knobs.mem_frac * cmd.mem_ratio / 0.5
-        } else {
-            (knobs.mem_frac + (1.0 - knobs.mem_frac) * (cmd.mem_ratio - 0.5) / 0.5).min(1.0)
-        };
+        let mem_frac = scale_ratio(cmd.mem_ratio, (0.0, knobs.mem_frac, 1.0));
+        let log_padding = scale_ratio(
+            cmd.write_ratio,
+            (
+                0,
+                knobs.log_padding,
+                knobs.log_padding * HASHD_CMD_WRITE_RATIO_MAX_MULT,
+            ),
+        );
 
         let mut params = rd_hashd_intf::Params::load(&self.params_path)?;
         let mut changed = false;
