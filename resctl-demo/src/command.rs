@@ -3,9 +3,10 @@ use anyhow::Result;
 use lazy_static::lazy_static;
 use std::collections::BTreeMap;
 use std::sync::Mutex;
+use util::*;
 
 use super::AGENT_FILES;
-use rd_agent_intf::{HashdCmd, Slice};
+use rd_agent_intf::{HashdCmd, MemoryKnob, Slice};
 
 lazy_static! {
     pub static ref CMD_STATE: Mutex<CmdState> = Mutex::new(CmdState::new());
@@ -21,6 +22,7 @@ pub struct CmdState {
     pub hashd: [HashdCmd; 2],
     pub sys_cpu_ratio: f64,
     pub sys_io_ratio: f64,
+    pub mem_margin: f64,
 
     pub sideloads: BTreeMap<String, String>,
     pub sysloads: BTreeMap<String, String>,
@@ -64,6 +66,12 @@ impl CmdState {
             slices[Slice::Sys].cpu_weight as f64 / slices[Slice::Work].cpu_weight as f64;
         self.sys_io_ratio =
             slices[Slice::Sys].io_weight as f64 / slices[Slice::Work].io_weight as f64;
+        self.mem_margin = (*TOTAL_MEMORY as u64
+            - slices[Slice::Work]
+                .mem_low
+                .nr_bytes(false)
+                .min(*TOTAL_MEMORY as u64)) as f64
+            / *TOTAL_MEMORY as f64;
 
         self.sideloads = cmd.sideloads.clone();
         self.sysloads = cmd.sysloads.clone();
@@ -118,6 +126,8 @@ impl CmdState {
             ((self.sys_cpu_ratio * slices[Slice::Work].cpu_weight as f64).round() as u32).max(1);
         slices[Slice::Sys].io_weight =
             ((self.sys_io_ratio * slices[Slice::Work].io_weight as f64).round() as u32).max(1);
+        slices[Slice::Work].mem_low =
+            MemoryKnob::Bytes(((1.0 - self.mem_margin) * *TOTAL_MEMORY as f64).max(0.0) as u64);
 
         oomd.disable_seq = match self.oomd {
             true => 0,

@@ -159,20 +159,24 @@ a value argument or prompt.
 %%
 %% knob   sys-cpu-ratio          : system CPU weight compared to workload      :
 %% knob   sys-io-ratio           : system IO weight compared to workload       :
+%% knob   mem-margin             : Memory for the rest of the system           :
 
 Reset commands are shortcuts to restore to default configurations.
 
 %% reset  benches                : [ Stop hashd and iocost benchmarks ]
 %% reset  hashds                 : [ Stop hashd instances ]
-%% reset  hashd-params           : [ Restore default hashd params ]
+%% reset  hashd-params           : [ Restore default hashd parameters ]
 %% reset  sideloads              : [ Stop all sideloads ]
 %% reset  sysloads               : [ Stop all sysloads ]
 %% reset  resctl                 : [ Restore cpu/mem/io resource control ]
-%% reset  oomd                   : [ Restore OOMD default paramters and resume operation ]
+%% reset  resctl-params          : [ Restore default resource control parameters ]
+%% reset  oomd                   : [ Restore default OOMD operation ]
 %% reset  secondaries            : [ Reset sideloads + sysloads ]
 %% reset  all-workloads          : [ Reset hashds + secondaries ]
 %% reset  protections            : [ Reset resctl + oomd ]
-%% reset  all                    : [ All of above ]
+%% reset  params                 : [ Reset hashd and resctl params ]
+%% reset  all                    : [ All except params ]
+%% reset  all-with-params        : [ All ]
 
 Jump commands navigate across docs.
 

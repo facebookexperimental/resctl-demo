@@ -104,6 +104,13 @@ impl Default for SliceConfig {
 }
 
 impl SliceConfig {
+    pub const DFL_SYS_CPU_RATIO: f64 = 0.1;
+    pub const DFL_SYS_IO_RATIO: f64 = 0.1;
+
+    pub fn dfl_mem_margin() -> u64 {
+        (*TOTAL_MEMORY as u64 / 4).min(2 << 30)
+    }
+
     fn default(slice: Slice) -> Self {
         match slice {
             Slice::Init => Self {
@@ -122,11 +129,12 @@ impl SliceConfig {
             },
             Slice::Sys => Self {
                 cpu_weight: 10,
+                io_weight: 50,
                 ..Default::default()
             },
             Slice::Work => Self {
-                io_weight: 400,
-                mem_low: MemoryKnob::Bytes((*TOTAL_MEMORY * 3 / 4) as u64),
+                io_weight: 500,
+                mem_low: MemoryKnob::Bytes(*TOTAL_MEMORY as u64 - Self::dfl_mem_margin()),
                 ..Default::default()
             },
             Slice::Side => Self {

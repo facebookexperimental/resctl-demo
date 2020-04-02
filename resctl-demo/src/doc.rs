@@ -18,7 +18,7 @@ use super::agent::AGENT_FILES;
 use super::command::{CmdState, CMD_STATE};
 use super::{get_layout, COLOR_ACTIVE, COLOR_ALERT};
 use markup_rd::{RdCmd, RdDoc, RdKnob, RdPara, RdReset, RdSwitch};
-use rd_agent_intf::{HashdCmd, SysReq};
+use rd_agent_intf::{HashdCmd, SysReq, SliceConfig};
 
 lazy_static! {
     pub static ref DOCS: BTreeMap<String, &'static str> = load_docs();
@@ -219,6 +219,7 @@ fn exec_cmd(siv: &mut Cursive, cmd: &RdCmd) {
             RdKnob::HashdBWeight => cs.hashd[1].weight = *val,
             RdKnob::SysCpuRatio => cs.sys_cpu_ratio = *val,
             RdKnob::SysIoRatio => cs.sys_io_ratio = *val,
+            RdKnob::MemMargin => cs.mem_margin = *val,
         },
         RdCmd::Reset(reset) => {
             let reset_hashds = |cs: &mut CmdState| {
@@ -246,12 +247,23 @@ fn exec_cmd(siv: &mut Cursive, cmd: &RdCmd) {
                 cs.mem = true;
                 cs.io = true;
             };
+            let reset_resctl_params = |cs: &mut CmdState| {
+                cs.sys_cpu_ratio = SliceConfig::DFL_SYS_CPU_RATIO;
+                cs.sys_io_ratio = SliceConfig::DFL_SYS_IO_RATIO;
+                cs.mem_margin = SliceConfig::dfl_mem_margin() as f64 / *TOTAL_MEMORY as f64;
+            };
             let reset_oomd = |cs: &mut CmdState| {
                 cs.oomd = true;
                 cs.oomd_work_mempress = true;
                 cs.oomd_work_senpai = false;
                 cs.oomd_sys_mempress = true;
                 cs.oomd_sys_senpai = false;
+            };
+            let reset_all = |cs: &mut CmdState| {
+                reset_hashds(cs);
+                reset_secondaries(cs);
+                reset_resctl(cs);
+                reset_oomd(cs);
             };
 
             match reset {
@@ -264,6 +276,7 @@ fn exec_cmd(siv: &mut Cursive, cmd: &RdCmd) {
                 RdReset::Sideloads => cs.sideloads.clear(),
                 RdReset::Sysloads => cs.sysloads.clear(),
                 RdReset::ResCtl => reset_resctl(&mut cs),
+                RdReset::ResCtlParams => reset_resctl_params(&mut cs),
                 RdReset::Oomd => reset_oomd(&mut cs),
                 RdReset::Secondaries => reset_secondaries(&mut cs),
                 RdReset::AllWorkloads => {
@@ -275,11 +288,16 @@ fn exec_cmd(siv: &mut Cursive, cmd: &RdCmd) {
                     reset_oomd(&mut cs);
                 }
                 RdReset::All => {
-                    reset_hashds(&mut cs);
+                    reset_all(&mut cs);
+                }
+                RdReset::Params => {
                     reset_hashd_params(&mut cs);
-                    reset_secondaries(&mut cs);
-                    reset_resctl(&mut cs);
-                    reset_oomd(&mut cs);
+                    reset_resctl_params(&mut cs);
+                }
+                RdReset::AllWithParams => {
+                    reset_all(&mut cs);
+                    reset_hashd_params(&mut cs);
+                    reset_resctl_params(&mut cs);
                 }
             }
         }
@@ -309,16 +327,16 @@ fn exec_toggle(siv: &mut Cursive, cmd: &RdCmd, val: bool) {
 fn format_knob_val(knob: &RdKnob, ratio: f64) -> String {
     let bench = AGENT_FILES.bench();
 
-    match knob {
-        RdKnob::HashdAMem | RdKnob::HashdBMem => {
-            format!("{:>5}", &format_size(ratio * bench.hashd.mem_size as f64))
+    let v = match knob {
+        RdKnob::HashdAMem | RdKnob::HashdBMem => format_size(ratio * bench.hashd.mem_size as f64),
+        RdKnob::HashdAWrite | RdKnob::HashdBWrite => {
+            format_size(ratio * bench.hashd.log_padding as f64 / HashdCmd::DFL_WRITE_RATIO)
         }
-        RdKnob::HashdAWrite | RdKnob::HashdBWrite => format!(
-            "{:>5}",
-            &format_size(ratio * bench.hashd.log_padding as f64 / HashdCmd::DFL_WRITE_RATIO)
-        ),
-        _ => format!("{:>4}%", &format_pct(ratio)),
-    }
+        RdKnob::MemMargin => format_size(ratio * *TOTAL_MEMORY as f64),
+        _ => format_pct(ratio) + "%",
+    };
+
+    format!("{:>5}", &v)
 }
 
 fn exec_knob(siv: &mut Cursive, cmd: &RdCmd, val: usize, range: usize) {
@@ -421,6 +439,7 @@ fn refresh_knobs(siv: &mut Cursive, cs: &CmdState) {
     refresh_one_knob(siv, RdKnob::HashdBWeight, cs.hashd[1].weight);
     refresh_one_knob(siv, RdKnob::SysCpuRatio, cs.sys_cpu_ratio);
     refresh_one_knob(siv, RdKnob::SysIoRatio, cs.sys_io_ratio);
+    refresh_one_knob(siv, RdKnob::MemMargin, cs.mem_margin);
 }
 
 fn refresh_docs(siv: &mut Cursive) {

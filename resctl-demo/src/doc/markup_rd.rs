@@ -49,6 +49,7 @@ pub enum RdKnob {
     HashdBWeight,
     SysCpuRatio,
     SysIoRatio,
+    MemMargin,
 }
 
 #[derive(Debug, Clone)]
@@ -59,11 +60,14 @@ pub enum RdReset {
     Sideloads,
     Sysloads,
     ResCtl,
+    ResCtlParams,
     Oomd,
-    AllWorkloads, // Benches, Hashds, Sideloads, Sysloads
-    Secondaries,  // Sideloads, Sysloads
-    Protections,  // ResCtl, Oomd
-    All,          // Everything
+    AllWorkloads,  // Benches, Hashds, Sideloads, Sysloads
+    Secondaries,   // Sideloads, Sysloads
+    Protections,   // ResCtl, Oomd
+    All,           // Everything except for Params
+    Params,        // HashdParams, ResCtlParams
+    AllWithParams, // Everything
 }
 
 #[derive(Debug, Clone)]
@@ -281,6 +285,7 @@ impl RdCmd {
                     "hashd-B-weight" => RdKnob::HashdBWeight,
                     "sys-cpu-ratio" => RdKnob::SysCpuRatio,
                     "sys-io-ratio" => RdKnob::SysIoRatio,
+                    "mem-margin" => RdKnob::MemMargin,
                     _ => bail!("invalid knob target"),
                 };
                 RdCmd::Knob(knob, val)
@@ -296,11 +301,14 @@ impl RdCmd {
                     "sideloads" => RdReset::Sideloads,
                     "sysloads" => RdReset::Sysloads,
                     "resctl" => RdReset::ResCtl,
+                    "resctl-params" => RdReset::ResCtlParams,
                     "oomd" => RdReset::Oomd,
                     "secondaries" => RdReset::Secondaries,
                     "all-workloads" => RdReset::AllWorkloads,
                     "protections" => RdReset::Protections,
                     "all" => RdReset::All,
+                    "params" => RdReset::Params,
+                    "all-with-params" => RdReset::AllWithParams,
                     _ => bail!("invalid reset target"),
                 };
                 RdCmd::Reset(reset)
