@@ -146,27 +146,37 @@ A knob configures a value between 0.0 and 1.0. A knob command should either have
 a value argument or prompt.
 
 %% knob   hashd-load 0.6
-%% knob   hashd-load             : Set the main workload load level            :
-%% knob   hashd-mem              : Adjust the main workload memory footprint   :
-%% knob   hashd-write            : Adjust the main workload write bandwidth    :
-%% knob   hashd-weight           : The first instance's weight                 :
-%% knob   hashd-B-load           : Set the second workload load level          :
-%% knob   hashd-B-mem            : Adjust the second workload memory footprint :
-%% knob   hashd-B-write          : Adjust the second workload write bandwidth  :
-%% knob   hashd-B-weight         : The second instance's weight                :
+%% knob   hashd-load             : Set main workload load level                :
+%% knob   hashd-mem              : Adjust main workload memory footprint       :
+%% knob   hashd-file             : Adjust main workload pagecache proportion   :
+%% knob   hashd-write            : Adjust main workload write bandwidth        :
+%% knob   hashd-weight           : First instance weight                       :
+%% knob   hashd-B-load           : Set second workload load level              :
+%% knob   hashd-B-mem            : Adjust second workload memory footprint     :
+%% knob   hashd-B-file           : Adjust second workload pagecache proportion :
+%% knob   hashd-B-write          : Adjust second workload write bandwidth      :
+%% knob   hashd-B-weight         : Second instance weight                      :
+%%
+%% knob   sys-cpu-ratio          : system CPU weight compared to workload      :
+%% knob   sys-io-ratio           : system IO weight compared to workload       :
+%% knob   mem-margin             : Memory for the rest of the system           :
 
 Reset commands are shortcuts to restore to default configurations.
 
 %% reset  benches                : [ Stop hashd and iocost benchmarks ]
-%% reset  hashds                 : [ Stop hashd instances and restore default parameters ]
+%% reset  hashds                 : [ Stop hashd instances ]
+%% reset  hashd-params           : [ Restore default hashd parameters ]
 %% reset  sideloads              : [ Stop all sideloads ]
 %% reset  sysloads               : [ Stop all sysloads ]
 %% reset  resctl                 : [ Restore cpu/mem/io resource control ]
-%% reset  oomd                   : [ Restore OOMD default paramters and resume operation ]
+%% reset  resctl-params          : [ Restore default resource control parameters ]
+%% reset  oomd                   : [ Restore default OOMD operation ]
 %% reset  secondaries            : [ Reset sideloads + sysloads ]
 %% reset  all-workloads          : [ Reset hashds + secondaries ]
 %% reset  protections            : [ Reset resctl + oomd ]
-%% reset  all                    : [ All of above ]
+%% reset  params                 : [ Reset hashd and resctl params ]
+%% reset  all                    : [ All except params ]
+%% reset  all-with-params        : [ All ]
 
 Jump commands navigate across docs.
 

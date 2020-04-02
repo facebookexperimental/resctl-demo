@@ -3,15 +3,14 @@ use anyhow::Result;
 use enum_iterator::IntoEnumIterator;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use std::ops::{Index, IndexMut};
 use util::*;
 
 const SLICE_DOC: &str = "\
 //
 // rd-agent top-level systemd slice resource configurations
 //
-// Memory configuration can be one of None, Size and Ratio,
-// respectively indicating no configuration, absolute number of bytes
-// and ratio of the total system memory.
+// Memory configuration can be either None or Bytes.
 //
 //  disable_seqs.cpu: Disable CPU control if >= report::seq
 //  disable_seqs.mem: Disable memory control if >= report::seq
@@ -61,8 +60,7 @@ impl Slice {
 #[derive(Debug, Copy, Clone, PartialEq, Serialize, Deserialize)]
 pub enum MemoryKnob {
     None,
-    Ratio(f64),
-    Size(u64),
+    Bytes(u64),
 }
 
 impl Default for MemoryKnob {
@@ -79,8 +77,7 @@ impl MemoryKnob {
         };
         match self {
             Self::None => nocfg,
-            Self::Ratio(r) => (*TOTAL_MEMORY as f64 * r) as u64,
-            Self::Size(s) => *s,
+            Self::Bytes(s) => *s,
         }
     }
 }
@@ -107,35 +104,43 @@ impl Default for SliceConfig {
 }
 
 impl SliceConfig {
+    pub const DFL_SYS_CPU_RATIO: f64 = 0.1;
+    pub const DFL_SYS_IO_RATIO: f64 = 0.1;
+
+    pub fn dfl_mem_margin() -> u64 {
+        (*TOTAL_MEMORY as u64 / 4).min(2 << 30)
+    }
+
     fn default(slice: Slice) -> Self {
         match slice {
             Slice::Init => Self {
                 cpu_weight: 10,
-                mem_min: MemoryKnob::Size(16 << 20),
+                mem_min: MemoryKnob::Bytes(16 << 20),
                 ..Default::default()
             },
             Slice::Host => Self {
                 cpu_weight: 10,
-                mem_min: MemoryKnob::Size(128 << 20),
+                mem_min: MemoryKnob::Bytes(128 << 20),
                 ..Default::default()
             },
             Slice::User => Self {
-                mem_low: MemoryKnob::Ratio(10.0 * PCT),
+                mem_low: MemoryKnob::Bytes((*TOTAL_MEMORY / 10) as u64),
                 ..Default::default()
             },
             Slice::Sys => Self {
                 cpu_weight: 10,
+                io_weight: 50,
                 ..Default::default()
             },
             Slice::Work => Self {
-                io_weight: 400,
-                mem_low: MemoryKnob::Ratio(75.0 * PCT),
+                io_weight: 500,
+                mem_low: MemoryKnob::Bytes(*TOTAL_MEMORY as u64 - Self::dfl_mem_margin()),
                 ..Default::default()
             },
             Slice::Side => Self {
                 cpu_weight: 1,
                 io_weight: 1,
-                mem_high: MemoryKnob::Ratio(50.0 * PCT),
+                mem_high: MemoryKnob::Bytes((*TOTAL_MEMORY / 2) as u64),
                 ..Default::default()
             },
         }
@@ -194,5 +199,19 @@ impl SliceKnobs {
     pub fn controlls_disabled(&self, seq: u64) -> bool {
         let dseqs = &self.disable_seqs;
         dseqs.cpu >= seq || dseqs.mem >= seq || dseqs.io >= seq
+    }
+}
+
+impl Index<Slice> for SliceKnobs {
+    type Output = SliceConfig;
+
+    fn index(&self, slc: Slice) -> &Self::Output {
+        self.slices.get(slc.name()).unwrap()
+    }
+}
+
+impl IndexMut<Slice> for SliceKnobs {
+    fn index_mut(&mut self, slc: Slice) -> &mut Self::Output {
+        self.slices.get_mut(slc.name()).unwrap()
     }
 }

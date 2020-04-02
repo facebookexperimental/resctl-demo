@@ -41,24 +41,33 @@ pub enum RdKnob {
     HashdBLoad,
     HashdAMem,
     HashdBMem,
+    HashdAFile,
+    HashdBFile,
     HashdAWrite,
     HashdBWrite,
     HashdAWeight,
     HashdBWeight,
+    SysCpuRatio,
+    SysIoRatio,
+    MemMargin,
 }
 
 #[derive(Debug, Clone)]
 pub enum RdReset {
     Benches,
     Hashds,
+    HashdParams,
     Sideloads,
     Sysloads,
     ResCtl,
+    ResCtlParams,
     Oomd,
-    AllWorkloads, // Benches, Hashds, Sideloads, Sysloads
-    Secondaries,  // Sideloads, Sysloads
-    Protections,  // ResCtl, Oomd
-    All,          // Everything
+    AllWorkloads,  // Benches, Hashds, Sideloads, Sysloads
+    Secondaries,   // Sideloads, Sysloads
+    Protections,   // ResCtl, Oomd
+    All,           // Everything except for Params
+    Params,        // HashdParams, ResCtlParams
+    AllWithParams, // Everything
 }
 
 #[derive(Debug, Clone)]
@@ -266,12 +275,17 @@ impl RdCmd {
                 let knob = match args[1] {
                     "hashd-load" | "hashd-A-load" => RdKnob::HashdALoad,
                     "hashd-mem" | "hashd-A-mem" => RdKnob::HashdAMem,
+                    "hashd-file" | "hashd-A-file" => RdKnob::HashdAFile,
                     "hashd-write" | "hashd-A-write" => RdKnob::HashdAWrite,
                     "hashd-weight" | "hashd-A-weight" => RdKnob::HashdAWeight,
                     "hashd-B-load" => RdKnob::HashdBLoad,
                     "hashd-B-mem" => RdKnob::HashdBMem,
+                    "hashd-B-file" => RdKnob::HashdBFile,
                     "hashd-B-write" => RdKnob::HashdBWrite,
                     "hashd-B-weight" => RdKnob::HashdBWeight,
+                    "sys-cpu-ratio" => RdKnob::SysCpuRatio,
+                    "sys-io-ratio" => RdKnob::SysIoRatio,
+                    "mem-margin" => RdKnob::MemMargin,
                     _ => bail!("invalid knob target"),
                 };
                 RdCmd::Knob(knob, val)
@@ -283,14 +297,18 @@ impl RdCmd {
                 let reset = match args[1] {
                     "benches" => RdReset::Benches,
                     "hashds" => RdReset::Hashds,
+                    "hashd-params" => RdReset::HashdParams,
                     "sideloads" => RdReset::Sideloads,
                     "sysloads" => RdReset::Sysloads,
                     "resctl" => RdReset::ResCtl,
+                    "resctl-params" => RdReset::ResCtlParams,
                     "oomd" => RdReset::Oomd,
                     "secondaries" => RdReset::Secondaries,
                     "all-workloads" => RdReset::AllWorkloads,
                     "protections" => RdReset::Protections,
                     "all" => RdReset::All,
+                    "params" => RdReset::Params,
+                    "all-with-params" => RdReset::AllWithParams,
                     _ => bail!("invalid reset target"),
                 };
                 RdCmd::Reset(reset)

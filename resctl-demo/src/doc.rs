@@ -9,6 +9,7 @@ use lazy_static::lazy_static;
 use log::{error, info};
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::sync::Mutex;
+use util::*;
 
 mod index;
 mod markup_rd;
@@ -17,7 +18,7 @@ use super::agent::AGENT_FILES;
 use super::command::{CmdState, CMD_STATE};
 use super::{get_layout, COLOR_ACTIVE, COLOR_ALERT};
 use markup_rd::{RdCmd, RdDoc, RdKnob, RdPara, RdReset, RdSwitch};
-use rd_agent_intf::{HashdCmd, SysReq};
+use rd_agent_intf::{HashdCmd, SysReq, SliceConfig};
 
 lazy_static! {
     pub static ref DOCS: BTreeMap<String, &'static str> = load_docs();
@@ -157,7 +158,10 @@ fn format_markup_tags(tag: &str) -> Option<StyledString> {
 
 fn exec_cmd(siv: &mut Cursive, cmd: &RdCmd) {
     info!("executing {:?}", cmd);
+
     let mut cs = CMD_STATE.lock().unwrap();
+    let bench = AGENT_FILES.bench();
+
     match cmd {
         RdCmd::On(sw) | RdCmd::Off(sw) => {
             let is_on = if let RdCmd::On(_) = cmd { true } else { false };
@@ -207,38 +211,60 @@ fn exec_cmd(siv: &mut Cursive, cmd: &RdCmd) {
             RdKnob::HashdBLoad => cs.hashd[1].rps_target_ratio = *val,
             RdKnob::HashdAMem => cs.hashd[0].mem_ratio = *val,
             RdKnob::HashdBMem => cs.hashd[1].mem_ratio = *val,
+            RdKnob::HashdAFile => cs.hashd[0].file_ratio = *val,
+            RdKnob::HashdBFile => cs.hashd[1].file_ratio = *val,
             RdKnob::HashdAWrite => cs.hashd[0].write_ratio = *val,
             RdKnob::HashdBWrite => cs.hashd[1].write_ratio = *val,
             RdKnob::HashdAWeight => cs.hashd[0].weight = *val,
             RdKnob::HashdBWeight => cs.hashd[1].weight = *val,
+            RdKnob::SysCpuRatio => cs.sys_cpu_ratio = *val,
+            RdKnob::SysIoRatio => cs.sys_io_ratio = *val,
+            RdKnob::MemMargin => cs.mem_margin = *val,
         },
         RdCmd::Reset(reset) => {
-            fn reset_hashds(cs: &mut CmdState) {
+            let reset_hashds = |cs: &mut CmdState| {
+                cs.hashd[0].active = false;
+                cs.hashd[1].active = false;
+            };
+            let reset_hashd_params = |cs: &mut CmdState| {
                 cs.hashd[0] = HashdCmd {
-                    rps_target_ratio: 0.5,
+                    active: cs.hashd[0].active,
+                    mem_ratio: bench.hashd.mem_frac,
                     ..Default::default()
                 };
                 cs.hashd[1] = HashdCmd {
-                    rps_target_ratio: 0.5,
+                    active: cs.hashd[1].active,
+                    mem_ratio: bench.hashd.mem_frac,
                     ..Default::default()
                 };
-            }
-            fn reset_secondaries(cs: &mut CmdState) {
+            };
+            let reset_secondaries = |cs: &mut CmdState| {
                 cs.sideloads.clear();
                 cs.sysloads.clear();
-            }
-            fn reset_resctl(cs: &mut CmdState) {
+            };
+            let reset_resctl = |cs: &mut CmdState| {
                 cs.cpu = true;
                 cs.mem = true;
                 cs.io = true;
-            }
-            fn reset_oomd(cs: &mut CmdState) {
+            };
+            let reset_resctl_params = |cs: &mut CmdState| {
+                cs.sys_cpu_ratio = SliceConfig::DFL_SYS_CPU_RATIO;
+                cs.sys_io_ratio = SliceConfig::DFL_SYS_IO_RATIO;
+                cs.mem_margin = SliceConfig::dfl_mem_margin() as f64 / *TOTAL_MEMORY as f64;
+            };
+            let reset_oomd = |cs: &mut CmdState| {
                 cs.oomd = true;
                 cs.oomd_work_mempress = true;
                 cs.oomd_work_senpai = false;
                 cs.oomd_sys_mempress = true;
                 cs.oomd_sys_senpai = false;
-            }
+            };
+            let reset_all = |cs: &mut CmdState| {
+                reset_hashds(cs);
+                reset_secondaries(cs);
+                reset_resctl(cs);
+                reset_oomd(cs);
+            };
 
             match reset {
                 RdReset::Benches => {
@@ -246,9 +272,11 @@ fn exec_cmd(siv: &mut Cursive, cmd: &RdCmd) {
                     cs.bench_iocost_next = cs.bench_iocost_cur;
                 }
                 RdReset::Hashds => reset_hashds(&mut cs),
+                RdReset::HashdParams => reset_hashd_params(&mut cs),
                 RdReset::Sideloads => cs.sideloads.clear(),
                 RdReset::Sysloads => cs.sysloads.clear(),
                 RdReset::ResCtl => reset_resctl(&mut cs),
+                RdReset::ResCtlParams => reset_resctl_params(&mut cs),
                 RdReset::Oomd => reset_oomd(&mut cs),
                 RdReset::Secondaries => reset_secondaries(&mut cs),
                 RdReset::AllWorkloads => {
@@ -260,10 +288,16 @@ fn exec_cmd(siv: &mut Cursive, cmd: &RdCmd) {
                     reset_oomd(&mut cs);
                 }
                 RdReset::All => {
-                    reset_hashds(&mut cs);
-                    reset_secondaries(&mut cs);
-                    reset_resctl(&mut cs);
-                    reset_oomd(&mut cs);
+                    reset_all(&mut cs);
+                }
+                RdReset::Params => {
+                    reset_hashd_params(&mut cs);
+                    reset_resctl_params(&mut cs);
+                }
+                RdReset::AllWithParams => {
+                    reset_all(&mut cs);
+                    reset_hashd_params(&mut cs);
+                    reset_resctl_params(&mut cs);
                 }
             }
         }
@@ -290,19 +324,26 @@ fn exec_toggle(siv: &mut Cursive, cmd: &RdCmd, val: bool) {
     }
 }
 
-fn format_knob_pct(ratio: f64) -> String {
-    if ratio > 0.99 {
-        " 100%".into()
-    } else {
-        format!("{:4.1}%", ratio * 100.0)
-    }
+fn format_knob_val(knob: &RdKnob, ratio: f64) -> String {
+    let bench = AGENT_FILES.bench();
+
+    let v = match knob {
+        RdKnob::HashdAMem | RdKnob::HashdBMem => format_size(ratio * bench.hashd.mem_size as f64),
+        RdKnob::HashdAWrite | RdKnob::HashdBWrite => {
+            format_size(ratio * bench.hashd.log_padding as f64 / HashdCmd::DFL_WRITE_RATIO)
+        }
+        RdKnob::MemMargin => format_size(ratio * *TOTAL_MEMORY as f64),
+        _ => format_pct(ratio) + "%",
+    };
+
+    format!("{:>5}", &v)
 }
 
 fn exec_knob(siv: &mut Cursive, cmd: &RdCmd, val: usize, range: usize) {
     if let RdCmd::Knob(knob, _) = cmd {
         let ratio = val as f64 / (range - 1) as f64;
         siv.call_on_name(&format!("{:?}-digit", knob), |t: &mut TextView| {
-            t.set_content(format_knob_pct(ratio))
+            t.set_content(format_knob_val(knob, ratio))
         });
         let new_cmd = RdCmd::Knob(knob.clone(), ratio);
         exec_cmd(siv, &new_cmd);
@@ -376,7 +417,7 @@ fn refresh_toggles(siv: &mut Cursive, cs: &CmdState) {
 fn refresh_one_knob(siv: &mut Cursive, knob: RdKnob, mut val: f64) {
     val = val.max(0.0).min(1.0);
     siv.call_on_name(&format!("{:?}-digit", &knob), |t: &mut TextView| {
-        t.set_content(format_knob_pct(val))
+        t.set_content(format_knob_val(&knob, val))
     });
     siv.call_on_name(&format!("{:?}-slider", &knob), |s: &mut SliderView| {
         let range = s.get_max_value();
@@ -390,10 +431,15 @@ fn refresh_knobs(siv: &mut Cursive, cs: &CmdState) {
     refresh_one_knob(siv, RdKnob::HashdBLoad, cs.hashd[1].rps_target_ratio);
     refresh_one_knob(siv, RdKnob::HashdAMem, cs.hashd[0].mem_ratio);
     refresh_one_knob(siv, RdKnob::HashdBMem, cs.hashd[1].mem_ratio);
+    refresh_one_knob(siv, RdKnob::HashdAFile, cs.hashd[0].file_ratio);
+    refresh_one_knob(siv, RdKnob::HashdBFile, cs.hashd[1].file_ratio);
     refresh_one_knob(siv, RdKnob::HashdAWrite, cs.hashd[0].write_ratio);
     refresh_one_knob(siv, RdKnob::HashdBWrite, cs.hashd[1].write_ratio);
     refresh_one_knob(siv, RdKnob::HashdAWeight, cs.hashd[0].weight);
     refresh_one_knob(siv, RdKnob::HashdBWeight, cs.hashd[1].weight);
+    refresh_one_knob(siv, RdKnob::SysCpuRatio, cs.sys_cpu_ratio);
+    refresh_one_knob(siv, RdKnob::SysIoRatio, cs.sys_io_ratio);
+    refresh_one_knob(siv, RdKnob::MemMargin, cs.mem_margin);
 }
 
 fn refresh_docs(siv: &mut Cursive) {
@@ -468,7 +514,7 @@ fn render_cmd(prompt: &str, cmd: &RdCmd) -> impl View {
                 LinearLayout::horizontal()
                     .child(TextView::new(prompt))
                     .child(DummyView)
-                    .child(TextView::new(format_knob_pct(0.0)).with_name(digit_name))
+                    .child(TextView::new(format_knob_val(knob, 0.0)).with_name(digit_name))
                     .child(TextView::new(" ["))
                     .child(
                         SliderView::new(Orientation::Horizontal, range)

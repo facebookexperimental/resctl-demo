@@ -2,7 +2,6 @@
 use crossbeam::channel::{self, select, tick, Receiver, Sender};
 use linreg::linear_regression_of;
 use log::{debug, info, warn};
-use num::Integer;
 use pid::Pid;
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
@@ -77,7 +76,6 @@ struct MemIoSatCfg {
 }
 
 struct Cfg {
-    testfiles_frac: f64,
     mem_buffer: f64,
     io_buffer: f64,
     cpu: CpuCfg,
@@ -122,9 +120,8 @@ const MEMIO_REFINE_CVG_CFG: ConvergeCfg = ConvergeCfg {
 impl Default for Cfg {
     fn default() -> Self {
         Self {
-            testfiles_frac: 50.0 * PCT,
-            mem_buffer: 12.5 * PCT,
-            io_buffer: 25.0 * PCT,
+            mem_buffer: 15.0 * PCT,
+            io_buffer: 75.0 * PCT,
             cpu: CpuCfg {
                 size: 1 << 30,
                 lat: 10.0 * MSEC,
@@ -168,7 +165,7 @@ impl Default for Cfg {
                     format!("{:.2}G", to_gb(fsize + asize))
                 }),
 
-                set_pos: Box::new(|params, pos| params.file_total_frac = pos),
+                set_pos: Box::new(|params, pos| params.mem_frac = pos),
 
                 next_up_pos: Box::new(|_params, pos| match pos {
                     None => Some(10.0 * PCT),
@@ -180,9 +177,9 @@ impl Default for Cfg {
 
                 next_refine_pos: Box::new(|params, pos| {
                     let step = 2.5 * PCT;
-                    let min = (params.file_total_frac - 25.0 * PCT).max(0.1 * PCT);
+                    let min = (params.mem_frac - 25.0 * PCT).max(0.1 * PCT);
                     match pos {
-                        None => Some(params.file_total_frac - step),
+                        None => Some(params.mem_frac - step),
                         Some(v) if v > min => Some(v - step),
                         _ => None,
                     }
@@ -545,12 +542,12 @@ impl Bench {
             p99_lat_target: default.p99_lat_target,
             rps_target: default.rps_target,
             rps_max: default.rps_max,
-            file_total_frac: default.file_total_frac,
+            mem_frac: default.mem_frac,
+            file_frac: uparams.file_frac,
             file_size_mean: default.file_size_mean,
             file_size_stdev_ratio: uparams.file_size_stdev_ratio,
             file_addr_stdev_ratio: uparams.file_addr_stdev_ratio,
             file_addr_rps_base_frac: uparams.file_addr_rps_base_frac,
-            anon_total_ratio: uparams.anon_total_ratio,
             anon_size_ratio: uparams.anon_size_ratio,
             anon_size_stdev_ratio: uparams.anon_size_stdev_ratio,
             anon_addr_stdev_ratio: uparams.anon_addr_stdev_ratio,
@@ -578,18 +575,17 @@ impl Bench {
     fn prep_tf(&self, size: u64, why: &str) -> TestFiles {
         info!("Preparing {:.2}G testfiles for {}", to_gb(size), why);
 
-        let nr_files = size.div_ceil(&TESTFILE_UNIT_SIZE);
         let mut tf = TestFiles::new(
             self.args_file.data.testfiles.as_ref().unwrap(),
             TESTFILE_UNIT_SIZE,
-            nr_files,
+            size,
         );
-        let mut tfbar = TestFilesProgressBar::new(nr_files, self.bar_hidden);
+        let mut tfbar = TestFilesProgressBar::new(size, self.bar_hidden);
         let mut report_file = self.report_file.lock().unwrap();
 
         tf.setup(|pos| {
             tfbar.progress(pos);
-            report_file.data.testfiles_progress = pos as f64 / nr_files as f64;
+            report_file.data.testfiles_progress = pos as f64 / size as f64;
             report_tick(&mut report_file, true);
         })
         .unwrap();
@@ -720,9 +716,10 @@ impl Bench {
         last_rps.round() as u32
     }
 
-    fn mem_sizes(&self, file_frac: f64) -> (usize, usize) {
-        let fsize = (self.tf_size as f64 * file_frac) as usize;
-        let asize = (fsize as f64 * self.params.anon_total_ratio) as usize;
+    fn mem_sizes(&self, mem_frac: f64) -> (u64, u64) {
+        let size = (self.tf_size as f64 * mem_frac) as u64;
+        let fsize = ((size as f64 * self.params.file_frac) as u64).min(size);
+        let asize = size - fsize;
         (fsize, asize)
     }
 
@@ -993,9 +990,9 @@ impl Bench {
         // memory bench
         //
         if self.args_file.data.bench_mem {
-            self.tf_size = (*TOTAL_MEMORY as f64 * cfg.testfiles_frac) as u64;
-            self.params.file_total_frac = self.bench_memio_saturation_bisect(&cfg.mem_sat);
-            let (fsize, asize) = self.mem_sizes(self.params.file_total_frac);
+            self.tf_size = self.args_file.data.size;
+            self.params.mem_frac = self.bench_memio_saturation_bisect(&cfg.mem_sat);
+            let (fsize, asize) = self.mem_sizes(self.params.mem_frac);
             info!(
                 "[ Memory saturation bisect result: {:.2}G (file {:.2}G, anon {:.2}G) ]",
                 to_gb(fsize + asize),
@@ -1003,14 +1000,15 @@ impl Bench {
                 to_gb(asize)
             );
 
-            self.params.file_total_frac = self.bench_memio_saturation_refine(&cfg.mem_sat);
+            self.params.mem_frac = self.bench_memio_saturation_refine(&cfg.mem_sat);
 
             // Longer-runs might need more memory due to access from
-            // accumulating long tails and other system disturbances. Lower the
-            // pos to give the system some breathing room.
-            self.params.file_total_frac *= 100.0 * PCT - cfg.mem_buffer;
+            // accumulating long tails and other system disturbances. Plus, IO
+            // saturation will come out of the buffer left by memory saturation.
+            // Lower the pos to give the system some breathing room.
+            self.params.mem_frac *= 100.0 * PCT - cfg.mem_buffer;
 
-            let (fsize, asize) = self.mem_sizes(self.params.file_total_frac);
+            let (fsize, asize) = self.mem_sizes(self.params.mem_frac);
             info!(
                 "[ Memory saturation result: {:.2}G (file {:.2}G, anon {:.2}G) ]",
                 to_gb(fsize + asize),
@@ -1019,7 +1017,7 @@ impl Bench {
             );
         } else {
             self.tf_size = self.args_file.data.size;
-            self.params.file_total_frac = self.params_file.data.file_total_frac;
+            self.params.mem_frac = self.params_file.data.mem_frac;
         }
 
         //
@@ -1034,7 +1032,9 @@ impl Bench {
 
             self.params.log_padding = self.bench_memio_saturation_refine(&cfg.io_sat) as u64;
 
-            // IO performance can be fairly variable. Give it some breathing room.
+            // On some SSDs, performance degrades significantly after sustained
+            // writes. We need to stay well below the measured saturation point
+            // to hold performance stable.
             self.params.log_padding =
                 (self.params.log_padding as f64 * (100.0 * PCT - cfg.io_buffer)) as u64;
         } else {
@@ -1042,9 +1042,9 @@ impl Bench {
         }
 
         info!(
-            "Bench results: testfiles {:.2} x {:.2}G, hash {:.2}M, rps {}, log-padding {:.2}k",
-            self.params.file_total_frac,
-            to_gb(self.tf_size),
+            "Bench results: memory {:.2}G ({:.2}%), hash {:.2}M, rps {}, log-padding {:.2}k",
+            to_gb(self.tf_size as f64 * self.params.mem_frac),
+            self.params.mem_frac * TO_PCT,
             to_mb(self.fsize_mean),
             self.params.rps_max,
             to_kb(self.params.log_padding),

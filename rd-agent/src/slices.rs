@@ -192,7 +192,7 @@ fn apply_one_slice(knobs: &SliceKnobs, slice: Slice) -> Result<bool> {
 pub fn apply_slices(knobs: &mut SliceKnobs, hashd_mem_size: u64) -> Result<()> {
     if knobs.work_mem_low_none {
         let sk = knobs.slices.get_mut(Slice::Work.name()).unwrap();
-        sk.mem_low = MemoryKnob::Size((hashd_mem_size as f64 * 0.75).ceil() as u64);
+        sk.mem_low = MemoryKnob::Bytes((hashd_mem_size as f64 * 0.75).ceil() as u64);
     }
 
     let mut updated = false;
@@ -379,8 +379,8 @@ fn verify_and_fix_one_slice(
             verify_and_fix_mem_prot(path, "memory.min", sk.mem_min)?;
             verify_and_fix_mem_prot(path, "memory.low", sk.mem_low)?;
         } else {
-            verify_and_fix_mem_prot(path, "memory.min", MemoryKnob::Size(0))?;
-            verify_and_fix_mem_prot(path, "memory.low", MemoryKnob::Size(0))?;
+            verify_and_fix_mem_prot(path, "memory.min", MemoryKnob::Bytes(0))?;
+            verify_and_fix_mem_prot(path, "memory.low", MemoryKnob::Bytes(0))?;
         }
     }
 

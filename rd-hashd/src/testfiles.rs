@@ -1,6 +1,7 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
 use anyhow::{bail, Result};
 use log::{debug, trace, warn};
+use num::Integer;
 use rand::rngs::SmallRng;
 use rand::{Rng, SeedableRng};
 use std::ffi::OsStr;
@@ -19,17 +20,19 @@ const DIR_DIGITS: usize = DIR_BITS / 4;
 #[derive(Debug)]
 pub struct TestFiles {
     base_path: PathBuf,
-    file_size: u64,
-    nr_files: u64,
+    pub unit_size: u64,
+    pub size: u64,
+    pub nr_files: u64,
     prefix: String,
 }
 
 impl TestFiles {
-    pub fn new<P: AsRef<Path>>(base_path: P, file_size: u64, nr_files: u64) -> Self {
+    pub fn new<P: AsRef<Path>>(base_path: P, unit_size: u64, size: u64) -> Self {
         TestFiles {
             base_path: PathBuf::from(base_path.as_ref()),
-            file_size,
-            nr_files,
+            unit_size,
+            size,
+            nr_files: size.div_ceil(&unit_size),
             prefix: String::from(DFL_PREFIX),
         }
     }
@@ -109,7 +112,7 @@ impl TestFiles {
             // if file exists and already of the right size, skip
             if fpath.exists() {
                 match fpath.metadata() {
-                    Ok(ref md) if md.is_file() && md.len() == self.file_size => {
+                    Ok(ref md) if md.is_file() && md.len() == self.unit_size => {
                         trace!("testfiles: using existing {:?}", &fpath);
                         continue;
                     }
@@ -129,13 +132,13 @@ impl TestFiles {
                 .write(true)
                 .create_new(true)
                 .open(&fpath)?;
-            let v: Vec<u8> = (0..self.file_size).map(|_| rng.gen()).collect();
+            let v: Vec<u8> = (0..self.unit_size).map(|_| rng.gen()).collect();
             f.write_all(&v)?;
 
-            progress(i);
+            progress(i * self.unit_size);
         }
         unsafe { libc::sync() };
-        progress(self.nr_files);
+        progress(self.nr_files * self.unit_size);
         Ok(())
     }
 
@@ -147,14 +150,6 @@ impl TestFiles {
         path
     }
 
-    pub fn file_size(&self) -> u64 {
-        self.file_size
-    }
-
-    pub fn nr_files(&self) -> u64 {
-        self.nr_files
-    }
-
     pub fn drop_caches(&self) {
         for i in 0..self.nr_files {
             let path = self.path(i);
@@ -164,7 +159,7 @@ impl TestFiles {
                         libc::posix_fadvise(
                             f.as_raw_fd(),
                             0,
-                            self.file_size as i64,
+                            self.unit_size as i64,
                             libc::POSIX_FADV_DONTNEED,
                         )
                     };
