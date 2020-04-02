@@ -166,7 +166,7 @@ pub struct Args {
 
 impl Default for Args {
     fn default() -> Self {
-        let size: u64 = 2 * *TOTAL_MEMORY as u64;
+        let size: u64 = 3 * *TOTAL_MEMORY as u64;
 
         Self {
             testfiles: None,
