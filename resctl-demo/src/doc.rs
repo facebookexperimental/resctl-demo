@@ -9,6 +9,7 @@ use lazy_static::lazy_static;
 use log::{error, info};
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::sync::Mutex;
+use util::*;
 
 mod index;
 mod markup_rd;
@@ -17,7 +18,7 @@ use super::agent::AGENT_FILES;
 use super::command::{CmdState, CMD_STATE};
 use super::{get_layout, COLOR_ACTIVE, COLOR_ALERT};
 use markup_rd::{RdCmd, RdDoc, RdKnob, RdPara, RdReset, RdSwitch};
-use rd_agent_intf::{HashdCmd, SysReq};
+use rd_agent_intf::{HashdCmd, SysReq, HASHD_CMD_WRITE_RATIO_MAX_MULT};
 
 lazy_static! {
     pub static ref DOCS: BTreeMap<String, &'static str> = load_docs();
@@ -294,11 +295,33 @@ fn exec_toggle(siv: &mut Cursive, cmd: &RdCmd, val: bool) {
     }
 }
 
-fn format_knob_pct(ratio: f64) -> String {
-    if ratio > 0.99 {
-        " 100%".into()
-    } else {
-        format!("{:4.1}%", ratio * 100.0)
+fn format_knob_val(knob: &RdKnob, ratio: f64) -> String {
+    let bench = AGENT_FILES.bench();
+
+    match knob {
+        RdKnob::HashdAMem | RdKnob::HashdBMem => format!(
+            "{:>5}",
+            &format_size(scale_ratio(
+                ratio,
+                (
+                    0,
+                    (bench.hashd.mem_frac * *TOTAL_MEMORY as f64) as u64,
+                    *TOTAL_MEMORY as u64,
+                )
+            ))
+        ),
+        RdKnob::HashdAWrite | RdKnob::HashdBWrite => format!(
+            "{:>5}",
+            &format_size(scale_ratio(
+                ratio,
+                (
+                    0,
+                    bench.hashd.log_padding,
+                    bench.hashd.log_padding * HASHD_CMD_WRITE_RATIO_MAX_MULT
+                )
+            ))
+        ),
+        _ => format!("{:>4}%", &format_pct(ratio)),
     }
 }
 
@@ -306,7 +329,7 @@ fn exec_knob(siv: &mut Cursive, cmd: &RdCmd, val: usize, range: usize) {
     if let RdCmd::Knob(knob, _) = cmd {
         let ratio = val as f64 / (range - 1) as f64;
         siv.call_on_name(&format!("{:?}-digit", knob), |t: &mut TextView| {
-            t.set_content(format_knob_pct(ratio))
+            t.set_content(format_knob_val(knob, ratio))
         });
         let new_cmd = RdCmd::Knob(knob.clone(), ratio);
         exec_cmd(siv, &new_cmd);
@@ -380,7 +403,7 @@ fn refresh_toggles(siv: &mut Cursive, cs: &CmdState) {
 fn refresh_one_knob(siv: &mut Cursive, knob: RdKnob, mut val: f64) {
     val = val.max(0.0).min(1.0);
     siv.call_on_name(&format!("{:?}-digit", &knob), |t: &mut TextView| {
-        t.set_content(format_knob_pct(val))
+        t.set_content(format_knob_val(&knob, val))
     });
     siv.call_on_name(&format!("{:?}-slider", &knob), |s: &mut SliderView| {
         let range = s.get_max_value();
@@ -476,7 +499,7 @@ fn render_cmd(prompt: &str, cmd: &RdCmd) -> impl View {
                 LinearLayout::horizontal()
                     .child(TextView::new(prompt))
                     .child(DummyView)
-                    .child(TextView::new(format_knob_pct(0.0)).with_name(digit_name))
+                    .child(TextView::new(format_knob_val(knob, 0.0)).with_name(digit_name))
                     .child(TextView::new(" ["))
                     .child(
                         SliderView::new(Orientation::Horizontal, range)

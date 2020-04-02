@@ -21,38 +21,6 @@ use super::{get_layout, COLOR_ACTIVE, COLOR_ALERT, COLOR_DFL, COLOR_INACTIVE, ST
 
 pub static STATUS_INTV: AtomicU32 = AtomicU32::new(3);
 
-fn format_size_helper(size: u64, shift: u32, suffix: &str) -> Option<String> {
-    let unit: u64 = 1 << shift;
-
-    if size < unit {
-        Some("-".to_string())
-    } else if size < 100 * unit {
-        Some(format!("{:.1}{}", size as f64 / unit as f64, suffix))
-    } else if size < 1024 * unit {
-        Some(format!("{}{}", size / unit, suffix))
-    } else {
-        None
-    }
-}
-
-fn format_size(size: u64) -> String {
-    format_size_helper(size, 0, "b")
-        .or_else(|| format_size_helper(size, 10, "k"))
-        .or_else(|| format_size_helper(size, 20, "m"))
-        .or_else(|| format_size_helper(size, 30, "g"))
-        .or_else(|| format_size_helper(size, 40, "p"))
-        .or_else(|| format_size_helper(size, 50, "e"))
-        .unwrap_or_else(|| "INF".into())
-}
-
-fn format_pct(ratio: f64) -> String {
-    if ratio == 0.0 {
-        "-".to_string()
-    } else {
-        format!("{:.01}", ratio * 100.0)
-    }
-}
-
 pub struct UpdateWorker {
     usages: BTreeMap<String, UsageReport>,
     nr_samples: u32,

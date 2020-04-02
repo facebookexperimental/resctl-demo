@@ -95,6 +95,40 @@ where
     num::clamp(T::from_f64(v).unwrap(), left, right)
 }
 
+pub fn format_size(size: u64) -> String {
+    fn format_size_helper(size: u64, shift: u32, suffix: &str) -> Option<String> {
+        let unit: u64 = 1 << shift;
+
+        if size < unit {
+            Some("-".to_string())
+        } else if size < 100 * unit {
+            Some(format!("{:.1}{}", size as f64 / unit as f64, suffix))
+        } else if size < 1024 * unit {
+            Some(format!("{:}{}", size / unit, suffix))
+        } else {
+            None
+        }
+    }
+
+    format_size_helper(size, 0, "b")
+        .or_else(|| format_size_helper(size, 10, "k"))
+        .or_else(|| format_size_helper(size, 20, "m"))
+        .or_else(|| format_size_helper(size, 30, "g"))
+        .or_else(|| format_size_helper(size, 40, "p"))
+        .or_else(|| format_size_helper(size, 50, "e"))
+        .unwrap_or_else(|| "INF".into())
+}
+
+pub fn format_pct(ratio: f64) -> String {
+    if ratio == 0.0 {
+        "-".into()
+    } else if ratio > 0.99 {
+        "100".into()
+    } else {
+        format!("{:.01}", ratio * 100.0)
+    }
+}
+
 fn is_executable<P: AsRef<Path>>(path_in: P) -> bool {
     let path = path_in.as_ref();
     match path.metadata() {
