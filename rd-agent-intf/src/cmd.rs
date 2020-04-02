@@ -5,8 +5,6 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use util::*;
 
-pub const HASHD_CMD_WRITE_RATIO_MAX_MULT: u64 = 10;
-
 lazy_static! {
     static ref CMD_DOC: String = format!(
         "\
@@ -38,16 +36,17 @@ lazy_static! {
 //  hashd[].active: On/off
 //  hashd[].lat_target: Latency target, defaults to 0.1 meaning 100ms
 //  hashd[].rps_target_ratio: RPS target as a ratio of bench::hashd.rps_max,
-//                            if >> 1.0, no practical rps limit
-//  hashd[].mem_ratio: Memory footprint adj [0.0, 1.0], default 0.5
+//                            if >> 1.0, no practical rps limit, default 0.5
+//  hashd[].mem_ratio: Memory footprint adj [0.0, 1.0], set from bench
 //  hashd[].file_ratio: Pagecache portion of memory [0.0, 1.0], default ${dfl_file_ratio}
-//  hashd[].write_ratio: IO write bandwidth adj [0.0, 1.0]. default 0.5
+//  hashd[].write_ratio: IO write bandwidth adj [0.0, 1.0], default ${dfl_write_ratio}
 //  hashd[].weight: Relative weight between the two hashd instances
 //  sysloads{{}}: \"NAME\": \"DEF_ID\" pairs for active sysloads
 //  sideloads{{}}: \"NAME\": \"DEF_ID\" pairs for active sideloads
 //
 ",
         dfl_file_ratio = Params::DFL_FILE_FRAC,
+        dfl_write_ratio = HashdCmd::DFL_WRITE_RATIO,
     );
 }
 
@@ -67,15 +66,19 @@ pub struct HashdCmd {
     pub weight: f64,
 }
 
+impl HashdCmd {
+    pub const DFL_WRITE_RATIO: f64 = 0.25;
+}
+
 impl Default for HashdCmd {
     fn default() -> Self {
         Self {
             active: false,
             lat_target: 100.0 * MSEC,
-            rps_target_ratio: 10.0,
-            mem_ratio: 0.5,
+            rps_target_ratio: 0.5,
+            mem_ratio: 0.1,
             file_ratio: Params::DFL_FILE_FRAC,
-            write_ratio: 0.5,
+            write_ratio: Self::DFL_WRITE_RATIO,
             weight: 1.0,
         }
     }

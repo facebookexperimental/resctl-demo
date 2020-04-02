@@ -163,7 +163,8 @@ a value argument or prompt.
 Reset commands are shortcuts to restore to default configurations.
 
 %% reset  benches                : [ Stop hashd and iocost benchmarks ]
-%% reset  hashds                 : [ Stop hashd instances and restore default parameters ]
+%% reset  hashds                 : [ Stop hashd instances ]
+%% reset  hashd-params           : [ Restore default hashd params ]
 %% reset  sideloads              : [ Stop all sideloads ]
 %% reset  sysloads               : [ Stop all sysloads ]
 %% reset  resctl                 : [ Restore cpu/mem/io resource control ]

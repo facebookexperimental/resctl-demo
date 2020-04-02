@@ -55,6 +55,7 @@ pub enum RdKnob {
 pub enum RdReset {
     Benches,
     Hashds,
+    HashdParams,
     Sideloads,
     Sysloads,
     ResCtl,
@@ -291,6 +292,7 @@ impl RdCmd {
                 let reset = match args[1] {
                     "benches" => RdReset::Benches,
                     "hashds" => RdReset::Hashds,
+                    "hashd-params" => RdReset::HashdParams,
                     "sideloads" => RdReset::Sideloads,
                     "sysloads" => RdReset::Sysloads,
                     "resctl" => RdReset::ResCtl,

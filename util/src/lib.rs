@@ -95,7 +95,10 @@ where
     num::clamp(T::from_f64(v).unwrap(), left, right)
 }
 
-pub fn format_size(size: u64) -> String {
+pub fn format_size<T>(size: T) -> String
+where
+    T: num::ToPrimitive
+{
     fn format_size_helper(size: u64, shift: u32, suffix: &str) -> Option<String> {
         let unit: u64 = 1 << shift;
 
@@ -109,6 +112,8 @@ pub fn format_size(size: u64) -> String {
             None
         }
     }
+
+    let size = size.to_u64().unwrap();
 
     format_size_helper(size, 0, "b")
         .or_else(|| format_size_helper(size, 10, "k"))

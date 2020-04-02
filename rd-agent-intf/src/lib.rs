@@ -13,7 +13,7 @@ pub mod sysreqs;
 
 pub use args::{Args, DFL_TOP};
 pub use bench::{BenchKnobs, HashdKnobs, IoCostKnobs};
-pub use cmd::{Cmd, HashdCmd, SideloaderCmd, HASHD_CMD_WRITE_RATIO_MAX_MULT};
+pub use cmd::{Cmd, HashdCmd, SideloaderCmd};
 pub use index::Index;
 pub use oomd::{OomdKnobs, OomdSliceMemPressureKnobs, OomdSliceSenpaiKnobs};
 pub use report::{
