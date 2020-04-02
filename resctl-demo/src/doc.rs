@@ -305,8 +305,8 @@ fn format_knob_val(knob: &RdKnob, ratio: f64) -> String {
                 ratio,
                 (
                     0,
-                    (bench.hashd.mem_frac * *TOTAL_MEMORY as f64) as u64,
-                    *TOTAL_MEMORY as u64,
+                    (bench.hashd.mem_size as f64 * bench.hashd.mem_frac) as u64,
+                    bench.hashd.mem_size,
                 )
             ))
         ),
