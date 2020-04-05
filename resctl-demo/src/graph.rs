@@ -38,7 +38,16 @@ fn graph_intv() -> u64 {
 
 pub fn graph_intv_next() {
     let mut idx = GRAPH_INTV_IDX.lock().unwrap();
-    *idx = (*idx + 1) % GRAPH_INTVS.len();
+    if *idx < GRAPH_INTVS.len() - 1 {
+        *idx += 1;
+    }
+}
+
+pub fn graph_intv_prev() {
+    let mut idx = GRAPH_INTV_IDX.lock().unwrap();
+    if *idx > 0 {
+        *idx -= 1;
+    }
 }
 
 pub struct PlotSpec {
@@ -472,7 +481,7 @@ pub enum GraphSetId {
 static ALL_GRAPHS: &[(&str, &str, &[PlotId])] = &[
     (
         "hashd-A",
-        "Workload RPS / P99 Latency - 'ESC': exit graph view, 't': change timescale",
+        "Workload RPS / P99 Latency - 'ESC': exit graph view, 't/T': change timescale",
         &[PlotId::HashdARps, PlotId::HashdALat],
     ),
     (
@@ -578,7 +587,7 @@ pub fn layout_factory(id: GraphSetId) -> Box<dyn View> {
     match id {
         GraphSetId::Default => Box::new(
             Panel::new(TextView::new("").with_name(&name))
-                .title("Workload RPS / P99 Latency - 'g': more graphs, 't': change timescale")
+                .title("Workload RPS / P99 Latency - 'g': more graphs, 't/T': change timescale")
                 .resized(
                     SizeConstraint::Fixed(layout.graph.x),
                     SizeConstraint::Fixed(layout.graph.y),

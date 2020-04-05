@@ -541,6 +541,10 @@ fn main() {
         graph::graph_intv_next();
         kick_refresh(siv);
     });
+    siv.add_global_callback('T', |siv| {
+        graph::graph_intv_prev();
+        kick_refresh(siv);
+    });
 
     siv.add_global_callback(event::Event::WindowResize, move |siv| {
         refresh_layout_and_kick(siv)
