@@ -7,7 +7,9 @@ use proc_mounts::MountInfo;
 use scan_fmt::scan_fmt;
 use std::collections::HashSet;
 use std::fs;
+use std::io;
 use std::io::prelude::*;
+use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::process::Command;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -20,6 +22,7 @@ use util::*;
 mod bench;
 mod cmd;
 mod hashd;
+mod misc;
 mod oomd;
 mod report;
 mod side;
@@ -55,6 +58,28 @@ fn write_unit_configlet(unit_name: &str, tag: &str, config: &str) -> Result<()> 
         .truncate(true)
         .open(&path)?;
     Ok(f.write_all(config.as_ref())?)
+}
+
+fn prepare_bin_file(path: &str, body: &[u8]) -> Result<()> {
+    match fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&path)
+    {
+        Ok(mut f) => {
+            f.write_all(body)?;
+            let mut perm = f.metadata()?.permissions();
+            if perm.mode() & 0x111 != 0o111 {
+                perm.set_mode(perm.mode() | 0o111);
+                f.set_permissions(perm)?;
+            }
+        }
+        Err(e) => match e.kind() {
+            io::ErrorKind::AlreadyExists => (),
+            _ => return Err(e.into()),
+        },
+    }
+    Ok(())
 }
 
 fn svc_refresh_and_report(unit: &mut systemd::Unit) -> Result<SvcReport> {
@@ -113,6 +138,7 @@ pub struct Config {
     pub scr_dev_forced: bool,
     pub index_path: String,
     pub sysreqs_path: String,
+    pub misc_bin_path: String,
     pub cmd_path: String,
     pub report_path: String,
     pub report_1min_path: String,
@@ -246,6 +272,9 @@ impl Config {
                 .to_string(),
         };
 
+        let misc_bin_path = top_path.clone() + "/misc-bin";
+        Self::prep_dir(&misc_bin_path);
+
         let hashd_bin = find_bin("rd-hashd", exe_dir().ok())
             .unwrap_or_else(|| {
                 error!("cfg: Failed to find rd-hashd binary");
@@ -265,15 +294,6 @@ impl Config {
                 panic!();
             }
         };
-
-        let sideloader_bin = find_bin("sideloader.py", exe_dir().ok())
-            .unwrap_or_else(|| {
-                error!("cfg: Failed to find sideloader.py");
-                panic!()
-            })
-            .to_str()
-            .unwrap()
-            .to_string();
 
         let side_bin_path = top_path.clone() + "/sideload-bin";
         let side_scr_path = scr_path.clone() + "/sideload";
@@ -314,6 +334,7 @@ impl Config {
             scr_dev_forced: args.dev.is_some(),
             index_path: top_path.clone() + "/index.json",
             sysreqs_path: top_path.clone() + "/sysreqs.json",
+            misc_bin_path: misc_bin_path.clone(),
             cmd_path: top_path.clone() + "/cmd.json",
             report_path: top_path.clone() + "/report.json",
             report_1min_path: top_path.clone() + "/report-1min.json",
@@ -340,14 +361,7 @@ impl Config {
                 },
             ],
             iocost_paths: IOCostPaths {
-                bin: find_bin("iocost_coef_gen.py", exe_dir().ok())
-                    .unwrap_or_else(|| {
-                        error!("cfg: Failed to find iocost_coef_gen.py executable");
-                        panic!()
-                    })
-                    .to_str()
-                    .unwrap()
-                    .to_string(),
+                bin: misc_bin_path.clone() + "/iocost_coef_gen.py",
                 working: Self::prep_dir(&(scr_path.clone() + "/iocost-coef")),
                 result: scr_path.clone() + "/iocost-coef/iocost-coef.json",
             },
@@ -355,7 +369,7 @@ impl Config {
             oomd_sys_svc,
             oomd_cfg_path: top_path.clone() + "/oomd.json",
             oomd_daemon_cfg_path: top_path.clone() + "/oomd/config.json",
-            sideloader_bin,
+            sideloader_bin: misc_bin_path.clone() + "/sideloader.py",
             sideloader_daemon_cfg_path: top_path.clone() + "/sideloader/config.json",
             sideloader_daemon_jobs_path: top_path.clone() + "/sideloader/jobs.d",
             sideloader_daemon_status_path: top_path.clone() + "/sideloader/status.json",
@@ -828,6 +842,11 @@ fn main() {
 
     if let Err(e) = update_index(&cfg) {
         error!("cfg: Failed to update {:?} ({:?})", &cfg.index_path, &e);
+        panic!();
+    }
+
+    if let Err(e) = misc::prepare_misc_bins(&cfg) {
+        error!("cfg: Failed to prepare misc support binaries ({:?})", &e);
         panic!();
     }
 
