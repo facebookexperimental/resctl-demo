@@ -204,15 +204,15 @@ impl Default for Cfg {
 
                 next_up_pos: Box::new(|_params, pos| match pos {
                     None => Some(64.0),
-                    Some(v) => Some(v * 4.0),
+                    Some(v) => Some(v * 8.0),
                 }),
 
                 bisect_done: Box::new(|_params, left, right| {
-                    right <= 64.0 || right - left < 5.0 * PCT * right
+                    right <= 64.0 || right - left < 10.0 * PCT * right
                 }),
 
                 next_refine_pos: Box::new(|params, pos| {
-                    let step = 2.5 * PCT * params.log_padding as f64;
+                    let step = 5.0 * PCT * params.log_padding as f64;
                     let min = 76.0 * PCT * params.log_padding as f64;
                     match pos {
                         None => Some(params.log_padding as f64 - step),

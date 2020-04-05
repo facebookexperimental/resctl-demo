@@ -124,8 +124,9 @@ fn read_cgroup_flat_keyed_file(path: &str) -> Result<HashMap<String, u64>> {
     let mut map = HashMap::new();
 
     for line in r.lines().filter_map(Result::ok) {
-        let (key, val) = scan_fmt!(&line, "{} {d}", String, u64)?;
-        map.insert(key, val);
+        if let Ok((key, val)) = scan_fmt!(&line, "{} {d}", String, u64) {
+            map.insert(key, val);
+        }
     }
     Ok(map)
 }
@@ -141,8 +142,9 @@ fn read_cgroup_nested_keyed_file(path: &str) -> Result<HashMap<String, HashMap<S
 
         let mut map = HashMap::new();
         for tok in split {
-            let (key, val) = scan_fmt!(tok, "{}={d}", String, u64)?;
-            map.insert(key, val);
+            if let Ok((key, val)) = scan_fmt!(tok, "{}={d}", String, u64) {
+                map.insert(key, val);
+            }
         }
         top_map.insert(top_key.into(), map);
     }

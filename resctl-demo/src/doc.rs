@@ -18,7 +18,7 @@ use super::agent::AGENT_FILES;
 use super::command::{CmdState, CMD_STATE};
 use super::{get_layout, COLOR_ACTIVE, COLOR_ALERT};
 use markup_rd::{RdCmd, RdDoc, RdKnob, RdPara, RdReset, RdSwitch};
-use rd_agent_intf::{HashdCmd, SysReq, SliceConfig};
+use rd_agent_intf::{HashdCmd, SliceConfig, SysReq};
 
 lazy_static! {
     pub static ref DOCS: BTreeMap<String, &'static str> = load_docs();

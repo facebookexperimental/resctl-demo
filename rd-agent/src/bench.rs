@@ -18,13 +18,14 @@ use super::{hashd, Config, HashdSel};
 const IOCOST_QOS_PATH: &str = "/sys/fs/cgroup/io.cost.qos";
 const IOCOST_MODEL_PATH: &str = "/sys/fs/cgroup/io.cost.model";
 
-pub fn start_hashd_bench(cfg: &Config) -> Result<TransientService> {
+pub fn start_hashd_bench(cfg: &Config, mem_high: u64) -> Result<TransientService> {
     let mut args = hashd::hashd_path_args(&cfg, HashdSel::A);
     args.push("--bench".into());
     debug!("args: {:#?}", &args);
 
     let mut svc =
         TransientService::new_sys(HASHD_BENCH_SVC_NAME.into(), args, Vec::new(), Some(0o002))?;
+    svc.unit.resctl.mem_high = Some(mem_high);
     svc.set_slice(Slice::Work.name()).start()?;
     Ok(svc)
 }

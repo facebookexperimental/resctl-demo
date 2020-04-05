@@ -394,9 +394,8 @@ impl Unit {
         self.resctl.mem_max = self.props.u64_dfl_max("MemoryMax");
     }
 
-    pub fn apply(&mut self) -> Result<()> {
-        trace!("svc: {:?} applying resctl", &self.name);
-        let props: PropVec = vec![
+    pub fn resctl_props(&self) -> PropVec {
+        vec![
             (
                 "CPUWeight".into(),
                 Variant(Box::new(self.resctl.cpu_weight.unwrap_or(u64::MAX))),
@@ -421,9 +420,13 @@ impl Unit {
                 "MemoryMax".into(),
                 Variant(Box::new(self.resctl.mem_max.unwrap_or(u64::MAX))),
             ),
-        ];
+        ]
+    }
+
+    pub fn apply(&mut self) -> Result<()> {
+        trace!("svc: {:?} applying resctl", &self.name);
         self.sd_bus()
-            .with(|s| s.set_unit_props(&self.name, props))?;
+            .with(|s| s.set_unit_props(&self.name, self.resctl_props()))?;
         self.refresh()
     }
 
@@ -607,7 +610,7 @@ impl TransientService {
     }
 
     fn try_start(&mut self) -> Result<bool> {
-        let mut pv: PropVec = Vec::new();
+        let mut pv: PropVec = self.unit.resctl_props();
         for (k, v) in self.extra_props.iter() {
             match v {
                 Prop::U32(v) => pv.push((k.clone(), Variant(Box::new(*v)))),
@@ -648,12 +651,16 @@ impl TransientService {
     }
 
     pub fn start(&mut self) -> Result<()> {
+        let resctl = self.unit.resctl.clone();
         match self.unit.stop_and_reset() {
-            Ok(()) => match self.try_start() {
-                Ok(true) => Ok(()),
-                Ok(false) => bail!("invalid service state {:?}", &self.unit.state),
-                Err(e) => Err(e),
-            },
+            Ok(()) => {
+                self.unit.resctl = resctl;
+                match self.try_start() {
+                    Ok(true) => Ok(()),
+                    Ok(false) => bail!("invalid service state {:?}", &self.unit.state),
+                    Err(e) => Err(e),
+                }
+            }
             Err(e) => Err(e),
         }
     }

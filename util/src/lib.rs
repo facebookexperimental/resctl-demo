@@ -97,7 +97,7 @@ where
 
 pub fn format_size<T>(size: T) -> String
 where
-    T: num::ToPrimitive
+    T: num::ToPrimitive,
 {
     fn format_size_helper(size: u64, shift: u32, suffix: &str) -> Option<String> {
         let unit: u64 = 1 << shift;

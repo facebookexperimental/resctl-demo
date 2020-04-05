@@ -1,5 +1,5 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
-use super::Config;
+use super::{Config, prepare_bin_file};
 use anyhow::{bail, Result};
 use lazy_static::lazy_static;
 use libc;
@@ -8,9 +8,6 @@ use regex;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashSet};
 use std::fs;
-use std::io;
-use std::io::prelude::*;
-use std::os::unix::fs::PermissionsExt;
 use std::process::Command;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -36,115 +33,15 @@ lazy_static! {
 const LINUX_TAR_XZ_URL: &str =
     "https://mirrors.edge.kernel.org/pub/linux/kernel/v5.x/linux-5.5.4.tar.xz";
 
-const BUILD_LINUX_SH: &str = r#"#!/bin/bash
-
-set -xe
-
-NR_JOBS=
-if [ -n "$1" ]; then
-    NR_JOBS=$(nproc)
-    NR_JOBS=$((NR_JOBS * $1))
-    if [ -n "$2" ]; then
-        NR_JOBS=$((NR_JOBS / $2))
-    fi
-    NR_JOBS=$(((NR_JOBS * 12 + 9) / 10))
-fi
-
-rm -rf linux-*
-tar xvf ../../linux.tar
-cd linux-*
-make allmodconfig
-make -j$NR_JOBS
-"#;
-
-const DLXU_MEMORY_GROWTH_PY: &str = r#"#!/bin/python3
-
-import datetime
-import gc
-import os
-import resource
-import sys
-import time
-
-BPS = int(sys.argv[1]) << 20
-PAGE_SIZE = resource.getpagesize()
-
-def get_memory_usage():
-    return int(open("/proc/self/statm", "rt").read().split()[1]) * PAGE_SIZE
-
-def bloat(size):
-    l = []
-    mem_usage = get_memory_usage()
-    target_mem_usage = mem_usage + size
-    while get_memory_usage() < target_mem_usage:
-        l.append(b"g" * (10 ** 6))
-    return l
-
-def run():
-    arr = []  # prevent GC
-    prev_time = datetime.datetime.now()
-    while True:
-        # allocate some memory
-        l = bloat(BPS)
-        arr.append(l)
-        now = datetime.datetime.now()
-        print("{} -- RSS = {} bytes. Delta = {}".format(now, get_memory_usage(), (now - prev_time).total_seconds()))
-        prev_time = now
-        time.sleep(1)
-
-    print('{} -- Done with workload'.format(datetime.datetime.now()))
-
-if __name__ == "__main__":
-    run()
-"#;
-
-const TAR_BOMB_SH: &str = r#"#!/bin/bash
-
-set -xe
-
-mkdir -p io-bomb-dir-src
-(cd io-bomb-dir-src; tar xf ../../../linux.tar)
-
-for ((r=0;r<32;r++)); do
-    for ((i=0;i<32;i++)); do
-	cp -fR io-bomb-dir-src io-bomb-dir-$i
-    done
-    for ((i=0;i<32;i++)); do
-	true rm -rf io-bomb-dir-$i
-    done
-done
-
-rm -rf io-bomb-dir-src
-"#;
-
-const SIDE_BINS: [(&str, &str); 3] = [
-    ("build-linux.sh", BUILD_LINUX_SH),
-    ("dlxu-memory-growth.py", DLXU_MEMORY_GROWTH_PY),
-    ("tar-bomb.sh", TAR_BOMB_SH),
+const SIDE_BINS: [(&str, &[u8]); 3] = [
+    ("build-linux.sh", include_bytes!("side/build-linux.sh")),
+    ("dlxu-memory-growth.py", include_bytes!("side/dlxu-memory-growth.py")),
+    ("tar-bomb.sh", include_bytes!("side/tar-bomb.sh")),
 ];
 
 fn prepare_side_bins(cfg: &Config) -> Result<()> {
     for (name, body) in &SIDE_BINS {
-        let path = format!("{}/{}", &cfg.side_bin_path, name);
-
-        match fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&path)
-        {
-            Ok(mut f) => {
-                f.write_all(body.as_ref())?;
-                let mut perm = f.metadata()?.permissions();
-                if perm.mode() & 0x111 != 0o111 {
-                    perm.set_mode(perm.mode() | 0o111);
-                    f.set_permissions(perm)?;
-                }
-            }
-            Err(e) => match e.kind() {
-                io::ErrorKind::AlreadyExists => continue,
-                _ => return Err(e.into()),
-            },
-        }
+        prepare_bin_file(&format!("{}/{}", &cfg.side_bin_path, name), body)?;
     }
     Ok(())
 }
