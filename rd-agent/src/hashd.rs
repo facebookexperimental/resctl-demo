@@ -47,7 +47,7 @@ impl Hashd {
     fn start(&mut self) -> Result<()> {
         let mut args = self.path_args.clone();
         args.push("--file-max".into());
-        args.push(format!("{}", self.file_max_ratio * 100.0));
+        args.push(format!("{}", self.file_max_ratio));
         debug!("args: {:#?}", &args);
 
         let mut svc = TransientService::new_sys(self.name.clone(), args, Vec::new(), Some(0o002))?;
