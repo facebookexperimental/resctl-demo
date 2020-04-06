@@ -34,7 +34,6 @@ pub use systemd::TransientService;
 pub const TO_MSEC: f64 = 1000.0;
 pub const TO_PCT: f64 = 100.0;
 pub const MSEC: f64 = 1.0 / 1000.0;
-pub const PCT: f64 = 1.0 / 100.0;
 
 lazy_static! {
     pub static ref TOTAL_MEMORY: usize = {

@@ -168,7 +168,7 @@ pub struct Args {
 }
 
 impl Args {
-    pub const DFL_FILE_MAX_FRAC: f64 = 50.0 * PCT;
+    pub const DFL_FILE_MAX_FRAC: f64 = 0.5;
 
     pub fn file_max_size(&self) -> u64 {
         (self.size as f64 * self.file_max_frac).ceil() as u64

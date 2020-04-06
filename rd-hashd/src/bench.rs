@@ -90,8 +90,8 @@ const MEMIO_UP_CVG_CFG: ConvergeCfg = ConvergeCfg {
     period: 15,
     min_dur: 30,
     max_dur: 90,
-    slope: 1.0 * PCT,
-    err_slope: 2.5 * PCT,
+    slope: 0.01,
+    err_slope: 0.025,
     rot_mult: 4.0,
 };
 
@@ -101,8 +101,8 @@ const MEMIO_BISECT_CVG_CFG: ConvergeCfg = ConvergeCfg {
     period: 15,
     min_dur: 30,
     max_dur: 90,
-    slope: 1.0 * PCT,
-    err_slope: 2.5 * PCT,
+    slope: 0.01,
+    err_slope: 0.025,
     rot_mult: 2.0,
 };
 
@@ -112,20 +112,20 @@ const MEMIO_REFINE_CVG_CFG: ConvergeCfg = ConvergeCfg {
     period: 15,
     min_dur: 120,
     max_dur: 240,
-    slope: 1.0 * PCT,
-    err_slope: 2.5 * PCT,
+    slope: 0.01,
+    err_slope: 0.025,
     rot_mult: 2.0,
 };
 
 impl Default for Cfg {
     fn default() -> Self {
         Self {
-            mem_buffer: 15.0 * PCT,
-            io_buffer: 75.0 * PCT,
+            mem_buffer: 0.15,
+            io_buffer: 0.75,
             cpu: CpuCfg {
                 size: 1 << 30,
                 lat: 10.0 * MSEC,
-                err: 10.0 * PCT,
+                err: 0.1,
                 kp: 0.25,
                 ki: 0.01,
                 kd: 0.01,
@@ -136,15 +136,15 @@ impl Default for Cfg {
                     period: 10,
                     min_dur: 10,
                     max_dur: 60,
-                    slope: 2.5 * PCT,
-                    err_slope: 5.0 * PCT,
+                    slope: 0.025,
+                    err_slope: 0.05,
                     rot_mult: 1.0,
                 },
             },
             cpu_sat: CpuSatCfg {
                 size: 1 << 30,
                 lat: 100.0 * MSEC,
-                err: 10.0 * PCT,
+                err: 0.1,
                 rounds: 3,
                 converge: ConvergeCfg {
                     which: Rps,
@@ -152,8 +152,8 @@ impl Default for Cfg {
                     period: 15,
                     min_dur: 15,
                     max_dur: 90,
-                    slope: 1.0 * PCT,
-                    err_slope: 2.5 * PCT,
+                    slope: 0.01,
+                    err_slope: 0.025,
                     rot_mult: 1.0,
                 },
             },
@@ -168,16 +168,16 @@ impl Default for Cfg {
                 set_pos: Box::new(|params, pos| params.mem_frac = pos),
 
                 next_up_pos: Box::new(|_params, pos| match pos {
-                    None => Some(10.0 * PCT),
-                    Some(v) if v < 91.0 * PCT => Some((v + 10.0 * PCT).min(100.0 * PCT)),
+                    None => Some(0.1),
+                    Some(v) if v < 0.91 => Some((v + 0.1).min(1.0)),
                     _ => None,
                 }),
 
-                bisect_done: Box::new(|_params, left, right| right - left < 2.5 * PCT),
+                bisect_done: Box::new(|_params, left, right| right - left < 0.025),
 
                 next_refine_pos: Box::new(|params, pos| {
-                    let step = 2.5 * PCT;
-                    let min = (params.mem_frac - 25.0 * PCT).max(0.1 * PCT);
+                    let step = 0.025;
+                    let min = (params.mem_frac - 0.25).max(0.001);
                     match pos {
                         None => Some(params.mem_frac - step),
                         Some(v) if v > min => Some(v - step),
@@ -186,10 +186,10 @@ impl Default for Cfg {
                 }),
 
                 lat: 100.0 * MSEC,
-                term_err_good: 10.0 * PCT,
-                term_err_bad: 50.0 * PCT,
-                bisect_err: 25.0 * PCT,
-                refine_err: 10.0 * PCT,
+                term_err_good: 0.1,
+                term_err_bad: 0.5,
+                bisect_err: 0.25,
+                refine_err: 0.1,
 
                 up_converge: MEMIO_UP_CVG_CFG,
                 bisect_converge: MEMIO_BISECT_CVG_CFG,
@@ -208,12 +208,12 @@ impl Default for Cfg {
                 }),
 
                 bisect_done: Box::new(|_params, left, right| {
-                    right <= 64.0 || right - left < 10.0 * PCT * right
+                    right <= 64.0 || right - left < 0.1 * right
                 }),
 
                 next_refine_pos: Box::new(|params, pos| {
-                    let step = 5.0 * PCT * params.log_padding as f64;
-                    let min = 76.0 * PCT * params.log_padding as f64;
+                    let step = 0.05 * params.log_padding as f64;
+                    let min = 0.76 * params.log_padding as f64;
                     match pos {
                         None => Some(params.log_padding as f64 - step),
                         Some(v) if v > min => Some(v - step),
@@ -222,10 +222,10 @@ impl Default for Cfg {
                 }),
 
                 lat: 100.0 * MSEC,
-                term_err_good: 5.0 * PCT,
-                term_err_bad: 75.0 * PCT,
-                bisect_err: 10.0 * PCT,
-                refine_err: 10.0 * PCT,
+                term_err_good: 0.05,
+                term_err_bad: 0.75,
+                bisect_err: 0.1,
+                refine_err: 0.1,
 
                 up_converge: MEMIO_UP_CVG_CFG,
                 bisect_converge: MEMIO_BISECT_CVG_CFG,
@@ -1010,7 +1010,7 @@ impl Bench {
             // accumulating long tails and other system disturbances. Plus, IO
             // saturation will come out of the buffer left by memory saturation.
             // Lower the pos to give the system some breathing room.
-            self.params.mem_frac *= 100.0 * PCT - cfg.mem_buffer;
+            self.params.mem_frac *= 1.0 - cfg.mem_buffer;
 
             let (fsize, asize) = self.mem_sizes(self.params.mem_frac);
             info!(
@@ -1040,7 +1040,7 @@ impl Bench {
             // writes. We need to stay well below the measured saturation point
             // to hold performance stable.
             self.params.log_padding =
-                (self.params.log_padding as f64 * (100.0 * PCT - cfg.io_buffer)) as u64;
+                (self.params.log_padding as f64 * (1.0 - cfg.io_buffer)) as u64;
         } else {
             self.params.log_padding = self.params_file.data.log_padding;
         }
