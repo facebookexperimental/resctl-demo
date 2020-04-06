@@ -272,7 +272,11 @@ impl Logger {
     }
 
     pub fn log(&self, msg: &str) {
-        let _ = self.log_tx.as_ref().unwrap().send(msg.into());
+        // Make each queued message cost non-trivial amount of memory so that IO
+        // lagging behind feeds back as memory pressure.
+        let mut buf = String::with_capacity(4096);
+        buf += msg;
+        let _ = self.log_tx.as_ref().unwrap().send(buf);
     }
 }
 
