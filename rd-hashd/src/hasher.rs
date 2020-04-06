@@ -1,7 +1,7 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
 use anyhow::Result;
 use crossbeam::channel::{self, select, Receiver, Sender};
-use log::debug;
+use log::{debug, warn, error};
 use num::Integer;
 use pid::Pid;
 use quantiles::ckms::CKMS;
@@ -188,6 +188,7 @@ struct HashCompletion {
 /// keeps scheduling Hasher workers according to the params.
 struct DispatchThread {
     // Basic plumbing.
+    max_size: u64,
     tf: TestFiles,
     params: Params,
     params_at: Instant,
@@ -252,8 +253,8 @@ impl DispatchThread {
         )
     }
 
-    fn anon_total(params: &Params, tf: &TestFiles) -> usize {
-        (tf.size as f64
+    fn anon_total(max_size: u64, params: &Params) -> usize {
+        (max_size as f64
             * (params.mem_frac * (1.0 - params.file_frac))
                 .max(0.0)
                 .min(1.0)) as usize
@@ -303,7 +304,17 @@ impl DispatchThread {
         )
     }
 
+    fn verify_params(&mut self) {
+        let file_max_frac = self.tf.size as f64 / self.max_size as f64;
+        if self.params.file_frac > file_max_frac {
+            warn!("file_frac {:.2} is higher than allowed by testfiles, see --file_max_frac",
+                  self.params.file_frac);
+            self.params.file_frac = file_max_frac;
+        }
+    }
+
     pub fn new(
+        max_size: u64,
         tf: TestFiles,
         params: Params,
         logger: Option<Logger>,
@@ -311,13 +322,14 @@ impl DispatchThread {
     ) -> Self {
         let (cmpl_tx, cmpl_rx) = channel::unbounded::<HashCompletion>();
         let (file_size_normal, file_idx_normal) = Self::file_normals(&params, &tf);
-        let anon_total = Self::anon_total(&params, &tf);
+        let anon_total = Self::anon_total(max_size, &params);
         let (anon_size_normal, anon_addr_stdev) = Self::anon_normals(&params);
         let sleep_normal = Self::sleep_normal(&params);
         let (lat_pid, rps_pid) = Self::pid_controllers(&params);
         let now = Instant::now();
 
-        Self {
+        let mut dt = Self {
+            max_size,
             tf,
             params_at: now,
             cmd_rx,
@@ -350,14 +362,17 @@ impl DispatchThread {
 
             // Should be the last to allow preceding borrows.
             params,
-        }
+        };
+        dt.verify_params();
+        dt
     }
 
     fn update_params(&mut self, new_params: Params) {
-        let params = &mut self.params;
-        let old_anon_total = Self::anon_total(params, &self.tf);
-        let new_anon_total = Self::anon_total(&new_params, &self.tf);
-        *params = new_params;
+        let old_anon_total = Self::anon_total(self.max_size, &self.params);
+        let new_anon_total = Self::anon_total(self.max_size, &new_params);
+        self.params = new_params;
+        self.verify_params();
+        let params = &self.params;
 
         let (fsn, fin) = Self::file_normals(params, &self.tf);
         let (asn, aas) = Self::anon_normals(params);
@@ -398,7 +413,9 @@ impl DispatchThread {
         // Load hash input files.
         let mut rdh = Hasher::new(cpu_ratio);
         for path in paths {
-            rdh.load(path).unwrap();
+            if let Err(e) = rdh.load(&path) {
+                error!("Failed to open load {:?} ({:?})", &path, &e);
+            }
         }
         sleep(Duration::from_secs_f64(sleep_dur / 3.0));
 
@@ -648,11 +665,11 @@ pub struct Dispatch {
 }
 
 impl Dispatch {
-    pub fn new(tf: TestFiles, params: &Params, logger: Option<Logger>) -> Self {
+    pub fn new(max_size: u64, tf: TestFiles, params: &Params, logger: Option<Logger>) -> Self {
         let params_copy = params.clone();
         let (cmd_tx, cmd_rx) = channel::unbounded();
         let dispatch_jh = Option::Some(spawn(move || {
-            let mut dt = DispatchThread::new(tf, params_copy, logger, cmd_rx);
+            let mut dt = DispatchThread::new(max_size, tf, params_copy, logger, cmd_rx);
             dt.run();
         }));
         let (stat_tx, stat_rx) = channel::unbounded();

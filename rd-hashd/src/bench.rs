@@ -276,13 +276,14 @@ impl TestHasher {
     }
 
     pub fn new(
+        max_size: u64,
         tf: TestFiles,
         params: &Params,
         logger: Option<super::Logger>,
         hist_max: usize,
         report_file: Arc<Mutex<JsonReportFile<Report>>>,
     ) -> Self {
-        let disp = hasher::Dispatch::new(tf, params, logger);
+        let disp = hasher::Dispatch::new(max_size, tf, params, logger);
         let hist = VecDeque::new();
         let disp_hist = Arc::new(Mutex::new(DispHist { disp, hist }));
         let dh_copy = disp_hist.clone();
@@ -522,7 +523,7 @@ pub struct Bench {
     params: Params,
     bar_hidden: bool,
     fsize_mean: usize,
-    tf_size: u64,
+    max_size: u64,
 }
 
 impl Bench {
@@ -568,11 +569,12 @@ impl Bench {
             params: p,
             bar_hidden: verbosity > 0,
             fsize_mean: 0,
-            tf_size: 0,
+            max_size: 0,
         }
     }
 
     fn prep_tf(&self, size: u64, why: &str) -> TestFiles {
+        let size = (size as f64 * self.args_file.data.file_max_frac).ceil() as u64;
         info!("Preparing {:.2}G testfiles for {}", to_gb(size), why);
 
         let mut tf = TestFiles::new(
@@ -594,11 +596,13 @@ impl Bench {
 
     fn create_test_hasher(
         &self,
+        max_size: u64,
         tf: TestFiles,
         params: &Params,
         report_file: Arc<Mutex<JsonReportFile<Report>>>,
     ) -> TestHasher {
         TestHasher::new(
+            max_size,
             tf,
             params,
             create_logger(&self.args_file.data, &self.params_file.data, true),
@@ -621,8 +625,8 @@ impl Bench {
         const TIME_HASH_SIZE: usize = 128 * TESTFILE_UNIT_SIZE as usize;
         let mut params: Params = self.params.clone();
         let mut nr_rounds = 0;
-        let tf_size = cfg.size.max(TIME_HASH_SIZE as u64);
-        let tf = self.prep_tf(tf_size, "single cpu bench");
+        let max_size = cfg.size.max(TIME_HASH_SIZE as u64);
+        let tf = self.prep_tf(max_size, "single cpu bench");
         params.max_concurrency = 1;
         params.file_size_stdev_ratio = 0.0;
         params.anon_size_stdev_ratio = 0.0;
@@ -633,7 +637,7 @@ impl Bench {
         let base_time = Self::time_hash(TIME_HASH_SIZE, &tf);
         params.file_size_mean = (cfg.lat / base_time * TIME_HASH_SIZE as f64) as usize;
 
-        let th = self.create_test_hasher(tf, &params, self.report_file.clone());
+        let th = self.create_test_hasher(max_size, tf, &params, self.report_file.clone());
         let mut pid = Pid::new(cfg.kp, cfg.ki, cfg.kd, 1.0, 1.0, 1.0, 1.0);
 
         while nr_rounds < cfg.rounds {
@@ -679,7 +683,7 @@ impl Bench {
         params.rps_target = u32::MAX;
         params.p99_lat_target = cfg.lat;
 
-        let th = self.create_test_hasher(tf, &params, self.report_file.clone());
+        let th = self.create_test_hasher(cfg.size, tf, &params, self.report_file.clone());
         let mut last_rps = 1.0;
 
         while nr_rounds < cfg.rounds {
@@ -717,7 +721,7 @@ impl Bench {
     }
 
     fn mem_sizes(&self, mem_frac: f64) -> (u64, u64) {
-        let size = (self.tf_size as f64 * mem_frac) as u64;
+        let size = (self.max_size as f64 * mem_frac) as u64;
         let fsize = ((size as f64 * self.params.file_frac) as u64).min(size);
         let asize = size - fsize;
         (fsize, asize)
@@ -795,11 +799,11 @@ impl Bench {
 
     fn bench_memio_saturation_bisect(&mut self, cfg: &MemIoSatCfg) -> f64 {
         let mut params: Params = self.params.clone();
-        let tf = self.prep_tf(self.tf_size, &format!("{} saturation bench", cfg.name));
+        let tf = self.prep_tf(self.max_size, &format!("{} saturation bench", cfg.name));
         params.p99_lat_target = cfg.lat;
         params.rps_target = self.params.rps_max;
 
-        let th = self.create_test_hasher(tf, &params, self.report_file.clone());
+        let th = self.create_test_hasher(self.max_size, tf, &params, self.report_file.clone());
         //
         // Up-rounds - Coarsely scan up using bisect cfg to determine the first
         // resistance point. This phase is necessary because too high a memory
@@ -919,15 +923,15 @@ impl Bench {
         right[0]
     }
 
-    /// Refine-rounds - Reset to tf_size and walk down from the
+    /// Refine-rounds - Reset to max_size and walk down from the
     /// saturation point looking for the first full performance point.
     fn bench_memio_saturation_refine(&self, cfg: &MemIoSatCfg) -> f64 {
         let mut params: Params = self.params.clone();
-        let tf = self.prep_tf(self.tf_size, "memory saturation bench - refine-rounds");
+        let tf = self.prep_tf(self.max_size, "memory saturation bench - refine-rounds");
         params.p99_lat_target = cfg.lat;
         params.rps_target = self.params.rps_max;
 
-        let th = self.create_test_hasher(tf, &params, self.report_file.clone());
+        let th = self.create_test_hasher(self.max_size, tf, &params, self.report_file.clone());
 
         let mut round = 0;
         let mut next_pos = None;
@@ -990,7 +994,7 @@ impl Bench {
         // memory bench
         //
         if self.args_file.data.bench_mem {
-            self.tf_size = self.args_file.data.size;
+            self.max_size = self.args_file.data.size;
             self.params.mem_frac = self.bench_memio_saturation_bisect(&cfg.mem_sat);
             let (fsize, asize) = self.mem_sizes(self.params.mem_frac);
             info!(
@@ -1016,7 +1020,7 @@ impl Bench {
                 to_gb(asize)
             );
         } else {
-            self.tf_size = self.args_file.data.size;
+            self.max_size = self.args_file.data.size;
             self.params.mem_frac = self.params_file.data.mem_frac;
         }
 
@@ -1043,7 +1047,7 @@ impl Bench {
 
         info!(
             "Bench results: memory {:.2}G ({:.2}%), hash {:.2}M, rps {}, log-padding {:.2}k",
-            to_gb(self.tf_size as f64 * self.params.mem_frac),
+            to_gb(self.max_size as f64 * self.params.mem_frac),
             self.params.mem_frac * TO_PCT,
             to_mb(self.fsize_mean),
             self.params.rps_max,
@@ -1051,7 +1055,7 @@ impl Bench {
         );
 
         // Save results.
-        self.args_file.data.size = self.tf_size;
+        self.args_file.data.size = self.max_size;
         self.params_file.data = self.params.clone();
 
         self.args_file.save().expect("failed to save args file");
