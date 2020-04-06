@@ -621,7 +621,7 @@ impl Config {
         let swap_total = sys.get_total_swap() as usize * 1024;
         let swap_avail = swap_total - sys.get_used_swap() as usize * 1024;
 
-        if (swap_total as f64) < (*TOTAL_MEMORY as f64 * 0.9) {
+        if (swap_total as f64) < (*TOTAL_MEMORY as f64 * 0.4) {
             error!(
                 "cfg: Swap {:.2}G is smaller than memory {:.2}G",
                 to_gb(swap_total),
