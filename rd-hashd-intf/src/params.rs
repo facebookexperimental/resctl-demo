@@ -97,7 +97,7 @@ pub struct Params {
 
 impl Params {
     pub const DFL_STDEV: f64 = 0.333333; /* 3 sigma == mean */
-    pub const DFL_FILE_FRAC: f64 = 25.0 * PCT;
+    pub const DFL_FILE_FRAC: f64 = 0.25;
 }
 
 impl Default for Params {
@@ -108,19 +108,19 @@ impl Default for Params {
             p99_lat_target: 100.0 * MSEC,
             rps_target: 65536,
             rps_max: 0,
-            mem_frac: 80.0 * PCT,
+            mem_frac: 0.80,
             file_frac: Self::DFL_FILE_FRAC,
             file_size_mean: 4 << 20,
             file_size_stdev_ratio: Self::DFL_STDEV,
             file_addr_stdev_ratio: Self::DFL_STDEV,
-            file_addr_rps_base_frac: 25.0 * PCT,
-            anon_size_ratio: 100.0 * PCT,
+            file_addr_rps_base_frac: 0.25,
+            anon_size_ratio: 1.0,
             anon_size_stdev_ratio: Self::DFL_STDEV,
             anon_addr_stdev_ratio: Self::DFL_STDEV,
-            anon_addr_rps_base_frac: 25.0 * PCT,
+            anon_addr_rps_base_frac: 0.25,
             sleep_mean: 30.0 * MSEC,
             sleep_stdev_ratio: Self::DFL_STDEV,
-            cpu_ratio: 100.0 * PCT,
+            cpu_ratio: 1.0,
             log_padding: 0,
             lat_pid: PidParams {
                 kp: 0.1,

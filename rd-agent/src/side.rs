@@ -1,5 +1,5 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
-use super::{Config, prepare_bin_file};
+use super::{prepare_bin_file, Config};
 use anyhow::{bail, Result};
 use lazy_static::lazy_static;
 use libc;
@@ -35,7 +35,10 @@ const LINUX_TAR_XZ_URL: &str =
 
 const SIDE_BINS: [(&str, &[u8]); 3] = [
     ("build-linux.sh", include_bytes!("side/build-linux.sh")),
-    ("dlxu-memory-growth.py", include_bytes!("side/dlxu-memory-growth.py")),
+    (
+        "dlxu-memory-growth.py",
+        include_bytes!("side/dlxu-memory-growth.py"),
+    ),
     ("tar-bomb.sh", include_bytes!("side/tar-bomb.sh")),
 ];
 

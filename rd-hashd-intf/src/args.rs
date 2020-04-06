@@ -103,7 +103,8 @@ lazy_static! {
         let dfl: Args = Default::default();
         format!(
             "-t, --testfiles=[DIR]   'Testfiles directory'
-             -s, --size=[SIZE]       'Max memory footprint, testfiles size (default: {dfl_size:.2}G)'
+             -s, --size=[SIZE]       'Max memory footprint, affects testfiles size (default: {dfl_size:.2}G)'
+             -f, --file-max=[FRAC]   'Max fraction of page cache, affects testfiles size (default: {dfl_file_max_frac:.2})'
              -p, --params=[FILE]     'Runtime updatable parameters, will be created if non-existent'
              -r, --report=[FILE]     'Runtime report file, FILE.staging will be used for staging'
              -l, --log-dir=[PATH]    'Record hash results to the files in PATH'
@@ -121,6 +122,7 @@ lazy_static! {
              -a, --args=[FILE]       'Load base command line arguments from FILE'
              -v...                   'Sets the level of verbosity'",
             dfl_size=to_gb(dfl.size),
+            dfl_file_max_frac=dfl.file_max_frac,
             dfl_log_size=to_gb(dfl.log_size),
             dfl_intv=dfl.interval)
     };
@@ -140,6 +142,7 @@ const ARGS_DOC: &str = "\
 pub struct Args {
     pub testfiles: Option<String>,
     pub size: u64,
+    pub file_max_frac: f64,
     pub params: Option<String>,
     pub report: Option<String>,
     pub log_dir: Option<String>,
@@ -164,6 +167,14 @@ pub struct Args {
     pub verbosity: u32,
 }
 
+impl Args {
+    pub const DFL_FILE_MAX_FRAC: f64 = 0.5;
+
+    pub fn file_max_size(&self) -> u64 {
+        (self.size as f64 * self.file_max_frac).ceil() as u64
+    }
+}
+
 impl Default for Args {
     fn default() -> Self {
         let size: u64 = 3 * *TOTAL_MEMORY as u64;
@@ -171,6 +182,7 @@ impl Default for Args {
         Self {
             testfiles: None,
             size,
+            file_max_frac: Self::DFL_FILE_MAX_FRAC,
             params: None,
             report: None,
             log_dir: None,
@@ -230,6 +242,14 @@ impl JsonArgs for Args {
                 v.parse::<u64>().unwrap()
             } else {
                 dfl.size
+            };
+            updated_base = true;
+        }
+        if let Some(v) = matches.value_of("file-max") {
+            self.file_max_frac = if v.len() > 0 {
+                v.parse::<f64>().unwrap().max(0.0).min(1.0)
+            } else {
+                dfl.file_max_frac
             };
             updated_base = true;
         }

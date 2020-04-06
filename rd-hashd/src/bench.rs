@@ -90,8 +90,8 @@ const MEMIO_UP_CVG_CFG: ConvergeCfg = ConvergeCfg {
     period: 15,
     min_dur: 30,
     max_dur: 90,
-    slope: 1.0 * PCT,
-    err_slope: 2.5 * PCT,
+    slope: 0.01,
+    err_slope: 0.025,
     rot_mult: 4.0,
 };
 
@@ -101,8 +101,8 @@ const MEMIO_BISECT_CVG_CFG: ConvergeCfg = ConvergeCfg {
     period: 15,
     min_dur: 30,
     max_dur: 90,
-    slope: 1.0 * PCT,
-    err_slope: 2.5 * PCT,
+    slope: 0.01,
+    err_slope: 0.025,
     rot_mult: 2.0,
 };
 
@@ -112,20 +112,20 @@ const MEMIO_REFINE_CVG_CFG: ConvergeCfg = ConvergeCfg {
     period: 15,
     min_dur: 120,
     max_dur: 240,
-    slope: 1.0 * PCT,
-    err_slope: 2.5 * PCT,
+    slope: 0.01,
+    err_slope: 0.025,
     rot_mult: 2.0,
 };
 
 impl Default for Cfg {
     fn default() -> Self {
         Self {
-            mem_buffer: 15.0 * PCT,
-            io_buffer: 75.0 * PCT,
+            mem_buffer: 0.15,
+            io_buffer: 0.75,
             cpu: CpuCfg {
                 size: 1 << 30,
                 lat: 10.0 * MSEC,
-                err: 10.0 * PCT,
+                err: 0.1,
                 kp: 0.25,
                 ki: 0.01,
                 kd: 0.01,
@@ -136,15 +136,15 @@ impl Default for Cfg {
                     period: 10,
                     min_dur: 10,
                     max_dur: 60,
-                    slope: 2.5 * PCT,
-                    err_slope: 5.0 * PCT,
+                    slope: 0.025,
+                    err_slope: 0.05,
                     rot_mult: 1.0,
                 },
             },
             cpu_sat: CpuSatCfg {
                 size: 1 << 30,
                 lat: 100.0 * MSEC,
-                err: 10.0 * PCT,
+                err: 0.1,
                 rounds: 3,
                 converge: ConvergeCfg {
                     which: Rps,
@@ -152,8 +152,8 @@ impl Default for Cfg {
                     period: 15,
                     min_dur: 15,
                     max_dur: 90,
-                    slope: 1.0 * PCT,
-                    err_slope: 2.5 * PCT,
+                    slope: 0.01,
+                    err_slope: 0.025,
                     rot_mult: 1.0,
                 },
             },
@@ -168,16 +168,16 @@ impl Default for Cfg {
                 set_pos: Box::new(|params, pos| params.mem_frac = pos),
 
                 next_up_pos: Box::new(|_params, pos| match pos {
-                    None => Some(10.0 * PCT),
-                    Some(v) if v < 91.0 * PCT => Some((v + 10.0 * PCT).min(100.0 * PCT)),
+                    None => Some(0.1),
+                    Some(v) if v < 0.91 => Some((v + 0.1).min(1.0)),
                     _ => None,
                 }),
 
-                bisect_done: Box::new(|_params, left, right| right - left < 2.5 * PCT),
+                bisect_done: Box::new(|_params, left, right| right - left < 0.025),
 
                 next_refine_pos: Box::new(|params, pos| {
-                    let step = 2.5 * PCT;
-                    let min = (params.mem_frac - 25.0 * PCT).max(0.1 * PCT);
+                    let step = 0.025;
+                    let min = (params.mem_frac - 0.25).max(0.001);
                     match pos {
                         None => Some(params.mem_frac - step),
                         Some(v) if v > min => Some(v - step),
@@ -186,10 +186,10 @@ impl Default for Cfg {
                 }),
 
                 lat: 100.0 * MSEC,
-                term_err_good: 10.0 * PCT,
-                term_err_bad: 50.0 * PCT,
-                bisect_err: 25.0 * PCT,
-                refine_err: 10.0 * PCT,
+                term_err_good: 0.1,
+                term_err_bad: 0.5,
+                bisect_err: 0.25,
+                refine_err: 0.1,
 
                 up_converge: MEMIO_UP_CVG_CFG,
                 bisect_converge: MEMIO_BISECT_CVG_CFG,
@@ -208,12 +208,12 @@ impl Default for Cfg {
                 }),
 
                 bisect_done: Box::new(|_params, left, right| {
-                    right <= 64.0 || right - left < 10.0 * PCT * right
+                    right <= 64.0 || right - left < 0.1 * right
                 }),
 
                 next_refine_pos: Box::new(|params, pos| {
-                    let step = 5.0 * PCT * params.log_padding as f64;
-                    let min = 76.0 * PCT * params.log_padding as f64;
+                    let step = 0.05 * params.log_padding as f64;
+                    let min = 0.76 * params.log_padding as f64;
                     match pos {
                         None => Some(params.log_padding as f64 - step),
                         Some(v) if v > min => Some(v - step),
@@ -222,10 +222,10 @@ impl Default for Cfg {
                 }),
 
                 lat: 100.0 * MSEC,
-                term_err_good: 5.0 * PCT,
-                term_err_bad: 75.0 * PCT,
-                bisect_err: 10.0 * PCT,
-                refine_err: 10.0 * PCT,
+                term_err_good: 0.05,
+                term_err_bad: 0.75,
+                bisect_err: 0.1,
+                refine_err: 0.1,
 
                 up_converge: MEMIO_UP_CVG_CFG,
                 bisect_converge: MEMIO_BISECT_CVG_CFG,
@@ -276,13 +276,14 @@ impl TestHasher {
     }
 
     pub fn new(
+        max_size: u64,
         tf: TestFiles,
         params: &Params,
         logger: Option<super::Logger>,
         hist_max: usize,
         report_file: Arc<Mutex<JsonReportFile<Report>>>,
     ) -> Self {
-        let disp = hasher::Dispatch::new(tf, params, logger);
+        let disp = hasher::Dispatch::new(max_size, tf, params, logger);
         let hist = VecDeque::new();
         let disp_hist = Arc::new(Mutex::new(DispHist { disp, hist }));
         let dh_copy = disp_hist.clone();
@@ -522,7 +523,7 @@ pub struct Bench {
     params: Params,
     bar_hidden: bool,
     fsize_mean: usize,
-    tf_size: u64,
+    max_size: u64,
 }
 
 impl Bench {
@@ -568,11 +569,12 @@ impl Bench {
             params: p,
             bar_hidden: verbosity > 0,
             fsize_mean: 0,
-            tf_size: 0,
+            max_size: 0,
         }
     }
 
     fn prep_tf(&self, size: u64, why: &str) -> TestFiles {
+        let size = (size as f64 * self.args_file.data.file_max_frac).ceil() as u64;
         info!("Preparing {:.2}G testfiles for {}", to_gb(size), why);
 
         let mut tf = TestFiles::new(
@@ -594,11 +596,13 @@ impl Bench {
 
     fn create_test_hasher(
         &self,
+        max_size: u64,
         tf: TestFiles,
         params: &Params,
         report_file: Arc<Mutex<JsonReportFile<Report>>>,
     ) -> TestHasher {
         TestHasher::new(
+            max_size,
             tf,
             params,
             create_logger(&self.args_file.data, &self.params_file.data, true),
@@ -621,8 +625,8 @@ impl Bench {
         const TIME_HASH_SIZE: usize = 128 * TESTFILE_UNIT_SIZE as usize;
         let mut params: Params = self.params.clone();
         let mut nr_rounds = 0;
-        let tf_size = cfg.size.max(TIME_HASH_SIZE as u64);
-        let tf = self.prep_tf(tf_size, "single cpu bench");
+        let max_size = cfg.size.max(TIME_HASH_SIZE as u64);
+        let tf = self.prep_tf(max_size, "single cpu bench");
         params.max_concurrency = 1;
         params.file_size_stdev_ratio = 0.0;
         params.anon_size_stdev_ratio = 0.0;
@@ -633,7 +637,7 @@ impl Bench {
         let base_time = Self::time_hash(TIME_HASH_SIZE, &tf);
         params.file_size_mean = (cfg.lat / base_time * TIME_HASH_SIZE as f64) as usize;
 
-        let th = self.create_test_hasher(tf, &params, self.report_file.clone());
+        let th = self.create_test_hasher(max_size, tf, &params, self.report_file.clone());
         let mut pid = Pid::new(cfg.kp, cfg.ki, cfg.kd, 1.0, 1.0, 1.0, 1.0);
 
         while nr_rounds < cfg.rounds {
@@ -679,7 +683,7 @@ impl Bench {
         params.rps_target = u32::MAX;
         params.p99_lat_target = cfg.lat;
 
-        let th = self.create_test_hasher(tf, &params, self.report_file.clone());
+        let th = self.create_test_hasher(cfg.size, tf, &params, self.report_file.clone());
         let mut last_rps = 1.0;
 
         while nr_rounds < cfg.rounds {
@@ -717,7 +721,7 @@ impl Bench {
     }
 
     fn mem_sizes(&self, mem_frac: f64) -> (u64, u64) {
-        let size = (self.tf_size as f64 * mem_frac) as u64;
+        let size = (self.max_size as f64 * mem_frac) as u64;
         let fsize = ((size as f64 * self.params.file_frac) as u64).min(size);
         let asize = size - fsize;
         (fsize, asize)
@@ -795,11 +799,11 @@ impl Bench {
 
     fn bench_memio_saturation_bisect(&mut self, cfg: &MemIoSatCfg) -> f64 {
         let mut params: Params = self.params.clone();
-        let tf = self.prep_tf(self.tf_size, &format!("{} saturation bench", cfg.name));
+        let tf = self.prep_tf(self.max_size, &format!("{} saturation bench", cfg.name));
         params.p99_lat_target = cfg.lat;
         params.rps_target = self.params.rps_max;
 
-        let th = self.create_test_hasher(tf, &params, self.report_file.clone());
+        let th = self.create_test_hasher(self.max_size, tf, &params, self.report_file.clone());
         //
         // Up-rounds - Coarsely scan up using bisect cfg to determine the first
         // resistance point. This phase is necessary because too high a memory
@@ -919,15 +923,15 @@ impl Bench {
         right[0]
     }
 
-    /// Refine-rounds - Reset to tf_size and walk down from the
+    /// Refine-rounds - Reset to max_size and walk down from the
     /// saturation point looking for the first full performance point.
     fn bench_memio_saturation_refine(&self, cfg: &MemIoSatCfg) -> f64 {
         let mut params: Params = self.params.clone();
-        let tf = self.prep_tf(self.tf_size, "memory saturation bench - refine-rounds");
+        let tf = self.prep_tf(self.max_size, "memory saturation bench - refine-rounds");
         params.p99_lat_target = cfg.lat;
         params.rps_target = self.params.rps_max;
 
-        let th = self.create_test_hasher(tf, &params, self.report_file.clone());
+        let th = self.create_test_hasher(self.max_size, tf, &params, self.report_file.clone());
 
         let mut round = 0;
         let mut next_pos = None;
@@ -990,7 +994,7 @@ impl Bench {
         // memory bench
         //
         if self.args_file.data.bench_mem {
-            self.tf_size = self.args_file.data.size;
+            self.max_size = self.args_file.data.size;
             self.params.mem_frac = self.bench_memio_saturation_bisect(&cfg.mem_sat);
             let (fsize, asize) = self.mem_sizes(self.params.mem_frac);
             info!(
@@ -1006,7 +1010,7 @@ impl Bench {
             // accumulating long tails and other system disturbances. Plus, IO
             // saturation will come out of the buffer left by memory saturation.
             // Lower the pos to give the system some breathing room.
-            self.params.mem_frac *= 100.0 * PCT - cfg.mem_buffer;
+            self.params.mem_frac *= 1.0 - cfg.mem_buffer;
 
             let (fsize, asize) = self.mem_sizes(self.params.mem_frac);
             info!(
@@ -1016,7 +1020,7 @@ impl Bench {
                 to_gb(asize)
             );
         } else {
-            self.tf_size = self.args_file.data.size;
+            self.max_size = self.args_file.data.size;
             self.params.mem_frac = self.params_file.data.mem_frac;
         }
 
@@ -1036,14 +1040,14 @@ impl Bench {
             // writes. We need to stay well below the measured saturation point
             // to hold performance stable.
             self.params.log_padding =
-                (self.params.log_padding as f64 * (100.0 * PCT - cfg.io_buffer)) as u64;
+                (self.params.log_padding as f64 * (1.0 - cfg.io_buffer)) as u64;
         } else {
             self.params.log_padding = self.params_file.data.log_padding;
         }
 
         info!(
             "Bench results: memory {:.2}G ({:.2}%), hash {:.2}M, rps {}, log-padding {:.2}k",
-            to_gb(self.tf_size as f64 * self.params.mem_frac),
+            to_gb(self.max_size as f64 * self.params.mem_frac),
             self.params.mem_frac * TO_PCT,
             to_mb(self.fsize_mean),
             self.params.rps_max,
@@ -1051,7 +1055,7 @@ impl Bench {
         );
 
         // Save results.
-        self.args_file.data.size = self.tf_size;
+        self.args_file.data.size = self.max_size;
         self.params_file.data = self.params.clone();
 
         self.args_file.save().expect("failed to save args file");

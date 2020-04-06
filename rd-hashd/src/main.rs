@@ -115,7 +115,7 @@ fn create_logger(args: &Args, params: &Params, quiet: bool) -> Option<Logger> {
         Some(log_dir) => {
             if !quiet {
                 info!(
-                    "Setting up hash logging at {} ({}G)",
+                    "Setting up hash logging at {} ({:.2}G)",
                     &log_dir,
                     to_gb(args.log_size),
                 );
@@ -166,11 +166,16 @@ fn main() {
         .expect("failed to process params file");
     let params = &params_file.data;
 
+    if params.file_frac > args.file_max_frac {
+        warn!("--file-max is lower than Params::file_frac, force-matchching file_frac");
+        args.file_max_frac = params.file_frac;
+    }
+
     //
     // Create the testfiles root dir and determine whether we're on rotational
     // devices.
     //
-    let mut tf = TestFiles::new(tf_path, TESTFILE_UNIT_SIZE, args.size);
+    let mut tf = TestFiles::new(tf_path, TESTFILE_UNIT_SIZE, args.file_max_size());
     tf.prep_base_dir().unwrap();
 
     ROTATIONAL_TESTFILES.store(storage_info::is_path_rotational(tf_path), Ordering::Relaxed);
@@ -213,14 +218,14 @@ fn main() {
             tf_path,
             tf.nr_files,
             to_mb(TESTFILE_UNIT_SIZE),
-            to_gb(args.size)
+            to_gb(args.file_max_size())
         );
 
         // Lay out the testfiles while reporting progress.
-        let mut tfbar = TestFilesProgressBar::new(args.size, args.verbosity > 0);
+        let mut tfbar = TestFilesProgressBar::new(args.file_max_size(), args.verbosity > 0);
         tf.setup(|pos| {
             tfbar.progress(pos);
-            report_file.data.testfiles_progress = pos as f64 / args.size as f64;
+            report_file.data.testfiles_progress = pos as f64 / args.file_max_size() as f64;
             report_tick(&mut report_file, true);
         })
         .unwrap();
@@ -261,7 +266,8 @@ fn main() {
         to_gb(asize)
     );
 
-    let mut dispatch = hasher::Dispatch::new(tf, &params, create_logger(args, &params, false));
+    let mut dispatch =
+        hasher::Dispatch::new(args.size, tf, &params, create_logger(args, &params, false));
 
     //
     // Monitor and report.

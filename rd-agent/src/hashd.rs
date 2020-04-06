@@ -37,21 +37,20 @@ pub struct Hashd {
     name: String,
     params_path: String,
     report_path: String,
-    args: Vec<String>,
+    path_args: Vec<String>,
     rps_max: u32,
+    file_max_ratio: f64,
     svc: Option<TransientService>,
 }
 
 impl Hashd {
     fn start(&mut self) -> Result<()> {
-        debug!("args: {:#?}", &self.args);
+        let mut args = self.path_args.clone();
+        args.push("--file-max".into());
+        args.push(format!("{}", self.file_max_ratio));
+        debug!("args: {:#?}", &args);
 
-        let mut svc = TransientService::new_sys(
-            self.name.clone(),
-            self.args.clone(),
-            Vec::new(),
-            Some(0o002),
-        )?;
+        let mut svc = TransientService::new_sys(self.name.clone(), args, Vec::new(), Some(0o002))?;
         svc.set_slice(Slice::Work.name()).start()?;
         self.svc = Some(svc);
         Ok(())
@@ -167,16 +166,18 @@ impl HashdSet {
                     name: HASHD_A_SVC_NAME.into(),
                     params_path: cfg.hashd_paths(HashdSel::A).params.clone(),
                     report_path: cfg.hashd_paths(HashdSel::A).report.clone(),
-                    args: hashd_path_args(cfg, HashdSel::A),
+                    path_args: hashd_path_args(cfg, HashdSel::A),
                     rps_max: 1,
+                    file_max_ratio: rd_hashd_intf::Args::DFL_FILE_MAX_FRAC,
                     svc: None,
                 },
                 Hashd {
                     name: HASHD_B_SVC_NAME.into(),
                     params_path: cfg.hashd_paths(HashdSel::B).params.clone(),
                     report_path: cfg.hashd_paths(HashdSel::B).report.clone(),
-                    args: hashd_path_args(cfg, HashdSel::B),
+                    path_args: hashd_path_args(cfg, HashdSel::B),
                     rps_max: 1,
+                    file_max_ratio: rd_hashd_intf::Args::DFL_FILE_MAX_FRAC,
                     svc: None,
                 },
             ],
@@ -219,6 +220,18 @@ impl HashdSet {
             if !cmd[i].active && self.hashd[i].svc.is_some() {
                 self.hashd[i].svc = None;
             }
+        }
+
+        // adjust the args
+        for i in 0..2 {
+            if self.hashd[i].svc.is_some() && cmd[i].file_max_ratio != self.hashd[i].file_max_ratio
+            {
+                info!(
+                    "hashd: file_max_ratio updated for active hashd {}, need a restart",
+                    i
+                );
+            }
+            self.hashd[i].file_max_ratio = cmd[i].file_max_ratio;
         }
 
         // adjust the params files
