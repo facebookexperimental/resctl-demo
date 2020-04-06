@@ -166,6 +166,11 @@ fn main() {
         .expect("failed to process params file");
     let params = &params_file.data;
 
+    if params.file_frac > args.file_max_frac {
+        warn!("--file-max is lower than Params::file_frac, force-matchching file_frac");
+        args.file_max_frac = params.file_frac;
+    }
+
     //
     // Create the testfiles root dir and determine whether we're on rotational
     // devices.
