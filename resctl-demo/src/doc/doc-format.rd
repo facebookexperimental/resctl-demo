@@ -146,20 +146,22 @@ A knob configures a value between 0.0 and 1.0. A knob command should either have
 a value argument or prompt.
 
 %% knob   hashd-load 0.6
-%% knob   hashd-load             : Set main workload load level                :
-%% knob   hashd-mem              : Adjust main workload memory footprint       :
-%% knob   hashd-file             : Adjust main workload pagecache proportion   :
-%% knob   hashd-write            : Adjust main workload write bandwidth        :
-%% knob   hashd-weight           : First instance weight                       :
-%% knob   hashd-B-load           : Set second workload load level              :
-%% knob   hashd-B-mem            : Adjust second workload memory footprint     :
-%% knob   hashd-B-file           : Adjust second workload pagecache proportion :
-%% knob   hashd-B-write          : Adjust second workload write bandwidth      :
-%% knob   hashd-B-weight         : Second instance weight                      :
+%% knob   hashd-load             : Main workload load level                 :
+%% knob   hashd-mem              : Main workload memory footprint           :
+%% knob   hashd-file             : Main workload pagecache proportion       :
+%% knob   hashd-file-max         : Main workload max pagecache proportion   :
+%% knob   hashd-write            : Main workload write bandwidth            :
+%% knob   hashd-weight           : Main workload weight                     :
+%% knob   hashd-B-load           : Second workload load level               :
+%% knob   hashd-B-mem            : Second workload memory footprint         :
+%% knob   hashd-B-file           : Second workload pagecache proportion     :
+%% knob   hashd-B-file-max       : Second workload max pagecache proportion :
+%% knob   hashd-B-write          : Second workload write bandwidth          :
+%% knob   hashd-B-weight         : Second workload weight                   :
 %%
-%% knob   sys-cpu-ratio          : system CPU weight compared to workload      :
-%% knob   sys-io-ratio           : system IO weight compared to workload       :
-%% knob   mem-margin             : Memory for the rest of the system           :
+%% knob   sys-cpu-ratio          : system CPU weight compared to workload   :
+%% knob   sys-io-ratio           : system IO weight compared to workload    :
+%% knob   mem-margin             : Memory for the rest of the system        :
 
 Reset commands are shortcuts to restore to default configurations.
 

@@ -213,6 +213,8 @@ fn exec_cmd(siv: &mut Cursive, cmd: &RdCmd) {
             RdKnob::HashdBMem => cs.hashd[1].mem_ratio = *val,
             RdKnob::HashdAFile => cs.hashd[0].file_ratio = *val,
             RdKnob::HashdBFile => cs.hashd[1].file_ratio = *val,
+            RdKnob::HashdAFileMax => cs.hashd[0].file_max_ratio = *val,
+            RdKnob::HashdBFileMax => cs.hashd[1].file_max_ratio = *val,
             RdKnob::HashdAWrite => cs.hashd[0].write_ratio = *val,
             RdKnob::HashdBWrite => cs.hashd[1].write_ratio = *val,
             RdKnob::HashdAWeight => cs.hashd[0].weight = *val,
@@ -433,6 +435,8 @@ fn refresh_knobs(siv: &mut Cursive, cs: &CmdState) {
     refresh_one_knob(siv, RdKnob::HashdBMem, cs.hashd[1].mem_ratio);
     refresh_one_knob(siv, RdKnob::HashdAFile, cs.hashd[0].file_ratio);
     refresh_one_knob(siv, RdKnob::HashdBFile, cs.hashd[1].file_ratio);
+    refresh_one_knob(siv, RdKnob::HashdAFileMax, cs.hashd[0].file_max_ratio);
+    refresh_one_knob(siv, RdKnob::HashdBFileMax, cs.hashd[1].file_max_ratio);
     refresh_one_knob(siv, RdKnob::HashdAWrite, cs.hashd[0].write_ratio);
     refresh_one_knob(siv, RdKnob::HashdBWrite, cs.hashd[1].write_ratio);
     refresh_one_knob(siv, RdKnob::HashdAWeight, cs.hashd[0].weight);

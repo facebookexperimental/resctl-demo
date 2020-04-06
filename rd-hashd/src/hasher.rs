@@ -1,7 +1,7 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
 use anyhow::Result;
 use crossbeam::channel::{self, select, Receiver, Sender};
-use log::{debug, warn, error};
+use log::{debug, error, warn};
 use num::Integer;
 use pid::Pid;
 use quantiles::ckms::CKMS;
@@ -307,8 +307,10 @@ impl DispatchThread {
     fn verify_params(&mut self) {
         let file_max_frac = self.tf.size as f64 / self.max_size as f64;
         if self.params.file_frac > file_max_frac {
-            warn!("file_frac {:.2} is higher than allowed by testfiles, see --file_max_frac",
-                  self.params.file_frac);
+            warn!(
+                "file_frac {:.2} is higher than allowed by testfiles, see --file_max_frac",
+                self.params.file_frac
+            );
             self.params.file_frac = file_max_frac;
         }
     }

@@ -167,6 +167,14 @@ pub struct Args {
     pub verbosity: u32,
 }
 
+impl Args {
+    pub const DFL_FILE_MAX_FRAC: f64 = 50.0 * PCT;
+
+    pub fn file_max_size(&self) -> u64 {
+        (self.size as f64 * self.file_max_frac).ceil() as u64
+    }
+}
+
 impl Default for Args {
     fn default() -> Self {
         let size: u64 = 3 * *TOTAL_MEMORY as u64;
@@ -174,7 +182,7 @@ impl Default for Args {
         Self {
             testfiles: None,
             size,
-            file_max_frac: 50.0 * PCT,
+            file_max_frac: Self::DFL_FILE_MAX_FRAC,
             params: None,
             report: None,
             log_dir: None,
@@ -326,11 +334,5 @@ impl JsonArgs for Args {
         self.verbosity = Self::verbosity(matches);
 
         updated_base
-    }
-}
-
-impl Args {
-    pub fn file_max_size(&self) -> u64 {
-        (self.size as f64 * self.file_max_frac).ceil() as u64
     }
 }
