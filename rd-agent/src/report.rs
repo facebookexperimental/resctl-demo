@@ -22,7 +22,7 @@ use util::*;
 
 use super::cmd::Runner;
 use rd_agent_intf::{
-    BenchReport, HashdReport, IoLatReport, Report, ResCtlReport, Slice, UsageReport,
+    BenchReport, HashdReport, IoCostReport, IoLatReport, Report, ResCtlReport, Slice, UsageReport,
     HASHD_A_SVC_NAME, HASHD_B_SVC_NAME, REPORT_1MIN_RETENTION, REPORT_RETENTION,
 };
 
@@ -300,7 +300,7 @@ struct ReportFile {
     usage_tracker: UsageTracker,
     hashd_acc: [HashdReport; 2],
     iolat_acc: IoLatReport,
-    vrate_acc: f64,
+    iocost_acc: IoCostReport,
     nr_samples: u32,
 }
 
@@ -345,7 +345,7 @@ impl ReportFile {
             usage_tracker: UsageTracker::new(devnr),
             hashd_acc: Default::default(),
             iolat_acc: Default::default(),
-            vrate_acc: 0.0,
+            iocost_acc: Default::default(),
             nr_samples: 0,
         };
 
@@ -360,7 +360,7 @@ impl ReportFile {
             self.hashd_acc[i] += &base_report.hashd[i];
         }
         self.iolat_acc += &base_report.iolat;
-        self.vrate_acc += &base_report.vrate;
+        self.iocost_acc += &base_report.iocost;
         self.nr_samples += 1;
 
         if now < self.next_at {
@@ -390,8 +390,9 @@ impl ReportFile {
         report.iolat = self.iolat_acc.clone();
         self.iolat_acc = Default::default();
 
-        report.vrate = self.vrate_acc / self.nr_samples as f64;
-        self.vrate_acc = 0.0;
+        self.iocost_acc /= self.nr_samples;
+        report.iocost = self.iocost_acc.clone();
+        self.iocost_acc = Default::default();
 
         self.nr_samples = 0;
 
@@ -439,7 +440,8 @@ struct ReportWorker {
     report_file: ReportFile,
     report_file_1min: ReportFile,
     iolat: IoLatReport,
-    vrate: f64,
+    iocost_vrate: f64,
+    iocost_busy: f64,
 }
 
 impl ReportWorker {
@@ -468,7 +470,8 @@ impl ReportWorker {
                 runner
             },
             iolat: Default::default(),
-            vrate: 0.0,
+            iocost_vrate: 0.0,
+            iocost_busy: 0.0,
         })
     }
 
@@ -508,7 +511,10 @@ impl ReportWorker {
             sideloads: runner.side_runner.report_sideloads()?,
             usages: BTreeMap::new(),
             iolat: self.iolat.clone(),
-            vrate: self.vrate,
+            iocost: IoCostReport {
+                vrate: self.iocost_vrate,
+                busy: self.iocost_busy,
+            },
         })
     }
 
@@ -539,7 +545,7 @@ impl ReportWorker {
         Ok(iolat_map)
     }
 
-    fn parse_iocost_mon_output(line: &str) -> Result<Option<f64>> {
+    fn parse_iocost_mon_output(line: &str) -> Result<Option<(f64, f64)>> {
         let parsed = json::parse(line)?;
 
         if parsed["device"].is_null() {
@@ -549,8 +555,11 @@ impl ReportWorker {
         let vrate_pct = parsed["vrate_pct"]
             .as_f64()
             .ok_or_else(|| anyhow!("failed to parse vrate_pct from {:?}", line))?;
+        let busy = parsed["busy_level"]
+            .as_f64()
+            .ok_or_else(|| anyhow!("failed to parse busy_level from {:?}", line))?;
 
-        Ok(Some(vrate_pct / 100.0))
+        Ok(Some((vrate_pct / 100.0, busy)))
     }
 
     fn run_inner(mut self) {
@@ -606,7 +615,10 @@ impl ReportWorker {
                     match res {
                         Ok(line) => {
                             match Self::parse_iocost_mon_output(&line) {
-                                Ok(Some(v)) => self.vrate = v,
+                                Ok(Some((vrate, busy))) => {
+                                    self.iocost_vrate = vrate;
+                                    self.iocost_busy = busy;
+                                }
                                 Ok(None) => (),
                                 Err(e) => warn!("report: failed to parse iocost_mon output ({:?})", &e),
                             }
