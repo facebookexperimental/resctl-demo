@@ -83,16 +83,20 @@ fn plot_graph(
     let (ymin, ymax) = ((g1.min)(), (g1.max)());
     if ymax > ymin {
         cmd += &format!("set yrange [{ymin}:{ymax}];\n", ymin = ymin, ymax = ymax,);
-    } else {
+    } else if ymin >= 0.0 {
         cmd += "set yrange [0:];\n";
+    } else {
+        cmd += "set yrange [:];\n";
     }
     if let Some(g2) = &g2 {
         cmd += "set y2tics out;\n";
         let (ymin, ymax) = ((g2.min)(), (g2.max)());
         if ymax > ymin {
             cmd += &format!("set y2range [{ymin}:{ymax}];\n", ymin = ymin, ymax = ymax);
-        } else {
+        } else if ymin >= 0.0 {
             cmd += "set y2range [0:];\n";
+        } else {
+            cmd += "set y2range [:];\n";
         }
     }
     cmd += &format!(
@@ -370,6 +374,8 @@ enum PlotId {
     WriteLatP50,
     WriteLatP90,
     WriteLatP99,
+    IoCostVrate,
+    IoCostBusy,
 }
 
 fn plot_spec_factory(id: PlotId) -> PlotSpec {
@@ -505,6 +511,18 @@ fn plot_spec_factory(id: PlotId) -> PlotSpec {
         PlotId::WriteLatP50 => io_lat_spec("write", "50"),
         PlotId::WriteLatP90 => io_lat_spec("write", "90"),
         PlotId::WriteLatP99 => io_lat_spec("write", "99"),
+        PlotId::IoCostVrate => PlotSpec {
+            sel: Box::new(move |rep: &Report| rep.iocost.vrate * 100.0),
+            title: Box::new(move || "vrate%".into()),
+            min: Box::new(|| 0.0),
+            max: Box::new(|| 0.0),
+        },
+        PlotId::IoCostBusy => PlotSpec {
+            sel: Box::new(move |rep: &Report| rep.iocost.busy),
+            title: Box::new(move || "busy-level".into()),
+            min: Box::new(|| -1.0),
+            max: Box::new(|| -1.0),
+        },
     }
 }
 
@@ -578,6 +596,11 @@ static ALL_GRAPHS: &[(&str, &str, &[PlotId])] = &[
             PlotId::WriteLatP90,
             PlotId::WriteLatP50,
         ],
+    ),
+    (
+        "iocost",
+        "iocost controller stats",
+        &[PlotId::IoCostVrate, PlotId::IoCostBusy],
     ),
 ];
 
@@ -659,17 +682,17 @@ pub fn layout_factory(id: GraphSetId) -> Box<dyn View> {
                                 .child(resize_zleft(&layout, panels.remove("mem-psi").unwrap()))
                                 .child(resize_zleft(&layout, panels.remove("io-psi").unwrap()))
                                 .child(resize_zleft(&layout, panels.remove("cpu-psi").unwrap()))
-                                .child(resize_zleft(&layout, panels.remove("read-bps").unwrap()))
-                                .child(resize_zleft(&layout, panels.remove("read-lat").unwrap())),
+                                .child(resize_zleft(&layout, panels.remove("read-lat").unwrap()))
+                                .child(resize_zleft(&layout, panels.remove("read-bps").unwrap())),
                         )
                         .child(
                             LinearLayout::vertical()
                                 .child(resize_zright(&layout, panels.remove("cpu-util").unwrap()))
                                 .child(resize_zright(&layout, panels.remove("mem-util").unwrap()))
                                 .child(resize_zright(&layout, panels.remove("swap-util").unwrap()))
-                                .child(resize_zright(&layout, Panel::new(TextView::new(""))))
-                                .child(resize_zright(&layout, panels.remove("write-bps").unwrap()))
-                                .child(resize_zright(&layout, panels.remove("write-lat").unwrap())),
+                                .child(resize_zright(&layout, panels.remove("iocost").unwrap()))
+                                .child(resize_zright(&layout, panels.remove("write-lat").unwrap()))
+                                .child(resize_zright(&layout, panels.remove("write-bps").unwrap())),
                         ),
                 )
             } else {
@@ -682,6 +705,7 @@ pub fn layout_factory(id: GraphSetId) -> Box<dyn View> {
                         .child(resize_zleft(&layout, panels.remove("cpu-psi").unwrap()))
                         .child(resize_zleft(&layout, panels.remove("mem-psi").unwrap()))
                         .child(resize_zleft(&layout, panels.remove("io-psi").unwrap()))
+                        .child(resize_zleft(&layout, panels.remove("iocost").unwrap()))
                         .child(resize_zleft(&layout, panels.remove("read-bps").unwrap()))
                         .child(resize_zleft(&layout, panels.remove("write-bps").unwrap()))
                         .child(resize_zleft(&layout, panels.remove("read-lat").unwrap()))
