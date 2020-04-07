@@ -203,6 +203,7 @@ impl RunnerData {
             BenchIOCost => {
                 if cmd.bench_iocost_seq <= bench.iocost_seq {
                     info!("cmd: Canceling iocost benchmark");
+                    bench::apply_iocost(&self.sobjs.bench_file.data, &self.cfg)?;
                     self.become_idle();
                 }
             }

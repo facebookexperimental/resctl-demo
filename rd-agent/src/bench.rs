@@ -1,7 +1,7 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
 use anyhow::{bail, Result};
 use chrono::prelude::*;
-use log::{debug, info};
+use log::{debug, info, warn};
 use scan_fmt::scan_fmt;
 use serde_json;
 use std::fs;
@@ -43,12 +43,25 @@ pub fn start_iocost_bench(cfg: &Config) -> Result<TransientService> {
     ];
     debug!("args: {:#?}", &args);
 
+    if let Err(e) = iocost_on_off(false, cfg) {
+        warn!(
+            "bench: Failed to turn off iocost for benchmark on {:?} ({:?})",
+            &cfg.scr_dev, &e
+        );
+    }
+
     let mut svc =
         TransientService::new_sys(IOCOST_BENCH_SVC_NAME.into(), args, Vec::new(), Some(0o002))?;
     svc.set_slice(Slice::Work.name())
-        .set_working_dir(&paths.working)
-        .start()?;
-    Ok(svc)
+        .set_working_dir(&paths.working);
+
+    match svc.start() {
+        Ok(()) => Ok(svc),
+        Err(e) => {
+            let _ = iocost_on_off(true, cfg);
+            Err(e)
+        }
+    }
 }
 
 pub fn update_hashd(knobs: &mut BenchKnobs, cfg: &Config, hashd_seq: u64) -> Result<()> {
@@ -102,10 +115,15 @@ pub fn update_iocost(knobs: &mut BenchKnobs, cfg: &Config, iocost_seq: u64) -> R
     Ok(())
 }
 
-pub fn enable_iocost(cfg: &Config) -> Result<()> {
+pub fn iocost_on_off(enable: bool, cfg: &Config) -> Result<()> {
     write_one_line(
         IOCOST_QOS_PATH,
-        &format!("{}:{} enable=1", cfg.scr_devnr.0, cfg.scr_devnr.1),
+        &format!(
+            "{}:{} enable={}",
+            cfg.scr_devnr.0,
+            cfg.scr_devnr.1,
+            if enable { 1 } else { 0 },
+        ),
     )
 }
 
@@ -115,7 +133,7 @@ pub fn apply_iocost(knobs: &BenchKnobs, cfg: &Config) -> Result<()> {
             "iocost: Enabling on {:?} with default parameters",
             &cfg.scr_dev
         );
-        return enable_iocost(cfg);
+        return iocost_on_off(true, cfg);
     }
 
     let (maj, min) = cfg.scr_devnr;
