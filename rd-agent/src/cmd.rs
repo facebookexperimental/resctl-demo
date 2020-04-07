@@ -308,7 +308,13 @@ impl Runner {
             drop(removed_sideloads);
 
             if reporter.is_none() {
-                reporter = Some(report::Reporter::new(self.clone()));
+                reporter = Some(match report::Reporter::new(self.clone()) {
+                    Ok(v) => v,
+                    Err(e) => {
+                        error!("cmd: Failed to start reporter ({:?})", &e);
+                        panic!();
+                    }
+                });
             }
 
             // sleep a bit and start the next iteration

@@ -17,8 +17,9 @@ pub use cmd::{Cmd, HashdCmd, SideloaderCmd};
 pub use index::Index;
 pub use oomd::{OomdKnobs, OomdSliceMemPressureKnobs, OomdSliceSenpaiKnobs};
 pub use report::{
-    BenchReport, HashdReport, OomdReport, Report, ResCtlReport, SideloadReport, SideloaderReport,
-    SvcReport, SvcStateReport, SysloadReport, UsageReport, REPORT_1MIN_RETENTION, REPORT_RETENTION,
+    BenchReport, HashdReport, IoLatReport, OomdReport, Report, ResCtlReport, SideloadReport,
+    SideloaderReport, SvcReport, SvcStateReport, SysloadReport, UsageReport, REPORT_1MIN_RETENTION,
+    REPORT_RETENTION,
 };
 pub use side_defs::{SideloadDefs, SideloadSpec};
 pub use slices::{DisableSeqKnobs, MemoryKnob, Slice, SliceConfig, SliceKnobs};
