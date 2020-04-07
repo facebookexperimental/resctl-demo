@@ -243,6 +243,7 @@ pub struct Report {
     pub sideloads: BTreeMap<String, SideloadReport>,
     pub usages: BTreeMap<String, UsageReport>,
     pub iolat: IoLatReport,
+    pub vrate: f64,
 }
 
 impl Default for Report {
@@ -261,6 +262,7 @@ impl Default for Report {
             sideloads: Default::default(),
             usages: Default::default(),
             iolat: Default::default(),
+            vrate: 0.0,
         }
     }
 }

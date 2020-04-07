@@ -108,9 +108,9 @@ impl JournalTailWorker {
             };
         }
 
+        drop(line_rx);
         let _ = jctl.kill();
         let _ = jctl.wait();
-        drop(line_rx);
         jh.join().unwrap();
     }
 }

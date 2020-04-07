@@ -1,5 +1,5 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
-use anyhow::{bail, Result};
+use anyhow::{anyhow, bail, Result};
 use chrono::prelude::*;
 use crossbeam::channel::{self, select, Receiver, Sender};
 use enum_iterator::IntoEnumIterator;
@@ -300,6 +300,7 @@ struct ReportFile {
     usage_tracker: UsageTracker,
     hashd_acc: [HashdReport; 2],
     iolat_acc: IoLatReport,
+    vrate_acc: f64,
     nr_samples: u32,
 }
 
@@ -344,6 +345,7 @@ impl ReportFile {
             usage_tracker: UsageTracker::new(devnr),
             hashd_acc: Default::default(),
             iolat_acc: Default::default(),
+            vrate_acc: 0.0,
             nr_samples: 0,
         };
 
@@ -358,6 +360,7 @@ impl ReportFile {
             self.hashd_acc[i] += &base_report.hashd[i];
         }
         self.iolat_acc += &base_report.iolat;
+        self.vrate_acc += &base_report.vrate;
         self.nr_samples += 1;
 
         if now < self.next_at {
@@ -386,6 +389,9 @@ impl ReportFile {
         self.iolat_acc /= self.nr_samples;
         report.iolat = self.iolat_acc.clone();
         self.iolat_acc = Default::default();
+
+        report.vrate = self.vrate_acc / self.nr_samples as f64;
+        self.vrate_acc = 0.0;
 
         self.nr_samples = 0;
 
@@ -433,6 +439,7 @@ struct ReportWorker {
     report_file: ReportFile,
     report_file_1min: ReportFile,
     iolat: IoLatReport,
+    vrate: f64,
 }
 
 impl ReportWorker {
@@ -461,6 +468,7 @@ impl ReportWorker {
                 runner
             },
             iolat: Default::default(),
+            vrate: 0.0,
         })
     }
 
@@ -500,6 +508,7 @@ impl ReportWorker {
             sideloads: runner.side_runner.report_sideloads()?,
             usages: BTreeMap::new(),
             iolat: self.iolat.clone(),
+            vrate: self.vrate,
         })
     }
 
@@ -509,24 +518,39 @@ impl ReportWorker {
 
         for key in &["read", "write", "discard", "flush"] {
             let key = key.to_string();
-            let iolat = iolat_map.map.get_mut(&key).unwrap();
+            let iolat = iolat_map
+                .map
+                .get_mut(&key)
+                .ok_or_else(|| anyhow!("{:?} missing in iolat output {:?}", &key, line))?;
 
             for (k, v) in parsed[&key].entries() {
-                if iolat
-                    .insert(k.to_string(), v.as_f64().unwrap_or(0.0))
-                    .is_none()
-                {
+                let v = v
+                    .as_f64()
+                    .ok_or_else(|| anyhow!("failed to parse latency from {:?}", &line))?;
+                if iolat.insert(k.to_string(), v).is_none() {
                     panic!(
                         "report: {:?}:{:?} -> {:?} was missing in the template",
-                        key,
-                        k,
-                        v.as_f64().unwrap_or(0.0)
+                        key, k, v,
                     );
                 }
             }
         }
 
         Ok(iolat_map)
+    }
+
+    fn parse_iocost_mon_output(line: &str) -> Result<Option<f64>> {
+        let parsed = json::parse(line)?;
+
+        if parsed["device"].is_null() {
+            return Ok(None);
+        }
+
+        let vrate_pct = parsed["vrate_pct"]
+            .as_f64()
+            .ok_or_else(|| anyhow!("failed to parse vrate_pct from {:?}", line))?;
+
+        Ok(Some(vrate_pct / 100.0))
     }
 
     fn run_inner(mut self) {
@@ -542,17 +566,29 @@ impl ReportWorker {
             .stdout(Stdio::piped())
             .spawn()
             .unwrap();
+        let mut iocost_mon = Command::new(&cfg.iocost_monitor_bin)
+            .arg(&cfg.scr_dev)
+            .arg("--json")
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
         drop(runner);
 
         let iolat_stdout = iolat.stdout.take().unwrap();
-        let (line_tx, line_rx) = channel::unbounded::<String>();
-        let jh = spawn(move || child_reader_thread("iolat".into(), iolat_stdout, line_tx));
+        let (iolat_tx, iolat_rx) = channel::unbounded::<String>();
+        let iolat_jh = spawn(move || child_reader_thread("iolat".into(), iolat_stdout, iolat_tx));
+
+        let iocost_mon_stdout = iocost_mon.stdout.take().unwrap();
+        let (iocost_mon_tx, iocost_mon_rx) = channel::unbounded::<String>();
+        let iocost_mon_jh = spawn(move || {
+            child_reader_thread("iocost_mon".into(), iocost_mon_stdout, iocost_mon_tx)
+        });
 
         let mut sleep_dur = Duration::from_secs(0);
 
         'outer: loop {
             select! {
-                recv(line_rx) -> res => {
+                recv(iolat_rx) -> res => {
                     match res {
                         Ok(line) => {
                             match Self::parse_iolat_output(&line) {
@@ -566,6 +602,21 @@ impl ReportWorker {
                         }
                     }
                 },
+                recv(iocost_mon_rx) -> res => {
+                    match res {
+                        Ok(line) => {
+                            match Self::parse_iocost_mon_output(&line) {
+                                Ok(Some(v)) => self.vrate = v,
+                                Ok(None) => (),
+                                Err(e) => warn!("report: failed to parse iocost_mon output ({:?})", &e),
+                            }
+                        }
+                        Err(e) => {
+                            warn!("report: iocost_mon reader thread failed ({:?})", &e);
+                            break;
+                        }
+                    }
+                }
                 recv(self.term_rx) -> term => {
                     if let Err(e) = term {
                         info!("report: Term ({})", &e);
@@ -601,10 +652,14 @@ impl ReportWorker {
             self.report_file_1min.tick(&base_report, now);
         }
 
+        drop(iolat_rx);
+        drop(iocost_mon_rx);
         let _ = iolat.kill();
+        let _ = iocost_mon.kill();
         let _ = iolat.wait();
-        drop(line_rx);
-        jh.join().unwrap();
+        let _ = iocost_mon.wait();
+        iolat_jh.join().unwrap();
+        iocost_mon_jh.join().unwrap();
     }
 
     pub fn run(self) {

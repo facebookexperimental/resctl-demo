@@ -15,7 +15,7 @@ use rd_agent_intf::{Slice, HASHD_BENCH_SVC_NAME, IOCOST_BENCH_SVC_NAME};
 
 use super::{hashd, Config, HashdSel};
 
-const IOCOST_QOS_PATH: &str = "/sys/fs/cgroup/io.cost.qos";
+pub const IOCOST_QOS_PATH: &str = "/sys/fs/cgroup/io.cost.qos";
 const IOCOST_MODEL_PATH: &str = "/sys/fs/cgroup/io.cost.model";
 
 pub fn start_hashd_bench(cfg: &Config, mem_high: u64) -> Result<TransientService> {
@@ -100,16 +100,23 @@ pub fn update_iocost(knobs: &mut BenchKnobs, cfg: &Config, iocost_seq: u64) -> R
     Ok(())
 }
 
+pub fn enable_iocost(cfg: &Config) -> Result<()> {
+    write_one_line(
+        IOCOST_QOS_PATH,
+        &format!("{}:{} enable=1", cfg.scr_devnr.0, cfg.scr_devnr.1),
+    )
+}
+
 pub fn apply_iocost(knobs: &BenchKnobs, cfg: &Config) -> Result<()> {
-    let (maj, min) = devname_to_devnr(&cfg.scr_dev)?;
     if knobs.iocost_seq == 0 {
         info!(
             "iocost: Enabling on {:?} with default parameters",
             &cfg.scr_dev
         );
-        return write_one_line(IOCOST_QOS_PATH, &format!("{}:{} enable=1", maj, min));
+        return enable_iocost(cfg);
     }
 
+    let (maj, min) = cfg.scr_devnr;
     let model = &knobs.iocost.model;
     let model_line = format!(
         "{}:{} model=linear rbps={} rseqiops={} rrandiops={} wbps={} wseqiops={} wrandiops={}",
