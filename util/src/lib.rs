@@ -1,8 +1,9 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
 use anyhow::{anyhow, bail, Result};
+use crossbeam::channel::Sender;
 use env_logger;
 use lazy_static::lazy_static;
-use log::info;
+use log::{info, warn};
 use num;
 use simplelog as sl;
 use std::cell::RefCell;
@@ -16,6 +17,7 @@ use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::MetadataExt as UnixME;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
+use std::process::{self, Command};
 use std::sync::{Condvar, Mutex};
 use std::thread_local;
 use std::time::{Duration, UNIX_EPOCH};
@@ -229,6 +231,34 @@ pub fn init_logging(verbosity: u32) {
         if let Err(_) = sl::TermLogger::init(sl_level, lcfg.build(), sl::TerminalMode::Stderr) {
             sl::SimpleLogger::init(sl_level, lcfg.build()).unwrap();
         }
+    }
+}
+
+pub fn child_reader_thread(name: String, stdout: process::ChildStdout, tx: Sender<String>) {
+    let reader = BufReader::new(stdout);
+    for line in reader.lines() {
+        match line {
+            Ok(line) => {
+                if let Err(e) = tx.send(line) {
+                    info!("{}: Reader thread terminating ({:?})", &name, &e);
+                    break;
+                }
+            }
+            Err(e) => {
+                warn!("{}: Failed to read from journalctl ({:?})", &name, &e);
+                break;
+            }
+        }
+    }
+}
+
+pub fn run_command(cmd: &mut Command, emsg: &str) -> Result<()> {
+    let cmd_str = format!("{:?}", &cmd);
+
+    match cmd.status() {
+        Ok(rc) if rc.success() => Ok(()),
+        Ok(rc) => bail!("{:?} ({:?}): {}", &cmd_str, &rc, emsg,),
+        Err(e) => bail!("{:?} ({:?}): {}", &cmd_str, &e, emsg,),
     }
 }
 

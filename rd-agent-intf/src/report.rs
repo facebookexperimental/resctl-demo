@@ -46,6 +46,7 @@ const REPORT_DOC: &str = "\
 //  sideloads{}.svc.state: Sideload systemd service state
 //  iolat.{read|write|discard|flush}.p*: IO latency distributions
 //
+//
 ";
 
 pub const REPORT_RETENTION: u64 = 60 * 60;
@@ -198,9 +199,7 @@ impl Default for IoLatReport {
             }
             map.insert(key.to_string(), pcts);
         }
-        Self {
-            map
-        }
+        Self { map }
     }
 }
 
@@ -230,6 +229,27 @@ impl<T: Into<f64>> ops::DivAssign<T> for IoLatReport {
     }
 }
 
+#[derive(Clone, Default, Serialize, Deserialize)]
+pub struct IoCostReport {
+    pub vrate: f64,
+    pub busy: f64,
+}
+
+impl ops::AddAssign<&IoCostReport> for IoCostReport {
+    fn add_assign(&mut self, rhs: &IoCostReport) {
+        self.vrate += rhs.vrate;
+        self.busy += rhs.busy;
+    }
+}
+
+impl<T: Into<f64>> ops::DivAssign<T> for IoCostReport {
+    fn div_assign(&mut self, rhs: T) {
+        let div = rhs.into();
+        self.vrate /= div;
+        self.busy /= div;
+    }
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Report {
     pub timestamp: DateTime<Local>,
@@ -245,6 +265,7 @@ pub struct Report {
     pub sideloads: BTreeMap<String, SideloadReport>,
     pub usages: BTreeMap<String, UsageReport>,
     pub iolat: IoLatReport,
+    pub iocost: IoCostReport,
 }
 
 impl Default for Report {
@@ -263,6 +284,7 @@ impl Default for Report {
             sideloads: Default::default(),
             usages: Default::default(),
             iolat: Default::default(),
+            iocost: Default::default(),
         }
     }
 }

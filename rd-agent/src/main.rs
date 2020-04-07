@@ -29,6 +29,7 @@ mod side;
 mod sideloader;
 mod slices;
 
+use bench::IOCOST_QOS_PATH;
 use rd_agent_intf::{
     Args, BenchKnobs, Cmd, Report, SideloadDefs, SliceKnobs, SvcReport, SvcStateReport, SysReq,
     SysReqsReport,
@@ -148,6 +149,7 @@ pub struct Config {
     pub hashd_paths: [HashdPaths; 2],
     pub misc_bin_path: String,
     pub io_latencies_bin: String,
+    pub iocost_monitor_bin: String,
     pub iocost_paths: IOCostPaths,
     pub oomd_bin: String,
     pub oomd_sys_svc: String,
@@ -362,6 +364,7 @@ impl Config {
             ],
             misc_bin_path: misc_bin_path.clone(),
             io_latencies_bin: misc_bin_path.clone() + "/io_latencies.py",
+            iocost_monitor_bin: misc_bin_path.clone() + "/iocost_monitor.py",
             iocost_paths: IOCostPaths {
                 bin: misc_bin_path.clone() + "/iocost_coef_gen.py",
                 working: Self::prep_dir(&(scr_path.clone() + "/iocost-coef")),
@@ -401,31 +404,13 @@ impl Config {
             return Ok(mi);
         }
 
-        match Command::new("mount")
-            .arg("-o")
-            .arg("remount,discard=async")
-            .arg(&mi.dest)
-            .spawn()
-            .and_then(|mut x| x.wait())
-        {
-            Ok(rc) if rc.success() => info!("cfg: enabled async discard on {:?}", &mi.dest),
-            Ok(rc) => {
-                sr_failed.insert(SysReq::BtrfsAsyncDiscard);
-                bail!(
-                    "{:?} doesn't have \"discard=async\" and remount failed ({:?})",
-                    path,
-                    &rc
-                );
-            }
-            Err(e) => {
-                sr_failed.insert(SysReq::BtrfsAsyncDiscard);
-                bail!(
-                    "{:?} doesn't have \"discard=async\" and remount failed ({:?})",
-                    path,
-                    &e
-                );
-            }
-        }
+        run_command(
+            Command::new("mount")
+                .arg("-o")
+                .arg("remount,discard=async")
+                .arg(&mi.dest),
+            "failed to enable async discard",
+        )?;
 
         info!("cfg: {:?} didn't have \"discard=async\", remounted", path);
         Ok(mi)
@@ -539,7 +524,7 @@ impl Config {
             self.sr_failed.insert(SysReq::Freezer);
         }
 
-        if !Path::new("/sys/fs/cgroup/io.cost.qos").exists() {
+        if !Path::new(IOCOST_QOS_PATH).exists() {
             error!("cfg: cgroup2 iocost controller not available");
             self.sr_failed.insert(SysReq::IoCost);
         }

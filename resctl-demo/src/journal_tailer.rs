@@ -4,12 +4,11 @@ use crossbeam::channel::{self, select, Receiver, Sender};
 use json;
 use log::{error, info, warn};
 use std::collections::VecDeque;
-use std::io::prelude::*;
-use std::io::BufReader;
 use std::process;
 use std::sync::{Arc, Mutex};
 use std::thread::{spawn, JoinHandle};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use util::*;
 
 #[derive(Debug)]
 pub struct JournalMsg {
@@ -83,29 +82,11 @@ impl JournalTailWorker {
         msgs.truncate(self.retention);
     }
 
-    fn journal_reader_thread(stdout: process::ChildStdout, tx: Sender<String>) {
-        let reader = BufReader::new(stdout);
-        for line in reader.lines() {
-            match line {
-                Ok(line) => {
-                    if let Err(e) = tx.send(line) {
-                        info!("journal: Reader thread terminating ({:?})", &e);
-                        break;
-                    }
-                }
-                Err(e) => {
-                    warn!("journal: Failed to read from journalctl ({:?})", &e);
-                    break;
-                }
-            }
-        }
-    }
-
     fn run(mut self, mut jctl_cmd: process::Command) {
         let mut jctl = jctl_cmd.spawn().unwrap();
         let jctl_stdout = jctl.stdout.take().unwrap();
         let (line_tx, line_rx) = channel::unbounded::<String>();
-        let jh = spawn(move || Self::journal_reader_thread(jctl_stdout, line_tx));
+        let jh = spawn(move || child_reader_thread("journal".into(), jctl_stdout, line_tx));
 
         loop {
             select! {
@@ -127,9 +108,9 @@ impl JournalTailWorker {
             };
         }
 
+        drop(line_rx);
         let _ = jctl.kill();
         let _ = jctl.wait();
-        drop(line_rx);
         jh.join().unwrap();
     }
 }
