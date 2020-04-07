@@ -44,6 +44,7 @@ const REPORT_DOC: &str = "\
 //  sysloads{}.svc.state: Sysload systemd service state
 //  sideloads{}.svc.name: Sideload systemd service name
 //  sideloads{}.svc.state: Sideload systemd service state
+//  iolat.{read|write|discard|flush}.p*: IO latency distributions
 //
 ";
 
@@ -176,6 +177,60 @@ impl<T: Into<f64>> ops::DivAssign<T> for UsageReport {
 }
 
 #[derive(Clone, Serialize, Deserialize)]
+pub struct IoLatReport {
+    #[serde(flatten)]
+    pub map: BTreeMap<String, BTreeMap<String, f64>>,
+}
+
+impl IoLatReport {
+    pub const PCTS: [&'static str; 13] = [
+        "1", "5", "10", "16", "25", "50", "75", "84", "90", "95", "99", "99.9", "100",
+    ];
+}
+
+impl Default for IoLatReport {
+    fn default() -> Self {
+        let mut map = BTreeMap::new();
+        for key in &["read", "write", "discard", "flush"] {
+            let mut pcts = BTreeMap::new();
+            for pct in Self::PCTS.iter() {
+                pcts.insert(pct.to_string(), 0.0);
+            }
+            map.insert(key.to_string(), pcts);
+        }
+        Self {
+            map
+        }
+    }
+}
+
+impl ops::AddAssign<&IoLatReport> for IoLatReport {
+    fn add_assign(&mut self, rhs: &IoLatReport) {
+        for key in &["read", "write", "discard", "flush"] {
+            let key = key.to_string();
+            let lpcts = self.map.get_mut(&key).unwrap();
+            let rpcts = &rhs.map[&key];
+            for pct in Self::PCTS.iter() {
+                let pct = pct.to_string();
+                *lpcts.get_mut(&pct).unwrap() += rpcts[&pct];
+            }
+        }
+    }
+}
+
+impl<T: Into<f64>> ops::DivAssign<T> for IoLatReport {
+    fn div_assign(&mut self, rhs: T) {
+        let div = rhs.into();
+        for key in &["read", "write", "discard", "flush"] {
+            let pcts = self.map.get_mut(&key.to_string()).unwrap();
+            for pct in Self::PCTS.iter() {
+                *pcts.get_mut(&pct.to_string()).unwrap() /= div;
+            }
+        }
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Report {
     pub timestamp: DateTime<Local>,
     pub seq: u64,
@@ -189,6 +244,7 @@ pub struct Report {
     pub sysloads: BTreeMap<String, SysloadReport>,
     pub sideloads: BTreeMap<String, SideloadReport>,
     pub usages: BTreeMap<String, UsageReport>,
+    pub iolat: IoLatReport,
 }
 
 impl Default for Report {
@@ -206,6 +262,7 @@ impl Default for Report {
             sysloads: Default::default(),
             sideloads: Default::default(),
             usages: Default::default(),
+            iolat: Default::default(),
         }
     }
 }

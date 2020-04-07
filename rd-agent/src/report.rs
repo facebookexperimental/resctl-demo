@@ -1,9 +1,11 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
 use anyhow::{bail, Result};
 use chrono::prelude::*;
+use crossbeam::channel::{self, select, Receiver, Sender};
 use enum_iterator::IntoEnumIterator;
+use json;
 use linux_proc;
-use log::{debug, error, trace, warn};
+use log::{debug, error, info, trace, warn};
 use procfs;
 use scan_fmt::scan_fmt;
 use std::collections::{BTreeMap, HashMap};
@@ -13,15 +15,15 @@ use std::io::prelude::*;
 use std::io::BufReader;
 use std::os::unix::fs::symlink;
 use std::panic;
-use std::sync::mpsc::{channel, Receiver, Sender, TryRecvError};
-use std::thread::{sleep, spawn, JoinHandle};
+use std::process::{self, Command, Stdio};
+use std::thread::{spawn, JoinHandle};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use util::*;
 
 use super::cmd::Runner;
 use rd_agent_intf::{
-    BenchReport, HashdReport, Report, ResCtlReport, Slice, UsageReport, HASHD_A_SVC_NAME,
-    HASHD_B_SVC_NAME, REPORT_1MIN_RETENTION, REPORT_RETENTION,
+    BenchReport, HashdReport, IoLatReport, Report, ResCtlReport, Slice, UsageReport,
+    HASHD_A_SVC_NAME, HASHD_B_SVC_NAME, REPORT_1MIN_RETENTION, REPORT_RETENTION,
 };
 
 #[derive(Debug, Default)]
@@ -297,6 +299,7 @@ struct ReportFile {
     next_at: u64,
     usage_tracker: UsageTracker,
     hashd_acc: [HashdReport; 2],
+    iolat_acc: IoLatReport,
     nr_samples: u32,
 }
 
@@ -340,6 +343,7 @@ impl ReportFile {
             next_at: ((now / intv) + 1) * intv,
             usage_tracker: UsageTracker::new(devnr),
             hashd_acc: Default::default(),
+            iolat_acc: Default::default(),
             nr_samples: 0,
         };
 
@@ -353,6 +357,7 @@ impl ReportFile {
         for i in 0..2 {
             self.hashd_acc[i] += &base_report.hashd[i];
         }
+        self.iolat_acc += &base_report.iolat;
         self.nr_samples += 1;
 
         if now < self.next_at {
@@ -377,6 +382,11 @@ impl ReportFile {
             };
         }
         self.hashd_acc = Default::default();
+
+        self.iolat_acc /= self.nr_samples;
+        report.iolat = self.iolat_acc.clone();
+        self.iolat_acc = Default::default();
+
         self.nr_samples = 0;
 
         report.usages = match self.usage_tracker.update() {
@@ -422,14 +432,15 @@ struct ReportWorker {
     term_rx: Receiver<()>,
     report_file: ReportFile,
     report_file_1min: ReportFile,
+    iolat: IoLatReport,
 }
 
 impl ReportWorker {
-    pub fn new(runner: Runner, term_rx: Receiver<()>) -> Self {
+    pub fn new(runner: Runner, term_rx: Receiver<()>) -> Result<Self> {
         let rdata = runner.data.lock().unwrap();
         let cfg = &rdata.cfg;
 
-        Self {
+        Ok(Self {
             term_rx,
             report_file: ReportFile::new(
                 1,
@@ -449,7 +460,8 @@ impl ReportWorker {
                 drop(rdata);
                 runner
             },
-        }
+            iolat: Default::default(),
+        })
     }
 
     fn base_report(&mut self) -> Result<Report> {
@@ -487,29 +499,111 @@ impl ReportWorker {
             sysloads: runner.side_runner.report_sysloads()?,
             sideloads: runner.side_runner.report_sideloads()?,
             usages: BTreeMap::new(),
+            iolat: self.iolat.clone(),
         })
+    }
+
+    fn iolat_reader_thread(stdout: process::ChildStdout, tx: Sender<String>) {
+        let reader = BufReader::new(stdout);
+        for line in reader.lines() {
+            match line {
+                Ok(line) => {
+                    if let Err(e) = tx.send(line) {
+                        info!("report: iolat reader thread terminating ({:?})", &e);
+                        break;
+                    }
+                }
+                Err(e) => {
+                    warn!("report: Failed to read from io_latencies.py ({:?})", &e);
+                    break;
+                }
+            }
+        }
+    }
+
+    fn parse_iolat_output(line: &str) -> Result<IoLatReport> {
+        let parsed = json::parse(line)?;
+        let mut iolat_map = IoLatReport::default();
+
+        for key in &["read", "write", "discard", "flush"] {
+            let key = key.to_string();
+            let iolat = iolat_map.map.get_mut(&key).unwrap();
+
+            for (k, v) in parsed[&key].entries() {
+                if iolat
+                    .insert(k.to_string(), v.as_f64().unwrap_or(0.0))
+                    .is_none()
+                {
+                    panic!(
+                        "report: {:?}:{:?} -> {:?} was missing in the template",
+                        key,
+                        k,
+                        v.as_f64().unwrap_or(0.0)
+                    );
+                }
+            }
+        }
+
+        Ok(iolat_map)
     }
 
     fn run_inner(mut self) {
         let mut next_at = unix_now() + 1;
 
-        loop {
-            match self.term_rx.try_recv() {
-                Ok(()) => warn!("report: Unexpected read from term_rx"),
-                Err(TryRecvError::Empty) => (),
-                Err(TryRecvError::Disconnected) => break,
+        let runner = self.runner.data.lock().unwrap();
+        let cfg = &runner.cfg;
+        let mut iolat = Command::new(&cfg.io_latencies_bin)
+            .arg(format!("{}:{}", cfg.scr_devnr.0, cfg.scr_devnr.1))
+            .args(&["-i", "1", "--json"])
+            .arg("-p")
+            .args(IoLatReport::PCTS.iter().map(|x| format!("{}", x)))
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
+        drop(runner);
+
+        let iolat_stdout = iolat.stdout.take().unwrap();
+        let (line_tx, line_rx) = channel::unbounded::<String>();
+        let jh = spawn(move || Self::iolat_reader_thread(iolat_stdout, line_tx));
+
+        let mut sleep_dur = Duration::from_secs(0);
+
+        'outer: loop {
+            select! {
+                recv(line_rx) -> res => {
+                    match res {
+                        Ok(line) => {
+                            match Self::parse_iolat_output(&line) {
+                                Ok(v) => self.iolat = v,
+                                Err(e) => warn!("report: failed to parse iolat output ({:?})", &e),
+                            }
+                        }
+                        Err(e) => {
+                            warn!("report: iolat reader thread failed ({:?})", &e);
+                            break;
+                        }
+                    }
+                },
+                recv(self.term_rx) -> term => {
+                    if let Err(e) = term {
+                        info!("report: Term ({})", &e);
+                        break;
+                    }
+                },
+                recv(channel::after(sleep_dur)) -> _ => (),
             }
 
-            let mut now = unix_now();
-            while now < next_at {
-                let sleep_till =
-                    UNIX_EPOCH + Duration::from_secs(next_at) + Duration::from_millis(500);
-                if let Ok(dur) = sleep_till.duration_since(SystemTime::now()) {
-                    trace!("report: Sleeping {}ms", dur.as_millis());
-                    sleep(dur);
+            let sleep_till = UNIX_EPOCH + Duration::from_secs(next_at) + Duration::from_millis(500);
+            match sleep_till.duration_since(SystemTime::now()) {
+                Ok(v) => {
+                    sleep_dur = v;
+                    trace!("report: Sleeping {}ms", sleep_dur.as_millis());
+                    continue 'outer;
                 }
-                now = unix_now();
+                _ => (),
             }
+
+            let now = unix_now();
             next_at = now + 1;
 
             // generate base
@@ -524,6 +618,11 @@ impl ReportWorker {
             self.report_file.tick(&base_report, now);
             self.report_file_1min.tick(&base_report, now);
         }
+
+        let _ = iolat.kill();
+        let _ = iolat.wait();
+        drop(line_rx);
+        jh.join().unwrap();
     }
 
     pub fn run(self) {
@@ -540,14 +639,14 @@ pub struct Reporter {
 }
 
 impl Reporter {
-    pub fn new(runner: Runner) -> Self {
-        let (term_tx, term_rx) = channel();
-        let worker = ReportWorker::new(runner, term_rx);
+    pub fn new(runner: Runner) -> Result<Self> {
+        let (term_tx, term_rx) = channel::unbounded::<()>();
+        let worker = ReportWorker::new(runner, term_rx)?;
         let jh = spawn(|| worker.run());
-        Self {
+        Ok(Self {
             term_tx: Some(term_tx),
             join_handle: Some(jh),
-        }
+        })
     }
 }
 

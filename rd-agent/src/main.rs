@@ -138,7 +138,6 @@ pub struct Config {
     pub scr_dev_forced: bool,
     pub index_path: String,
     pub sysreqs_path: String,
-    pub misc_bin_path: String,
     pub cmd_path: String,
     pub report_path: String,
     pub report_1min_path: String,
@@ -147,6 +146,8 @@ pub struct Config {
     pub bench_path: String,
     pub slices_path: String,
     pub hashd_paths: [HashdPaths; 2],
+    pub misc_bin_path: String,
+    pub io_latencies_bin: String,
     pub iocost_paths: IOCostPaths,
     pub oomd_bin: String,
     pub oomd_sys_svc: String,
@@ -272,9 +273,6 @@ impl Config {
                 .to_string(),
         };
 
-        let misc_bin_path = top_path.clone() + "/misc-bin";
-        Self::prep_dir(&misc_bin_path);
-
         let hashd_bin = find_bin("rd-hashd", exe_dir().ok())
             .unwrap_or_else(|| {
                 error!("cfg: Failed to find rd-hashd binary");
@@ -294,6 +292,9 @@ impl Config {
                 panic!();
             }
         };
+
+        let misc_bin_path = top_path.clone() + "/misc-bin";
+        Self::prep_dir(&misc_bin_path);
 
         let side_bin_path = top_path.clone() + "/sideload-bin";
         let side_scr_path = scr_path.clone() + "/sideload";
@@ -334,7 +335,6 @@ impl Config {
             scr_dev_forced: args.dev.is_some(),
             index_path: top_path.clone() + "/index.json",
             sysreqs_path: top_path.clone() + "/sysreqs.json",
-            misc_bin_path: misc_bin_path.clone(),
             cmd_path: top_path.clone() + "/cmd.json",
             report_path: top_path.clone() + "/report.json",
             report_1min_path: top_path.clone() + "/report-1min.json",
@@ -360,6 +360,8 @@ impl Config {
                     log_dir: scr_path.clone() + "/hashd-B/logs",
                 },
             ],
+            misc_bin_path: misc_bin_path.clone(),
+            io_latencies_bin: misc_bin_path.clone() + "/io_latencies.py",
             iocost_paths: IOCostPaths {
                 bin: misc_bin_path.clone() + "/iocost_coef_gen.py",
                 working: Self::prep_dir(&(scr_path.clone() + "/iocost-coef")),
