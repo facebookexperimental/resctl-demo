@@ -680,19 +680,19 @@ pub fn layout_factory(id: GraphSetId) -> Box<dyn View> {
                             LinearLayout::vertical()
                                 .child(resize_zleft(&layout, panels.remove("hashd-A").unwrap()))
                                 .child(resize_zleft(&layout, panels.remove("mem-util").unwrap()))
+                                .child(resize_zleft(&layout, panels.remove("read-bps").unwrap()))
                                 .child(resize_zleft(&layout, panels.remove("mem-psi").unwrap()))
                                 .child(resize_zleft(&layout, panels.remove("cpu-psi").unwrap()))
-                                .child(resize_zleft(&layout, panels.remove("read-lat").unwrap()))
-                                .child(resize_zleft(&layout, panels.remove("read-bps").unwrap())),
+                                .child(resize_zleft(&layout, panels.remove("read-lat").unwrap())),
                         )
                         .child(
                             LinearLayout::vertical()
                                 .child(resize_zright(&layout, panels.remove("cpu-util").unwrap()))
                                 .child(resize_zright(&layout, panels.remove("swap-util").unwrap()))
+                                .child(resize_zright(&layout, panels.remove("write-bps").unwrap()))
                                 .child(resize_zright(&layout, panels.remove("io-psi").unwrap()))
                                 .child(resize_zright(&layout, panels.remove("iocost").unwrap()))
-                                .child(resize_zright(&layout, panels.remove("write-lat").unwrap()))
-                                .child(resize_zright(&layout, panels.remove("write-bps").unwrap())),
+                                .child(resize_zright(&layout, panels.remove("write-lat").unwrap())),
                         ),
                 )
             } else {
