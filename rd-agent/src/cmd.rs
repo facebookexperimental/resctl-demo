@@ -151,12 +151,7 @@ impl RunnerData {
         match self.state {
             Idle => {
                 if cmd.bench_hashd_seq > bench.hashd_seq {
-                    self.bench_hashd = Some(bench::start_hashd_bench(
-                        &*self.cfg,
-                        self.sobjs.slice_file.data[Slice::Work]
-                            .mem_low
-                            .nr_bytes(false),
-                    )?);
+                    self.bench_hashd = Some(bench::start_hashd_bench(&*self.cfg, 0)?);
                     self.state = BenchHashd;
                 } else if cmd.bench_iocost_seq > bench.iocost_seq {
                     self.bench_iocost = Some(bench::start_iocost_bench(&*self.cfg)?);

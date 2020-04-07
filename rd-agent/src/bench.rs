@@ -25,7 +25,9 @@ pub fn start_hashd_bench(cfg: &Config, mem_high: u64) -> Result<TransientService
 
     let mut svc =
         TransientService::new_sys(HASHD_BENCH_SVC_NAME.into(), args, Vec::new(), Some(0o002))?;
-    svc.unit.resctl.mem_high = Some(mem_high);
+    if mem_high > 0 {
+        svc.unit.resctl.mem_high = Some(mem_high);
+    }
     svc.set_slice(Slice::Work.name()).start()?;
     Ok(svc)
 }
