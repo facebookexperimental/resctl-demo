@@ -189,6 +189,21 @@ impl IoLatReport {
     ];
 }
 
+impl IoLatReport {
+    pub fn accumulate(&mut self, rhs: &IoLatReport) {
+        for key in &["read", "write", "discard", "flush"] {
+            let key = key.to_string();
+            let lpcts = self.map.get_mut(&key).unwrap();
+            let rpcts = &rhs.map[&key];
+            for pct in Self::PCTS.iter() {
+                let pct = pct.to_string();
+                let lv = lpcts.get_mut(&pct).unwrap();
+                *lv = lv.max(rpcts[&pct]);
+            }
+        }
+    }
+}
+
 impl Default for IoLatReport {
     fn default() -> Self {
         let mut map = BTreeMap::new();
@@ -200,32 +215,6 @@ impl Default for IoLatReport {
             map.insert(key.to_string(), pcts);
         }
         Self { map }
-    }
-}
-
-impl ops::AddAssign<&IoLatReport> for IoLatReport {
-    fn add_assign(&mut self, rhs: &IoLatReport) {
-        for key in &["read", "write", "discard", "flush"] {
-            let key = key.to_string();
-            let lpcts = self.map.get_mut(&key).unwrap();
-            let rpcts = &rhs.map[&key];
-            for pct in Self::PCTS.iter() {
-                let pct = pct.to_string();
-                *lpcts.get_mut(&pct).unwrap() += rpcts[&pct];
-            }
-        }
-    }
-}
-
-impl<T: Into<f64>> ops::DivAssign<T> for IoLatReport {
-    fn div_assign(&mut self, rhs: T) {
-        let div = rhs.into();
-        for key in &["read", "write", "discard", "flush"] {
-            let pcts = self.map.get_mut(&key.to_string()).unwrap();
-            for pct in Self::PCTS.iter() {
-                *pcts.get_mut(&pct.to_string()).unwrap() /= div;
-            }
-        }
     }
 }
 

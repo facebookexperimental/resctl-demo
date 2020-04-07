@@ -56,11 +56,23 @@ impl Hashd {
         Ok(())
     }
 
-    fn update_params(&mut self, knobs: &HashdKnobs, cmd: &HashdCmd, frac: f64) -> Result<()> {
+    fn update_params(
+        &mut self,
+        knobs: &HashdKnobs,
+        cmd: &HashdCmd,
+        mem_low: u64,
+        frac: f64,
+    ) -> Result<()> {
         self.rps_max = ((knobs.rps_max as f64 * frac).round() as u32).max(1);
         let rps_target = ((self.rps_max as f64 * cmd.rps_target_ratio).round() as u32).max(1);
         let log_padding =
             (knobs.log_padding as f64 * cmd.write_ratio / HashdCmd::DFL_WRITE_RATIO) as u64;
+
+        let bench_size = (knobs.actual_mem_size() as f64).max(1.0);
+        let sys_size = *TOTAL_MEMORY as f64 - mem_low as f64;
+        let max_size = bench_size - sys_size;
+        let target_size = max_size * cmd.mem_ratio;
+        let mem_frac = (target_size / bench_size).max(0.0).min(1.0);
 
         let mut params = rd_hashd_intf::Params::load(&self.params_path)?;
         let mut changed = false;
@@ -77,8 +89,8 @@ impl Hashd {
             params.rps_target = rps_target;
             changed = true;
         }
-        if params.mem_frac != cmd.mem_ratio {
-            params.mem_frac = cmd.mem_ratio;
+        if params.mem_frac != mem_frac {
+            params.mem_frac = mem_frac;
             changed = true;
         }
         if params.file_frac != cmd.file_ratio {
@@ -237,7 +249,7 @@ impl HashdSet {
         // adjust the params files
         for i in 0..2 {
             if fracs[i] != 0.0 {
-                self.hashd[i].update_params(knobs, &cmd[i], fracs[i])?;
+                self.hashd[i].update_params(knobs, &cmd[i], mem_low, fracs[i])?;
             }
         }
 

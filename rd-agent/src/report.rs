@@ -359,7 +359,7 @@ impl ReportFile {
         for i in 0..2 {
             self.hashd_acc[i] += &base_report.hashd[i];
         }
-        self.iolat_acc += &base_report.iolat;
+        self.iolat_acc.accumulate(&base_report.iolat);
         self.iocost_acc += &base_report.iocost;
         self.nr_samples += 1;
 
@@ -386,7 +386,6 @@ impl ReportFile {
         }
         self.hashd_acc = Default::default();
 
-        self.iolat_acc /= self.nr_samples;
         report.iolat = self.iolat_acc.clone();
         self.iolat_acc = Default::default();
 
