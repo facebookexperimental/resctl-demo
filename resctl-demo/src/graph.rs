@@ -346,6 +346,9 @@ enum PlotId {
     WorkMem,
     SideMem,
     SysMem,
+    WorkSwap,
+    SideSwap,
+    SysSwap,
     WorkRBps,
     SideRBps,
     SysRBps,
@@ -397,11 +400,21 @@ fn plot_spec_factory(id: PlotId) -> PlotSpec {
     fn mem_spec(slice: &'static str) -> PlotSpec {
         PlotSpec {
             sel: Box::new(move |rep: &Report| {
-                rep.usages.get(slice).unwrap().mem_bytes as f64 / *TOTAL_MEMORY as f64 * 100.0
+                rep.usages.get(slice).unwrap().mem_bytes as f64 / (1 << 30) as f64
             }),
             title: Box::new(move || format!("{}-mem", slice.trim_end_matches(".slice"))),
             min: Box::new(|| 0.0),
-            max: Box::new(|| 100.0),
+            max: Box::new(|| 0.0),
+        }
+    }
+    fn swap_spec(slice: &'static str) -> PlotSpec {
+        PlotSpec {
+            sel: Box::new(move |rep: &Report| {
+                rep.usages.get(slice).unwrap().swap_bytes as f64 / (1 << 30) as f64
+            }),
+            title: Box::new(move || format!("{}-swap", slice.trim_end_matches(".slice"))),
+            min: Box::new(|| 0.0),
+            max: Box::new(|| 0.0),
         }
     }
     fn io_read_spec(slice: &'static str) -> PlotSpec {
@@ -468,6 +481,9 @@ fn plot_spec_factory(id: PlotId) -> PlotSpec {
         PlotId::WorkMem => mem_spec("workload.slice"),
         PlotId::SideMem => mem_spec("sideload.slice"),
         PlotId::SysMem => mem_spec("system.slice"),
+        PlotId::WorkSwap => swap_spec("workload.slice"),
+        PlotId::SideSwap => swap_spec("sideload.slice"),
+        PlotId::SysSwap => swap_spec("system.slice"),
         PlotId::WorkRBps => io_read_spec("workload.slice"),
         PlotId::SideRBps => io_read_spec("sideload.slice"),
         PlotId::SysRBps => io_read_spec("system.slice"),
@@ -516,8 +532,13 @@ static ALL_GRAPHS: &[(&str, &str, &[PlotId])] = &[
     ),
     (
         "mem-util",
-        "Memory util in top-level slices",
+        "Memory util (GB) in top-level slices",
         &[PlotId::WorkMem, PlotId::SideMem, PlotId::SysMem],
+    ),
+    (
+        "swap-util",
+        "Swap util (GB) in top-level slices",
+        &[PlotId::WorkSwap, PlotId::SideSwap, PlotId::SysSwap],
     ),
     (
         "read-bps",
@@ -546,12 +567,12 @@ static ALL_GRAPHS: &[(&str, &str, &[PlotId])] = &[
     ),
     (
         "read-lat",
-        "IO read latencies in msecs",
+        "IO read latencies (msecs)",
         &[PlotId::ReadLatP99, PlotId::ReadLatP90, PlotId::ReadLatP50],
     ),
     (
         "write-lat",
-        "IO write latencies in msecs",
+        "IO write latencies (msecs)",
         &[PlotId::WriteLatP99, PlotId::WriteLatP90, PlotId::WriteLatP50],
     ),
 ];
@@ -633,6 +654,7 @@ pub fn layout_factory(id: GraphSetId) -> Box<dyn View> {
                                 .child(resize_zleft(&layout, panels.remove("hashd-A").unwrap()))
                                 .child(resize_zleft(&layout, panels.remove("mem-psi").unwrap()))
                                 .child(resize_zleft(&layout, panels.remove("io-psi").unwrap()))
+                                .child(resize_zleft(&layout, panels.remove("cpu-psi").unwrap()))
                                 .child(resize_zleft(&layout, panels.remove("read-bps").unwrap()))
                                 .child(resize_zleft(&layout, panels.remove("read-lat").unwrap())),
                         )
@@ -640,7 +662,8 @@ pub fn layout_factory(id: GraphSetId) -> Box<dyn View> {
                             LinearLayout::vertical()
                                 .child(resize_zright(&layout, panels.remove("cpu-util").unwrap()))
                                 .child(resize_zright(&layout, panels.remove("mem-util").unwrap()))
-                                .child(resize_zright(&layout, panels.remove("cpu-psi").unwrap()))
+                                .child(resize_zright(&layout, panels.remove("swap-util").unwrap()))
+                                .child(resize_zright(&layout, Panel::new(TextView::new(""))))
                                 .child(resize_zright(&layout, panels.remove("write-bps").unwrap()))
                                 .child(resize_zright(&layout, panels.remove("write-lat").unwrap())),
                         ),
@@ -650,12 +673,13 @@ pub fn layout_factory(id: GraphSetId) -> Box<dyn View> {
                     LinearLayout::vertical()
                         .child(resize_zleft(&layout, panels.remove("hashd-A").unwrap()))
                         .child(resize_zleft(&layout, panels.remove("cpu-util").unwrap()))
-                        .child(resize_zleft(&layout, panels.remove("cpu-psi").unwrap()))
                         .child(resize_zleft(&layout, panels.remove("mem-util").unwrap()))
+                        .child(resize_zleft(&layout, panels.remove("swap-util").unwrap()))
+                        .child(resize_zleft(&layout, panels.remove("cpu-psi").unwrap()))
                         .child(resize_zleft(&layout, panels.remove("mem-psi").unwrap()))
+                        .child(resize_zleft(&layout, panels.remove("io-psi").unwrap()))
                         .child(resize_zleft(&layout, panels.remove("read-bps").unwrap()))
                         .child(resize_zleft(&layout, panels.remove("write-bps").unwrap()))
-                        .child(resize_zleft(&layout, panels.remove("io-psi").unwrap()))
                         .child(resize_zleft(&layout, panels.remove("read-lat").unwrap()))
                         .child(resize_zleft(&layout, panels.remove("write-lat").unwrap())),
                 )
