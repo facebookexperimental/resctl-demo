@@ -573,7 +573,11 @@ static ALL_GRAPHS: &[(&str, &str, &[PlotId])] = &[
     (
         "write-lat",
         "IO write latencies (msecs)",
-        &[PlotId::WriteLatP99, PlotId::WriteLatP90, PlotId::WriteLatP50],
+        &[
+            PlotId::WriteLatP99,
+            PlotId::WriteLatP90,
+            PlotId::WriteLatP50,
+        ],
     ),
 ];
 

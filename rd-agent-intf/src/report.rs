@@ -198,9 +198,7 @@ impl Default for IoLatReport {
             }
             map.insert(key.to_string(), pcts);
         }
-        Self {
-            map
-        }
+        Self { map }
     }
 }
 

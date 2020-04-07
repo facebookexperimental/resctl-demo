@@ -401,31 +401,13 @@ impl Config {
             return Ok(mi);
         }
 
-        match Command::new("mount")
-            .arg("-o")
-            .arg("remount,discard=async")
-            .arg(&mi.dest)
-            .spawn()
-            .and_then(|mut x| x.wait())
-        {
-            Ok(rc) if rc.success() => info!("cfg: enabled async discard on {:?}", &mi.dest),
-            Ok(rc) => {
-                sr_failed.insert(SysReq::BtrfsAsyncDiscard);
-                bail!(
-                    "{:?} doesn't have \"discard=async\" and remount failed ({:?})",
-                    path,
-                    &rc
-                );
-            }
-            Err(e) => {
-                sr_failed.insert(SysReq::BtrfsAsyncDiscard);
-                bail!(
-                    "{:?} doesn't have \"discard=async\" and remount failed ({:?})",
-                    path,
-                    &e
-                );
-            }
-        }
+        run_command(
+            Command::new("mount")
+                .arg("-o")
+                .arg("remount,discard=async")
+                .arg(&mi.dest),
+            "failed to enable async discard",
+        )?;
 
         info!("cfg: {:?} didn't have \"discard=async\", remounted", path);
         Ok(mi)

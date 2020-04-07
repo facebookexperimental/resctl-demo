@@ -1,7 +1,8 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
 use super::{prepare_bin_file, Config};
+use anyhow::Result;
 use std::process::Command;
-use anyhow::{Result, bail};
+use util::*;
 
 const MISC_BINS: [(&str, &[u8]); 3] = [
     (
@@ -17,19 +18,10 @@ pub fn prepare_misc_bins(cfg: &Config) -> Result<()> {
         prepare_bin_file(&format!("{}/{}", &cfg.misc_bin_path, name), body)?;
     }
 
-    match Command::new(&cfg.io_latencies_bin)
-        .arg(format!("{}:{}", cfg.scr_devnr.0, cfg.scr_devnr.1))
-        .args(&["-i", "0"])
-        .status()
-    {
-        Ok(rc) if rc.success() => (),
-        Ok(rc) =>
-            bail!("{:?} failed ({:?}), is bcc working? https://github.com/iovisor/bcc",
-                  &cfg.io_latencies_bin, &rc),
-        Err(e) =>
-            bail!("{:?} failed ({:?}), is bcc working? https://github.com/iovisor/bcc",
-                  &cfg.io_latencies_bin, &e),
-    }
-
-    Ok(())
+    run_command(
+        Command::new(&cfg.io_latencies_bin)
+            .arg(format!("{}:{}", cfg.scr_devnr.0, cfg.scr_devnr.1))
+            .args(&["-i", "0"]),
+        "is bcc working? https://github.com/iovisor/bcc",
+    )
 }

@@ -1330,6 +1330,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow 1.0.28 (registry+https://github.com/rust-lang/crates.io-index)",
  "clap 2.33.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "crossbeam 0.7.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "ctrlc 3.1.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "dbus 0.8.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "env_logger 0.7.1 (registry+https://github.com/rust-lang/crates.io-index)",

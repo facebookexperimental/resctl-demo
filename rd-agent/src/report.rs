@@ -15,7 +15,7 @@ use std::io::prelude::*;
 use std::io::BufReader;
 use std::os::unix::fs::symlink;
 use std::panic;
-use std::process::{self, Command, Stdio};
+use std::process::{Command, Stdio};
 use std::thread::{spawn, JoinHandle};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use util::*;
@@ -503,24 +503,6 @@ impl ReportWorker {
         })
     }
 
-    fn iolat_reader_thread(stdout: process::ChildStdout, tx: Sender<String>) {
-        let reader = BufReader::new(stdout);
-        for line in reader.lines() {
-            match line {
-                Ok(line) => {
-                    if let Err(e) = tx.send(line) {
-                        info!("report: iolat reader thread terminating ({:?})", &e);
-                        break;
-                    }
-                }
-                Err(e) => {
-                    warn!("report: Failed to read from io_latencies.py ({:?})", &e);
-                    break;
-                }
-            }
-        }
-    }
-
     fn parse_iolat_output(line: &str) -> Result<IoLatReport> {
         let parsed = json::parse(line)?;
         let mut iolat_map = IoLatReport::default();
@@ -564,7 +546,7 @@ impl ReportWorker {
 
         let iolat_stdout = iolat.stdout.take().unwrap();
         let (line_tx, line_rx) = channel::unbounded::<String>();
-        let jh = spawn(move || Self::iolat_reader_thread(iolat_stdout, line_tx));
+        let jh = spawn(move || child_reader_thread("iolat".into(), iolat_stdout, line_tx));
 
         let mut sleep_dur = Duration::from_secs(0);
 
