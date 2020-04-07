@@ -361,6 +361,12 @@ enum PlotId {
     SysCpuPsi,
     SysMemPsi,
     SysIoPsi,
+    ReadLatP50,
+    ReadLatP90,
+    ReadLatP99,
+    WriteLatP50,
+    WriteLatP90,
+    WriteLatP99,
 }
 
 fn plot_spec_factory(id: PlotId) -> PlotSpec {
@@ -442,6 +448,14 @@ fn plot_spec_factory(id: PlotId) -> PlotSpec {
             max: Box::new(|| 100.0),
         }
     }
+    fn io_lat_spec(iotype: &'static str, pct: &'static str) -> PlotSpec {
+        PlotSpec {
+            sel: Box::new(move |rep: &Report| rep.iolat.map[iotype][pct] * 1000.0),
+            title: Box::new(move || format!("{}-lat-p{}", iotype, pct)),
+            min: Box::new(|| 0.0),
+            max: Box::new(|| 0.0),
+        }
+    }
 
     match id {
         PlotId::HashdARps => rps_spec(0),
@@ -469,6 +483,12 @@ fn plot_spec_factory(id: PlotId) -> PlotSpec {
         PlotId::SysCpuPsi => cpu_psi_spec("system.slice"),
         PlotId::SysMemPsi => mem_psi_spec("system.slice"),
         PlotId::SysIoPsi => io_psi_spec("system.slice"),
+        PlotId::ReadLatP50 => io_lat_spec("read", "50"),
+        PlotId::ReadLatP90 => io_lat_spec("read", "90"),
+        PlotId::ReadLatP99 => io_lat_spec("read", "99"),
+        PlotId::WriteLatP50 => io_lat_spec("write", "50"),
+        PlotId::WriteLatP90 => io_lat_spec("write", "90"),
+        PlotId::WriteLatP99 => io_lat_spec("write", "99"),
     }
 }
 
@@ -523,6 +543,16 @@ static ALL_GRAPHS: &[(&str, &str, &[PlotId])] = &[
         "cpu-psi",
         "CPU Pressures in top-level slices",
         &[PlotId::WorkCpuPsi, PlotId::SideCpuPsi, PlotId::SysCpuPsi],
+    ),
+    (
+        "read-lat",
+        "IO read latencies in msecs",
+        &[PlotId::ReadLatP99, PlotId::ReadLatP90, PlotId::ReadLatP50],
+    ),
+    (
+        "write-lat",
+        "IO write latencies in msecs",
+        &[PlotId::WriteLatP99, PlotId::WriteLatP90, PlotId::WriteLatP50],
     ),
 ];
 
@@ -603,14 +633,16 @@ pub fn layout_factory(id: GraphSetId) -> Box<dyn View> {
                                 .child(resize_zleft(&layout, panels.remove("hashd-A").unwrap()))
                                 .child(resize_zleft(&layout, panels.remove("mem-psi").unwrap()))
                                 .child(resize_zleft(&layout, panels.remove("io-psi").unwrap()))
-                                .child(resize_zleft(&layout, panels.remove("cpu-psi").unwrap())),
+                                .child(resize_zleft(&layout, panels.remove("read-bps").unwrap()))
+                                .child(resize_zleft(&layout, panels.remove("read-lat").unwrap())),
                         )
                         .child(
                             LinearLayout::vertical()
                                 .child(resize_zright(&layout, panels.remove("cpu-util").unwrap()))
                                 .child(resize_zright(&layout, panels.remove("mem-util").unwrap()))
-                                .child(resize_zright(&layout, panels.remove("read-bps").unwrap()))
-                                .child(resize_zright(&layout, panels.remove("write-bps").unwrap())),
+                                .child(resize_zright(&layout, panels.remove("cpu-psi").unwrap()))
+                                .child(resize_zright(&layout, panels.remove("write-bps").unwrap()))
+                                .child(resize_zright(&layout, panels.remove("write-lat").unwrap())),
                         ),
                 )
             } else {
@@ -623,7 +655,9 @@ pub fn layout_factory(id: GraphSetId) -> Box<dyn View> {
                         .child(resize_zleft(&layout, panels.remove("mem-psi").unwrap()))
                         .child(resize_zleft(&layout, panels.remove("read-bps").unwrap()))
                         .child(resize_zleft(&layout, panels.remove("write-bps").unwrap()))
-                        .child(resize_zleft(&layout, panels.remove("io-psi").unwrap())),
+                        .child(resize_zleft(&layout, panels.remove("io-psi").unwrap()))
+                        .child(resize_zleft(&layout, panels.remove("read-lat").unwrap()))
+                        .child(resize_zleft(&layout, panels.remove("write-lat").unwrap())),
                 )
             }
         }
