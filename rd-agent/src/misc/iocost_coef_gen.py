@@ -123,7 +123,7 @@ def create_testfile(path, size):
 def outfile_path(name):
     return f'iocost-coef-fio-output-{name}.json'
 
-def run_fio(testfile, duration, iotype, iodepth, blocksize, jobs, outfile):
+def run_fio(testfile, duration, iotype, iodepth, blocksize, jobs, rate_iops, outfile):
     global args
 
     eta = 'never' if args.quiet else 'always'
@@ -132,8 +132,10 @@ def run_fio(testfile, duration, iotype, iodepth, blocksize, jobs, outfile):
            f'--readwrite={iotype} --iodepth={iodepth} --blocksize={blocksize} '
            f'--eta={eta} --output-format json --output={outfile} '
            f'--time_based --numjobs={jobs}')
+    if rate_iops is not None:
+        cmd += f' --rate_iops={rate_iops}'
     if not sys.stderr.isatty():
-        cmd += "| stdbuf -oL tr '\r' '\n'"
+        cmd += " | stdbuf -oL tr '\r' '\n'"
     if args.verbose:
         dbg(f'Running {cmd}')
     subprocess.check_call(cmd, shell=True)
@@ -160,39 +162,11 @@ def read_lat(pct, table):
             best_lat = lat
     return best_lat / 1000   # convert to usecs
 
-def determine_lat():
+def is_ssd():
     global dev_path
 
     with open(f'{dev_path}/queue/rotational', 'r') as f:
-        rot = int(f.read()) != 0
-
-    if rot:
-        # HDD
-        dbg('Using harddisk QoS params')
-        return (50, 250_000, 50, 250_000)
-
-    try:
-        with open(f'{dev_path}/device/queue_depth', 'r') as f:
-            if int(f.read()) == 1:
-                # SSDs w/ queue depth == 1
-                dbg('Using harddisk QD1 SSD QoS params')
-                return (95, 20_000, 95, 20_000)
-    except:
-        pass
-
-    with open(outfile_path('rrandiops'), 'r') as f:
-        r = json.load(f)
-        rlat = read_lat(95, r['jobs'][0]['read']['clat_ns']['percentile'])
-
-    with open(outfile_path('wrandiops'), 'r') as f:
-        r = json.load(f)
-        wlat = read_lat(95, r['jobs'][0]['write']['clat_ns']['percentile'])
-
-    if rlat < 1_000 and wlat < 2_000:
-        dbg(f'Using fast SSD QoS params, rlat={rlat} wlat={wlat}')
-        return (95, 5_000, 95, 10_000)
-    else:
-        return (95, 10_000, 95, 20_000)
+        return int(f.read()) == 0
 
 def sig_handler(_signo, _stack_frame):
     sys.exit(0)
@@ -253,38 +227,60 @@ with open(elevator_path, 'w') as f:
 with open(nomerges_path, 'w') as f:
     f.write('1')
 
+seqio_blksz = args.seqio_block_mb * (2 ** 20)
+
 info('Determining rbps...')
-rbps = run_fio(testfile, args.duration, 'read',
-               1, args.seqio_block_mb * (2 ** 20), args.numjobs,
-               outfile_path('rbps'))
+rbps = run_fio(testfile, args.duration, 'read', 1, seqio_blksz,
+               args.numjobs, None, outfile_path('rbps'))
 info(f'\nrbps={rbps}, determining rseqiops...')
-rseqiops = round(run_fio(testfile, args.duration, 'read',
-                         args.seq_depth, 4096, args.numjobs,
-                         outfile_path('rseqiops')) / 4096)
+rseqiops = round(
+    run_fio(testfile, args.duration, 'read', args.seq_depth, 4096,
+            args.numjobs, None, outfile_path('rseqiops')) / 4096)
 info(f'\nrseqiops={rseqiops}, determining rrandiops...')
-rrandiops = round(run_fio(testfile, args.duration, 'randread',
-                          args.rand_depth, 4096, args.numjobs,
-                          outfile_path('rrandiops')) / 4096)
+rrandiops = round(
+    run_fio(testfile, args.duration, 'randread', args.rand_depth, 4096,
+            args.numjobs, None, outfile_path('rrandiops')) / 4096)
 info(f'\nrrandiops={rrandiops}, determining wbps...')
-wbps = run_fio(testfile, args.duration, 'write',
-               1, args.seqio_block_mb * (2 ** 20), args.numjobs,
-               outfile_path('wbps'))
+wbps = run_fio(testfile, args.duration, 'write', 1, seqio_blksz,
+               args.numjobs, None, outfile_path('wbps'))
 info(f'\nwbps={wbps}, determining wseqiops...')
-wseqiops = round(run_fio(testfile, args.duration, 'write',
-                         args.seq_depth, 4096, args.numjobs,
-                         outfile_path('wseqiops')) / 4096)
+wseqiops = round(
+    run_fio(testfile, args.duration, 'write', args.seq_depth, 4096,
+            args.numjobs, None, outfile_path('wseqiops')) / 4096)
 info(f'\nwseqiops={wseqiops}, determining wrandiops...')
-wrandiops = round(run_fio(testfile, args.duration, 'randwrite',
-                          args.rand_depth, 4096, args.numjobs,
-                          outfile_path('wrandiops')) / 4096)
-info(f'\nwrandiops={wrandiops}')
+wrandiops = round(
+    run_fio(testfile, args.duration, 'randwrite', args.rand_depth, 4096,
+            args.numjobs, None, outfile_path('wrandiops')) / 4096)
+info(f'\nwrandiops={wrandiops}, determining rlat...')
+
+if is_ssd():
+    rpct = 95
+    wpct = 50
+else:
+    rpct = 50
+    wpct = 50
+
+run_fio(testfile, args.duration, 'randread', args.rand_depth, 4096,
+        args.numjobs, int(rrandiops * 0.8), outfile_path('rlat'))
+
+with open(outfile_path('rlat'), 'r') as f:
+    r = json.load(f)
+    rlat = read_lat(rpct, r['jobs'][0]['read']['clat_ns']['percentile'])
+    rlat = round(rlat * 2)
+info(f'\nrpct={rpct} rlat={rlat}, Determining wlat...')
+
+run_fio(testfile, args.duration, 'randwrite', args.rand_depth, 4096,
+        args.numjobs, int(wrandiops * 0.8), outfile_path('wlat'))
+with open(outfile_path('wlat'), 'r') as f:
+    r = json.load(f)
+    wlat = read_lat(wpct, r['jobs'][0]['read']['clat_ns']['percentile'])
+    wlat = round(max(wlat, rlat * 4))
+info(f'\nwpct={wpct} wlat={wlat}')
+
 restore_elevator_nomerges()
 atexit.unregister(restore_elevator_nomerges)
 
 if args.json:
-    # json output requested, let's determine QoS params too
-    (rpct, rlat, wpct, wlat) = determine_lat()
-
     result = {
         'devnr': devnr,
         'model': {
@@ -301,7 +297,7 @@ if args.json:
             'wpct': wpct,
             'wlat': wlat,
             'min': 50,
-            'max': 10000,
+            'max': 150,
         },
     }
 
@@ -310,5 +306,8 @@ if args.json:
         json.dump(result, f, indent=4)
 
 info('')
-print(f'{devnr} rbps={rbps} rseqiops={rseqiops} rrandiops={rrandiops} '
-      f'wbps={wbps} wseqiops={wseqiops} wrandiops={wrandiops}')
+print(f'io.cost.model: {devnr} rbps={rbps} rseqiops={rseqiops} '
+      f'rrandiops={rrandiops} wbps={wbps} wseqiops={wseqiops} '
+      f'wrandiops={wrandiops}')
+print(f'io.cost.qos: {devnr} rpct={rpct} rlat={rlat} '
+      f'wpct={wpct} wlat={wlat} min=50 max=150')
