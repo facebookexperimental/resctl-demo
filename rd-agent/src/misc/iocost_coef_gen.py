@@ -261,7 +261,7 @@ else:
     wpct = 50
 
 run_fio(testfile, args.duration, 'randread', args.rand_depth, 4096,
-        args.numjobs, int(rrandiops * 0.9), outfile_path('rlat'))
+        args.numjobs, int(rrandiops * 0.85), outfile_path('rlat'))
 
 with open(outfile_path('rlat'), 'r') as f:
     r = json.load(f)
@@ -270,7 +270,7 @@ with open(outfile_path('rlat'), 'r') as f:
 info(f'\nrpct={rpct} rlat={rlat}, Determining wlat...')
 
 run_fio(testfile, args.duration, 'randwrite', args.rand_depth, 4096,
-        args.numjobs, int(wrandiops * 0.9), outfile_path('wlat'))
+        args.numjobs, int(wrandiops * 0.85), outfile_path('wlat'))
 with open(outfile_path('wlat'), 'r') as f:
     r = json.load(f)
     wlat = read_lat(wpct, r['jobs'][0]['read']['clat_ns']['percentile'])
@@ -296,7 +296,7 @@ if args.json:
             'rlat': rlat,
             'wpct': wpct,
             'wlat': wlat,
-            'min': 50,
+            'min': 25,
             'max': 150,
         },
     }
@@ -310,4 +310,4 @@ print(f'io.cost.model: {devnr} rbps={rbps} rseqiops={rseqiops} '
       f'rrandiops={rrandiops} wbps={wbps} wseqiops={wseqiops} '
       f'wrandiops={wrandiops}')
 print(f'io.cost.qos: {devnr} rpct={rpct} rlat={rlat} '
-      f'wpct={wpct} wlat={wlat} min=50 max=150')
+      f'wpct={wpct} wlat={wlat} min=25 max=150')
