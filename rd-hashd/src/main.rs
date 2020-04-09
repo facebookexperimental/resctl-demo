@@ -22,6 +22,7 @@ use testfiles::TestFiles;
 
 const TESTFILE_UNIT_SIZE: u64 = 1 << 20;
 const LOGFILE_UNIT_SIZE: u64 = 1 << 30;
+const LOGGER_HOLD_SEC: f64 = 10.0;
 
 static ROTATIONAL: AtomicBool = AtomicBool::new(false);
 static ROTATIONAL_TESTFILES: AtomicBool = AtomicBool::new(false);
@@ -125,6 +126,7 @@ fn create_logger(args: &Args, params: &Params, quiet: bool) -> Option<Logger> {
                 params.log_padding,
                 LOGFILE_UNIT_SIZE,
                 args.log_size,
+                (params.rps_max as f64 * LOGGER_HOLD_SEC) as usize,
             ) {
                 Ok(lg) => Some(lg),
                 Err(e) => {

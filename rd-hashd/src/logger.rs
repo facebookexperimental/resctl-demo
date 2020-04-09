@@ -245,7 +245,13 @@ pub struct Logger {
 }
 
 impl Logger {
-    pub fn new<P>(dir_path: P, padding: u64, unit_size: u64, max_size: u64) -> Result<Self>
+    pub fn new<P>(
+        dir_path: P,
+        padding: u64,
+        unit_size: u64,
+        max_size: u64,
+        capacity: usize,
+    ) -> Result<Self>
     where
         P: AsRef<Path>,
     {
@@ -255,7 +261,7 @@ impl Logger {
             .ok_or_else(|| anyhow!("failed to convert path to string"))?
             .to_string();
 
-        let (log_tx, log_rx) = channel::unbounded();
+        let (log_tx, log_rx) = channel::bounded(capacity);
         let padding = Arc::new(AtomicU64::new(padding));
         let worker = LogWorker::new(dir_path, padding.clone(), unit_size, max_size, log_rx)?;
         let worker_jh = spawn(move || worker.run());
@@ -272,11 +278,7 @@ impl Logger {
     }
 
     pub fn log(&self, msg: &str) {
-        // Make each queued message cost non-trivial amount of memory so that IO
-        // lagging behind feeds back as memory pressure.
-        let mut buf = String::with_capacity(4096);
-        buf += msg;
-        let _ = self.log_tx.as_ref().unwrap().send(buf);
+        let _ = self.log_tx.as_ref().unwrap().send(msg.into());
     }
 }
 

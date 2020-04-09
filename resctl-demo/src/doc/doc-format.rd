@@ -63,13 +63,13 @@ The specified command is executed when jumping out of the page.
 
 The followings are all available commands.
 
-%% on     bench-hashd            : [ Start hashd benchmark ]
-%% off    bench-hashd            : [ Stop hashd benchmark ]
-%% toggle bench-hashd            : Toggle hashd benchmark
-%%
 %% on     bench-iocost           : [ Start iocost benchmark ]
 %% off    bench-iocost           : [ Stop iocost benchmark ]
 %% toggle bench-iocost           : Toggle iocost benchmark
+%%
+%% on     bench-hashd            : [ Start hashd benchmark ]
+%% off    bench-hashd            : [ Stop hashd benchmark ]
+%% toggle bench-hashd            : Toggle hashd benchmark
 %%
 %% on     hashd                  : [ Start hashd ]
 %% off    hashd                  : [ Stop hashd ]

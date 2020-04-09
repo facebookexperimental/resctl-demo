@@ -92,7 +92,7 @@ performs benchmark to determine the parameters and then starts a normal run.
   $ rm -f ~/rd-hashd/*.json
   $ rd-hashd --args ~/rd-hashd/args.json --testfiles ~/rd-hashd/testfiles \\
              --params ~/rd-hashd/params.json --report ~/rd-hashd/report.json \\
-             --log ~/rd-hashd/log --interval 1 --bench
+             --log-dir ~/rd-hashd/logs --interval 1 --bench
   $ rd-hashd --args ~/rd-hashd-/args.json
 
 [ COMMAND LINE HELP ]
@@ -105,22 +105,23 @@ lazy_static! {
             "-t, --testfiles=[DIR]   'Testfiles directory'
              -s, --size=[SIZE]       'Max memory footprint, affects testfiles size (default: {dfl_size:.2}G)'
              -f, --file-max=[FRAC]   'Max fraction of page cache, affects testfiles size (default: {dfl_file_max_frac:.2})'
-             -p, --params=[FILE]     'Runtime updatable parameters, will be created if non-existent'
-             -r, --report=[FILE]     'Runtime report file, FILE.staging will be used for staging'
-             -l, --log-dir=[PATH]    'Record hash results to the files in PATH'
-             -L, --log-size=[SIZE]   'Maximum log retention (default: {dfl_log_size:.2}G)'
-             -i, --interval=[SECS]   'Summary report interval, 0 to disable (default: {dfl_intv}s)'
-             -R, --rotational=[BOOL] 'Force rotational detection to either true or false'
-             -k, --keep-caches       'Don't drop caches for testfiles on startup'
-                 --clear-testfiles   'Clear testfiles before preparing them'
-                 --prepare-config    'Prepare config files and exit'
-                 --prepare           'Prepare config files and testfiles and exit'
-                 --bench             'Benchmark and record results in args and params file'
-                 --bench-cpu         'Benchmark cpu'
-                 --bench-mem         'Benchmark memory'
-                 --bench-io          'Benchmark io'
-             -a, --args=[FILE]       'Load base command line arguments from FILE'
-             -v...                   'Sets the level of verbosity'",
+             -p, --params=[FILE]         'Runtime updatable parameters, will be created if non-existent'
+             -r, --report=[FILE]         'Runtime report file, FILE.staging will be used for staging'
+             -l, --log-dir=[PATH]        'Record hash results to the files in PATH'
+             -L, --log-size=[SIZE]       'Maximum log retention (default: {dfl_log_size:.2}G)'
+             -i, --interval=[SECS]       'Summary report interval, 0 to disable (default: {dfl_intv}s)'
+             -R, --rotational=[BOOL]     'Force rotational detection to either true or false'
+             -k, --keep-caches           'Don't drop caches for testfiles on startup'
+                 --clear-testfiles       'Clear testfiles before preparing them'
+                 --prepare-config        'Prepare config files and exit'
+                 --prepare               'Prepare config files and testfiles and exit'
+                 --bench                 'Benchmark and record results in args and params file'
+                 --bench-cpu             'Benchmark cpu'
+                 --bench-mem             'Benchmark memory'
+                 --bench-io              'Benchmark IO'
+                 --bench-max-wbps=[BPS]  'Max write bps of IO device, bisected if not specified'
+             -a, --args=[FILE]           'Load base command line arguments from FILE'
+             -v...                       'Sets the level of verbosity'",
             dfl_size=to_gb(dfl.size),
             dfl_file_max_frac=dfl.file_max_frac,
             dfl_log_size=to_gb(dfl.log_size),
@@ -150,6 +151,7 @@ pub struct Args {
     pub interval: u32,
     pub rotational: Option<bool>,
     pub keep_caches: bool,
+    pub bench_max_wbps: u64,
 
     #[serde(skip)]
     pub clear_testfiles: bool,
@@ -191,6 +193,7 @@ impl Default for Args {
             rotational: None,
             clear_testfiles: false,
             keep_caches: false,
+            bench_max_wbps: 0,
             prepare_testfiles: true,
             prepare_and_exit: false,
             bench_cpu: false,
@@ -303,6 +306,15 @@ impl JsonArgs for Args {
         }
         if self.keep_caches != matches.is_present("keep-caches") {
             self.keep_caches = !self.keep_caches;
+            updated_base = true;
+        }
+
+        let bench_max_wbps = match matches.value_of("bench-max-wbps") {
+            Some(v) => v.parse::<u64>().unwrap(),
+            None => 0,
+        };
+        if self.bench_max_wbps != bench_max_wbps {
+            self.bench_max_wbps = bench_max_wbps;
             updated_base = true;
         }
 
