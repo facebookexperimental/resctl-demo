@@ -78,6 +78,7 @@ struct MemIoSatCfg {
 struct Cfg {
     mem_buffer: f64,
     io_buffer: f64,
+    io_max_frac: f64,
     cpu: CpuCfg,
     cpu_sat: CpuSatCfg,
     mem_sat: MemIoSatCfg,
@@ -120,8 +121,9 @@ const MEMIO_REFINE_CVG_CFG: ConvergeCfg = ConvergeCfg {
 impl Default for Cfg {
     fn default() -> Self {
         Self {
-            mem_buffer: 0.15,
-            io_buffer: 0.75,
+            mem_buffer: 0.125,
+            io_buffer: 0.50,
+            io_max_frac: 0.50,
             cpu: CpuCfg {
                 size: 1 << 30,
                 lat: 10.0 * MSEC,
@@ -180,7 +182,7 @@ impl Default for Cfg {
                     let min = (params.mem_frac - 0.25).max(0.001);
                     match pos {
                         None => Some(params.mem_frac - step),
-                        Some(v) if v > min => Some(v - step),
+                        Some(v) if v >= min + step => Some(v - step),
                         _ => None,
                     }
                 }),
@@ -212,19 +214,19 @@ impl Default for Cfg {
                 }),
 
                 next_refine_pos: Box::new(|params, pos| {
-                    let step = 0.05 * params.log_padding as f64;
-                    let min = 0.76 * params.log_padding as f64;
+                    let step = 0.1 * params.log_padding as f64;
+                    let min = 0.0;
                     match pos {
                         None => Some(params.log_padding as f64 - step),
-                        Some(v) if v > min => Some(v - step),
+                        Some(v) if v >= min + step => Some(v - step),
                         _ => None,
                     }
                 }),
 
                 lat: 100.0 * MSEC,
                 term_err_good: 0.05,
-                term_err_bad: 0.75,
-                bisect_err: 0.1,
+                term_err_bad: 0.50,
+                bisect_err: 0.25,
                 refine_err: 0.1,
 
                 up_converge: MEMIO_UP_CVG_CFG,
@@ -836,8 +838,8 @@ impl Bench {
             }
         }
         if next_pos.is_none() {
-            warn!(
-                "[ {} saturation: {} is too small to saturate? ]",
+            info!(
+                "[ {} saturation: max {} doesn't saturate, using as-is ]",
                 cfg.name,
                 (cfg.fmt_pos)(self, pos),
             );
@@ -927,7 +929,10 @@ impl Bench {
     /// saturation point looking for the first full performance point.
     fn bench_memio_saturation_refine(&self, cfg: &MemIoSatCfg) -> f64 {
         let mut params: Params = self.params.clone();
-        let tf = self.prep_tf(self.max_size, "memory saturation bench - refine-rounds");
+        let tf = self.prep_tf(
+            self.max_size,
+            &format!("{} saturation bench - refine-rounds", cfg.name),
+        );
         params.p99_lat_target = cfg.lat;
         params.rps_target = self.params.rps_max;
 
@@ -974,14 +979,15 @@ impl Bench {
     }
 
     pub fn run(&mut self) {
-        let cfg = Cfg::default();
+        let args = self.args_file.data.clone();
+        let mut cfg = Cfg::default();
 
         // Run benchmarks.
 
         //
         // cpu bench
         //
-        if self.args_file.data.bench_cpu {
+        if args.bench_cpu {
             self.fsize_mean = self.bench_cpu(&cfg.cpu);
             self.params.file_size_mean = self.fsize_mean;
             self.params.rps_max = self.bench_cpu_saturation(&cfg.cpu_sat);
@@ -993,8 +999,8 @@ impl Bench {
         //
         // memory bench
         //
-        if self.args_file.data.bench_mem {
-            self.max_size = self.args_file.data.size;
+        if args.bench_mem {
+            self.max_size = args.size;
             self.params.mem_frac = self.bench_memio_saturation_bisect(&cfg.mem_sat);
             let (fsize, asize) = self.mem_sizes(self.params.mem_frac);
             info!(
@@ -1020,14 +1026,23 @@ impl Bench {
                 to_gb(asize)
             );
         } else {
-            self.max_size = self.args_file.data.size;
+            self.max_size = args.size;
             self.params.mem_frac = self.params_file.data.mem_frac;
         }
 
         //
         // io bench
         //
-        if self.args_file.data.log_dir.is_some() && self.args_file.data.bench_io {
+        if args.bench_io {
+            if args.bench_max_wbps > 0 {
+                let max_padding = (args.bench_max_wbps as f64 * cfg.io_max_frac
+                    / self.params.rps_max as f64) as u64;
+                cfg.io_sat.next_up_pos = Box::new(move |_params, pos| match pos {
+                    None => Some(max_padding as f64),
+                    _ => None,
+                });
+            }
+
             self.params.log_padding = self.bench_memio_saturation_bisect(&cfg.io_sat) as u64;
             info!(
                 "[ IO saturation bisect result: log-padding {:.2}k ]",
@@ -1037,8 +1052,8 @@ impl Bench {
             self.params.log_padding = self.bench_memio_saturation_refine(&cfg.io_sat) as u64;
 
             // On some SSDs, performance degrades significantly after sustained
-            // writes. We need to stay well below the measured saturation point
-            // to hold performance stable.
+            // writes. We need to stay well below the measured saturation point to
+            // hold performance stable.
             self.params.log_padding =
                 (self.params.log_padding as f64 * (1.0 - cfg.io_buffer)) as u64;
         } else {

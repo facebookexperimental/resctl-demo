@@ -157,7 +157,11 @@ impl RunnerData {
                     self.state = BenchIOCost;
                 } else if cmd.bench_hashd_seq > bench.hashd_seq {
                     if bench.iocost_seq > 0 {
-                        self.bench_hashd = Some(bench::start_hashd_bench(&*self.cfg, 0)?);
+                        self.bench_hashd = Some(bench::start_hashd_bench(
+                            &*self.cfg,
+                            bench.iocost.model.wbps,
+                            0,
+                        )?);
                         self.state = BenchHashd;
                     } else if !self.warned_bench {
                         warn!("cmd: iocost benchmark must be run before hashd benchmark");
