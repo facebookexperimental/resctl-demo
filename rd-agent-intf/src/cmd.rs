@@ -38,7 +38,7 @@ lazy_static! {
 //  hashd[].lat_target: Latency target, defaults to 0.1 meaning 100ms
 //  hashd[].rps_target_ratio: RPS target as a ratio of bench::hashd.rps_max,
 //                            if >> 1.0, no practical rps limit, default 0.5
-//  hashd[].mem_ratio: Memory footprint adj [0.0, 1.0], set from bench
+//  hashd[].mem_ratio: Memory footprint adj [0.0, 1.0], null to use bench result
 //  hashd[].file_ratio: Pagecache portion of memory [0.0, 1.0], default ${dfl_file_ratio}
 //  hashd[].file_max_ratio: Max file_ratio, requires hashd restart [0.0, 1.0], default ${dfl_file_max_ratio}
 //  hashd[].write_ratio: IO write bandwidth adj [0.0, 1.0], default ${dfl_write_ratio}
@@ -63,7 +63,7 @@ pub struct HashdCmd {
     pub active: bool,
     pub lat_target: f64,
     pub rps_target_ratio: f64,
-    pub mem_ratio: f64,
+    pub mem_ratio: Option<f64>,
     pub file_ratio: f64,
     pub file_max_ratio: f64,
     pub write_ratio: f64,
@@ -80,7 +80,7 @@ impl Default for HashdCmd {
             active: false,
             lat_target: 100.0 * MSEC,
             rps_target_ratio: 0.5,
-            mem_ratio: 0.1,
+            mem_ratio: None,
             file_ratio: rd_hashd_intf::Params::DFL_FILE_FRAC,
             file_max_ratio: rd_hashd_intf::Args::DFL_FILE_MAX_FRAC,
             write_ratio: Self::DFL_WRITE_RATIO,
