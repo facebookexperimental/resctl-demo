@@ -239,7 +239,7 @@ impl RunnerData {
                     US::Running => Ok(()),
                     US::Exited => {
                         info!("cmd: benchmark finished, loading the results");
-                        let cmd = &self.sobjs.cmd_file.data;
+                        let cmd = &mut self.sobjs.cmd_file.data;
                         let bf = &mut self.sobjs.bench_file;
                         if self.state == BenchHashd {
                             bench::update_hashd(&mut bf.data, &self.cfg, cmd.bench_hashd_seq)?;

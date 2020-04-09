@@ -160,7 +160,6 @@ fn exec_cmd(siv: &mut Cursive, cmd: &RdCmd) {
     info!("executing {:?}", cmd);
 
     let mut cs = CMD_STATE.lock().unwrap();
-    let bench = AGENT_FILES.bench();
 
     match cmd {
         RdCmd::On(sw) | RdCmd::Off(sw) => {
@@ -209,8 +208,8 @@ fn exec_cmd(siv: &mut Cursive, cmd: &RdCmd) {
         RdCmd::Knob(knob, val) => match knob {
             RdKnob::HashdALoad => cs.hashd[0].rps_target_ratio = *val,
             RdKnob::HashdBLoad => cs.hashd[1].rps_target_ratio = *val,
-            RdKnob::HashdAMem => cs.hashd[0].mem_ratio = *val,
-            RdKnob::HashdBMem => cs.hashd[1].mem_ratio = *val,
+            RdKnob::HashdAMem => cs.hashd[0].mem_ratio = Some(*val),
+            RdKnob::HashdBMem => cs.hashd[1].mem_ratio = Some(*val),
             RdKnob::HashdAFile => cs.hashd[0].file_ratio = *val,
             RdKnob::HashdBFile => cs.hashd[1].file_ratio = *val,
             RdKnob::HashdAFileMax => cs.hashd[0].file_max_ratio = *val,
@@ -231,12 +230,10 @@ fn exec_cmd(siv: &mut Cursive, cmd: &RdCmd) {
             let reset_hashd_params = |cs: &mut CmdState| {
                 cs.hashd[0] = HashdCmd {
                     active: cs.hashd[0].active,
-                    mem_ratio: bench.hashd.mem_frac,
                     ..Default::default()
                 };
                 cs.hashd[1] = HashdCmd {
                     active: cs.hashd[1].active,
-                    mem_ratio: bench.hashd.mem_frac,
                     ..Default::default()
                 };
             };
@@ -428,11 +425,18 @@ fn refresh_one_knob(siv: &mut Cursive, knob: RdKnob, mut val: f64) {
     });
 }
 
+fn hmem_ratio(knob: Option<f64>) -> f64 {
+    match knob {
+        Some(v) => v,
+        None => AGENT_FILES.bench().hashd.mem_frac,
+    }
+}
+
 fn refresh_knobs(siv: &mut Cursive, cs: &CmdState) {
     refresh_one_knob(siv, RdKnob::HashdALoad, cs.hashd[0].rps_target_ratio);
     refresh_one_knob(siv, RdKnob::HashdBLoad, cs.hashd[1].rps_target_ratio);
-    refresh_one_knob(siv, RdKnob::HashdAMem, cs.hashd[0].mem_ratio);
-    refresh_one_knob(siv, RdKnob::HashdBMem, cs.hashd[1].mem_ratio);
+    refresh_one_knob(siv, RdKnob::HashdAMem, hmem_ratio(cs.hashd[0].mem_ratio));
+    refresh_one_knob(siv, RdKnob::HashdBMem, hmem_ratio(cs.hashd[1].mem_ratio));
     refresh_one_knob(siv, RdKnob::HashdAFile, cs.hashd[0].file_ratio);
     refresh_one_knob(siv, RdKnob::HashdBFile, cs.hashd[1].file_ratio);
     refresh_one_knob(siv, RdKnob::HashdAFileMax, cs.hashd[0].file_max_ratio);
