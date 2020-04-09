@@ -22,6 +22,7 @@ pub struct RunnerData {
     pub cfg: Arc<Config>,
     pub sobjs: SysObjs,
     pub state: RunnerState,
+    warned_bench: bool,
     warned_init: bool,
 
     pub bench_hashd: Option<TransientService>,
@@ -37,6 +38,7 @@ impl RunnerData {
         Self {
             sobjs,
             state: Idle,
+            warned_bench: false,
             warned_init: false,
             bench_hashd: None,
             bench_iocost: None,
@@ -150,18 +152,23 @@ impl RunnerData {
 
         match self.state {
             Idle => {
-                if cmd.bench_hashd_seq > bench.hashd_seq {
-                    self.bench_hashd = Some(bench::start_hashd_bench(&*self.cfg, 0)?);
-                    self.state = BenchHashd;
-                } else if cmd.bench_iocost_seq > bench.iocost_seq {
+                if cmd.bench_iocost_seq > bench.iocost_seq {
                     self.bench_iocost = Some(bench::start_iocost_bench(&*self.cfg)?);
                     self.state = BenchIOCost;
+                } else if cmd.bench_hashd_seq > bench.hashd_seq {
+                    if bench.iocost_seq > 0 {
+                        self.bench_hashd = Some(bench::start_hashd_bench(&*self.cfg, 0)?);
+                        self.state = BenchHashd;
+                    } else if !self.warned_bench {
+                        warn!("cmd: iocost benchmark must be run before hashd benchmark");
+                        self.warned_bench = true;
+                    }
                 } else if bench.hashd_seq > 0 {
                     info!("cmd: Transitioning to Running state");
                     self.state = Running;
                     repeat = true;
                 } else if !self.warned_init {
-                    info!("cmd: hashd benchmark hasn't been run yet, staying idle");
+                    warn!("cmd: hashd benchmark hasn't been run yet, staying idle");
                     self.warned_init = true;
                 }
             }
@@ -209,6 +216,7 @@ impl RunnerData {
             }
         }
         if self.state != Idle {
+            self.warned_bench = false;
             self.warned_init = false;
         }
         Ok(repeat)
