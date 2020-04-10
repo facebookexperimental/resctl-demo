@@ -429,7 +429,7 @@ fn plot_spec_factory(id: PlotId) -> PlotSpec {
             aggr: PlotDataAggr::MAX,
             title: Box::new(|| "lat(p99)".into()),
             min: Box::new(|| 0.0),
-            max: Box::new(|| 150.0),
+            max: Box::new(|| 0.0),
         }
     }
     fn cpu_spec(slice: &'static str) -> PlotSpec {
