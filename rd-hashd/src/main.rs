@@ -111,16 +111,16 @@ impl TestFilesProgressBar {
     }
 }
 
-fn create_logger(args: &Args, params: &Params, quiet: bool) -> Option<Logger> {
+fn create_logger(args: &Args, params: &Params) -> Option<Logger> {
     match args.log_dir.as_ref() {
         Some(log_dir) => {
-            if !quiet {
-                info!(
-                    "Setting up hash logging at {} ({:.2}G)",
-                    &log_dir,
-                    to_gb(args.log_size),
-                );
-            }
+            info!(
+                "Setting up hash logging at {} ({:.2}G @ {:.2}Mbps pad {:.2}k)",
+                &log_dir,
+                to_gb(args.log_size),
+                to_mb(params.log_bps),
+                to_kb(params.log_padding()),
+            );
             match Logger::new(
                 log_dir,
                 params.log_padding(),
@@ -269,7 +269,7 @@ fn main() {
     );
 
     let mut dispatch =
-        hasher::Dispatch::new(args.size, tf, &params, create_logger(args, &params, false));
+        hasher::Dispatch::new(args.size, tf, &params, create_logger(args, &params));
 
     //
     // Monitor and report.

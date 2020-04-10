@@ -3,7 +3,7 @@ use anyhow::{anyhow, Result};
 use chrono::prelude::*;
 use crossbeam::channel::{self, Receiver, Sender};
 use glob::glob;
-use log::{debug, error, warn};
+use log::{debug, error, info, warn};
 use scan_fmt::scan_fmt;
 use std::cmp;
 use std::collections::VecDeque;
@@ -274,7 +274,10 @@ impl Logger {
     }
 
     pub fn set_padding(&self, size: u64) {
-        self.padding.store(size, atomic::Ordering::Relaxed);
+        if self.padding.load(atomic::Ordering::Relaxed) != size {
+            info!("Logger: Updating padding to {:.2}k", size);
+            self.padding.store(size, atomic::Ordering::Relaxed);
+        }
     }
 
     pub fn log(&self, msg: &str) {

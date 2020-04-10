@@ -493,6 +493,8 @@ impl Bench {
         params_file: JsonConfigFile<Params>,
         report_file: JsonReportFile<Report>,
     ) -> Self {
+        let args = &args_file.data;
+
         // Reset parameters which are gonna be discovered through benchmarking
         // and keep user specified values for others.
         let default: Params = Default::default();
@@ -500,9 +502,10 @@ impl Bench {
             file_size_mean: default.file_size_mean,
             rps_max: default.rps_max,
             mem_frac: default.mem_frac,
+            log_bps: args.bench_log_bps,
             ..params_file.data.clone()
         };
-        let verbosity = args_file.data.verbosity;
+        let verbosity = args.verbosity;
 
         Self {
             args_file,
@@ -548,7 +551,7 @@ impl Bench {
             max_size,
             tf,
             params,
-            create_logger(&self.args_file.data, &self.params_file.data, true),
+            create_logger(&self.args_file.data, params),
             HIST_MAX,
             report_file,
         )
@@ -972,12 +975,11 @@ impl Bench {
         }
 
         info!(
-            "Bench results: memory {:.2}G ({:.2}%), hash {:.2}M, rps {}, log-padding {:.2}k",
+            "Bench results: memory {:.2}G ({:.2}%), hash {:.2}M, rps {}",
             to_gb(self.max_size as f64 * self.params.mem_frac),
             self.params.mem_frac * TO_PCT,
             to_mb(self.fsize_mean),
             self.params.rps_max,
-            to_kb(self.params.log_padding()),
         );
 
         // Save results.
