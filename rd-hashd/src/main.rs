@@ -262,7 +262,7 @@ fn main() {
     info!(
         "Starting hasher (maxcon={} lat={:.1}ms rps={} file={:.2}G anon={:.2}G)",
         params.concurrency_max,
-        params.p99_lat_target * TO_MSEC,
+        params.lat_target * TO_MSEC,
         params.rps_target,
         to_gb(fsize),
         to_gb(asize)

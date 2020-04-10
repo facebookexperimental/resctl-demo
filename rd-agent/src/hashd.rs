@@ -81,8 +81,8 @@ impl Hashd {
         let mut params = rd_hashd_intf::Params::load(&self.params_path)?;
         let mut changed = false;
 
-        if params.p99_lat_target != cmd.lat_target {
-            params.p99_lat_target = cmd.lat_target;
+        if params.lat_target != cmd.lat_target {
+            params.lat_target = cmd.lat_target;
             changed = true;
         }
         if params.rps_max != self.rps_max {

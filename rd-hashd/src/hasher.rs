@@ -518,11 +518,13 @@ impl DispatchThread {
         }
 
         self.lat.p01 = p01.unwrap().1;
+        self.lat.p05 = self.ckms.query(0.05).unwrap().1;
         self.lat.p10 = self.ckms.query(0.10).unwrap().1;
         self.lat.p16 = self.ckms.query(0.16).unwrap().1;
         self.lat.p50 = self.ckms.query(0.50).unwrap().1;
         self.lat.p84 = self.ckms.query(0.84).unwrap().1;
         self.lat.p90 = self.ckms.query(0.90).unwrap().1;
+        self.lat.p95 = self.ckms.query(0.95).unwrap().1;
         self.lat.p99 = self.ckms.query(0.99).unwrap().1;
         self.rps = (self.nr_done - self.last_nr_done) as f64 / dur.as_secs_f64();
 
@@ -537,7 +539,7 @@ impl DispatchThread {
     fn update_control(&mut self) {
         let out = self
             .lat_pid
-            .next_control_output(self.lat.p99 / self.params.p99_lat_target);
+            .next_control_output(self.lat.p99 / self.params.lat_target);
         let adj = out.output;
 
         // Negative adjustment means latency is in charge. concurrency_max might
@@ -569,7 +571,7 @@ impl DispatchThread {
         // After sudden latency spikes, the integral term can keep rps
         // at minimum for an extended period of time.  Reset integral
         // term if latency is lower than target.
-        if out.i.is_sign_negative() && (self.lat.p99 <= self.params.p99_lat_target) {
+        if out.i.is_sign_negative() && (self.lat.p99 <= self.params.lat_target) {
             self.lat_pid.reset_integral_term();
         }
 
@@ -580,11 +582,12 @@ impl DispatchThread {
         self.anon_addr_frac = (anon_base + (1.0 - anon_base) * (self.rps / rps_max)).min(1.0);
 
         debug!(
-            "p50={:.1} p84={:.1} p90={:.1} p99={:.1} rps={:.1} con={:.1}/{:.1} \
+            "p50={:.1} p84={:.1} p90={:.1} p95={:.1} p99={:.1} rps={:.1} con={:.1}/{:.1} \
              ffrac={:.2} afrac-{:.2}",
             self.lat.p50 * TO_MSEC,
             self.lat.p84 * TO_MSEC,
             self.lat.p90 * TO_MSEC,
+            self.lat.p95 * TO_MSEC,
             self.lat.p99 * TO_MSEC,
             self.rps,
             self.concurrency,

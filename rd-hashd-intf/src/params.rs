@@ -26,7 +26,7 @@ const PARAMS_DOC: &str = "\
 // similar but may be greater than 1.0.
 //
 // The concurrency level is modulated using two PID controllers to target the
-// specified p99 latency and RPS so that neither is exceeded. The total number
+// specified latency and RPS so that neither is exceeded. The total number
 // of concurrent threads is limited by `concurrency_max`.
 //
 // The total size of testfiles is set up during startup and can't be changed
@@ -46,7 +46,7 @@ const PARAMS_DOC: &str = "\
 //
 //  control_period: PID control period, best left alone
 //  concurrency_max: Maximum number of worker threads
-//  p99_lat_target: 99th percentile latency target
+//  lat_target: Latency target
 //  rps_target: Request-per-second target
 //  rps_max: Reference maximum RPS, used to scale the amount of used memory
 //  mem_frac: Memory footprint scaling factor - [0.0, 1.0]
@@ -74,7 +74,7 @@ const PARAMS_DOC: &str = "\
 pub struct Params {
     pub control_period: f64,
     pub concurrency_max: u32,
-    pub p99_lat_target: f64,
+    pub lat_target: f64,
     pub rps_target: u32,
     pub rps_max: u32,
     pub mem_frac: f64,
@@ -113,7 +113,7 @@ impl Default for Params {
         Self {
             control_period: 1.0,
             concurrency_max: 65536,
-            p99_lat_target: 100.0 * MSEC,
+            lat_target: 100.0 * MSEC,
             rps_target: 65536,
             rps_max: 0,
             mem_frac: 0.80,

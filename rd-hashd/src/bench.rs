@@ -627,7 +627,7 @@ impl Bench {
         let mut nr_rounds = 0;
         let tf = self.prep_tf(cfg.size, "cpu saturation bench");
         params.rps_target = u32::MAX;
-        params.p99_lat_target = cfg.lat;
+        params.lat_target = cfg.lat;
 
         let th = self.create_test_hasher(cfg.size, tf, &params, self.report_file.clone());
         let mut last_rps = 1.0;
@@ -746,7 +746,7 @@ impl Bench {
     fn bench_memio_saturation_bisect(&mut self, cfg: &MemIoSatCfg) -> f64 {
         let mut params: Params = self.params.clone();
         let tf = self.prep_tf(self.max_size, &format!("{} saturation bench", cfg.name));
-        params.p99_lat_target = cfg.lat;
+        params.lat_target = cfg.lat;
         params.rps_target = self.params.rps_max;
 
         let th = self.create_test_hasher(self.max_size, tf, &params, self.report_file.clone());
@@ -877,7 +877,7 @@ impl Bench {
             self.max_size,
             &format!("{} saturation bench - refine-rounds", cfg.name),
         );
-        params.p99_lat_target = cfg.lat;
+        params.lat_target = cfg.lat;
         params.rps_target = self.params.rps_max;
 
         let th = self.create_test_hasher(self.max_size, tf, &params, self.report_file.clone());
