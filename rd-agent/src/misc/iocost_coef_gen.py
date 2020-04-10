@@ -296,8 +296,8 @@ if args.json:
             'rlat': rlat,
             'wpct': wpct,
             'wlat': wlat,
-            'min': 75,
-            'max': 125,
+            'min': 50,
+            'max': 150,
         },
     }
 
@@ -310,4 +310,4 @@ print(f'io.cost.model: {devnr} rbps={rbps} rseqiops={rseqiops} '
       f'rrandiops={rrandiops} wbps={wbps} wseqiops={wseqiops} '
       f'wrandiops={wrandiops}')
 print(f'io.cost.qos: {devnr} rpct={rpct} rlat={rlat} '
-      f'wpct={wpct} wlat={wlat} min=75 max=125')
+      f'wpct={wpct} wlat={wlat} min=50 max=150')

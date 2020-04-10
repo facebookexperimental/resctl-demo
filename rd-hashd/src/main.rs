@@ -123,7 +123,7 @@ fn create_logger(args: &Args, params: &Params, quiet: bool) -> Option<Logger> {
             }
             match Logger::new(
                 log_dir,
-                params.log_padding,
+                params.log_padding(),
                 LOGFILE_UNIT_SIZE,
                 args.log_size,
                 (params.rps_max as f64 * LOGGER_HOLD_SEC) as usize,
@@ -261,7 +261,7 @@ fn main() {
     let asize = size - fsize;
     info!(
         "Starting hasher (maxcon={} lat={:.1}ms rps={} file={:.2}G anon={:.2}G)",
-        params.max_concurrency,
+        params.concurrency_max,
         params.p99_lat_target * TO_MSEC,
         params.rps_target,
         to_gb(fsize),

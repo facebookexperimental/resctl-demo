@@ -71,7 +71,7 @@ pub struct HashdCmd {
 }
 
 impl HashdCmd {
-    pub const DFL_WRITE_RATIO: f64 = 0.1;
+    pub const DFL_WRITE_RATIO: f64 = 0.05;
 }
 
 impl Default for HashdCmd {

@@ -66,7 +66,7 @@ impl Hashd {
     ) -> Result<()> {
         self.rps_max = ((knobs.rps_max as f64 * frac).round() as u32).max(1);
         let rps_target = ((self.rps_max as f64 * cmd.rps_target_ratio).round() as u32).max(1);
-        let log_padding = ((max_wbps as f64 * cmd.write_ratio) as u64) / knobs.rps_max as u64;
+        let log_bps = (max_wbps as f64 * cmd.write_ratio).round() as u64;
 
         let bench_size = (knobs.actual_mem_size() as f64).max(1.0);
         let sys_size = *TOTAL_MEMORY as f64 - mem_low as f64;
@@ -101,14 +101,14 @@ impl Hashd {
             params.file_frac = cmd.file_ratio;
             changed = true;
         }
-        if params.log_padding != log_padding {
-            params.log_padding = log_padding;
+        if params.log_bps != log_bps {
+            params.log_bps = log_bps;
             changed = true;
         }
 
         if changed {
             info!(
-                "hashd: Updating {:?} to lat={:.2}ms rps={:.2} mem={:.2}% log={:.2}k frac={:.2}",
+                "hashd: Updating {:?} to lat={:.2}ms rps={:.2} mem={:.2}% log={:.2}Mbps frac={:.2}",
                 AsRef::<Path>::as_ref(&self.params_path)
                     .parent()
                     .unwrap()
@@ -117,7 +117,7 @@ impl Hashd {
                 cmd.lat_target * TO_MSEC,
                 rps_target,
                 mem_ratio * TO_PCT,
-                to_kb(log_padding),
+                to_mb(log_bps),
                 frac
             );
             params.save(&self.params_path)?;
