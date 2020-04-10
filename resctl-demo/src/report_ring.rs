@@ -6,7 +6,6 @@ use std::collections::VecDeque;
 use std::fmt::Display;
 use std::io;
 use std::iter::Iterator;
-use std::ops::{AddAssign, DivAssign};
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use util::*;
@@ -22,14 +21,11 @@ lazy_static! {
 
 pub trait ReportDataType<T>
 where
-    for<'d> Self: 'static + Sized + Clone + Default + Display + AddAssign<&'d T> + DivAssign<f64>,
+    for<'d> Self: 'static + Sized + Clone + Default + Display,
 {
 }
 
-impl<T> ReportDataType<T> for T where
-    for<'d> T: 'static + Sized + Clone + Default + Display + AddAssign<&'d T> + DivAssign<f64>
-{
-}
+impl<T> ReportDataType<T> for T where for<'d> T: 'static + Sized + Clone + Default + Display {}
 
 struct ReportRecord {
     at: u64,
@@ -171,10 +167,9 @@ struct ReportDataTip<T: ReportDataType<T>> {
 }
 
 impl<T: ReportDataType<T>> ReportDataTip<T> {
-    fn consume(&mut self, step: u64) -> Option<T> {
+    fn consume(&mut self, step: u64) -> Option<(T, usize)> {
         let v = if self.nr_samples > 0 {
-            self.data /= self.nr_samples as f64;
-            Some(self.data.clone())
+            Some((self.data.clone(), self.nr_samples))
         } else {
             None
         };
@@ -185,8 +180,14 @@ impl<T: ReportDataType<T>> ReportDataTip<T> {
     }
 }
 
+pub type ReportDataSelCb<T> = Box<dyn Fn(&Report) -> T>;
+pub type ReportDataAccCb<T> = Box<dyn Fn(&mut T, &T)>;
+pub type ReportDataAggrCb<T> = Box<dyn Fn(&mut T, usize)>;
+
 struct ReportData<T: ReportDataType<T>> {
-    sel: Box<dyn Fn(&Report) -> T>,
+    sel: ReportDataSelCb<T>,
+    acc: ReportDataAccCb<T>,
+    aggr: ReportDataAggrCb<T>,
     next_src_at: u64,
     tip: ReportDataTip<T>,
     data_ring: VecDeque<Option<T>>,
@@ -197,9 +198,11 @@ struct ReportData<T: ReportDataType<T>> {
 }
 
 impl<T: ReportDataType<T>> ReportData<T> {
-    fn new(sel: Box<dyn Fn(&Report) -> T>) -> Self {
+    fn new(sel: ReportDataSelCb<T>, acc: ReportDataAccCb<T>, aggr: ReportDataAggrCb<T>) -> Self {
         Self {
             sel,
+            acc,
+            aggr,
             next_src_at: 0,
             tip: Default::default(),
             data_ring: VecDeque::new(),
@@ -264,12 +267,26 @@ impl<T: ReportDataType<T>> ReportData<T> {
                 self.tip.at = at;
             }
             while self.tip.at < at {
-                self.data_ring.push_back(self.tip.consume(self.step));
+                let v = match self.tip.consume(self.step) {
+                    Some((mut data, nr_samples)) => {
+                        (self.aggr)(&mut data, nr_samples);
+                        Some(data)
+                    }
+                    None => None,
+                };
+                self.data_ring.push_back(v);
             }
-            self.tip.data += &(self.sel)(&rec.rep);
+            (self.acc)(&mut self.tip.data, &(self.sel)(&rec.rep));
             self.tip.nr_samples += 1;
             if (rec.at % self.step) == (stride - 1) * self.src_cadence {
-                self.data_ring.push_back(self.tip.consume(self.step));
+                let v = match self.tip.consume(self.step) {
+                    Some((mut data, nr_samples)) => {
+                        (self.aggr)(&mut data, nr_samples);
+                        Some(data)
+                    }
+                    None => None,
+                };
+                self.data_ring.push_back(v);
             }
         }
 
@@ -320,14 +337,30 @@ pub struct ReportDataSet<T: ReportDataType<T>> {
 }
 
 impl<T: ReportDataType<T>> ReportDataSet<T> {
-    pub fn new(sel: Box<dyn Fn(&Report) -> T>) -> Self {
+    pub fn new(
+        sel: ReportDataSelCb<T>,
+        acc: ReportDataAccCb<T>,
+        aggr: ReportDataAggrCb<T>,
+    ) -> Self {
         let sel = Rc::new(sel);
+        let acc = Rc::new(acc);
+        let aggr = Rc::new(aggr);
         let sel_clone = sel.clone();
+        let acc_clone = acc.clone();
+        let aggr_clone = aggr.clone();
 
         Self {
             src_set: REPORT_RING_SET.clone(),
-            sec_data: ReportData::<T>::new(Box::new(move |rep| sel(rep))),
-            min_data: ReportData::<T>::new(Box::new(move |rep| sel_clone(rep))),
+            sec_data: ReportData::<T>::new(
+                Box::new(move |rep| sel(rep)),
+                Box::new(move |dacc, data| acc(dacc, data)),
+                Box::new(move |dacc, nr| aggr(dacc, nr)),
+            ),
+            min_data: ReportData::<T>::new(
+                Box::new(move |rep| sel_clone(rep)),
+                Box::new(move |dacc, data| acc_clone(dacc, data)),
+                Box::new(move |dacc, nr| aggr_clone(dacc, nr)),
+            ),
         }
     }
 

@@ -266,7 +266,7 @@ run_fio(testfile, args.duration, 'randread', args.rand_depth, 4096,
 with open(outfile_path('rlat'), 'r') as f:
     r = json.load(f)
     rlat = read_lat(rpct, r['jobs'][0]['read']['clat_ns']['percentile'])
-    rlat = round(rlat * 2)
+    rlat = round(rlat * 4)
 info(f'\nrpct={rpct} rlat={rlat}, Determining wlat...')
 
 run_fio(testfile, args.duration, 'randwrite', args.rand_depth, 4096,
