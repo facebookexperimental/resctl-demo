@@ -118,8 +118,7 @@ lazy_static! {
                  --bench                 'Benchmark and record results in args and params file'
                  --bench-cpu             'Benchmark cpu'
                  --bench-mem             'Benchmark memory'
-                 --bench-io              'Benchmark IO'
-                 --bench-max-wbps=[BPS]  'Max write bps of IO device, bisected if not specified'
+                 --bench-log-wbps=[BPS]  'Log write bps'
              -a, --args=[FILE]           'Load base command line arguments from FILE'
              -v...                       'Sets the level of verbosity'",
             dfl_size=to_gb(dfl.size),
@@ -151,7 +150,7 @@ pub struct Args {
     pub interval: u32,
     pub rotational: Option<bool>,
     pub keep_caches: bool,
-    pub bench_max_wbps: u64,
+    pub bench_log_wbps: u64,
 
     #[serde(skip)]
     pub clear_testfiles: bool,
@@ -163,8 +162,6 @@ pub struct Args {
     pub bench_cpu: bool,
     #[serde(skip)]
     pub bench_mem: bool,
-    #[serde(skip)]
-    pub bench_io: bool,
     #[serde(skip)]
     pub verbosity: u32,
 }
@@ -193,12 +190,11 @@ impl Default for Args {
             rotational: None,
             clear_testfiles: false,
             keep_caches: false,
-            bench_max_wbps: 0,
+            bench_log_wbps: 0,
             prepare_testfiles: true,
             prepare_and_exit: false,
             bench_cpu: false,
             bench_mem: false,
-            bench_io: false,
             verbosity: 0,
         }
     }
@@ -309,12 +305,12 @@ impl JsonArgs for Args {
             updated_base = true;
         }
 
-        let bench_max_wbps = match matches.value_of("bench-max-wbps") {
+        let bench_log_wbps = match matches.value_of("bench-log-wbps") {
             Some(v) => v.parse::<u64>().unwrap(),
             None => 0,
         };
-        if self.bench_max_wbps != bench_max_wbps {
-            self.bench_max_wbps = bench_max_wbps;
+        if self.bench_log_wbps != bench_log_wbps {
+            self.bench_log_wbps = bench_log_wbps;
             updated_base = true;
         }
 
@@ -330,15 +326,13 @@ impl JsonArgs for Args {
         if !self.prepare_and_exit {
             self.bench_cpu = matches.is_present("bench-cpu");
             self.bench_mem = matches.is_present("bench-mem");
-            self.bench_io = matches.is_present("bench-io");
 
             if matches.is_present("bench") {
                 self.bench_cpu = true;
                 self.bench_mem = true;
-                self.bench_io = true;
             }
 
-            if self.bench_cpu || self.bench_mem || self.bench_io {
+            if self.bench_cpu || self.bench_mem {
                 self.prepare_testfiles = false;
             }
         }
