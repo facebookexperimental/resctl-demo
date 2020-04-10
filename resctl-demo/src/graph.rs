@@ -50,8 +50,15 @@ pub fn graph_intv_prev() {
     }
 }
 
+#[derive(Clone, Copy, PartialEq)]
+pub enum PlotDataAggr {
+    AVG,
+    MAX,
+}
+
 pub struct PlotSpec {
     pub sel: Box<dyn 'static + Send + Fn(&Report) -> f64>,
+    pub aggr: PlotDataAggr,
     pub title: Box<dyn 'static + Send + Fn() -> String>,
     pub min: Box<dyn 'static + Send + Fn() -> f64>,
     pub max: Box<dyn 'static + Send + Fn() -> f64>,
@@ -153,22 +160,6 @@ fn plot_graph(
 #[derive(Clone, Default, Debug)]
 struct GraphData(f64, f64, f64);
 
-impl std::ops::AddAssign<&GraphData> for GraphData {
-    fn add_assign(&mut self, rhs: &GraphData) {
-        self.0 += rhs.0;
-        self.1 += rhs.1;
-        self.2 += rhs.2;
-    }
-}
-
-impl std::ops::DivAssign<f64> for GraphData {
-    fn div_assign(&mut self, rhs: f64) {
-        self.0 /= rhs;
-        self.1 /= rhs;
-        self.2 /= rhs;
-    }
-}
-
 impl fmt::Display for GraphData {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{} {} {}", self.0, self.1, self.2)
@@ -184,15 +175,31 @@ pub struct UpdateWorker {
 
 impl UpdateWorker {
     fn new(cb_sink: cursive::CbSink, name: String, mut specs_input: Vec<PlotSpec>) -> Self {
-        let mut fns = Vec::new();
+        assert!(specs_input.len() > 0 && specs_input.len() < 4);
+
+        let dummy_sel = |_: &Report| 0.0;
+        let mut fns: Vec<Box<dyn Fn(&Report) -> f64>> = vec![
+            Box::new(dummy_sel),
+            Box::new(dummy_sel),
+            Box::new(dummy_sel),
+        ];
+        let mut aggrs = vec![PlotDataAggr::AVG, PlotDataAggr::AVG, PlotDataAggr::AVG];
         let mut specs = Vec::new();
+
+        let mut idx = specs_input.len() - 1;
         while let Some(spec) = specs_input.pop() {
-            let (sel, title, min, max) = (spec.sel, spec.title, spec.min, spec.max);
-            fns.insert(0, sel);
+            let (sel, aggr, title, min, max) =
+                (spec.sel, spec.aggr, spec.title, spec.min, spec.max);
+
+            fns[idx] = sel;
+            aggrs[idx] = aggr;
+            idx -= 1;
+
             specs.insert(
                 0,
                 PlotSpec {
-                    sel: Box::new(|_| 0.0),
+                    sel: Box::new(dummy_sel),
+                    aggr,
                     title,
                     min,
                     max,
@@ -200,18 +207,46 @@ impl UpdateWorker {
             );
         }
 
-        let sel_fn: Box<dyn Fn(&Report) -> GraphData> = match fns.len() {
-            1 => Box::new(move |rep: &Report| GraphData(fns[0](rep), 0.0, 0.0)),
-            2 => Box::new(move |rep: &Report| GraphData(fns[0](rep), fns[1](rep), 0.0)),
-            3 => Box::new(move |rep: &Report| GraphData(fns[0](rep), fns[1](rep), fns[2](rep))),
-            _ => panic!("???"),
+        let sel_fn = move |rep: &Report| GraphData(fns[0](rep), fns[1](rep), fns[2](rep));
+
+        let aggrs_clone = aggrs.clone();
+        let acc_fn = move |dacc: &mut GraphData, data: &GraphData| {
+            match aggrs[0] {
+                PlotDataAggr::AVG => dacc.0 += data.0,
+                PlotDataAggr::MAX => dacc.0 = dacc.0.max(data.0),
+            }
+            match aggrs[1] {
+                PlotDataAggr::AVG => dacc.1 += data.1,
+                PlotDataAggr::MAX => dacc.1 = dacc.1.max(data.1),
+            }
+            match aggrs[2] {
+                PlotDataAggr::AVG => dacc.2 += data.2,
+                PlotDataAggr::MAX => dacc.2 = dacc.2.max(data.2),
+            }
+        };
+
+        let aggrs = aggrs_clone;
+        let aggr_fn = move |dacc: &mut GraphData, nr_samples: usize| {
+            if aggrs[0] == PlotDataAggr::AVG {
+                dacc.0 /= nr_samples as f64;
+            }
+            if aggrs[1] == PlotDataAggr::AVG {
+                dacc.1 /= nr_samples as f64;
+            }
+            if aggrs[2] == PlotDataAggr::AVG {
+                dacc.2 /= nr_samples as f64;
+            }
         };
 
         Self {
             cb_sink,
             name,
             specs,
-            data: ReportDataSet::<GraphData>::new(sel_fn),
+            data: ReportDataSet::<GraphData>::new(
+                Box::new(sel_fn),
+                Box::new(acc_fn),
+                Box::new(aggr_fn),
+            ),
         }
     }
 
@@ -382,6 +417,7 @@ fn plot_spec_factory(id: PlotId) -> PlotSpec {
     fn rps_spec(idx: usize) -> PlotSpec {
         PlotSpec {
             sel: Box::new(move |rep: &Report| rep.hashd[idx].rps),
+            aggr: PlotDataAggr::AVG,
             title: Box::new(|| "rps".into()),
             min: Box::new(|| 0.0),
             max: Box::new(|| AGENT_FILES.bench().hashd.rps_max as f64 * 1.1),
@@ -390,6 +426,7 @@ fn plot_spec_factory(id: PlotId) -> PlotSpec {
     fn lat_spec(idx: usize) -> PlotSpec {
         PlotSpec {
             sel: Box::new(move |rep: &Report| rep.hashd[idx].lat_p99 * 1000.0),
+            aggr: PlotDataAggr::MAX,
             title: Box::new(|| "lat(p99)".into()),
             min: Box::new(|| 0.0),
             max: Box::new(|| 150.0),
@@ -398,6 +435,7 @@ fn plot_spec_factory(id: PlotId) -> PlotSpec {
     fn cpu_spec(slice: &'static str) -> PlotSpec {
         PlotSpec {
             sel: Box::new(move |rep: &Report| rep.usages.get(slice).unwrap().cpu_usage * 100.0),
+            aggr: PlotDataAggr::AVG,
             title: Box::new(move || format!("{}-cpu", slice.trim_end_matches(".slice"))),
             min: Box::new(|| 0.0),
             max: Box::new(|| 100.0),
@@ -408,6 +446,7 @@ fn plot_spec_factory(id: PlotId) -> PlotSpec {
             sel: Box::new(move |rep: &Report| {
                 rep.usages.get(slice).unwrap().mem_bytes as f64 / (1 << 30) as f64
             }),
+            aggr: PlotDataAggr::AVG,
             title: Box::new(move || format!("{}-mem", slice.trim_end_matches(".slice"))),
             min: Box::new(|| 0.0),
             max: Box::new(|| 0.0),
@@ -418,6 +457,7 @@ fn plot_spec_factory(id: PlotId) -> PlotSpec {
             sel: Box::new(move |rep: &Report| {
                 rep.usages.get(slice).unwrap().swap_bytes as f64 / (1 << 30) as f64
             }),
+            aggr: PlotDataAggr::AVG,
             title: Box::new(move || format!("{}-swap", slice.trim_end_matches(".slice"))),
             min: Box::new(|| 0.0),
             max: Box::new(|| 0.0),
@@ -428,6 +468,7 @@ fn plot_spec_factory(id: PlotId) -> PlotSpec {
             sel: Box::new(move |rep: &Report| {
                 rep.usages.get(slice).unwrap().io_rbps as f64 / (1024.0 * 1024.0)
             }),
+            aggr: PlotDataAggr::AVG,
             title: Box::new(move || format!("{}-read-Mbps", slice.trim_end_matches(".slice"))),
             min: Box::new(|| 0.0),
             max: Box::new(|| 0.0),
@@ -438,6 +479,7 @@ fn plot_spec_factory(id: PlotId) -> PlotSpec {
             sel: Box::new(move |rep: &Report| {
                 rep.usages.get(slice).unwrap().io_wbps as f64 / (1024.0 * 1024.0)
             }),
+            aggr: PlotDataAggr::AVG,
             title: Box::new(move || format!("{}-write-Mbps", slice.trim_end_matches(".slice"))),
             min: Box::new(|| 0.0),
             max: Box::new(|| 0.0),
@@ -446,6 +488,7 @@ fn plot_spec_factory(id: PlotId) -> PlotSpec {
     fn cpu_psi_spec(slice: &'static str) -> PlotSpec {
         PlotSpec {
             sel: Box::new(move |rep: &Report| rep.usages.get(slice).unwrap().cpu_pressure * 100.0),
+            aggr: PlotDataAggr::AVG,
             title: Box::new(move || format!("{}-cpu-pressure", slice.trim_end_matches(".slice"))),
             min: Box::new(|| 0.0),
             max: Box::new(|| 100.0),
@@ -454,6 +497,7 @@ fn plot_spec_factory(id: PlotId) -> PlotSpec {
     fn mem_psi_spec(slice: &'static str) -> PlotSpec {
         PlotSpec {
             sel: Box::new(move |rep: &Report| rep.usages.get(slice).unwrap().mem_pressure * 100.0),
+            aggr: PlotDataAggr::AVG,
             title: Box::new(move || format!("{}-mem-pressure", slice.trim_end_matches(".slice"))),
             min: Box::new(|| 0.0),
             max: Box::new(|| 100.0),
@@ -462,6 +506,7 @@ fn plot_spec_factory(id: PlotId) -> PlotSpec {
     fn io_psi_spec(slice: &'static str) -> PlotSpec {
         PlotSpec {
             sel: Box::new(move |rep: &Report| rep.usages.get(slice).unwrap().io_pressure * 100.0),
+            aggr: PlotDataAggr::AVG,
             title: Box::new(move || format!("{}-io-pressure", slice.trim_end_matches(".slice"))),
             min: Box::new(|| 0.0),
             max: Box::new(|| 100.0),
@@ -470,6 +515,7 @@ fn plot_spec_factory(id: PlotId) -> PlotSpec {
     fn io_lat_spec(iotype: &'static str, pct: &'static str) -> PlotSpec {
         PlotSpec {
             sel: Box::new(move |rep: &Report| rep.iolat.map[iotype][pct] * 1000.0),
+            aggr: PlotDataAggr::MAX,
             title: Box::new(move || format!("{}-lat-p{}", iotype, pct)),
             min: Box::new(|| 0.0),
             max: Box::new(|| 0.0),
@@ -513,12 +559,14 @@ fn plot_spec_factory(id: PlotId) -> PlotSpec {
         PlotId::WriteLatP99 => io_lat_spec("write", "99"),
         PlotId::IoCostVrate => PlotSpec {
             sel: Box::new(move |rep: &Report| rep.iocost.vrate * 100.0),
+            aggr: PlotDataAggr::AVG,
             title: Box::new(move || "vrate%".into()),
             min: Box::new(|| 0.0),
             max: Box::new(|| 0.0),
         },
         PlotId::IoCostBusy => PlotSpec {
             sel: Box::new(move |rep: &Report| rep.iocost.busy),
+            aggr: PlotDataAggr::AVG,
             title: Box::new(move || "busy-level".into()),
             min: Box::new(|| -1.0),
             max: Box::new(|| -1.0),
@@ -586,15 +634,15 @@ static ALL_GRAPHS: &[(&str, &str, &[PlotId])] = &[
     (
         "read-lat",
         "IO read latencies (msecs)",
-        &[PlotId::ReadLatP99, PlotId::ReadLatP90, PlotId::ReadLatP50],
+        &[PlotId::ReadLatP50, PlotId::ReadLatP90, PlotId::ReadLatP99],
     ),
     (
         "write-lat",
         "IO write latencies (msecs)",
         &[
-            PlotId::WriteLatP99,
-            PlotId::WriteLatP90,
             PlotId::WriteLatP50,
+            PlotId::WriteLatP90,
+            PlotId::WriteLatP99,
         ],
     ),
     (

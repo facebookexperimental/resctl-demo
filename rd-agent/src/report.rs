@@ -69,14 +69,6 @@ fn read_some_stall(path: &str) -> Result<f64> {
     }
 }
 
-fn read_full_stall(path: &str) -> Result<f64> {
-    let (_some, full) = read_stalls(path)?;
-    match full {
-        Some(v) => Ok(v),
-        None => bail!("failed to read {:?} full stall", path),
-    }
-}
-
 fn read_system_usage(devnr: (u32, u32)) -> Result<(Usage, f64)> {
     let kstat = procfs::KernelStats::new()?;
     let cpu = &kstat.total;
@@ -113,8 +105,8 @@ fn read_system_usage(devnr: (u32, u32)) -> Result<(Usage, f64)> {
             io_rbytes,
             io_wbytes,
             cpu_stall: read_some_stall("/proc/pressure/cpu")?,
-            mem_stall: read_full_stall("/proc/pressure/memory")?,
-            io_stall: read_full_stall("/proc/pressure/io")?,
+            mem_stall: read_some_stall("/proc/pressure/memory")?,
+            io_stall: read_some_stall("/proc/pressure/io")?,
         },
         cpu_total,
     ))
