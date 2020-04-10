@@ -61,12 +61,12 @@ impl Hashd {
         knobs: &HashdKnobs,
         cmd: &HashdCmd,
         mem_low: u64,
+        max_wbps: u64,
         frac: f64,
     ) -> Result<()> {
         self.rps_max = ((knobs.rps_max as f64 * frac).round() as u32).max(1);
         let rps_target = ((self.rps_max as f64 * cmd.rps_target_ratio).round() as u32).max(1);
-        let log_padding =
-            (knobs.log_padding as f64 * cmd.write_ratio / HashdCmd::DFL_WRITE_RATIO) as u64;
+        let log_padding = ((max_wbps as f64 * cmd.write_ratio) as u64) / knobs.rps_max as u64;
 
         let bench_size = (knobs.actual_mem_size() as f64).max(1.0);
         let sys_size = *TOTAL_MEMORY as f64 - mem_low as f64;
@@ -227,7 +227,13 @@ impl HashdSet {
         }
     }
 
-    pub fn apply(&mut self, cmd: &[HashdCmd; 2], knobs: &HashdKnobs, mem_low: u64) -> Result<()> {
+    pub fn apply(
+        &mut self,
+        cmd: &[HashdCmd; 2],
+        knobs: &HashdKnobs,
+        mem_low: u64,
+        max_wbps: u64,
+    ) -> Result<()> {
         let fracs = Self::weights_to_fracs(cmd);
         debug!("hashd: fracs={:?}", &fracs);
 
@@ -253,7 +259,7 @@ impl HashdSet {
         // adjust the params files
         for i in 0..2 {
             if fracs[i] != 0.0 {
-                self.hashd[i].update_params(knobs, &cmd[i], mem_low, fracs[i])?;
+                self.hashd[i].update_params(knobs, &cmd[i], mem_low, max_wbps, fracs[i])?;
             }
         }
 

@@ -77,12 +77,9 @@ struct MemIoSatCfg {
 
 struct Cfg {
     mem_buffer: f64,
-    io_buffer: f64,
-    io_max_frac: f64,
     cpu: CpuCfg,
     cpu_sat: CpuSatCfg,
     mem_sat: MemIoSatCfg,
-    io_sat: MemIoSatCfg,
 }
 
 const MEMIO_UP_CVG_CFG: ConvergeCfg = ConvergeCfg {
@@ -122,8 +119,6 @@ impl Default for Cfg {
     fn default() -> Self {
         Self {
             mem_buffer: 0.125,
-            io_buffer: 0.50,
-            io_max_frac: 0.50,
             cpu: CpuCfg {
                 size: 1 << 30,
                 lat: 10.0 * MSEC,
@@ -190,42 +185,6 @@ impl Default for Cfg {
                 lat: 100.0 * MSEC,
                 term_err_good: 0.1,
                 term_err_bad: 0.5,
-                bisect_err: 0.25,
-                refine_err: 0.1,
-
-                up_converge: MEMIO_UP_CVG_CFG,
-                bisect_converge: MEMIO_BISECT_CVG_CFG,
-                refine_converge: MEMIO_REFINE_CVG_CFG,
-            },
-            io_sat: MemIoSatCfg {
-                name: "IO".into(),
-                pos_prefix: "padding".into(),
-                fmt_pos: Box::new(|_bench, pos| format!("{:.2}k", to_kb(pos))),
-
-                set_pos: Box::new(|params, pos| params.log_padding = pos as u64),
-
-                next_up_pos: Box::new(|_params, pos| match pos {
-                    None => Some(64.0),
-                    Some(v) => Some(v * 8.0),
-                }),
-
-                bisect_done: Box::new(|_params, left, right| {
-                    right <= 64.0 || right - left < 0.1 * right
-                }),
-
-                next_refine_pos: Box::new(|params, pos| {
-                    let step = 0.1 * params.log_padding as f64;
-                    let min = 0.0;
-                    match pos {
-                        None => Some(params.log_padding as f64 - step),
-                        Some(v) if v >= min + step => Some(v - step),
-                        _ => None,
-                    }
-                }),
-
-                lat: 100.0 * MSEC,
-                term_err_good: 0.05,
-                term_err_bad: 0.50,
                 bisect_err: 0.25,
                 refine_err: 0.1,
 
@@ -587,6 +546,7 @@ impl Bench {
         let mut tfbar = TestFilesProgressBar::new(size, self.bar_hidden);
         let mut report_file = self.report_file.lock().unwrap();
 
+        report_file.data.hasher.rps = 0.0;
         tf.setup(|pos| {
             tfbar.progress(pos);
             report_file.data.testfiles_progress = pos as f64 / size as f64;
@@ -980,7 +940,7 @@ impl Bench {
 
     pub fn run(&mut self) {
         let args = self.args_file.data.clone();
-        let mut cfg = Cfg::default();
+        let cfg = Cfg::default();
 
         // Run benchmarks.
 
@@ -995,6 +955,14 @@ impl Bench {
             self.params.file_size_mean = self.params_file.data.file_size_mean;
             self.params.rps_max = self.params_file.data.rps_max;
         }
+
+        // Apply the log write bandwidth.
+        self.params.log_padding = (args.bench_log_wbps as f64 / self.params.rps_max as f64) as u64;
+        info!(
+            "[ Log padding: {:.2}K ({:.2}Mbps) ]",
+            self.params.log_padding,
+            to_mb(args.bench_log_wbps)
+        );
 
         //
         // memory bench
@@ -1028,36 +996,6 @@ impl Bench {
         } else {
             self.max_size = args.size;
             self.params.mem_frac = self.params_file.data.mem_frac;
-        }
-
-        //
-        // io bench
-        //
-        if args.bench_io {
-            if args.bench_max_wbps > 0 {
-                let max_padding = (args.bench_max_wbps as f64 * cfg.io_max_frac
-                    / self.params.rps_max as f64) as u64;
-                cfg.io_sat.next_up_pos = Box::new(move |_params, pos| match pos {
-                    None => Some(max_padding as f64),
-                    _ => None,
-                });
-            }
-
-            self.params.log_padding = self.bench_memio_saturation_bisect(&cfg.io_sat) as u64;
-            info!(
-                "[ IO saturation bisect result: log-padding {:.2}k ]",
-                to_kb(self.params.log_padding)
-            );
-
-            self.params.log_padding = self.bench_memio_saturation_refine(&cfg.io_sat) as u64;
-
-            // On some SSDs, performance degrades significantly after sustained
-            // writes. We need to stay well below the measured saturation point to
-            // hold performance stable.
-            self.params.log_padding =
-                (self.params.log_padding as f64 * (1.0 - cfg.io_buffer)) as u64;
-        } else {
-            self.params.log_padding = self.params_file.data.log_padding;
         }
 
         info!(
