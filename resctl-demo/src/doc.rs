@@ -329,7 +329,7 @@ fn format_knob_val(knob: &RdKnob, ratio: f64) -> String {
     let v = match knob {
         RdKnob::HashdAMem | RdKnob::HashdBMem => format_size(ratio * bench.hashd.mem_size as f64),
         RdKnob::HashdAWrite | RdKnob::HashdBWrite => {
-            format_size(ratio * bench.hashd.log_padding as f64 / HashdCmd::DFL_WRITE_RATIO)
+            format_size(ratio * bench.iocost.model.wbps as f64)
         }
         RdKnob::MemMargin => format_size(ratio * *TOTAL_MEMORY as f64),
         _ => format_pct(ratio) + "%",

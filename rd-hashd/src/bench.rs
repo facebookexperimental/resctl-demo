@@ -493,33 +493,14 @@ impl Bench {
         params_file: JsonConfigFile<Params>,
         report_file: JsonReportFile<Report>,
     ) -> Self {
-        // Accommodate user params where it makes sense but use
-        // default for others.  Explicitly initialize each field to
-        // avoid missing fields accidentally.
+        // Reset parameters which are gonna be discovered through benchmarking
+        // and keep user specified values for others.
         let default: Params = Default::default();
-        let uparams = &params_file.data;
         let p = Params {
-            control_period: default.control_period,
-            max_concurrency: default.max_concurrency,
-            p99_lat_target: default.p99_lat_target,
-            rps_target: default.rps_target,
+            file_size_mean: default.file_size_mean,
             rps_max: default.rps_max,
             mem_frac: default.mem_frac,
-            file_frac: uparams.file_frac,
-            file_size_mean: default.file_size_mean,
-            file_size_stdev_ratio: uparams.file_size_stdev_ratio,
-            file_addr_stdev_ratio: uparams.file_addr_stdev_ratio,
-            file_addr_rps_base_frac: uparams.file_addr_rps_base_frac,
-            anon_size_ratio: uparams.anon_size_ratio,
-            anon_size_stdev_ratio: uparams.anon_size_stdev_ratio,
-            anon_addr_stdev_ratio: uparams.anon_addr_stdev_ratio,
-            anon_addr_rps_base_frac: uparams.anon_addr_rps_base_frac,
-            sleep_mean: uparams.sleep_mean,
-            sleep_stdev_ratio: uparams.sleep_stdev_ratio,
-            cpu_ratio: default.cpu_ratio,
-            log_padding: default.log_padding,
-            lat_pid: uparams.lat_pid.clone(),
-            rps_pid: uparams.rps_pid.clone(),
+            ..params_file.data.clone()
         };
         let verbosity = args_file.data.verbosity;
 
@@ -589,7 +570,7 @@ impl Bench {
         let mut nr_rounds = 0;
         let max_size = cfg.size.max(TIME_HASH_SIZE as u64);
         let tf = self.prep_tf(max_size, "single cpu bench");
-        params.max_concurrency = 1;
+        params.concurrency_max = 1;
         params.file_size_stdev_ratio = 0.0;
         params.anon_size_stdev_ratio = 0.0;
         params.sleep_mean = 0.0;
@@ -956,14 +937,6 @@ impl Bench {
             self.params.rps_max = self.params_file.data.rps_max;
         }
 
-        // Apply the log write bandwidth.
-        self.params.log_padding = (args.bench_log_wbps as f64 / self.params.rps_max as f64) as u64;
-        info!(
-            "[ Log padding: {:.2}K ({:.2}Mbps) ]",
-            self.params.log_padding,
-            to_mb(args.bench_log_wbps)
-        );
-
         //
         // memory bench
         //
@@ -1004,7 +977,7 @@ impl Bench {
             self.params.mem_frac * TO_PCT,
             to_mb(self.fsize_mean),
             self.params.rps_max,
-            to_kb(self.params.log_padding),
+            to_kb(self.params.log_padding()),
         );
 
         // Save results.

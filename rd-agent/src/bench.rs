@@ -18,9 +18,9 @@ use super::{hashd, Config, HashdSel};
 pub const IOCOST_QOS_PATH: &str = "/sys/fs/cgroup/io.cost.qos";
 const IOCOST_MODEL_PATH: &str = "/sys/fs/cgroup/io.cost.model";
 
-pub fn start_hashd_bench(cfg: &Config, wbps: u64, mem_high: u64) -> Result<TransientService> {
+pub fn start_hashd_bench(cfg: &Config, log_bps: u64, mem_high: u64) -> Result<TransientService> {
     let mut args = hashd::hashd_path_args(&cfg, HashdSel::A);
-    args.push(format!("--bench-log-wbps={}", wbps));
+    args.push(format!("--bench-log-bps={}", log_bps));
     args.push("--bench".into());
     debug!("args: {:#?}", &args);
 
@@ -72,7 +72,6 @@ pub fn update_hashd(knobs: &mut BenchKnobs, cfg: &Config, hashd_seq: u64) -> Res
     knobs.hashd.rps_max = params.rps_max as u32;
     knobs.hashd.mem_size = args.size;
     knobs.hashd.mem_frac = params.mem_frac;
-    knobs.hashd.log_padding = params.log_padding;
 
     knobs.hashd_seq = hashd_seq;
     knobs.timestamp = DateTime::from(SystemTime::now());

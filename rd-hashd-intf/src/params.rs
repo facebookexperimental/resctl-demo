@@ -27,7 +27,7 @@ const PARAMS_DOC: &str = "\
 //
 // The concurrency level is modulated using two PID controllers to target the
 // specified p99 latency and RPS so that neither is exceeded. The total number
-// of concurrent threads is limited by `max_concurrency`.
+// of concurrent threads is limited by `concurrency_max`.
 //
 // The total size of testfiles is set up during startup and can't be changed
 // online. However, the portion which is actively used by rd-hashd can be
@@ -45,7 +45,7 @@ const PARAMS_DOC: &str = "\
 // their CPU consumption can be scaled up and down using `cpu_ratio`.
 //
 //  control_period: PID control period, best left alone
-//  max_concurrency: Maximum number of worker threads
+//  concurrency_max: Maximum number of worker threads
 //  p99_lat_target: 99th percentile latency target
 //  rps_target: Request-per-second target
 //  rps_max: Reference maximum RPS, used to scale the amount of used memory
@@ -62,7 +62,7 @@ const PARAMS_DOC: &str = "\
 //  sleep_mean: Worker sleep duration average
 //  sleep_stdev_ratio: Standard deviation of sleep duration distribution
 //  cpu_ratio: CPU usage scaling - 1.0 hashes all file accesses
-//  log_padding: Pad each log entry to this size, used to scale IO write load
+//  log_bps: Log write bps at rps_max
 //  lat_pid: PID controller parameters for latency convergence
 //  rps_pid: PID controller parameters for RPS convergence
 //
@@ -73,7 +73,7 @@ const PARAMS_DOC: &str = "\
 #[serde(default)]
 pub struct Params {
     pub control_period: f64,
-    pub max_concurrency: u32,
+    pub concurrency_max: u32,
     pub p99_lat_target: f64,
     pub rps_target: u32,
     pub rps_max: u32,
@@ -90,7 +90,7 @@ pub struct Params {
     pub sleep_mean: f64,
     pub sleep_stdev_ratio: f64,
     pub cpu_ratio: f64,
-    pub log_padding: u64,
+    pub log_bps: u64,
     pub lat_pid: PidParams,
     pub rps_pid: PidParams,
 }
@@ -98,13 +98,21 @@ pub struct Params {
 impl Params {
     pub const DFL_STDEV: f64 = 0.333333; /* 3 sigma == mean */
     pub const DFL_FILE_FRAC: f64 = 0.25;
+
+    pub fn log_padding(&self) -> u64 {
+        if self.rps_max > 0 {
+            (self.log_bps as f64 / self.rps_max as f64).round() as u64
+        } else {
+            0
+        }
+    }
 }
 
 impl Default for Params {
     fn default() -> Self {
         Self {
             control_period: 1.0,
-            max_concurrency: 65536,
+            concurrency_max: 65536,
             p99_lat_target: 100.0 * MSEC,
             rps_target: 65536,
             rps_max: 0,
@@ -121,7 +129,7 @@ impl Default for Params {
             sleep_mean: 30.0 * MSEC,
             sleep_stdev_ratio: Self::DFL_STDEV,
             cpu_ratio: 1.0,
-            log_padding: 0,
+            log_bps: 0,
             lat_pid: PidParams {
                 kp: 0.1,
                 ki: 0.01,

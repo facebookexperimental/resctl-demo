@@ -118,7 +118,7 @@ lazy_static! {
                  --bench                 'Benchmark and record results in args and params file'
                  --bench-cpu             'Benchmark cpu'
                  --bench-mem             'Benchmark memory'
-                 --bench-log-wbps=[BPS]  'Log write bps'
+                 --bench-log-bps=[BPS]   'Log write bps at max rps'
              -a, --args=[FILE]           'Load base command line arguments from FILE'
              -v...                       'Sets the level of verbosity'",
             dfl_size=to_gb(dfl.size),
@@ -150,7 +150,7 @@ pub struct Args {
     pub interval: u32,
     pub rotational: Option<bool>,
     pub keep_caches: bool,
-    pub bench_log_wbps: u64,
+    pub bench_log_bps: u64,
 
     #[serde(skip)]
     pub clear_testfiles: bool,
@@ -190,7 +190,7 @@ impl Default for Args {
             rotational: None,
             clear_testfiles: false,
             keep_caches: false,
-            bench_log_wbps: 0,
+            bench_log_bps: 0,
             prepare_testfiles: true,
             prepare_and_exit: false,
             bench_cpu: false,
@@ -305,12 +305,12 @@ impl JsonArgs for Args {
             updated_base = true;
         }
 
-        let bench_log_wbps = match matches.value_of("bench-log-wbps") {
+        let bench_log_bps = match matches.value_of("bench-log-bps") {
             Some(v) => v.parse::<u64>().unwrap(),
             None => 0,
         };
-        if self.bench_log_wbps != bench_log_wbps {
-            self.bench_log_wbps = bench_log_wbps;
+        if self.bench_log_bps != bench_log_bps {
+            self.bench_log_bps = bench_log_bps;
             updated_base = true;
         }
 

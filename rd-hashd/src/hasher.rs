@@ -217,7 +217,7 @@ struct DispatchThread {
 
     // Runtime parameters.
     lat: Latencies,
-    max_concurrency: f64,
+    concurrency_max: f64,
     concurrency: f64,
     nr_in_flight: u32,
     nr_done: u64,
@@ -353,7 +353,7 @@ impl DispatchThread {
             rps_pid,
 
             lat: Latencies::default(),
-            max_concurrency: params.max_concurrency as f64,
+            concurrency_max: params.concurrency_max as f64,
             concurrency: (*NR_CPUS as f64 / 2.0).max(1.0),
             nr_in_flight: 0,
             nr_done: 0,
@@ -394,7 +394,7 @@ impl DispatchThread {
         }
 
         if let Some(logger) = self.logger.as_mut() {
-            logger.set_padding(params.log_padding);
+            logger.set_padding(params.log_padding());
         }
 
         self.params_at = Instant::now();
@@ -540,15 +540,15 @@ impl DispatchThread {
             .next_control_output(self.lat.p99 / self.params.p99_lat_target);
         let adj = out.output;
 
-        // Negative adjustment means latency is in charge. max_concurrency might
+        // Negative adjustment means latency is in charge. concurrency_max might
         // have diverged upwards in the meantime. Jump down to the current
         // concurrency level immediately.
         if adj < 0.0 {
-            self.max_concurrency = f64::min(self.max_concurrency, self.concurrency);
+            self.concurrency_max = f64::min(self.concurrency_max, self.concurrency);
         }
-        self.max_concurrency = (self.max_concurrency * (1.0 + adj))
+        self.concurrency_max = (self.concurrency_max * (1.0 + adj))
             .max(1.0)
-            .min(self.params.max_concurrency as f64);
+            .min(self.params.concurrency_max as f64);
 
         let adj = self
             .rps_pid
@@ -556,11 +556,11 @@ impl DispatchThread {
             .output;
         self.concurrency = (self.concurrency * (1.0 + adj)).max(1.0);
 
-        // If concurrency is being limited by max_concurrency, latency
+        // If concurrency is being limited by concurrency_max, latency
         // is in control; otherwise rps.  Reset the other's integral
         // term to prevent incorrect accumulations.
-        if self.concurrency >= self.max_concurrency {
-            self.concurrency = self.max_concurrency;
+        if self.concurrency >= self.concurrency_max {
+            self.concurrency = self.concurrency_max;
             self.rps_pid.reset_integral_term();
         } else {
             self.lat_pid.reset_integral_term();
@@ -588,7 +588,7 @@ impl DispatchThread {
             self.lat.p99 * TO_MSEC,
             self.rps,
             self.concurrency,
-            self.max_concurrency,
+            self.concurrency_max,
             self.file_addr_frac,
             self.anon_addr_frac,
         );
