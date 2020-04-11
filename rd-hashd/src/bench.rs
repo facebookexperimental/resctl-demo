@@ -9,7 +9,7 @@ use std::thread::{sleep, spawn, JoinHandle};
 use std::time::{Duration, Instant};
 use std::u32;
 
-use rd_hashd_intf::{Params, Report};
+use rd_hashd_intf::{params::PidParams, Params, Report};
 use util::*;
 
 use super::hasher;
@@ -41,9 +41,7 @@ struct CpuCfg {
     size: u64,
     lat: f64,
     err: f64,
-    kp: f64,
-    ki: f64,
-    kd: f64,
+    fsz_pid: PidParams,
     rounds: u32,
     converge: ConvergeCfg,
 }
@@ -82,50 +80,19 @@ struct Cfg {
     mem_sat: MemIoSatCfg,
 }
 
-const MEMIO_UP_CVG_CFG: ConvergeCfg = ConvergeCfg {
-    which: Rps,
-    converges: 5,
-    period: 15,
-    min_dur: 30,
-    max_dur: 90,
-    slope: 0.01,
-    err_slope: 0.025,
-    rot_mult: 4.0,
-};
-
-const MEMIO_BISECT_CVG_CFG: ConvergeCfg = ConvergeCfg {
-    which: Rps,
-    converges: 5,
-    period: 15,
-    min_dur: 30,
-    max_dur: 90,
-    slope: 0.01,
-    err_slope: 0.025,
-    rot_mult: 2.0,
-};
-
-const MEMIO_REFINE_CVG_CFG: ConvergeCfg = ConvergeCfg {
-    which: Rps,
-    converges: 5,
-    period: 15,
-    min_dur: 120,
-    max_dur: 240,
-    slope: 0.01,
-    err_slope: 0.025,
-    rot_mult: 2.0,
-};
-
 impl Default for Cfg {
     fn default() -> Self {
         Self {
-            mem_buffer: 0.125,
+            mem_buffer: 0.1,
             cpu: CpuCfg {
                 size: 1 << 30,
                 lat: 10.0 * MSEC,
                 err: 0.1,
-                kp: 0.25,
-                ki: 0.01,
-                kd: 0.01,
+                fsz_pid: PidParams {
+                    kp: 0.25,
+                    ki: 0.01,
+                    kd: 0.01,
+                },
                 rounds: 10,
                 converge: ConvergeCfg {
                     which: Lat,
@@ -183,14 +150,41 @@ impl Default for Cfg {
                 }),
 
                 lat: 100.0 * MSEC,
-                term_err_good: 0.1,
+                term_err_good: 0.05,
                 term_err_bad: 0.5,
-                bisect_err: 0.25,
-                refine_err: 0.1,
+                bisect_err: 0.1,
+                refine_err: 0.05,
 
-                up_converge: MEMIO_UP_CVG_CFG,
-                bisect_converge: MEMIO_BISECT_CVG_CFG,
-                refine_converge: MEMIO_REFINE_CVG_CFG,
+                up_converge: ConvergeCfg {
+                    which: Rps,
+                    converges: 5,
+                    period: 15,
+                    min_dur: 30,
+                    max_dur: 90,
+                    slope: 0.01,
+                    err_slope: 0.025,
+                    rot_mult: 4.0,
+                },
+                bisect_converge: ConvergeCfg {
+                    which: Rps,
+                    converges: 5,
+                    period: 15,
+                    min_dur: 30,
+                    max_dur: 90,
+                    slope: 0.01,
+                    err_slope: 0.025,
+                    rot_mult: 2.0,
+                },
+                refine_converge: ConvergeCfg {
+                    which: Rps,
+                    converges: 5,
+                    period: 15,
+                    min_dur: 120,
+                    max_dur: 240,
+                    slope: 0.01,
+                    err_slope: 0.025,
+                    rot_mult: 2.0,
+                },
             },
         }
     }
@@ -224,7 +218,7 @@ impl TestHasher {
 
                     *stat = dh.disp.get_stat();
                     if stat.rps > 0.0 {
-                        dh.hist.push_front([stat.lat.p99, stat.rps]);
+                        dh.hist.push_front([stat.lat.ctl, stat.rps]);
                         dh.hist.truncate(hist_max);
                     }
 
@@ -584,7 +578,15 @@ impl Bench {
         params.file_size_mean = (cfg.lat / base_time * TIME_HASH_SIZE as f64) as usize;
 
         let th = self.create_test_hasher(max_size, tf, &params, self.report_file.clone());
-        let mut pid = Pid::new(cfg.kp, cfg.ki, cfg.kd, 1.0, 1.0, 1.0, 1.0);
+        let mut pid = Pid::new(
+            cfg.fsz_pid.kp,
+            cfg.fsz_pid.ki,
+            cfg.fsz_pid.kd,
+            1.0,
+            1.0,
+            1.0,
+            1.0,
+        );
 
         while nr_rounds < cfg.rounds {
             nr_rounds += 1;
@@ -681,7 +683,7 @@ impl Bench {
     ) -> (f64, f64) {
         let rps_max = self.params.rps_max;
         let mut should_end = |now, streak, (lat, rps)| {
-            if now < cvg_cfg.period / 2 {
+            if now < cvg_cfg.period {
                 None
             } else if streak > 0 && rps > rps_max as f64 * (1.0 - cfg.term_err_good) {
                 info!("RPS high enough, using the current values");

@@ -41,6 +41,8 @@ pub fn start_iocost_bench(cfg: &Config) -> Result<TransientService> {
         paths.result.clone(),
         "--testfile-dev".into(),
         cfg.scr_dev.clone(),
+        "--duration".into(),
+        "60".into(),
     ];
     debug!("args: {:#?}", &args);
 

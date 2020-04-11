@@ -39,7 +39,8 @@ const REPORT_DOC: &str = "\
 //  hashd[].svc.state: rd-hashd systemd service state
 //  hashd[].load: Current rps / rps_max
 //  hashd[].rps: Current rps
-//  hashd[].lat_p99: Current p99 latency
+//  hashd[].lat_pct: Current control percentile
+//  hashd[].lat: Current control percentile latency
 //  sysloads{}.svc.name: Sysload systemd service name
 //  sysloads{}.svc.state: Sysload systemd service state
 //  sideloads{}.svc.name: Sideload systemd service name
@@ -108,14 +109,16 @@ pub struct HashdReport {
     pub svc: SvcReport,
     pub load: f64,
     pub rps: f64,
-    pub lat_p99: f64,
+    pub lat_pct: f64,
+    pub lat: rd_hashd_intf::Latencies,
 }
 
 impl ops::AddAssign<&HashdReport> for HashdReport {
     fn add_assign(&mut self, rhs: &HashdReport) {
         self.load += rhs.load;
         self.rps += rhs.rps;
-        self.lat_p99 += rhs.lat_p99;
+        self.lat_pct += rhs.lat_pct;
+        self.lat += &rhs.lat;
     }
 }
 
@@ -124,7 +127,8 @@ impl<T: Into<f64>> ops::DivAssign<T> for HashdReport {
         let div = rhs.into();
         self.load /= div;
         self.rps /= div;
-        self.lat_p99 /= div;
+        self.lat_pct /= div;
+        self.lat /= div;
     }
 }
 

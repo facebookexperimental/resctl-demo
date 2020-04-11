@@ -425,9 +425,9 @@ fn plot_spec_factory(id: PlotId) -> PlotSpec {
     }
     fn lat_spec(idx: usize) -> PlotSpec {
         PlotSpec {
-            sel: Box::new(move |rep: &Report| rep.hashd[idx].lat_p99 * 1000.0),
+            sel: Box::new(move |rep: &Report| rep.hashd[idx].lat.ctl * 1000.0),
             aggr: PlotDataAggr::MAX,
-            title: Box::new(|| "lat(p99)".into()),
+            title: Box::new(|| "lat".into()),
             min: Box::new(|| 0.0),
             max: Box::new(|| 0.0),
         }
@@ -583,12 +583,12 @@ pub enum GraphSetId {
 static ALL_GRAPHS: &[(&str, &str, &[PlotId])] = &[
     (
         "hashd-A",
-        "Workload RPS / P99 Latency - 'ESC': exit graph view, 't/T': change timescale",
+        "Workload RPS / Latency - 'ESC': exit graph view, 't/T': change timescale",
         &[PlotId::HashdARps, PlotId::HashdALat],
     ),
     (
         "hashd-B",
-        "Workload-B RPS / P99 Latency",
+        "Workload-B RPS / Latency",
         &[PlotId::HashdBRps, PlotId::HashdBLat],
     ),
     (
@@ -713,7 +713,7 @@ pub fn layout_factory(id: GraphSetId) -> Box<dyn View> {
     match id {
         GraphSetId::Default => Box::new(
             Panel::new(TextView::new("").with_name(&name))
-                .title("Workload RPS / P99 Latency - 'g': more graphs, 't/T': change timescale")
+                .title("Workload RPS / Latency - 'g': more graphs, 't/T': change timescale")
                 .resized(
                     SizeConstraint::Fixed(layout.graph.x),
                     SizeConstraint::Fixed(layout.graph.y),

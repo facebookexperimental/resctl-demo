@@ -373,7 +373,7 @@ impl ReportFile {
             self.hashd_acc[i] /= self.nr_samples;
             report.hashd[i] = HashdReport {
                 svc: report.hashd[i].svc.clone(),
-                ..self.hashd_acc[i]
+                ..self.hashd_acc[i].clone()
             };
         }
         self.hashd_acc = Default::default();

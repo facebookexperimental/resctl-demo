@@ -526,25 +526,25 @@ impl DispatchThread {
         self.lat.p90 = self.ckms.query(0.90).unwrap().1;
         self.lat.p95 = self.ckms.query(0.95).unwrap().1;
         self.lat.p99 = self.ckms.query(0.99).unwrap().1;
+        self.lat.ctl = self.ckms.query(self.params.lat_target_pct).unwrap().1;
         self.rps = (self.nr_done - self.last_nr_done) as f64 / dur.as_secs_f64();
 
         self.reset_lat_rps(now);
         true
     }
 
-    /// Two pid controllers work in conjunction to determine the
-    /// concurrency level. The latency one caps the max concurrency to
-    /// keep p99 latency within the target. The rps one tries to
-    /// converge on the target rps.
+    /// Two pid controllers work in conjunction to determine the concurrency
+    /// level. The latency one caps the max concurrency to keep latency within
+    /// the target. The rps one tries to converge on the target rps.
     fn update_control(&mut self) {
         let out = self
             .lat_pid
-            .next_control_output(self.lat.p99 / self.params.lat_target);
+            .next_control_output(self.lat.ctl / self.params.lat_target);
         let adj = out.output;
 
-        // Negative adjustment means latency is in charge. concurrency_max might
-        // have diverged upwards in the meantime. Jump down to the current
-        // concurrency level immediately.
+        // Negative adjustment means latency is in charge. concurrency_max
+        // might have diverged upwards in the meantime. Jump down to the
+        // current concurrency level immediately.
         if adj < 0.0 {
             self.concurrency_max = f64::min(self.concurrency_max, self.concurrency);
         }
@@ -558,9 +558,9 @@ impl DispatchThread {
             .output;
         self.concurrency = (self.concurrency * (1.0 + adj)).max(1.0);
 
-        // If concurrency is being limited by concurrency_max, latency
-        // is in control; otherwise rps.  Reset the other's integral
-        // term to prevent incorrect accumulations.
+        // If concurrency is being limited by concurrency_max, latency is in
+        // control; otherwise rps. Reset the other's integral term to prevent
+        // incorrect accumulations.
         if self.concurrency >= self.concurrency_max {
             self.concurrency = self.concurrency_max;
             self.rps_pid.reset_integral_term();
@@ -568,10 +568,10 @@ impl DispatchThread {
             self.lat_pid.reset_integral_term();
         }
 
-        // After sudden latency spikes, the integral term can keep rps
-        // at minimum for an extended period of time.  Reset integral
-        // term if latency is lower than target.
-        if out.i.is_sign_negative() && (self.lat.p99 <= self.params.lat_target) {
+        // After sudden latency spikes, the integral term can keep rps at
+        // minimum for an extended period of time. Reset integral term if
+        // latency is lower than target.
+        if out.i.is_sign_negative() && (self.lat.ctl <= self.params.lat_target) {
             self.lat_pid.reset_integral_term();
         }
 
@@ -582,13 +582,14 @@ impl DispatchThread {
         self.anon_addr_frac = (anon_base + (1.0 - anon_base) * (self.rps / rps_max)).min(1.0);
 
         debug!(
-            "p50={:.1} p84={:.1} p90={:.1} p95={:.1} p99={:.1} rps={:.1} con={:.1}/{:.1} \
+            "p50={:.1} p84={:.1} p90={:.1} p95={:.1} p99={:.1} ctl={:.1} rps={:.1} con={:.1}/{:.1} \
              ffrac={:.2} afrac-{:.2}",
             self.lat.p50 * TO_MSEC,
             self.lat.p84 * TO_MSEC,
             self.lat.p90 * TO_MSEC,
             self.lat.p95 * TO_MSEC,
             self.lat.p99 * TO_MSEC,
+            self.lat.ctl * TO_MSEC,
             self.rps,
             self.concurrency,
             self.concurrency_max,

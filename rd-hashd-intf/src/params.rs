@@ -46,6 +46,7 @@ const PARAMS_DOC: &str = "\
 //
 //  control_period: PID control period, best left alone
 //  concurrency_max: Maximum number of worker threads
+//  lat_target_pct: Latency target percentile
 //  lat_target: Latency target
 //  rps_target: Request-per-second target
 //  rps_max: Reference maximum RPS, used to scale the amount of used memory
@@ -74,6 +75,7 @@ const PARAMS_DOC: &str = "\
 pub struct Params {
     pub control_period: f64,
     pub concurrency_max: u32,
+    pub lat_target_pct: f64,
     pub lat_target: f64,
     pub rps_target: u32,
     pub rps_max: u32,
@@ -96,6 +98,7 @@ pub struct Params {
 }
 
 impl Params {
+    pub const DFL_LAT_TARGET_PCT: f64 = 0.9;
     pub const DFL_STDEV: f64 = 0.333333; /* 3 sigma == mean */
     pub const DFL_FILE_FRAC: f64 = 0.25;
 
@@ -113,6 +116,7 @@ impl Default for Params {
         Self {
             control_period: 1.0,
             concurrency_max: 65536,
+            lat_target_pct: Self::DFL_LAT_TARGET_PCT,
             lat_target: 100.0 * MSEC,
             rps_target: 65536,
             rps_max: 0,

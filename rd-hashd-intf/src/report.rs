@@ -17,6 +17,7 @@ pub struct Latencies {
     pub p90: f64,
     pub p95: f64,
     pub p99: f64,
+    pub ctl: f64,
 }
 
 impl ops::AddAssign<&Latencies> for Latencies {
@@ -30,6 +31,7 @@ impl ops::AddAssign<&Latencies> for Latencies {
         self.p90 += rhs.p90;
         self.p95 += rhs.p95;
         self.p99 += rhs.p99;
+        self.ctl += rhs.ctl;
     }
 }
 
@@ -45,6 +47,7 @@ impl<T: Into<f64>> ops::DivAssign<T> for Latencies {
         self.p90 /= div;
         self.p95 /= div;
         self.p99 /= div;
+        self.ctl /= div;
     }
 }
 
@@ -57,6 +60,7 @@ const STAT_DOC: &str = "\
 //  nr_workers: Number of worker threads
 //  nr_idle_workers: Number of idle workers
 //  lat.p*: Latency percentiles
+//  lat.ctl: Latency percentile used for rps control (params.lat_target_pct)
 ";
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]

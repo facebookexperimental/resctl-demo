@@ -241,7 +241,7 @@ impl UpdateWorker {
                 line.append_plain(format!(
                     "load:{:>5}%  lat:{:4.0}ms  cpu:{:>5}%  mem:{:>6}  io:{:>6}",
                     format_pct(rep.load),
-                    rep.lat_p99 * 1000.0,
+                    rep.lat.ctl * 1000.0,
                     &format_pct(usage.cpu_usage),
                     &format_size(usage.mem_bytes),
                     &format_size(usage.io_rbps + usage.io_wbps),
