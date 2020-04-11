@@ -277,6 +277,8 @@ with open(outfile_path('wlat'), 'r') as f:
     wlat = round(max(wlat, rlat * 4))
 info(f'\nwpct={wpct} wlat={wlat}')
 
+(qos_vmin, qos_vmax) = (25, 100)
+
 restore_elevator_nomerges()
 atexit.unregister(restore_elevator_nomerges)
 
@@ -296,8 +298,8 @@ if args.json:
             'rlat': rlat,
             'wpct': wpct,
             'wlat': wlat,
-            'min': 50,
-            'max': 150,
+            'min': qos_vmin,
+            'max': qos_vmax,
         },
     }
 
@@ -310,4 +312,4 @@ print(f'io.cost.model: {devnr} rbps={rbps} rseqiops={rseqiops} '
       f'rrandiops={rrandiops} wbps={wbps} wseqiops={wseqiops} '
       f'wrandiops={wrandiops}')
 print(f'io.cost.qos: {devnr} rpct={rpct} rlat={rlat} '
-      f'wpct={wpct} wlat={wlat} min=50 max=150')
+      f'wpct={wpct} wlat={wlat} min={qos_vmin} max={qos_vmax}')

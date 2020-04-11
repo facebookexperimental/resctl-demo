@@ -83,7 +83,7 @@ struct Cfg {
 impl Default for Cfg {
     fn default() -> Self {
         Self {
-            mem_buffer: 0.05,
+            mem_buffer: 0.2,
             cpu: CpuCfg {
                 size: 1 << 30,
                 lat: 10.0 * MSEC,
@@ -132,12 +132,12 @@ impl Default for Cfg {
                 set_pos: Box::new(|params, pos| params.mem_frac = pos),
 
                 next_up_pos: Box::new(|_params, pos| match pos {
-                    None => Some(0.1),
-                    Some(v) if v < 0.91 => Some((v + 0.1).min(1.0)),
+                    None => Some(0.2),
+                    Some(v) if v < 0.99 => Some((v + 0.2).min(1.0)),
                     _ => None,
                 }),
 
-                bisect_done: Box::new(|_params, left, right| right - left < 0.025),
+                bisect_done: Box::new(|_params, left, right| right - left < 0.05),
 
                 next_refine_pos: Box::new(|params, pos| {
                     let step = 0.025;
@@ -152,8 +152,8 @@ impl Default for Cfg {
                 lat: 100.0 * MSEC,
                 term_err_good: 0.05,
                 term_err_bad: 0.5,
-                bisect_err: 0.1,
-                refine_err: 0.05,
+                bisect_err: 0.25,
+                refine_err: 0.1,
 
                 up_converge: ConvergeCfg {
                     which: Rps,
