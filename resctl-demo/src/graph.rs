@@ -29,7 +29,7 @@ use rd_agent_intf::Report;
 
 const GRAPH_X_ADJ: usize = 20;
 const GRAPH_INTVS: &[u64] = &[1, 5, 15, 30, 60];
-const GRAPH_NR_TABS: usize = 3;
+const GRAPH_NR_TABS: usize = 4;
 
 lazy_static! {
     static ref GRAPH_INTV_IDX: Mutex<usize> = Mutex::new(0);
@@ -417,15 +417,18 @@ enum PlotId {
     WorkMem,
     SideMem,
     SysMem,
+    WorkIo,
+    SideIo,
+    SysIo,
+    WorkRead,
+    SideRead,
+    SysRead,
+    WorkWrite,
+    SideWrite,
+    SysWrite,
     WorkSwap,
     SideSwap,
     SysSwap,
-    WorkRBps,
-    SideRBps,
-    SysRBps,
-    WorkWBps,
-    SideWBps,
-    SysWBps,
     WorkCpuPsi,
     WorkMemPsi,
     WorkIoPsi,
@@ -491,6 +494,18 @@ fn plot_spec_factory(id: PlotId) -> PlotSpec {
             }),
             aggr: PlotDataAggr::AVG,
             title: Box::new(move || format!("{}-swap", slice.trim_end_matches(".slice"))),
+            min: Box::new(|| 0.0),
+            max: Box::new(|| 0.0),
+        }
+    }
+    fn io_spec(slice: &'static str) -> PlotSpec {
+        PlotSpec {
+            sel: Box::new(move |rep: &Report| {
+                let usages = rep.usages.get(slice).unwrap();
+                (usages.io_rbps + usages.io_wbps) as f64 / (1024.0 * 1024.0)
+            }),
+            aggr: PlotDataAggr::AVG,
+            title: Box::new(move || format!("{}-Mbps", slice.trim_end_matches(".slice"))),
             min: Box::new(|| 0.0),
             max: Box::new(|| 0.0),
         }
@@ -565,15 +580,18 @@ fn plot_spec_factory(id: PlotId) -> PlotSpec {
         PlotId::WorkMem => mem_spec("workload.slice"),
         PlotId::SideMem => mem_spec("sideload.slice"),
         PlotId::SysMem => mem_spec("system.slice"),
+        PlotId::WorkIo => io_spec("workload.slice"),
+        PlotId::SideIo => io_spec("sideload.slice"),
+        PlotId::SysIo => io_spec("system.slice"),
         PlotId::WorkSwap => swap_spec("workload.slice"),
         PlotId::SideSwap => swap_spec("sideload.slice"),
         PlotId::SysSwap => swap_spec("system.slice"),
-        PlotId::WorkRBps => io_read_spec("workload.slice"),
-        PlotId::SideRBps => io_read_spec("sideload.slice"),
-        PlotId::SysRBps => io_read_spec("system.slice"),
-        PlotId::WorkWBps => io_write_spec("workload.slice"),
-        PlotId::SideWBps => io_write_spec("sideload.slice"),
-        PlotId::SysWBps => io_write_spec("system.slice"),
+        PlotId::WorkRead => io_read_spec("workload.slice"),
+        PlotId::SideRead => io_read_spec("sideload.slice"),
+        PlotId::SysRead => io_read_spec("system.slice"),
+        PlotId::WorkWrite => io_write_spec("workload.slice"),
+        PlotId::SideWrite => io_write_spec("sideload.slice"),
+        PlotId::SysWrite => io_write_spec("system.slice"),
         PlotId::WorkCpuPsi => cpu_psi_spec("workload.slice"),
         PlotId::WorkMemPsi => mem_psi_spec("workload.slice"),
         PlotId::WorkIoPsi => io_psi_spec("workload.slice"),
@@ -612,9 +630,10 @@ pub enum GraphTag {
     HashdB,
     CpuUtil,
     MemUtil,
-    SwapUtil,
+    IoUtil,
     ReadBps,
     WriteBps,
+    SwapUtil,
     MemPsi,
     IoPsi,
     CpuPsi,
@@ -645,19 +664,24 @@ static ALL_GRAPHS: &[(GraphTag, &str, &[PlotId])] = &[
         &[PlotId::WorkMem, PlotId::SideMem, PlotId::SysMem],
     ),
     (
-        GraphTag::SwapUtil,
-        "Swap util (GB) in top-level slices",
-        &[PlotId::WorkSwap, PlotId::SideSwap, PlotId::SysSwap],
+        GraphTag::IoUtil,
+        "IO util (MBps) in top-level slices",
+        &[PlotId::WorkIo, PlotId::SideIo, PlotId::SysIo],
     ),
     (
         GraphTag::ReadBps,
         "IO read Mbps in top-level slices",
-        &[PlotId::WorkRBps, PlotId::SideRBps, PlotId::SysRBps],
+        &[PlotId::WorkRead, PlotId::SideRead, PlotId::SysRead],
     ),
     (
         GraphTag::WriteBps,
         "IO write Mbps in top-level slices",
-        &[PlotId::WorkWBps, PlotId::SideWBps, PlotId::SysWBps],
+        &[PlotId::WorkWrite, PlotId::SideWrite, PlotId::SysWrite],
+    ),
+    (
+        GraphTag::SwapUtil,
+        "Swap util (GB) in top-level slices",
+        &[PlotId::WorkSwap, PlotId::SideSwap, PlotId::SysSwap],
     ),
     (
         GraphTag::MemPsi,
@@ -741,7 +765,7 @@ pub fn layout_factory(id: GraphSetId) -> Box<dyn View> {
     fn graph_tab_title(focus: usize) -> impl View {
         let mut buf = StyledString::new();
         let mut titles: [String; GRAPH_NR_TABS] =
-            [" rps/psi ".into(), " utilization ".into(), " IO ".into()];
+            [" rps/psi ".into(), " utilization ".into(), " IO ".into(), " Misc ".into()];
         let mut styles: [Style; GRAPH_NR_TABS] = [COLOR_INACTIVE.into(); GRAPH_NR_TABS];
 
         titles[focus] = format!("[{}]", titles[focus].trim());
@@ -798,13 +822,13 @@ pub fn layout_factory(id: GraphSetId) -> Box<dyn View> {
                     .child(graph_tab_title(1))
                     .child(
                         horiz_or_vert()
+                            .child(graph(GraphTag::SwapUtil))
                             .child(graph(GraphTag::CpuUtil))
-                            .child(graph(GraphTag::MemUtil)),
                     )
                     .child(
                         horiz_or_vert()
-                            .child(graph(GraphTag::ReadBps))
-                            .child(graph(GraphTag::WriteBps)),
+                            .child(graph(GraphTag::MemUtil))
+                            .child(graph(GraphTag::IoUtil))
                     ),
             );
             tabs.add_tab(
@@ -813,14 +837,20 @@ pub fn layout_factory(id: GraphSetId) -> Box<dyn View> {
                     .child(graph_tab_title(2))
                     .child(
                         horiz_or_vert()
-                            .child(graph(GraphTag::ReadLat))
-                            .child(graph(GraphTag::WriteLat)),
+                            .child(graph(GraphTag::ReadBps))
+                            .child(graph(GraphTag::WriteBps)),
                     )
                     .child(
                         horiz_or_vert()
-                            .child(graph(GraphTag::SwapUtil))
-                            .child(graph(GraphTag::IoCost)),
+                            .child(graph(GraphTag::ReadLat))
+                            .child(graph(GraphTag::WriteLat)),
                     ),
+            );
+            tabs.add_tab(
+                3,
+                LinearLayout::vertical()
+                    .child(graph_tab_title(3))
+                    .child(horiz_or_vert().child(graph(GraphTag::IoCost))),
             );
 
             let _ = tabs.set_active_tab(*GRAPH_TAB_IDX.lock().unwrap());
@@ -829,8 +859,11 @@ pub fn layout_factory(id: GraphSetId) -> Box<dyn View> {
                 LinearLayout::vertical()
                     .child(DummyView.full_height())
                     .child(
-                        TextView::new("'ESC': exit graph view, 'left/right': navigate tabs, \
-                                       't/T': change timescale").center(),
+                        TextView::new(
+                            "'ESC': exit graph view, 'left/right': navigate tabs, \
+                                       't/T': change timescale",
+                        )
+                        .center(),
                     )
                     .child(DummyView)
                     .child(tabs.with_name("graph-tabs"))
