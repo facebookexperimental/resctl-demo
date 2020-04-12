@@ -47,9 +47,9 @@ const MAIN_VERT_MIN_HEIGHT: usize = 80;
 pub const COLOR_BACKGROUND: Color = Color::Dark(BaseColor::Black);
 pub const COLOR_DFL: Color = Color::Dark(BaseColor::White);
 pub const COLOR_HIGHLIGHT: Color = Color::Light(BaseColor::Green);
-pub const COLOR_HIGHLIGHT_INACTIVE: Color = Color::Dark(BaseColor::Blue);
+pub const COLOR_HIGHLIGHT_INACTIVE: Color = Color::Light(BaseColor::Blue);
 
-pub const COLOR_INACTIVE: Color = Color::Dark(BaseColor::Blue);
+pub const COLOR_INACTIVE: Color = Color::Light(BaseColor::Blue);
 pub const COLOR_ACTIVE: Color = Color::Light(BaseColor::Green);
 pub const COLOR_ALERT: Color = Color::Light(BaseColor::Red);
 pub const COLOR_GRAPH_1: Color = Color::Light(BaseColor::Green);
@@ -539,6 +539,17 @@ fn main() {
 
     siv.add_global_callback(event::Event::WindowResize, move |siv| {
         refresh_layout_and_kick(siv)
+    });
+
+    siv.add_global_callback(event::Event::Key(event::Key::Right), |siv| {
+        if *ZOOMED_VIEW.lock().unwrap() == Some(ZoomedView::Graphs) {
+            graph::graph_tab_next(siv)
+        }
+    });
+    siv.add_global_callback(event::Event::Key(event::Key::Left), |siv| {
+        if *ZOOMED_VIEW.lock().unwrap() == Some(ZoomedView::Graphs) {
+            graph::graph_tab_prev(siv)
+        }
     });
 
     refresh_layout_and_kick(&mut siv);

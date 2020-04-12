@@ -1,9 +1,11 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
 use anyhow::{bail, Result};
+use cursive::theme::Style;
 use cursive::utils::markup::StyledString;
-use cursive::view::{Nameable, SizeConstraint, View};
-use cursive::views::{LinearLayout, Panel, ResizedView, TextView};
+use cursive::view::{Nameable, Resizable, SizeConstraint, View};
+use cursive::views::{DummyView, LinearLayout, Panel, ResizedView, TextView};
 use cursive::{self, Cursive};
+use cursive_tabs::TabView;
 use lazy_static::lazy_static;
 use log::error;
 use std::collections::HashMap;
@@ -20,17 +22,19 @@ use util::*;
 
 use super::report_ring::ReportDataSet;
 use super::{
-    get_layout, Layout, AGENT_FILES, COLOR_ALERT, COLOR_GRAPH_1, COLOR_GRAPH_2, COLOR_GRAPH_3,
-    TEMP_DIR,
+    get_layout, Layout, AGENT_FILES, COLOR_ACTIVE, COLOR_ALERT, COLOR_GRAPH_1, COLOR_GRAPH_2,
+    COLOR_GRAPH_3, COLOR_INACTIVE, TEMP_DIR,
 };
 use rd_agent_intf::Report;
 
 const GRAPH_X_ADJ: usize = 20;
 const GRAPH_INTVS: &[u64] = &[1, 5, 15, 30, 60];
+const GRAPH_NR_TABS: usize = 3;
 
 lazy_static! {
     static ref GRAPH_INTV_IDX: Mutex<usize> = Mutex::new(0);
     static ref GRAPH_MAIN_TAG: Mutex<GraphTag> = Mutex::new(GraphTag::HashdA);
+    static ref GRAPH_TAB_IDX: Mutex<usize> = Mutex::new(0);
 }
 
 fn graph_intv() -> u64 {
@@ -49,6 +53,28 @@ pub fn graph_intv_prev() {
     if *idx > 0 {
         *idx -= 1;
     }
+}
+
+fn graph_tab_focus(siv: &mut Cursive, idx: usize) {
+    siv.call_on_name("graph-tabs", |v: &mut TabView<usize>| {
+        let _ = v.set_active_tab(idx);
+    });
+}
+
+pub fn graph_tab_next(siv: &mut Cursive) {
+    let mut idx = GRAPH_TAB_IDX.lock().unwrap();
+    *idx = (*idx + 1) % GRAPH_NR_TABS;
+    graph_tab_focus(siv, *idx);
+}
+
+pub fn graph_tab_prev(siv: &mut Cursive) {
+    let mut idx = GRAPH_TAB_IDX.lock().unwrap();
+    if *idx > 0 {
+        *idx -= 1;
+    } else {
+        *idx = GRAPH_NR_TABS - 1;
+    }
+    graph_tab_focus(siv, *idx);
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -684,23 +710,12 @@ pub fn updater_factory(cb_sink: cursive::CbSink) -> Vec<Updater> {
 }
 
 fn all_graph_panels() -> HashMap<GraphTag, impl View> {
-    let mut first = true;
     ALL_GRAPHS
         .iter()
         .map(|&(tag, title, _ids)| {
-            let title = match first {
-                true => {
-                    first = false;
-                    format!(
-                        "{} - 'ESC': exit graph view, 't/T': change timescale",
-                        title
-                    )
-                }
-                false => title.to_string(),
-            };
             (
                 tag,
-                Panel::new(TextView::new("").with_name(format!("graph-{:?}", tag))).title(&title),
+                Panel::new(TextView::new("").with_name(format!("graph-{:?}", tag))).title(title),
             )
         })
         .collect()
@@ -723,6 +738,27 @@ pub fn layout_factory(id: GraphSetId) -> Box<dyn View> {
         )
     }
 
+    fn graph_tab_title(focus: usize) -> impl View {
+        let mut buf = StyledString::new();
+        let mut titles: [String; GRAPH_NR_TABS] =
+            [" rps/psi ".into(), " utilization ".into(), " IO ".into()];
+        let mut styles: [Style; GRAPH_NR_TABS] = [COLOR_INACTIVE.into(); GRAPH_NR_TABS];
+
+        titles[focus] = format!("[{}]", titles[focus].trim());
+        styles[focus] = COLOR_ACTIVE.into();
+
+        for i in 0..titles.len() {
+            if i > 0 {
+                buf.append_plain(" | ");
+            }
+            buf.append_styled(&titles[i], styles[i]);
+        }
+
+        LinearLayout::vertical()
+            .child(TextView::new(buf).center())
+            .child(DummyView)
+    }
+
     match id {
         GraphSetId::Default => Box::new(resize_one(
             &layout,
@@ -732,46 +768,74 @@ pub fn layout_factory(id: GraphSetId) -> Box<dyn View> {
         GraphSetId::FullScreen => {
             let mut panels = all_graph_panels();
             let mut graph = |tag| resize_one(&layout, panels.remove(&tag).unwrap());
-
-            if layout.horiz {
-                Box::new(
+            let horiz_or_vert = || {
+                if layout.horiz {
                     LinearLayout::horizontal()
-                        .child(
-                            LinearLayout::vertical()
-                                .child(graph(GraphTag::HashdA))
-                                .child(graph(GraphTag::MemUtil))
-                                .child(graph(GraphTag::ReadBps))
-                                .child(graph(GraphTag::MemPsi))
-                                .child(graph(GraphTag::CpuPsi))
-                                .child(graph(GraphTag::ReadLat)),
-                        )
-                        .child(
-                            LinearLayout::vertical()
-                                .child(graph(GraphTag::CpuUtil))
-                                .child(graph(GraphTag::SwapUtil))
-                                .child(graph(GraphTag::WriteBps))
-                                .child(graph(GraphTag::IoPsi))
-                                .child(graph(GraphTag::IoCost))
-                                .child(graph(GraphTag::WriteLat)),
-                        ),
-                )
-            } else {
-                Box::new(
+                } else {
                     LinearLayout::vertical()
-                        .child(graph(GraphTag::HashdA))
-                        .child(graph(GraphTag::CpuUtil))
-                        .child(graph(GraphTag::MemUtil))
-                        .child(graph(GraphTag::SwapUtil))
-                        .child(graph(GraphTag::CpuPsi))
-                        .child(graph(GraphTag::MemPsi))
-                        .child(graph(GraphTag::IoPsi))
-                        .child(graph(GraphTag::IoCost))
-                        .child(graph(GraphTag::ReadBps))
-                        .child(graph(GraphTag::WriteBps))
-                        .child(graph(GraphTag::ReadLat))
-                        .child(graph(GraphTag::WriteLat)),
-                )
-            }
+                }
+            };
+            let mut tabs = TabView::new();
+
+            tabs.add_tab(
+                0,
+                LinearLayout::vertical()
+                    .child(graph_tab_title(0))
+                    .child(
+                        horiz_or_vert()
+                            .child(graph(GraphTag::HashdA))
+                            .child(graph(GraphTag::CpuPsi)),
+                    )
+                    .child(
+                        horiz_or_vert()
+                            .child(graph(GraphTag::MemPsi))
+                            .child(graph(GraphTag::IoPsi)),
+                    ),
+            );
+            tabs.add_tab(
+                1,
+                LinearLayout::vertical()
+                    .child(graph_tab_title(1))
+                    .child(
+                        horiz_or_vert()
+                            .child(graph(GraphTag::CpuUtil))
+                            .child(graph(GraphTag::MemUtil)),
+                    )
+                    .child(
+                        horiz_or_vert()
+                            .child(graph(GraphTag::ReadBps))
+                            .child(graph(GraphTag::WriteBps)),
+                    ),
+            );
+            tabs.add_tab(
+                2,
+                LinearLayout::vertical()
+                    .child(graph_tab_title(2))
+                    .child(
+                        horiz_or_vert()
+                            .child(graph(GraphTag::ReadLat))
+                            .child(graph(GraphTag::WriteLat)),
+                    )
+                    .child(
+                        horiz_or_vert()
+                            .child(graph(GraphTag::SwapUtil))
+                            .child(graph(GraphTag::IoCost)),
+                    ),
+            );
+
+            let _ = tabs.set_active_tab(*GRAPH_TAB_IDX.lock().unwrap());
+
+            Box::new(
+                LinearLayout::vertical()
+                    .child(DummyView.full_height())
+                    .child(
+                        TextView::new("'ESC': exit graph view, 'left/right': navigate tabs, \
+                                       't/T': change timescale").center(),
+                    )
+                    .child(DummyView)
+                    .child(tabs.with_name("graph-tabs"))
+                    .child(DummyView.full_height()),
+            )
         }
     }
 }
