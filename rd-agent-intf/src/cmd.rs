@@ -35,6 +35,7 @@ lazy_static! {
 //  bench_iocost_seq: If > bench::iocost_seq, start benchmark; otherwise, cancel
 //  sideloader.cpu_headroom: Sideload CPU headroom ratio [0.0, 1.0]
 //  hashd[].active: On/off
+//  hashd[].lat_target_pct: Latency target percentile
 //  hashd[].lat_target: Latency target, defaults to 0.1 meaning 100ms
 //  hashd[].rps_target_ratio: RPS target as a ratio of bench::hashd.rps_max,
 //                            if >> 1.0, no practical rps limit, default 0.5
@@ -61,6 +62,7 @@ pub struct SideloaderCmd {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct HashdCmd {
     pub active: bool,
+    pub lat_target_pct: f64,
     pub lat_target: f64,
     pub rps_target_ratio: f64,
     pub mem_ratio: Option<f64>,
@@ -71,13 +73,14 @@ pub struct HashdCmd {
 }
 
 impl HashdCmd {
-    pub const DFL_WRITE_RATIO: f64 = 0.05;
+    pub const DFL_WRITE_RATIO: f64 = 0.1;
 }
 
 impl Default for HashdCmd {
     fn default() -> Self {
         Self {
             active: false,
+            lat_target_pct: rd_hashd_intf::Params::DFL_LAT_TARGET_PCT,
             lat_target: 100.0 * MSEC,
             rps_target_ratio: 0.5,
             mem_ratio: None,

@@ -47,9 +47,9 @@ const MAIN_VERT_MIN_HEIGHT: usize = 80;
 pub const COLOR_BACKGROUND: Color = Color::Dark(BaseColor::Black);
 pub const COLOR_DFL: Color = Color::Dark(BaseColor::White);
 pub const COLOR_HIGHLIGHT: Color = Color::Light(BaseColor::Green);
-pub const COLOR_HIGHLIGHT_INACTIVE: Color = Color::Dark(BaseColor::Blue);
+pub const COLOR_HIGHLIGHT_INACTIVE: Color = Color::Light(BaseColor::Blue);
 
-pub const COLOR_INACTIVE: Color = Color::Dark(BaseColor::Blue);
+pub const COLOR_INACTIVE: Color = Color::Light(BaseColor::Blue);
 pub const COLOR_ACTIVE: Color = Color::Light(BaseColor::Green);
 pub const COLOR_ALERT: Color = Color::Light(BaseColor::Red);
 pub const COLOR_GRAPH_1: Color = Color::Light(BaseColor::Green);
@@ -124,7 +124,7 @@ enum ZoomedView {
 #[derive(Default)]
 struct Updaters {
     status: Option<status::Updater>,
-    graphs: HashMap<GraphSetId, Vec<graph::Updater>>,
+    graphs: Vec<graph::Updater>,
     journal: HashMap<JournalViewId, Vec<journal::Updater>>,
 }
 
@@ -135,8 +135,7 @@ pub struct Layout {
     pub status: Vec2,
     pub usage: Vec2,
     pub main: Vec2,
-    pub left: Vec2,
-    pub right: Vec2,
+    pub half: Vec2,
     pub graph: Vec2,
     pub journal_top: Vec2,
     pub journal_bot: Vec2,
@@ -147,8 +146,7 @@ impl Layout {
     fn new(scr: Vec2) -> Self {
         let main_x = scr.x.max(UNIT_WIDTH) - 2;
         let horiz = main_x >= 2 * UNIT_WIDTH + 4;
-        let left_x = if horiz { main_x / 2 } else { main_x };
-        let right_x = if horiz { main_x - left_x } else { main_x };
+        let half_x = if horiz { main_x / 2 } else { main_x };
 
         let (main_y, journal_y, graph_y, doc_y);
         if horiz {
@@ -168,15 +166,14 @@ impl Layout {
         Self {
             screen: scr,
             horiz: horiz,
-            status: Vec2::new(left_x, STATUS_HEIGHT),
-            usage: Vec2::new(right_x, STATUS_HEIGHT),
+            status: Vec2::new(half_x, STATUS_HEIGHT),
+            usage: Vec2::new(half_x, STATUS_HEIGHT),
             main: Vec2::new(main_x, main_y),
-            left: Vec2::new(left_x, main_y),
-            right: Vec2::new(right_x, main_y),
-            graph: Vec2::new(left_x, graph_y),
-            journal_top: Vec2::new(left_x, journal_y),
-            journal_bot: Vec2::new(left_x, journal_y),
-            doc: Vec2::new(right_x, doc_y),
+            half: Vec2::new(half_x, main_y),
+            graph: Vec2::new(half_x, graph_y),
+            journal_top: Vec2::new(half_x, journal_y),
+            journal_bot: Vec2::new(half_x, journal_y),
+            doc: Vec2::new(half_x, doc_y),
         }
     }
 }
@@ -497,14 +494,8 @@ fn main() {
     let mut upd = UPDATERS.lock().unwrap();
     upd.status
         .replace(status::Updater::new(siv.cb_sink().clone()));
-    upd.graphs.insert(
-        GraphSetId::Default,
-        graph::updater_factory(siv.cb_sink().clone(), GraphSetId::Default),
-    );
-    upd.graphs.insert(
-        GraphSetId::FullScreen,
-        graph::updater_factory(siv.cb_sink().clone(), GraphSetId::FullScreen),
-    );
+    upd.graphs
+        .append(&mut graph::updater_factory(siv.cb_sink().clone()));
     upd.journal.insert(
         JournalViewId::Default,
         journal::updater_factory(siv.cb_sink().clone(), JournalViewId::Default),
@@ -548,6 +539,17 @@ fn main() {
 
     siv.add_global_callback(event::Event::WindowResize, move |siv| {
         refresh_layout_and_kick(siv)
+    });
+
+    siv.add_global_callback(event::Event::Key(event::Key::Right), |siv| {
+        if *ZOOMED_VIEW.lock().unwrap() == Some(ZoomedView::Graphs) {
+            graph::graph_tab_next(siv)
+        }
+    });
+    siv.add_global_callback(event::Event::Key(event::Key::Left), |siv| {
+        if *ZOOMED_VIEW.lock().unwrap() == Some(ZoomedView::Graphs) {
+            graph::graph_tab_prev(siv)
+        }
     });
 
     refresh_layout_and_kick(&mut siv);

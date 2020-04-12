@@ -38,6 +38,7 @@ pub struct Hashd {
     params_path: String,
     report_path: String,
     path_args: Vec<String>,
+    lat_target_pct: f64,
     rps_max: u32,
     file_max_ratio: f64,
     svc: Option<TransientService>,
@@ -64,6 +65,7 @@ impl Hashd {
         max_wbps: u64,
         frac: f64,
     ) -> Result<()> {
+        self.lat_target_pct = cmd.lat_target_pct;
         self.rps_max = ((knobs.rps_max as f64 * frac).round() as u32).max(1);
         let rps_target = ((self.rps_max as f64 * cmd.rps_target_ratio).round() as u32).max(1);
         let log_bps = (max_wbps as f64 * cmd.write_ratio).round() as u64;
@@ -81,8 +83,12 @@ impl Hashd {
         let mut params = rd_hashd_intf::Params::load(&self.params_path)?;
         let mut changed = false;
 
-        if params.p99_lat_target != cmd.lat_target {
-            params.p99_lat_target = cmd.lat_target;
+        if params.lat_target_pct != self.lat_target_pct {
+            params.lat_target_pct = self.lat_target_pct;
+            changed = true;
+        }
+        if params.lat_target != cmd.lat_target {
+            params.lat_target = cmd.lat_target;
             changed = true;
         }
         if params.rps_max != self.rps_max {
@@ -108,13 +114,14 @@ impl Hashd {
 
         if changed {
             info!(
-                "hashd: Updating {:?} to lat={:.2}ms rps={:.2} mem={:.2}% log={:.2}Mbps frac={:.2}",
+                "hashd: Updating {:?} to lat={:.2}ms@{:.2}% rps={:.2} mem={:.2}% log={:.2}Mbps frac={:.2}",
                 AsRef::<Path>::as_ref(&self.params_path)
                     .parent()
                     .unwrap()
                     .file_name()
                     .unwrap(),
                 cmd.lat_target * TO_MSEC,
+                cmd.lat_target_pct * TO_PCT,
                 rps_target,
                 mem_ratio * TO_PCT,
                 to_mb(log_bps),
@@ -165,7 +172,8 @@ impl Hashd {
             svc: svc_r,
             load: (hashd_r.hasher.rps / self.rps_max as f64).min(1.0),
             rps: hashd_r.hasher.rps,
-            lat_p99: hashd_r.hasher.lat.p99,
+            lat_pct: self.lat_target_pct,
+            lat: hashd_r.hasher.lat,
         })
     }
 }
@@ -183,6 +191,7 @@ impl HashdSet {
                     params_path: cfg.hashd_paths(HashdSel::A).params.clone(),
                     report_path: cfg.hashd_paths(HashdSel::A).report.clone(),
                     path_args: hashd_path_args(cfg, HashdSel::A),
+                    lat_target_pct: rd_hashd_intf::Params::DFL_LAT_TARGET_PCT,
                     rps_max: 1,
                     file_max_ratio: rd_hashd_intf::Args::DFL_FILE_MAX_FRAC,
                     svc: None,
@@ -192,6 +201,7 @@ impl HashdSet {
                     params_path: cfg.hashd_paths(HashdSel::B).params.clone(),
                     report_path: cfg.hashd_paths(HashdSel::B).report.clone(),
                     path_args: hashd_path_args(cfg, HashdSel::B),
+                    lat_target_pct: rd_hashd_intf::Params::DFL_LAT_TARGET_PCT,
                     rps_max: 1,
                     file_max_ratio: rd_hashd_intf::Args::DFL_FILE_MAX_FRAC,
                     svc: None,

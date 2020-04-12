@@ -9,23 +9,29 @@ use util::*;
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Latencies {
     pub p01: f64,
+    pub p05: f64,
     pub p10: f64,
     pub p16: f64,
     pub p50: f64,
     pub p84: f64,
     pub p90: f64,
+    pub p95: f64,
     pub p99: f64,
+    pub ctl: f64,
 }
 
 impl ops::AddAssign<&Latencies> for Latencies {
     fn add_assign(&mut self, rhs: &Latencies) {
         self.p01 += rhs.p01;
+        self.p05 += rhs.p05;
         self.p10 += rhs.p10;
         self.p16 += rhs.p16;
         self.p50 += rhs.p50;
         self.p84 += rhs.p84;
         self.p90 += rhs.p90;
+        self.p95 += rhs.p95;
         self.p99 += rhs.p99;
+        self.ctl += rhs.ctl;
     }
 }
 
@@ -33,12 +39,15 @@ impl<T: Into<f64>> ops::DivAssign<T> for Latencies {
     fn div_assign(&mut self, rhs: T) {
         let div = rhs.into();
         self.p01 /= div;
+        self.p05 /= div;
         self.p10 /= div;
         self.p16 /= div;
         self.p50 /= div;
         self.p84 /= div;
         self.p90 /= div;
+        self.p95 /= div;
         self.p99 /= div;
+        self.ctl /= div;
     }
 }
 
@@ -51,6 +60,7 @@ const STAT_DOC: &str = "\
 //  nr_workers: Number of worker threads
 //  nr_idle_workers: Number of idle workers
 //  lat.p*: Latency percentiles
+//  lat.ctl: Latency percentile used for rps control (params.lat_target_pct)
 ";
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
