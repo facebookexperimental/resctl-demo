@@ -124,7 +124,7 @@ enum ZoomedView {
 #[derive(Default)]
 struct Updaters {
     status: Option<status::Updater>,
-    graphs: HashMap<GraphSetId, Vec<graph::Updater>>,
+    graphs: Vec<graph::Updater>,
     journal: HashMap<JournalViewId, Vec<journal::Updater>>,
 }
 
@@ -494,14 +494,8 @@ fn main() {
     let mut upd = UPDATERS.lock().unwrap();
     upd.status
         .replace(status::Updater::new(siv.cb_sink().clone()));
-    upd.graphs.insert(
-        GraphSetId::Default,
-        graph::updater_factory(siv.cb_sink().clone(), GraphSetId::Default),
-    );
-    upd.graphs.insert(
-        GraphSetId::FullScreen,
-        graph::updater_factory(siv.cb_sink().clone(), GraphSetId::FullScreen),
-    );
+    upd.graphs
+        .append(&mut graph::updater_factory(siv.cb_sink().clone()));
     upd.journal.insert(
         JournalViewId::Default,
         journal::updater_factory(siv.cb_sink().clone(), JournalViewId::Default),

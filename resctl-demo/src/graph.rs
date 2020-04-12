@@ -30,6 +30,7 @@ const GRAPH_INTVS: &[u64] = &[1, 5, 15, 30, 60];
 
 lazy_static! {
     static ref GRAPH_INTV_IDX: Mutex<usize> = Mutex::new(0);
+    static ref GRAPH_MAIN_TAG: Mutex<String> = Mutex::new("graph-hashd-A".into());
 }
 
 fn graph_intv() -> u64 {
@@ -168,13 +169,13 @@ impl fmt::Display for GraphData {
 
 pub struct UpdateWorker {
     cb_sink: cursive::CbSink,
-    name: String,
+    tag: String,
     specs: Vec<PlotSpec>,
     data: ReportDataSet<GraphData>,
 }
 
 impl UpdateWorker {
-    fn new(cb_sink: cursive::CbSink, name: String, mut specs_input: Vec<PlotSpec>) -> Self {
+    fn new(cb_sink: cursive::CbSink, tag: String, mut specs_input: Vec<PlotSpec>) -> Self {
         assert!(specs_input.len() > 0 && specs_input.len() < 4);
 
         let dummy_sel = |_: &Report| 0.0;
@@ -240,7 +241,7 @@ impl UpdateWorker {
 
         Self {
             cb_sink,
-            name,
+            tag,
             specs,
             data: ReportDataSet::<GraphData>::new(
                 Box::new(sel_fn),
@@ -273,7 +274,7 @@ impl UpdateWorker {
         let path = format!(
             "{}/graph-{}.data",
             TEMP_DIR.path().to_str().unwrap(),
-            &self.name
+            &self.tag
         );
 
         let data = &mut self.data;
@@ -291,7 +292,15 @@ impl UpdateWorker {
         )
     }
 
-    fn refresh_graph(siv: &mut Cursive, name: String, graph: StyledString) {
+    fn refresh_graph(siv: &mut Cursive, tag: String, graph: StyledString) {
+        let name = format!("graph-{}", &tag);
+
+        if *GRAPH_MAIN_TAG.lock().unwrap() == name {
+            siv.call_on_name("graph-main", |v: &mut TextView| {
+                v.set_content(graph.clone());
+            });
+        }
+
         siv.call_on_name(&name, |v: &mut TextView| {
             v.set_content(graph);
         });
@@ -324,9 +333,9 @@ impl UpdateWorker {
                         StyledString::styled("Failed to plot graph, see log '~'", COLOR_ALERT)
                     }
                 };
-                let name = self.name.clone();
+                let tag = self.tag.clone();
                 self.cb_sink
-                    .send(Box::new(move |s| Self::refresh_graph(s, name, graph)))
+                    .send(Box::new(move |s| Self::refresh_graph(s, tag, graph)))
                     .unwrap();
 
                 next_at = now + intv;
@@ -354,14 +363,14 @@ pub struct Updater {
 }
 
 impl Updater {
-    pub fn new(cb_sink: cursive::CbSink, name: &str, specs: Vec<PlotSpec>) -> Result<Self> {
+    pub fn new(cb_sink: cursive::CbSink, tag: &str, specs: Vec<PlotSpec>) -> Result<Self> {
         if specs.len() > 3 {
             bail!("invalid number of timeseries for a graph");
         }
 
-        let name: String = name.into();
+        let tag: String = tag.into();
         let mut updater = Self { join_handle: None };
-        updater.join_handle = Some(spawn(move || UpdateWorker::new(cb_sink, name, specs).run()));
+        updater.join_handle = Some(spawn(move || UpdateWorker::new(cb_sink, tag, specs).run()));
         Ok(updater)
     }
 }
@@ -583,7 +592,7 @@ pub enum GraphSetId {
 static ALL_GRAPHS: &[(&str, &str, &[PlotId])] = &[
     (
         "hashd-A",
-        "Workload RPS / Latency - 'ESC': exit graph view, 't/T': change timescale",
+        "Workload RPS / Latency",
         &[PlotId::HashdARps, PlotId::HashdALat],
     ),
     (
@@ -652,40 +661,38 @@ static ALL_GRAPHS: &[(&str, &str, &[PlotId])] = &[
     ),
 ];
 
-pub fn updater_factory(cb_sink: cursive::CbSink, id: GraphSetId) -> Vec<Updater> {
-    let name = format!("{:?}", id);
-
-    match id {
-        GraphSetId::Default => vec![Updater::new(
-            cb_sink,
-            &name,
-            vec![
-                plot_spec_factory(PlotId::HashdARps),
-                plot_spec_factory(PlotId::HashdALat),
-            ],
-        )
-        .unwrap()],
-        GraphSetId::FullScreen => ALL_GRAPHS
-            .iter()
-            .map(|&(tag, _title, ids)| {
-                Updater::new(
-                    cb_sink.clone(),
-                    &format!("{}-{}", &name, tag),
-                    ids.iter().map(|&id| plot_spec_factory(id)).collect(),
-                )
-                .unwrap()
-            })
-            .collect(),
-    }
+pub fn updater_factory(cb_sink: cursive::CbSink) -> Vec<Updater> {
+    ALL_GRAPHS
+        .iter()
+        .map(|&(tag, _title, ids)| {
+            Updater::new(
+                cb_sink.clone(),
+                tag.into(),
+                ids.iter().map(|&id| plot_spec_factory(id)).collect(),
+            )
+            .unwrap()
+        })
+        .collect()
 }
 
-fn all_graph_panels(name: &str) -> HashMap<&'static str, impl View> {
+fn all_graph_panels() -> HashMap<&'static str, impl View> {
+    let mut first = true;
     ALL_GRAPHS
         .iter()
         .map(|&(tag, title, _ids)| {
+            let title = match first {
+                true => {
+                    first = false;
+                    format!(
+                        "{} - 'ESC': exit graph view, 't/T': change timescale",
+                        title
+                    )
+                }
+                false => title.to_string(),
+            };
             (
                 tag,
-                Panel::new(TextView::new("").with_name(format!("{}-{}", name, tag))).title(title),
+                Panel::new(TextView::new("").with_name(format!("graph-{}", tag))).title(&title),
             )
         })
         .collect()
@@ -693,7 +700,6 @@ fn all_graph_panels(name: &str) -> HashMap<&'static str, impl View> {
 
 pub fn layout_factory(id: GraphSetId) -> Box<dyn View> {
     let layout = get_layout();
-    let name = format!("{:?}", id);
 
     fn resize_one<T: View>(layout: &Layout, view: T) -> impl View {
         ResizedView::new(
@@ -705,7 +711,7 @@ pub fn layout_factory(id: GraphSetId) -> Box<dyn View> {
 
     match id {
         GraphSetId::Default => Box::new(
-            Panel::new(TextView::new("").with_name(&name))
+            Panel::new(TextView::new("").with_name("graph-main"))
                 .title("Workload RPS / Latency - 'g': more graphs, 't/T': change timescale")
                 .resized(
                     SizeConstraint::Fixed(layout.graph.x),
@@ -713,7 +719,7 @@ pub fn layout_factory(id: GraphSetId) -> Box<dyn View> {
                 ),
         ),
         GraphSetId::FullScreen => {
-            let mut panels = all_graph_panels(&name);
+            let mut panels = all_graph_panels();
             if layout.horiz {
                 Box::new(
                     LinearLayout::horizontal()
