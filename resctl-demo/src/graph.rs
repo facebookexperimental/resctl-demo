@@ -1,7 +1,7 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
 use anyhow::{bail, Result};
 use cursive::utils::markup::StyledString;
-use cursive::view::{Nameable, Resizable, SizeConstraint, View};
+use cursive::view::{Nameable, SizeConstraint, View};
 use cursive::views::{LinearLayout, Panel, ResizedView, TextView};
 use cursive::{self, Cursive};
 use lazy_static::lazy_static;
@@ -30,7 +30,7 @@ const GRAPH_INTVS: &[u64] = &[1, 5, 15, 30, 60];
 
 lazy_static! {
     static ref GRAPH_INTV_IDX: Mutex<usize> = Mutex::new(0);
-    static ref GRAPH_MAIN_TAG: Mutex<String> = Mutex::new("graph-hashd-A".into());
+    static ref GRAPH_MAIN_TAG: Mutex<GraphTag> = Mutex::new(GraphTag::HashdA);
 }
 
 fn graph_intv() -> u64 {
@@ -51,7 +51,7 @@ pub fn graph_intv_prev() {
     }
 }
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub enum PlotDataAggr {
     AVG,
     MAX,
@@ -169,13 +169,13 @@ impl fmt::Display for GraphData {
 
 pub struct UpdateWorker {
     cb_sink: cursive::CbSink,
-    tag: String,
+    tag: GraphTag,
     specs: Vec<PlotSpec>,
     data: ReportDataSet<GraphData>,
 }
 
 impl UpdateWorker {
-    fn new(cb_sink: cursive::CbSink, tag: String, mut specs_input: Vec<PlotSpec>) -> Self {
+    fn new(cb_sink: cursive::CbSink, tag: GraphTag, mut specs_input: Vec<PlotSpec>) -> Self {
         assert!(specs_input.len() > 0 && specs_input.len() < 4);
 
         let dummy_sel = |_: &Report| 0.0;
@@ -272,9 +272,9 @@ impl UpdateWorker {
 
     fn plot_graph(&mut self, now: u64, span: u64, size: (usize, usize)) -> Result<StyledString> {
         let path = format!(
-            "{}/graph-{}.data",
+            "{}/graph-{:?}.data",
             TEMP_DIR.path().to_str().unwrap(),
-            &self.tag
+            self.tag
         );
 
         let data = &mut self.data;
@@ -292,16 +292,14 @@ impl UpdateWorker {
         )
     }
 
-    fn refresh_graph(siv: &mut Cursive, tag: String, graph: StyledString) {
-        let name = format!("graph-{}", &tag);
-
-        if *GRAPH_MAIN_TAG.lock().unwrap() == name {
+    fn refresh_graph(siv: &mut Cursive, tag: GraphTag, graph: StyledString) {
+        if *GRAPH_MAIN_TAG.lock().unwrap() == tag {
             siv.call_on_name("graph-main", |v: &mut TextView| {
                 v.set_content(graph.clone());
             });
         }
 
-        siv.call_on_name(&name, |v: &mut TextView| {
+        siv.call_on_name(&format!("graph-{:?}", &tag), |v: &mut TextView| {
             v.set_content(graph);
         });
     }
@@ -333,7 +331,7 @@ impl UpdateWorker {
                         StyledString::styled("Failed to plot graph, see log '~'", COLOR_ALERT)
                     }
                 };
-                let tag = self.tag.clone();
+                let tag = self.tag;
                 self.cb_sink
                     .send(Box::new(move |s| Self::refresh_graph(s, tag, graph)))
                     .unwrap();
@@ -363,12 +361,11 @@ pub struct Updater {
 }
 
 impl Updater {
-    pub fn new(cb_sink: cursive::CbSink, tag: &str, specs: Vec<PlotSpec>) -> Result<Self> {
+    pub fn new(cb_sink: cursive::CbSink, tag: GraphTag, specs: Vec<PlotSpec>) -> Result<Self> {
         if specs.len() > 3 {
             bail!("invalid number of timeseries for a graph");
         }
 
-        let tag: String = tag.into();
         let mut updater = Self { join_handle: None };
         updater.join_handle = Some(spawn(move || UpdateWorker::new(cb_sink, tag, specs).run()));
         Ok(updater)
@@ -583,70 +580,81 @@ fn plot_spec_factory(id: PlotId) -> PlotSpec {
     }
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
-pub enum GraphSetId {
-    Default,
-    FullScreen,
+#[derive(Copy, Clone, Hash, PartialEq, Eq, Debug)]
+pub enum GraphTag {
+    HashdA,
+    HashdB,
+    CpuUtil,
+    MemUtil,
+    SwapUtil,
+    ReadBps,
+    WriteBps,
+    MemPsi,
+    IoPsi,
+    CpuPsi,
+    ReadLat,
+    WriteLat,
+    IoCost,
 }
 
-static ALL_GRAPHS: &[(&str, &str, &[PlotId])] = &[
+static ALL_GRAPHS: &[(GraphTag, &str, &[PlotId])] = &[
     (
-        "hashd-A",
+        GraphTag::HashdA,
         "Workload RPS / Latency",
         &[PlotId::HashdARps, PlotId::HashdALat],
     ),
     (
-        "hashd-B",
+        GraphTag::HashdB,
         "Workload-B RPS / Latency",
         &[PlotId::HashdBRps, PlotId::HashdBLat],
     ),
     (
-        "cpu-util",
+        GraphTag::CpuUtil,
         "CPU util in top-level slices",
         &[PlotId::WorkCpu, PlotId::SideCpu, PlotId::SysCpu],
     ),
     (
-        "mem-util",
+        GraphTag::MemUtil,
         "Memory util (GB) in top-level slices",
         &[PlotId::WorkMem, PlotId::SideMem, PlotId::SysMem],
     ),
     (
-        "swap-util",
+        GraphTag::SwapUtil,
         "Swap util (GB) in top-level slices",
         &[PlotId::WorkSwap, PlotId::SideSwap, PlotId::SysSwap],
     ),
     (
-        "read-bps",
+        GraphTag::ReadBps,
         "IO read Mbps in top-level slices",
         &[PlotId::WorkRBps, PlotId::SideRBps, PlotId::SysRBps],
     ),
     (
-        "write-bps",
+        GraphTag::WriteBps,
         "IO write Mbps in top-level slices",
         &[PlotId::WorkWBps, PlotId::SideWBps, PlotId::SysWBps],
     ),
     (
-        "mem-psi",
+        GraphTag::MemPsi,
         "Memory Pressures in top-level slices",
         &[PlotId::WorkMemPsi, PlotId::SideMemPsi, PlotId::SysMemPsi],
     ),
     (
-        "io-psi",
+        GraphTag::IoPsi,
         "IO Pressures in top-level slices",
         &[PlotId::WorkIoPsi, PlotId::SideIoPsi, PlotId::SysIoPsi],
     ),
     (
-        "cpu-psi",
+        GraphTag::CpuPsi,
         "CPU Pressures in top-level slices",
         &[PlotId::WorkCpuPsi, PlotId::SideCpuPsi, PlotId::SysCpuPsi],
     ),
     (
-        "read-lat",
+        GraphTag::ReadLat,
         "IO read latencies (msecs)",
         &[PlotId::ReadLatP50, PlotId::ReadLatP90, PlotId::ReadLatP99],
     ),
     (
-        "write-lat",
+        GraphTag::WriteLat,
         "IO write latencies (msecs)",
         &[
             PlotId::WriteLatP50,
@@ -655,7 +663,7 @@ static ALL_GRAPHS: &[(&str, &str, &[PlotId])] = &[
         ],
     ),
     (
-        "iocost",
+        GraphTag::IoCost,
         "iocost controller stats",
         &[PlotId::IoCostVrate, PlotId::IoCostBusy],
     ),
@@ -667,7 +675,7 @@ pub fn updater_factory(cb_sink: cursive::CbSink) -> Vec<Updater> {
         .map(|&(tag, _title, ids)| {
             Updater::new(
                 cb_sink.clone(),
-                tag.into(),
+                tag,
                 ids.iter().map(|&id| plot_spec_factory(id)).collect(),
             )
             .unwrap()
@@ -675,7 +683,7 @@ pub fn updater_factory(cb_sink: cursive::CbSink) -> Vec<Updater> {
         .collect()
 }
 
-fn all_graph_panels() -> HashMap<&'static str, impl View> {
+fn all_graph_panels() -> HashMap<GraphTag, impl View> {
     let mut first = true;
     ALL_GRAPHS
         .iter()
@@ -692,10 +700,16 @@ fn all_graph_panels() -> HashMap<&'static str, impl View> {
             };
             (
                 tag,
-                Panel::new(TextView::new("").with_name(format!("graph-{}", tag))).title(&title),
+                Panel::new(TextView::new("").with_name(format!("graph-{:?}", tag))).title(&title),
             )
         })
         .collect()
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+pub enum GraphSetId {
+    Default,
+    FullScreen,
 }
 
 pub fn layout_factory(id: GraphSetId) -> Box<dyn View> {
@@ -703,60 +717,59 @@ pub fn layout_factory(id: GraphSetId) -> Box<dyn View> {
 
     fn resize_one<T: View>(layout: &Layout, view: T) -> impl View {
         ResizedView::new(
-            SizeConstraint::Fixed(layout.half.x),
+            SizeConstraint::Fixed(layout.graph.x),
             SizeConstraint::Fixed(layout.graph.y),
             view,
         )
     }
 
     match id {
-        GraphSetId::Default => Box::new(
+        GraphSetId::Default => Box::new(resize_one(
+            &layout,
             Panel::new(TextView::new("").with_name("graph-main"))
-                .title("Workload RPS / Latency - 'g': more graphs, 't/T': change timescale")
-                .resized(
-                    SizeConstraint::Fixed(layout.graph.x),
-                    SizeConstraint::Fixed(layout.graph.y),
-                ),
-        ),
+                .title("Workload RPS / Latency - 'g': more graphs, 't/T': change timescale"),
+        )),
         GraphSetId::FullScreen => {
             let mut panels = all_graph_panels();
+            let mut graph = |tag| resize_one(&layout, panels.remove(&tag).unwrap());
+
             if layout.horiz {
                 Box::new(
                     LinearLayout::horizontal()
                         .child(
                             LinearLayout::vertical()
-                                .child(resize_one(&layout, panels.remove("hashd-A").unwrap()))
-                                .child(resize_one(&layout, panels.remove("mem-util").unwrap()))
-                                .child(resize_one(&layout, panels.remove("read-bps").unwrap()))
-                                .child(resize_one(&layout, panels.remove("mem-psi").unwrap()))
-                                .child(resize_one(&layout, panels.remove("cpu-psi").unwrap()))
-                                .child(resize_one(&layout, panels.remove("read-lat").unwrap())),
+                                .child(graph(GraphTag::HashdA))
+                                .child(graph(GraphTag::MemUtil))
+                                .child(graph(GraphTag::ReadBps))
+                                .child(graph(GraphTag::MemPsi))
+                                .child(graph(GraphTag::CpuPsi))
+                                .child(graph(GraphTag::ReadLat)),
                         )
                         .child(
                             LinearLayout::vertical()
-                                .child(resize_one(&layout, panels.remove("cpu-util").unwrap()))
-                                .child(resize_one(&layout, panels.remove("swap-util").unwrap()))
-                                .child(resize_one(&layout, panels.remove("write-bps").unwrap()))
-                                .child(resize_one(&layout, panels.remove("io-psi").unwrap()))
-                                .child(resize_one(&layout, panels.remove("iocost").unwrap()))
-                                .child(resize_one(&layout, panels.remove("write-lat").unwrap())),
+                                .child(graph(GraphTag::CpuUtil))
+                                .child(graph(GraphTag::SwapUtil))
+                                .child(graph(GraphTag::WriteBps))
+                                .child(graph(GraphTag::IoPsi))
+                                .child(graph(GraphTag::IoCost))
+                                .child(graph(GraphTag::WriteLat)),
                         ),
                 )
             } else {
                 Box::new(
                     LinearLayout::vertical()
-                        .child(resize_one(&layout, panels.remove("hashd-A").unwrap()))
-                        .child(resize_one(&layout, panels.remove("cpu-util").unwrap()))
-                        .child(resize_one(&layout, panels.remove("mem-util").unwrap()))
-                        .child(resize_one(&layout, panels.remove("swap-util").unwrap()))
-                        .child(resize_one(&layout, panels.remove("cpu-psi").unwrap()))
-                        .child(resize_one(&layout, panels.remove("mem-psi").unwrap()))
-                        .child(resize_one(&layout, panels.remove("io-psi").unwrap()))
-                        .child(resize_one(&layout, panels.remove("iocost").unwrap()))
-                        .child(resize_one(&layout, panels.remove("read-bps").unwrap()))
-                        .child(resize_one(&layout, panels.remove("write-bps").unwrap()))
-                        .child(resize_one(&layout, panels.remove("read-lat").unwrap()))
-                        .child(resize_one(&layout, panels.remove("write-lat").unwrap())),
+                        .child(graph(GraphTag::HashdA))
+                        .child(graph(GraphTag::CpuUtil))
+                        .child(graph(GraphTag::MemUtil))
+                        .child(graph(GraphTag::SwapUtil))
+                        .child(graph(GraphTag::CpuPsi))
+                        .child(graph(GraphTag::MemPsi))
+                        .child(graph(GraphTag::IoPsi))
+                        .child(graph(GraphTag::IoCost))
+                        .child(graph(GraphTag::ReadBps))
+                        .child(graph(GraphTag::WriteBps))
+                        .child(graph(GraphTag::ReadLat))
+                        .child(graph(GraphTag::WriteLat)),
                 )
             }
         }
