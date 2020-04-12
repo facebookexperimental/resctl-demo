@@ -695,16 +695,9 @@ pub fn layout_factory(id: GraphSetId) -> Box<dyn View> {
     let layout = get_layout();
     let name = format!("{:?}", id);
 
-    fn resize_zleft<T: View>(layout: &Layout, view: T) -> impl View {
+    fn resize_one<T: View>(layout: &Layout, view: T) -> impl View {
         ResizedView::new(
-            SizeConstraint::Fixed(layout.left.x),
-            SizeConstraint::Fixed(layout.graph.y),
-            view,
-        )
-    }
-    fn resize_zright<T: View>(layout: &Layout, view: T) -> impl View {
-        ResizedView::new(
-            SizeConstraint::Fixed(layout.right.x),
+            SizeConstraint::Fixed(layout.half.x),
             SizeConstraint::Fixed(layout.graph.y),
             view,
         )
@@ -726,38 +719,38 @@ pub fn layout_factory(id: GraphSetId) -> Box<dyn View> {
                     LinearLayout::horizontal()
                         .child(
                             LinearLayout::vertical()
-                                .child(resize_zleft(&layout, panels.remove("hashd-A").unwrap()))
-                                .child(resize_zleft(&layout, panels.remove("mem-util").unwrap()))
-                                .child(resize_zleft(&layout, panels.remove("read-bps").unwrap()))
-                                .child(resize_zleft(&layout, panels.remove("mem-psi").unwrap()))
-                                .child(resize_zleft(&layout, panels.remove("cpu-psi").unwrap()))
-                                .child(resize_zleft(&layout, panels.remove("read-lat").unwrap())),
+                                .child(resize_one(&layout, panels.remove("hashd-A").unwrap()))
+                                .child(resize_one(&layout, panels.remove("mem-util").unwrap()))
+                                .child(resize_one(&layout, panels.remove("read-bps").unwrap()))
+                                .child(resize_one(&layout, panels.remove("mem-psi").unwrap()))
+                                .child(resize_one(&layout, panels.remove("cpu-psi").unwrap()))
+                                .child(resize_one(&layout, panels.remove("read-lat").unwrap())),
                         )
                         .child(
                             LinearLayout::vertical()
-                                .child(resize_zright(&layout, panels.remove("cpu-util").unwrap()))
-                                .child(resize_zright(&layout, panels.remove("swap-util").unwrap()))
-                                .child(resize_zright(&layout, panels.remove("write-bps").unwrap()))
-                                .child(resize_zright(&layout, panels.remove("io-psi").unwrap()))
-                                .child(resize_zright(&layout, panels.remove("iocost").unwrap()))
-                                .child(resize_zright(&layout, panels.remove("write-lat").unwrap())),
+                                .child(resize_one(&layout, panels.remove("cpu-util").unwrap()))
+                                .child(resize_one(&layout, panels.remove("swap-util").unwrap()))
+                                .child(resize_one(&layout, panels.remove("write-bps").unwrap()))
+                                .child(resize_one(&layout, panels.remove("io-psi").unwrap()))
+                                .child(resize_one(&layout, panels.remove("iocost").unwrap()))
+                                .child(resize_one(&layout, panels.remove("write-lat").unwrap())),
                         ),
                 )
             } else {
                 Box::new(
                     LinearLayout::vertical()
-                        .child(resize_zleft(&layout, panels.remove("hashd-A").unwrap()))
-                        .child(resize_zleft(&layout, panels.remove("cpu-util").unwrap()))
-                        .child(resize_zleft(&layout, panels.remove("mem-util").unwrap()))
-                        .child(resize_zleft(&layout, panels.remove("swap-util").unwrap()))
-                        .child(resize_zleft(&layout, panels.remove("cpu-psi").unwrap()))
-                        .child(resize_zleft(&layout, panels.remove("mem-psi").unwrap()))
-                        .child(resize_zleft(&layout, panels.remove("io-psi").unwrap()))
-                        .child(resize_zleft(&layout, panels.remove("iocost").unwrap()))
-                        .child(resize_zleft(&layout, panels.remove("read-bps").unwrap()))
-                        .child(resize_zleft(&layout, panels.remove("write-bps").unwrap()))
-                        .child(resize_zleft(&layout, panels.remove("read-lat").unwrap()))
-                        .child(resize_zleft(&layout, panels.remove("write-lat").unwrap())),
+                        .child(resize_one(&layout, panels.remove("hashd-A").unwrap()))
+                        .child(resize_one(&layout, panels.remove("cpu-util").unwrap()))
+                        .child(resize_one(&layout, panels.remove("mem-util").unwrap()))
+                        .child(resize_one(&layout, panels.remove("swap-util").unwrap()))
+                        .child(resize_one(&layout, panels.remove("cpu-psi").unwrap()))
+                        .child(resize_one(&layout, panels.remove("mem-psi").unwrap()))
+                        .child(resize_one(&layout, panels.remove("io-psi").unwrap()))
+                        .child(resize_one(&layout, panels.remove("iocost").unwrap()))
+                        .child(resize_one(&layout, panels.remove("read-bps").unwrap()))
+                        .child(resize_one(&layout, panels.remove("write-bps").unwrap()))
+                        .child(resize_one(&layout, panels.remove("read-lat").unwrap()))
+                        .child(resize_one(&layout, panels.remove("write-lat").unwrap())),
                 )
             }
         }

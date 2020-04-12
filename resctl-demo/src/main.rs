@@ -135,8 +135,7 @@ pub struct Layout {
     pub status: Vec2,
     pub usage: Vec2,
     pub main: Vec2,
-    pub left: Vec2,
-    pub right: Vec2,
+    pub half: Vec2,
     pub graph: Vec2,
     pub journal_top: Vec2,
     pub journal_bot: Vec2,
@@ -147,8 +146,7 @@ impl Layout {
     fn new(scr: Vec2) -> Self {
         let main_x = scr.x.max(UNIT_WIDTH) - 2;
         let horiz = main_x >= 2 * UNIT_WIDTH + 4;
-        let left_x = if horiz { main_x / 2 } else { main_x };
-        let right_x = if horiz { main_x - left_x } else { main_x };
+        let half_x = if horiz { main_x / 2 } else { main_x };
 
         let (main_y, journal_y, graph_y, doc_y);
         if horiz {
@@ -168,15 +166,14 @@ impl Layout {
         Self {
             screen: scr,
             horiz: horiz,
-            status: Vec2::new(left_x, STATUS_HEIGHT),
-            usage: Vec2::new(right_x, STATUS_HEIGHT),
+            status: Vec2::new(half_x, STATUS_HEIGHT),
+            usage: Vec2::new(half_x, STATUS_HEIGHT),
             main: Vec2::new(main_x, main_y),
-            left: Vec2::new(left_x, main_y),
-            right: Vec2::new(right_x, main_y),
-            graph: Vec2::new(left_x, graph_y),
-            journal_top: Vec2::new(left_x, journal_y),
-            journal_bot: Vec2::new(left_x, journal_y),
-            doc: Vec2::new(right_x, doc_y),
+            half: Vec2::new(half_x, main_y),
+            graph: Vec2::new(half_x, graph_y),
+            journal_top: Vec2::new(half_x, journal_y),
+            journal_bot: Vec2::new(half_x, journal_y),
+            doc: Vec2::new(half_x, doc_y),
         }
     }
 }
