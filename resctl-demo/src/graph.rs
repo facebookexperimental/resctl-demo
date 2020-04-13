@@ -812,11 +812,11 @@ pub fn layout_factory(id: GraphSetId) -> Box<dyn View> {
                     .child(
                         horiz_or_vert()
                             .child(graph(GraphTag::HashdA))
-                            .child(graph(GraphTag::CpuPsi)),
+                            .child(graph(GraphTag::MemPsi)),
                     )
                     .child(
                         horiz_or_vert()
-                            .child(graph(GraphTag::MemPsi))
+                            .child(graph(GraphTag::CpuPsi))
                             .child(graph(GraphTag::IoPsi)),
                     ),
             );
@@ -827,11 +827,11 @@ pub fn layout_factory(id: GraphSetId) -> Box<dyn View> {
                     .child(
                         horiz_or_vert()
                             .child(graph(GraphTag::SwapUtil))
-                            .child(graph(GraphTag::CpuUtil)),
+                            .child(graph(GraphTag::MemUtil)),
                     )
                     .child(
                         horiz_or_vert()
-                            .child(graph(GraphTag::MemUtil))
+                            .child(graph(GraphTag::CpuUtil))
                             .child(graph(GraphTag::IoUtil)),
                     ),
             );
