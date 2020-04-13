@@ -764,8 +764,12 @@ pub fn layout_factory(id: GraphSetId) -> Box<dyn View> {
 
     fn graph_tab_title(focus: usize) -> impl View {
         let mut buf = StyledString::new();
-        let mut titles: [String; GRAPH_NR_TABS] =
-            [" rps/psi ".into(), " utilization ".into(), " IO ".into(), " Misc ".into()];
+        let mut titles: [String; GRAPH_NR_TABS] = [
+            " rps/psi ".into(),
+            " utilization ".into(),
+            " IO ".into(),
+            " Misc ".into(),
+        ];
         let mut styles: [Style; GRAPH_NR_TABS] = [COLOR_INACTIVE.into(); GRAPH_NR_TABS];
 
         titles[focus] = format!("[{}]", titles[focus].trim());
@@ -823,12 +827,12 @@ pub fn layout_factory(id: GraphSetId) -> Box<dyn View> {
                     .child(
                         horiz_or_vert()
                             .child(graph(GraphTag::SwapUtil))
-                            .child(graph(GraphTag::CpuUtil))
+                            .child(graph(GraphTag::CpuUtil)),
                     )
                     .child(
                         horiz_or_vert()
                             .child(graph(GraphTag::MemUtil))
-                            .child(graph(GraphTag::IoUtil))
+                            .child(graph(GraphTag::IoUtil)),
                     ),
             );
             tabs.add_tab(
@@ -850,7 +854,16 @@ pub fn layout_factory(id: GraphSetId) -> Box<dyn View> {
                 3,
                 LinearLayout::vertical()
                     .child(graph_tab_title(3))
-                    .child(horiz_or_vert().child(graph(GraphTag::IoCost))),
+                    .child(
+                        horiz_or_vert()
+                            .child(graph(GraphTag::IoCost))
+                            .child(resize_one(&layout, DummyView)),
+                    )
+                    .child(
+                        horiz_or_vert()
+                            .child(resize_one(&layout, DummyView))
+                            .child(resize_one(&layout, DummyView)),
+                    ),
             );
 
             let _ = tabs.set_active_tab(*GRAPH_TAB_IDX.lock().unwrap());
