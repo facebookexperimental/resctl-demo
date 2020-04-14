@@ -166,6 +166,7 @@ a value argument or prompt.
 %% knob   sys-cpu-ratio          : system CPU weight compared to workload   :
 %% knob   sys-io-ratio           : system IO weight compared to workload    :
 %% knob   mem-margin             : Memory for the rest of the system        :
+%% knob   balloon                : Memory balloon size                      :
 
 Reset commands are shortcuts to restore to default configurations.
 

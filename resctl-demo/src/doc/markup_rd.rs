@@ -53,6 +53,7 @@ pub enum RdKnob {
     SysCpuRatio,
     SysIoRatio,
     MemMargin,
+    Balloon,
 }
 
 #[derive(Debug, Clone)]
@@ -292,6 +293,7 @@ impl RdCmd {
                     "sys-cpu-ratio" => RdKnob::SysCpuRatio,
                     "sys-io-ratio" => RdKnob::SysIoRatio,
                     "mem-margin" => RdKnob::MemMargin,
+                    "balloon" => RdKnob::Balloon,
                     _ => bail!("invalid knob target"),
                 };
                 RdCmd::Knob(knob, val)

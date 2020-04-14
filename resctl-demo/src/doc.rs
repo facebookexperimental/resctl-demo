@@ -228,6 +228,7 @@ fn exec_cmd(siv: &mut Cursive, cmd: &RdCmd) {
             RdKnob::SysCpuRatio => cs.sys_cpu_ratio = *val,
             RdKnob::SysIoRatio => cs.sys_io_ratio = *val,
             RdKnob::MemMargin => cs.mem_margin = *val,
+            RdKnob::Balloon => cs.balloon_ratio = *val,
         },
         RdCmd::Reset(reset) => {
             let reset_hashds = |cs: &mut CmdState| {
@@ -339,6 +340,7 @@ fn format_knob_val(knob: &RdKnob, ratio: f64) -> String {
             format_size(ratio * bench.iocost.model.wbps as f64)
         }
         RdKnob::MemMargin => format_size(ratio * *TOTAL_MEMORY as f64),
+        RdKnob::Balloon => format_size(ratio * *TOTAL_MEMORY as f64),
         _ => format_pct(ratio) + "%",
     };
 
@@ -459,6 +461,7 @@ fn refresh_knobs(siv: &mut Cursive, cs: &CmdState) {
     refresh_one_knob(siv, RdKnob::SysCpuRatio, cs.sys_cpu_ratio);
     refresh_one_knob(siv, RdKnob::SysIoRatio, cs.sys_io_ratio);
     refresh_one_knob(siv, RdKnob::MemMargin, cs.mem_margin);
+    refresh_one_knob(siv, RdKnob::Balloon, cs.balloon_ratio);
 }
 
 fn refresh_docs(siv: &mut Cursive) {
