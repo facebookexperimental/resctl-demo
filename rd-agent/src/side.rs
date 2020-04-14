@@ -33,11 +33,15 @@ lazy_static! {
 const LINUX_TAR_XZ_URL: &str =
     "https://mirrors.edge.kernel.org/pub/linux/kernel/v5.x/linux-5.5.4.tar.xz";
 
-const SIDE_BINS: [(&str, &[u8]); 3] = [
+const SIDE_BINS: [(&str, &[u8]); 4] = [
     ("build-linux.sh", include_bytes!("side/build-linux.sh")),
     (
         "dlxu-memory-growth.py",
         include_bytes!("side/dlxu-memory-growth.py"),
+    ),
+    (
+        "memory-balloon.py",
+        include_bytes!("side/memory-balloon.py"),
     ),
     ("tar-bomb.sh", include_bytes!("side/tar-bomb.sh")),
 ];
@@ -381,5 +385,68 @@ impl SideRunner {
             );
         }
         Ok(rep)
+    }
+}
+
+pub struct Balloon {
+    cfg: Arc<Config>,
+    size: usize,
+    svc: Option<TransientService>,
+}
+
+impl Balloon {
+    const UNIT_NAME: &'static str = "rd-balloon.service";
+
+    pub fn new(cfg: Arc<Config>) -> Self {
+        match systemd::Unit::new_sys(Self::UNIT_NAME.into()) {
+            Ok(mut unit) => {
+                if let Err(e) = unit.stop_and_reset() {
+                    warn!("balloon: Failed to stop {:?} ({:?})", Self::UNIT_NAME, &e);
+                }
+            }
+            Err(e) => warn!(
+                "balloon: Failed to create unit for {:?} ({:?})",
+                Self::UNIT_NAME,
+                &e
+            ),
+        }
+        Self {
+            cfg,
+            svc: None,
+            size: 0,
+        }
+    }
+
+    pub fn set_size(&mut self, size: usize) -> Result<()> {
+        if self.size == size {
+            if let Some(svc) = self.svc.as_mut() {
+                if let Ok(()) = svc.unit.refresh() {
+                    if svc.unit.state == systemd::UnitState::Running {
+                        return Ok(());
+                    }
+                }
+            }
+        }
+
+        self.svc.take();
+
+        if size == 0 {
+            return Ok(());
+        }
+
+        let mut svc = TransientService::new_sys(
+            Self::UNIT_NAME.into(),
+            vec![self.cfg.balloon_bin.clone(), format!("{}", size)],
+            vec![],
+            Some(0o002),
+        )?;
+
+        svc.set_slice(Slice::Sys.name())
+            .add_prop("MemorySwapMax".into(), systemd::Prop::U64(0));
+        svc.start()?;
+
+        self.size = size;
+        self.svc = Some(svc);
+        Ok(())
     }
 }

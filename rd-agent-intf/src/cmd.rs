@@ -101,6 +101,7 @@ pub struct Cmd {
     pub hashd: [HashdCmd; 2],
     pub sysloads: BTreeMap<String, String>,
     pub sideloads: BTreeMap<String, String>,
+    pub balloon_ratio: f64,
 }
 
 impl Default for Cmd {
@@ -112,6 +113,7 @@ impl Default for Cmd {
             hashd: Default::default(),
             sysloads: BTreeMap::new(),
             sideloads: BTreeMap::new(),
+            balloon_ratio: 0.0,
         }
     }
 }
