@@ -70,15 +70,11 @@ impl Hashd {
         let rps_target = ((self.rps_max as f64 * cmd.rps_target_ratio).round() as u32).max(1);
         let log_bps = (max_wbps as f64 * cmd.write_ratio).round() as u64;
 
-        let bench_size = (knobs.actual_mem_size() as f64).max(1.0);
-        let sys_size = *TOTAL_MEMORY as f64 - mem_low as f64;
-        let max_size = bench_size - sys_size;
         let mem_ratio = match cmd.mem_ratio {
             Some(v) => v,
             None => knobs.mem_frac,
         };
-        let target_size = max_size * mem_ratio;
-        let mem_frac = (target_size / bench_size).max(0.0).min(1.0);
+        let mem_frac = mem_ratio * (mem_low as f64 / *TOTAL_MEMORY as f64);
 
         let mut params = rd_hashd_intf::Params::load(&self.params_path)?;
         let mut changed = false;
