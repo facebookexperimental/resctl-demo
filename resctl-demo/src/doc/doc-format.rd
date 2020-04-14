@@ -71,6 +71,10 @@ The followings are all available commands.
 %% off    bench-hashd            : [ Stop hashd benchmark ]
 %% toggle bench-hashd            : Toggle hashd benchmark
 %%
+%% on     bench-hashd-loop       : [ Start hashd benchmark loop ]
+%% off    bench-hashd-loop       : [ Stop hashd benchmark loop ]
+%% toggle bench-hashd-loop       : Toggle hashd benchmark loop
+%%
 %% on     hashd                  : [ Start hashd ]
 %% off    hashd                  : [ Stop hashd ]
 %% toggle hashd                  : Toggle hashd

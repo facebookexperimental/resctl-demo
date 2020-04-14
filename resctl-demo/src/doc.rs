@@ -168,6 +168,13 @@ fn exec_cmd(siv: &mut Cursive, cmd: &RdCmd) {
                 RdSwitch::BenchHashd => {
                     cs.bench_hashd_next = cs.bench_hashd_cur + if is_on { 1 } else { 0 };
                 }
+                RdSwitch::BenchHashdLoop => {
+                    cs.bench_hashd_next = if is_on {
+                        std::u64::MAX
+                    } else {
+                        cs.bench_hashd_cur
+                    };
+                }
                 RdSwitch::BenchIoCost => {
                     cs.bench_iocost_next = cs.bench_iocost_cur + if is_on { 1 } else { 0 };
                 }
@@ -355,6 +362,10 @@ fn refresh_toggles(siv: &mut Cursive, cs: &CmdState) {
     siv.call_on_name(
         &format!("{:?}", RdSwitch::BenchHashd),
         |c: &mut Checkbox| c.set_checked(cs.bench_hashd_next > cs.bench_hashd_cur),
+    );
+    siv.call_on_name(
+        &format!("{:?}", RdSwitch::BenchHashdLoop),
+        |c: &mut Checkbox| c.set_checked(cs.bench_hashd_next == std::u64::MAX),
     );
     siv.call_on_name(
         &format!("{:?}", RdSwitch::BenchIoCost),

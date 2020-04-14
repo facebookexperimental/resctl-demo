@@ -19,6 +19,7 @@ const RD_COMMENT_PREFIX: &str = "## ";
 #[derive(Debug, Clone)]
 pub enum RdSwitch {
     BenchHashd,
+    BenchHashdLoop,
     BenchIoCost,
     BenchNeeded,
     HashdA,
@@ -222,6 +223,7 @@ impl RdCmd {
                 }
                 let sw = match args[1] {
                     "bench-hashd" => RdSwitch::BenchHashd,
+                    "bench-hashd-loop" => RdSwitch::BenchHashdLoop,
                     "bench-iocost" => RdSwitch::BenchIoCost,
                     "bench-needed" => RdSwitch::BenchNeeded,
                     "hashd" | "hashd-A" => RdSwitch::HashdA,
