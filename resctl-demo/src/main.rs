@@ -59,6 +59,8 @@ pub const COLOR_GRAPH_3: Color = Color::Light(BaseColor::Magenta);
 lazy_static! {
     static ref ARGS_STR: String = format!(
         "-d, --dir=[TOPDIR]     'Top-level dir for operation and scratch files (default: {dfl_dir})'
+         -D, --dev=[DEVICE]     'Scratch device override (e.g. nvme0n1)'
+         -l, --linux=[PATH]     'Path to linux.tar, downloaded automatically if not specified'
          -k, --keep             'Do not shutdown rd-agent on exit'
              --force            'Ignore startup check failures'",
         dfl_dir = DFL_TOP,
@@ -110,6 +112,8 @@ lazy_static! {
 
 pub struct Args {
     pub dir: String,
+    pub dev: String,
+    pub linux_tar: String,
     pub keep: bool,
     pub force: bool,
 }
@@ -462,6 +466,8 @@ fn main() {
             Some(v) => v.into(),
             None => DFL_TOP.into(),
         },
+        dev: matches.value_of("dev").unwrap_or("").into(),
+        linux_tar: matches.value_of("linux").unwrap_or("").into(),
         keep: matches.is_present("keep"),
         force: matches.is_present("force"),
     };

@@ -29,7 +29,12 @@ lazy_static! {
     pub static ref AGENT_MINDER: Mutex<AgentMinder> = {
         let args_guard = ARGS.lock().unwrap();
         let args = args_guard.as_ref().unwrap();
-        Mutex::new(AgentMinder::new(&args.dir, args.keep))
+        Mutex::new(AgentMinder::new(
+            &args.dir,
+            &args.dev,
+            &args.linux_tar,
+            args.keep,
+        ))
     };
 }
 
@@ -155,14 +160,26 @@ pub struct AgentMinder {
 }
 
 impl AgentMinder {
-    fn new(dir: &str, keep: bool) -> Self {
+    fn new(dir: &str, dev: &str, linux_tar: &str, keep: bool) -> Self {
         let agent_args = &AGENT_FILES.files.lock().unwrap().args.data;
+
+        let dev = if dev.len() > 0 {
+            dev.to_string()
+        } else {
+            agent_args.dev.as_deref().unwrap_or("").to_string()
+        };
+
+        let linux_tar = if linux_tar.len() > 0 {
+            linux_tar.to_string()
+        } else {
+            agent_args.linux_tar.as_deref().unwrap_or("").to_string()
+        };
 
         let am = Self {
             dir: dir.into(),
             scratch: agent_args.scratch.as_deref().unwrap_or("").into(),
-            dev: agent_args.dev.as_deref().unwrap_or("").into(),
-            linux_tar: agent_args.linux_tar.as_deref().unwrap_or("").into(),
+            dev,
+            linux_tar,
             force: false,
             keep,
             seen_running: false,
