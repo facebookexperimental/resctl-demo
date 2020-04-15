@@ -82,7 +82,7 @@ struct Cfg {
 impl Default for Cfg {
     fn default() -> Self {
         Self {
-            mem_buffer: 0.1,
+            mem_buffer: 0.05,
             cpu: CpuCfg {
                 size: 1 << 30,
                 lat: 10.0 * MSEC,
@@ -863,14 +863,14 @@ impl Bench {
 
             if self.memio_bisect_round(cfg, &cfg.bisect_converge, &th) {
                 if was_right {
-                    right.clear();
+                    right.pop_back();
                     right.push_front(left.pop_front().unwrap());
                 } else {
                     break;
                 }
             } else {
                 if !was_right {
-                    left.clear();
+                    left.pop_back();
                     left.push_front(right.pop_front().unwrap());
                 } else {
                     break;
