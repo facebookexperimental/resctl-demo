@@ -94,9 +94,9 @@ points to an entry in sideload-defs.json and determines the specific workload.
 %% off sideload test-mem                          : [ Stop a 25% memory growth sideload ]
 %% toggle sideload test-mem memory-growth-25pct   : Toggle a 25% memory growth sideload
 %%
-%% on sideload test-io tar-bomb                   : [ Start an IO bomb sideload ]
-%% off sideload test-io                           : [ Stop an IO bomb sideload ]
-%% toggle sideload test-io tar-bomb               : Toggle an IO bomb sideload
+%% on sideload test-io read-bomb                  : [ Start a read bomb sideload ]
+%% off sideload test-io                           : [ Stop a read bomb sideload ]
+%% toggle sideload test-io read-bomb              : Toggle a read bomb sideload
 
 A sysload is a sideload which is run under system.slice without the supervision
 of sideloader and can be used to illustrate oomd workload protection or the need
@@ -110,9 +110,9 @@ for sideloader.
 %% off sysload test-mem                          : [ Stop a 25% memory growth sysload ]
 %% toggle sysload test-mem memory-growth-25pct   : Toggle a 25% memory growth sysload
 %%
-%% on sysload test-io tar-bomb                   : [ Start an IO bomb sysload ]
-%% off sysload test-io                           : [ Stop an IO bomb sysload ]
-%% toggle sysload test-io tar-bomb               : Toggle an IO bomb sysload
+%% on sysload test-io read-bomb                  : [ Start a read bomb sysload ]
+%% off sysload test-io                           : [ Stop a read bomb sysload ]
+%% toggle sysload test-io read-bomb              : Toggle a read bomb sysload
 %%
 %% on     cpu-resctl             : [ Turn on CPU resource protection ]
 %% off    cpu-resctl             : [ Turn off CPU resource protection ]

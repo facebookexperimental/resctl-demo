@@ -40,7 +40,7 @@ const SIDE_BINS: [(&str, &[u8]); 4] = [
         "memory-balloon.py",
         include_bytes!("side/memory-balloon.py"),
     ),
-    ("tar-bomb.sh", include_bytes!("side/tar-bomb.sh")),
+    ("read-bomb.py", include_bytes!("side/read-bomb.py")),
 ];
 
 fn prepare_side_bins(cfg: &Config) -> Result<()> {
