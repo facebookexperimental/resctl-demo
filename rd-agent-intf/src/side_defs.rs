@@ -86,23 +86,23 @@ impl Default for SideloadDefs {
                     },
                 ),
                 (
-                    "memory-growth-10mbps".into(),
+                    "memory-growth-10pct".into(),
                     SideloadSpec {
-                        args: vec!["dlxu-memory-growth.py".into(), "10".into()],
+                        args: vec!["memory-growth.py".into(), "15%".into(), "10%".into()],
                         frozen_exp: 60,
                     },
                 ),
                 (
-                    "memory-growth-50mbps".into(),
+                    "memory-growth-25pct".into(),
                     SideloadSpec {
-                        args: vec!["dlxu-memory-growth.py".into(), "50".into()],
+                        args: vec!["memory-growth.py".into(), "30%".into(), "25%".into()],
                         frozen_exp: 60,
                     },
                 ),
                 (
-                    "memory-growth-100mbps".into(),
+                    "memory-growth-50pct".into(),
                     SideloadSpec {
-                        args: vec!["dlxu-memory-growth.py".into(), "100".into()],
+                        args: vec!["memory-growth.py".into(), "55%".into(), "50%".into()],
                         frozen_exp: 60,
                     },
                 ),

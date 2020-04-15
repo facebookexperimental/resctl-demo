@@ -14,8 +14,8 @@ use std::time::{Duration, Instant};
 use util::*;
 
 use rd_agent_intf::{
-    SideloadDefs, SideloadReport, SideloadSpec, Slice, SysReq, SysloadReport, SIDELOAD_SVC_PREFIX,
-    SYSLOAD_SVC_PREFIX,
+    BenchKnobs, SideloadDefs, SideloadReport, SideloadSpec, Slice, SysReq, SysloadReport,
+    SIDELOAD_SVC_PREFIX, SYSLOAD_SVC_PREFIX,
 };
 
 fn sysload_svc_name(name: &str) -> String {
@@ -35,10 +35,7 @@ const LINUX_TAR_XZ_URL: &str =
 
 const SIDE_BINS: [(&str, &[u8]); 4] = [
     ("build-linux.sh", include_bytes!("side/build-linux.sh")),
-    (
-        "dlxu-memory-growth.py",
-        include_bytes!("side/dlxu-memory-growth.py"),
-    ),
+    ("memory-growth.py", include_bytes!("side/memory-growth.py")),
     (
         "memory-balloon.py",
         include_bytes!("side/memory-balloon.py"),
@@ -112,7 +109,7 @@ pub fn prepare_sides(cfg: &Config) -> Result<()> {
 }
 
 pub fn startup_checks(sr_failed: &mut HashSet<SysReq>) {
-    for bin in &["gcc", "ld", "make", "bison", "flex", "pkg-config", "nproc"] {
+    for bin in &["gcc", "ld", "make", "bison", "flex", "pkg-config"] {
         if find_bin(bin, Option::<&str>::None).is_none() {
             error!("side: binary dependency {:?} is missing", bin);
             sr_failed.insert(SysReq::Dependencies);
@@ -180,6 +177,7 @@ impl Drop for Sysload {
 struct SideloaderJob {
     id: String,
     args: Vec<String>,
+    envs: Vec<String>,
     frozen_expiration: u32,
     working_dir: String,
 }
@@ -260,7 +258,7 @@ impl SideRunner {
         Ok(spec)
     }
 
-    fn prep_scr_dir(&self, dir: &str, name: &str) -> Result<String> {
+    fn prep_scr_dir(dir: &str, name: &str) -> Result<String> {
         let scr_path = format!("{}/{}", dir, name);
         match fs::create_dir_all(&scr_path) {
             Ok(()) => Ok(scr_path),
@@ -268,10 +266,26 @@ impl SideRunner {
         }
     }
 
+    fn envs(&self, bench: &BenchKnobs) -> Vec<String> {
+        let cfg = &self.cfg;
+
+        vec![
+            format!("NR_CPUS={}", *NR_CPUS),
+            format!("TOTAL_MEMORY={}", *TOTAL_MEMORY),
+            format!("TOTAL_SWAP={}", *TOTAL_SWAP),
+            format!("ROTATIONAL_SWAP={}", if *ROTATIONAL_SWAP { 1 } else { 0 }),
+            format!("IO_DEV={}", &cfg.scr_dev),
+            format!("IO_DEVNR={}:{}", cfg.scr_devnr.0, cfg.scr_devnr.1),
+            format!("IO_RBPS={}", bench.iocost.model.rbps),
+            format!("IO_WBPS={}", bench.iocost.model.wbps),
+        ]
+    }
+
     pub fn apply_sysloads(
         &mut self,
         target: &BTreeMap<String, String>,
         defs: &SideloadDefs,
+        bench: &BenchKnobs,
         mut removed: Option<&mut Vec<Sysload>>,
     ) -> Result<()> {
         let sysloads = &mut self.sysloads;
@@ -293,10 +307,10 @@ impl SideRunner {
             let mut svc = TransientService::new_sys(
                 sysload_svc_name(name),
                 spec.args.clone(),
-                vec![],
+                self.envs(bench),
                 Some(0o002),
             )?;
-            let scr_path = self.prep_scr_dir(&self.cfg.sys_scr_path, name)?;
+            let scr_path = Self::prep_scr_dir(&self.cfg.sys_scr_path, name)?;
             svc.set_slice(Slice::Sys.name()).set_working_dir(&scr_path);
 
             let mut sysload = Sysload { scr_path, svc };
@@ -314,6 +328,7 @@ impl SideRunner {
         &mut self,
         target: &BTreeMap<String, String>,
         defs: &SideloadDefs,
+        bench: &BenchKnobs,
         mut removed: Option<&mut Vec<Sideload>>,
     ) -> Result<()> {
         let sideloads = &mut self.sideloads;
@@ -332,12 +347,13 @@ impl SideRunner {
         for name in target_keys.difference(&active_keys) {
             let spec = self.verify_and_lookup_svc(name, target.get(name).unwrap(), defs)?;
             let job_path = format!("{}/{}.json", &self.cfg.sideloader_daemon_jobs_path, name);
-            let scr_path = self.prep_scr_dir(&self.cfg.side_scr_path, name)?;
+            let scr_path = Self::prep_scr_dir(&self.cfg.side_scr_path, name)?;
 
             let jobs = SideloaderJobs {
                 sideloader_jobs: vec![SideloaderJob {
                     id: name.into(),
                     args: spec.args.clone(),
+                    envs: self.envs(bench),
                     frozen_expiration: spec.frozen_exp,
                     working_dir: scr_path.clone(),
                 }],

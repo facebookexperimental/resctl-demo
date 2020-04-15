@@ -213,6 +213,7 @@ impl RunnerData {
                     if let Err(e) = self.side_runner.apply_sysloads(
                         sysload_target,
                         side_defs,
+                        &self.sobjs.bench_file.data,
                         Some(removed_sysloads),
                     ) {
                         warn!("cmd: Failed to apply sysload changes ({:?})", &e);
@@ -221,6 +222,7 @@ impl RunnerData {
                     if let Err(e) = self.side_runner.apply_sideloads(
                         sideload_target,
                         side_defs,
+                        &self.sobjs.bench_file.data,
                         Some(removed_sideloads),
                     ) {
                         warn!("cmd: Failed to apply sideload changes ({:?})", &e);

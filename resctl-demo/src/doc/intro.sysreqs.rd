@@ -114,8 +114,8 @@ there, what automatic configurations resctl-demo may apply and how to resolve if
   changes to take effect either the machine or services need to be restarted.
 
 * %SysReq::Dependencies%: 'python3', 'findmnt', 'dd', 'fio', 'stdbuf', 'gcc',
-  'ld', 'make', 'bison', 'flex', 'pkg-config', 'nproc', 'libssl' and 'libelf'
-  must be available on the system.
+  'ld', 'make', 'bison', 'flex', 'pkg-config', 'libssl' and 'libelf' must be
+  available on the system.
 
   Install the needed packages.
 

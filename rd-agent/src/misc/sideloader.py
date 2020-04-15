@@ -266,6 +266,7 @@ class Job:
         self.jobfile = jobfile
         self.jobid = jobid
         self.args = cfg['args']
+        self.envs = cfg['envs']
         self.frozen_exp = frozen_exp
         self.frozen_at = None
         self.done = False
@@ -1044,6 +1045,8 @@ while True:
             if job.working_dir is not None:
                 cmd += ['--working-directory', job.working_dir]
             cmd += job.args
+            for env in job.envs:
+                cmd += ['-E', env]
             subprocess.run(cmd)
         jobs_pending = {}
 

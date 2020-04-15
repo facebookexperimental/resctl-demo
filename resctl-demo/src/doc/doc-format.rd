@@ -90,9 +90,9 @@ points to an entry in sideload-defs.json and determines the specific workload.
 %% off sideload test-build                        : [ Stop a linux build sideload ]
 %% toggle sideload test-build build-linux-4x      : Toggle a linux build sideload
 %%
-%% on sideload test-mem memory-growth-100mbps     : [ Start a 100MBPS memory growth sideload ]
-%% off sideload test-mem                          : [ Stop a 100MBPS memory growth sideload ]
-%% toggle sideload test-mem memory-growth-100mbps : Toggle a 100MBPS memory growth sideload
+%% on sideload test-mem memory-growth-25pct       : [ Start a 25% memory growth sideload ]
+%% off sideload test-mem                          : [ Stop a 25% memory growth sideload ]
+%% toggle sideload test-mem memory-growth-25pct   : Toggle a 25% memory growth sideload
 %%
 %% on sideload test-io tar-bomb                   : [ Start an IO bomb sideload ]
 %% off sideload test-io                           : [ Stop an IO bomb sideload ]
@@ -106,9 +106,9 @@ for sideloader.
 %% off sysload test-build                        : [ Stop a linux build sysload ]
 %% toggle sysload test-build build-linux-4x      : Toggle a linux build sysload
 %%
-%% on sysload test-mem memory-growth-100mbps     : [ Start a 100MBPS memory growth sysload ]
-%% off sysload test-mem                          : [ Stop a 100MBPS memory growth sysload ]
-%% toggle sysload test-mem memory-growth-100mbps : Toggle a 100MBPS memory growth sysload
+%% on sysload test-mem memory-growth-25pct       : [ Start a 25% memory growth sysload ]
+%% off sysload test-mem                          : [ Stop a 25% memory growth sysload ]
+%% toggle sysload test-mem memory-growth-25pct   : Toggle a 25% memory growth sysload
 %%
 %% on sysload test-io tar-bomb                   : [ Start an IO bomb sysload ]
 %% off sysload test-io                           : [ Stop an IO bomb sysload ]
