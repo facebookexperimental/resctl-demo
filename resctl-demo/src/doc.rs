@@ -231,6 +231,10 @@ fn exec_cmd(siv: &mut Cursive, cmd: &RdCmd) {
             RdKnob::Balloon => cs.balloon_ratio = *val,
         },
         RdCmd::Reset(reset) => {
+            let reset_benches = |cs: &mut CmdState| {
+                cs.bench_hashd_next = cs.bench_hashd_cur;
+                cs.bench_iocost_next = cs.bench_iocost_cur;
+            };
             let reset_hashds = |cs: &mut CmdState| {
                 cs.hashd[0].active = false;
                 cs.hashd[1].active = false;
@@ -258,6 +262,7 @@ fn exec_cmd(siv: &mut Cursive, cmd: &RdCmd) {
                 cs.sys_cpu_ratio = SliceConfig::DFL_SYS_CPU_RATIO;
                 cs.sys_io_ratio = SliceConfig::DFL_SYS_IO_RATIO;
                 cs.mem_margin = SliceConfig::dfl_mem_margin() as f64 / *TOTAL_MEMORY as f64;
+                cs.balloon_ratio = 0.0;
             };
             let reset_oomd = |cs: &mut CmdState| {
                 cs.oomd = true;
@@ -267,6 +272,7 @@ fn exec_cmd(siv: &mut Cursive, cmd: &RdCmd) {
                 cs.oomd_sys_senpai = false;
             };
             let reset_all = |cs: &mut CmdState| {
+                reset_benches(cs);
                 reset_hashds(cs);
                 reset_secondaries(cs);
                 reset_resctl(cs);
@@ -274,10 +280,7 @@ fn exec_cmd(siv: &mut Cursive, cmd: &RdCmd) {
             };
 
             match reset {
-                RdReset::Benches => {
-                    cs.bench_hashd_next = cs.bench_hashd_cur;
-                    cs.bench_iocost_next = cs.bench_iocost_cur;
-                }
+                RdReset::Benches => reset_benches(&mut cs),
                 RdReset::Hashds => reset_hashds(&mut cs),
                 RdReset::HashdParams => reset_hashd_params(&mut cs),
                 RdReset::Sideloads => cs.sideloads.clear(),
