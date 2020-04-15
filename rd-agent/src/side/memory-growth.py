@@ -3,6 +3,7 @@
 
 import os
 import sys
+import math
 import mmap
 import time
 
@@ -77,7 +78,7 @@ def run():
             cnt += 1
 
         cnt = 0
-        while rdebt >= PAGE_SZ and cnt < SWAP_CLUSTER_MAX:
+        while rdebt >= PAGE_SZ and cnt < math.ceil(SWAP_CLUSTER_MAX * rbps / wbps):
             read_next_page()
             rdebt -= PAGE_SZ
             cnt += 1
