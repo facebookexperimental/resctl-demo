@@ -297,6 +297,20 @@ impl AgentMinder {
     }
 }
 
+impl Drop for AgentMinder {
+    fn drop(&mut self) {
+        if self.keep {
+            return;
+        }
+        if let Some(_) = self.svc.as_mut() {
+            return;
+        }
+        if let Ok(mut unit) = systemd::Unit::new(false, AGENT_SVC_NAME.into()) {
+            let _ = unit.stop_and_reset();
+        }
+    }
+}
+
 pub fn refresh_agent_states(cb_sink: &cursive::CbSink) {
     AGENT_FILES.refresh();
     AGENT_MINDER.lock().unwrap().mind(cb_sink);
