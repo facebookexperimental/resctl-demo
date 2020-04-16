@@ -167,7 +167,9 @@ pub struct Args {
 }
 
 impl Args {
-    pub const DFL_FILE_MAX_FRAC: f64 = 0.25;
+    pub const DFL_SIZE_MULT: u64 = 3;
+    //pub const DFL_FILE_MAX_FRAC: f64 = 0.25;
+    pub const DFL_FILE_MAX_FRAC: f64 = 1.0; // XXX - only do files till kernel anon handling is fixed
 
     pub fn file_max_size(&self) -> u64 {
         (self.size as f64 * self.file_max_frac).ceil() as u64
@@ -176,11 +178,9 @@ impl Args {
 
 impl Default for Args {
     fn default() -> Self {
-        let size: u64 = 3 * *TOTAL_MEMORY as u64;
-
         Self {
             testfiles: None,
-            size,
+            size: Self::DFL_SIZE_MULT * *TOTAL_MEMORY as u64,
             file_max_frac: Self::DFL_FILE_MAX_FRAC,
             params: None,
             report: None,
