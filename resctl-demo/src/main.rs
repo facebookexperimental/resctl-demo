@@ -69,7 +69,7 @@ lazy_static! {
     pub static ref TEMP_DIR: tempfile::TempDir = tempfile::tempdir().unwrap();
     static ref UPDATERS: Mutex<Updaters> = Mutex::new(Default::default());
     static ref LAYOUT: Mutex<Layout> = Mutex::new(Layout::new(Vec2::new(0, 0)));
-    static ref ZOOMED_VIEW: Mutex<Option<ZoomedView>> = Mutex::new(None);
+    static ref ZOOMED_VIEW: Mutex<Vec<ZoomedView>> = Mutex::new(Vec::new());
     pub static ref STYLE_ALERT: Style = Style {
         effects: Effect::Bold | Effect::Reverse,
         color: Some(COLOR_ALERT.into()),
@@ -187,8 +187,8 @@ pub fn get_layout() -> Layout {
 }
 
 fn add_zoomed_layer(siv: &mut Cursive) {
-    let zv = *ZOOMED_VIEW.lock().unwrap();
-    let (view, fs): (Box<dyn View>, bool) = match zv {
+    let zv = ZOOMED_VIEW.lock().unwrap();
+    let (view, fs): (Box<dyn View>, bool) = match zv.last() {
         Some(ZoomedView::Agent) => (agent::layout_factory(), false),
         Some(ZoomedView::Graphs) => (graph::layout_factory(GraphSetId::FullScreen), true),
         Some(ZoomedView::Journals) => (journal::layout_factory(JournalViewId::FullScreen), true),
@@ -207,7 +207,7 @@ fn add_zoomed_layer(siv: &mut Cursive) {
         siv.add_layer(BoxedView::new(view));
     }
 
-    match zv {
+    match zv.last() {
         Some(ZoomedView::Agent) => agent::post_zoomed_layout(siv),
         Some(ZoomedView::Journals) => journal::post_zoomed_layout(siv),
         _ => (),
@@ -262,9 +262,10 @@ fn refresh_layout(siv: &mut Cursive, layout: &Layout) {
     add_zoomed_layer(siv);
 
     doc::post_layout(siv);
+    graph::post_layout(siv);
 }
 
-fn kick_refresh(siv: &mut Cursive) {
+pub fn kick_refresh(siv: &mut Cursive) {
     prog_kick();
     for (_id, upds) in UPDATERS.lock().unwrap().journal.iter() {
         for upd in upds.iter() {
@@ -288,20 +289,20 @@ fn refresh_layout_and_kick(siv: &mut Cursive) {
 fn update_agent_zoomed_view(siv: &mut Cursive) {
     if AGENT_ZV_REQ.load(Ordering::Relaxed) {
         let mut zv = ZOOMED_VIEW.lock().unwrap();
-        match *zv {
+        match zv.last() {
             Some(ZoomedView::Agent) => return,
             Some(_) => {
                 siv.pop_layer();
             }
             _ => (),
         }
-        (*zv).replace(ZoomedView::Agent);
+        zv.push(ZoomedView::Agent);
     } else {
         let mut zv = ZOOMED_VIEW.lock().unwrap();
-        match *zv {
+        match zv.last() {
             Some(ZoomedView::Agent) => {
                 siv.pop_layer();
-                zv.take();
+                zv.pop();
                 AGENT_FILES.refresh();
                 if AGENT_FILES.sysreqs().missed.len() > 0 {
                     doc::show_doc(siv, "intro.sysreqs", true);
@@ -316,21 +317,36 @@ fn update_agent_zoomed_view(siv: &mut Cursive) {
 
 fn toggle_zoomed_view(siv: &mut Cursive, target: Option<ZoomedView>) {
     let mut zv = ZOOMED_VIEW.lock().unwrap();
-    match *zv {
+    match zv.last() {
         Some(ZoomedView::Agent) => return,
         Some(_) => {
             siv.pop_layer();
-            if zv.take() == target {
-                return;
-            }
         }
         _ => (),
     }
-    *zv = target;
-    drop(zv);
-    if target.is_none() {
-        return;
+
+    match target {
+        None => {
+            zv.clear();
+            return;
+        }
+        Some(tgt) if Some(&tgt) == zv.last() => {
+            zv.pop();
+            if zv.is_empty() {
+                return;
+            }
+        }
+        Some(tgt) => {
+            for i in 0..zv.len() {
+                if zv[i] == tgt {
+                    zv.remove(i);
+                    break;
+                }
+            }
+            zv.push(tgt);
+        }
     }
+    drop(zv);
 
     add_zoomed_layer(siv);
     kick_refresh(siv);
@@ -548,12 +564,12 @@ fn main() {
     });
 
     siv.add_global_callback(event::Event::Key(event::Key::Right), |siv| {
-        if *ZOOMED_VIEW.lock().unwrap() == Some(ZoomedView::Graphs) {
+        if ZOOMED_VIEW.lock().unwrap().last() == Some(&ZoomedView::Graphs) {
             graph::graph_tab_next(siv)
         }
     });
     siv.add_global_callback(event::Event::Key(event::Key::Left), |siv| {
-        if *ZOOMED_VIEW.lock().unwrap() == Some(ZoomedView::Graphs) {
+        if ZOOMED_VIEW.lock().unwrap().last() == Some(&ZoomedView::Graphs) {
             graph::graph_tab_prev(siv)
         }
     });

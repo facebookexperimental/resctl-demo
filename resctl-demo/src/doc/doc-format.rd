@@ -168,6 +168,14 @@ a value argument or prompt.
 %% knob   mem-margin             : Memory for the rest of the system        :
 %% knob   balloon                : Memory balloon size                      :
 
+The main graph pane can view different graphs. For available graph tags, see
+graph.rs::GraphTag.
+
+%% graph  CpuUtil                : [ Show CPU utilization graph ]
+%% graph  MemUtil                : [ Show memory utilization graph ]
+%% graph  IoUtil                 : [ Show IO utilization graph ]
+%% graph                         : [ Return to the default graph ]
+
 Reset commands are shortcuts to restore to default configurations.
 
 %% reset  benches                : [ Stop hashd and iocost benchmarks ]
@@ -178,6 +186,7 @@ Reset commands are shortcuts to restore to default configurations.
 %% reset  resctl                 : [ Restore cpu/mem/io resource control ]
 %% reset  resctl-params          : [ Restore default resource control parameters ]
 %% reset  oomd                   : [ Restore default OOMD operation ]
+%% reset  graph                  : [ Reset main graph view ]
 %% reset  secondaries            : [ Reset sideloads + sysloads ]
 %% reset  all-workloads          : [ Reset hashds + secondaries ]
 %% reset  protections            : [ Reset resctl + oomd ]
