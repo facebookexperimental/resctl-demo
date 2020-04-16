@@ -67,7 +67,7 @@ impl Hashd {
         self.lat_target_pct = cmd.lat_target_pct;
         self.rps_max = ((knobs.rps_max as f64 * frac).round() as u32).max(1);
         let rps_target = ((self.rps_max as f64 * cmd.rps_target_ratio).round() as u32).max(1);
-        let log_bps = (max_wbps as f64 * cmd.write_ratio).round() as u64;
+        let log_bps = (max_wbps as f64 * cmd.log_bps_ratio).round() as u64;
 
         let mem_frac = match cmd.mem_ratio {
             Some(v) => v,

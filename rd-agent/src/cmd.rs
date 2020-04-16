@@ -179,7 +179,7 @@ impl RunnerData {
 
                         self.bench_hashd = Some(bench::start_hashd_bench(
                             &*self.cfg,
-                            (bench.iocost.model.wbps as f64 * cmd.hashd[0].write_ratio).round()
+                            (bench.iocost.model.wbps as f64 * cmd.hashd[0].log_bps_ratio).round()
                                 as u64,
                             0,
                         )?);

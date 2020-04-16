@@ -221,8 +221,8 @@ fn exec_cmd(siv: &mut Cursive, cmd: &RdCmd) {
             RdKnob::HashdBFile => cs.hashd[1].file_ratio = *val,
             RdKnob::HashdAFileMax => cs.hashd[0].file_max_ratio = *val,
             RdKnob::HashdBFileMax => cs.hashd[1].file_max_ratio = *val,
-            RdKnob::HashdAWrite => cs.hashd[0].write_ratio = *val,
-            RdKnob::HashdBWrite => cs.hashd[1].write_ratio = *val,
+            RdKnob::HashdALogBps => cs.hashd[0].log_bps_ratio = *val,
+            RdKnob::HashdBLogBps => cs.hashd[1].log_bps_ratio = *val,
             RdKnob::HashdAWeight => cs.hashd[0].weight = *val,
             RdKnob::HashdBWeight => cs.hashd[1].weight = *val,
             RdKnob::SysCpuRatio => cs.sys_cpu_ratio = *val,
@@ -339,7 +339,7 @@ fn format_knob_val(knob: &RdKnob, ratio: f64) -> String {
 
     let v = match knob {
         RdKnob::HashdAMem | RdKnob::HashdBMem => format_size(ratio * bench.hashd.mem_size as f64),
-        RdKnob::HashdAWrite | RdKnob::HashdBWrite => {
+        RdKnob::HashdALogBps | RdKnob::HashdBLogBps => {
             format_size(ratio * bench.iocost.model.wbps as f64)
         }
         RdKnob::MemMargin => format_size(ratio * *TOTAL_MEMORY as f64),
@@ -457,8 +457,8 @@ fn refresh_knobs(siv: &mut Cursive, cs: &CmdState) {
     refresh_one_knob(siv, RdKnob::HashdBFile, cs.hashd[1].file_ratio);
     refresh_one_knob(siv, RdKnob::HashdAFileMax, cs.hashd[0].file_max_ratio);
     refresh_one_knob(siv, RdKnob::HashdBFileMax, cs.hashd[1].file_max_ratio);
-    refresh_one_knob(siv, RdKnob::HashdAWrite, cs.hashd[0].write_ratio);
-    refresh_one_knob(siv, RdKnob::HashdBWrite, cs.hashd[1].write_ratio);
+    refresh_one_knob(siv, RdKnob::HashdALogBps, cs.hashd[0].log_bps_ratio);
+    refresh_one_knob(siv, RdKnob::HashdBLogBps, cs.hashd[1].log_bps_ratio);
     refresh_one_knob(siv, RdKnob::HashdAWeight, cs.hashd[0].weight);
     refresh_one_knob(siv, RdKnob::HashdBWeight, cs.hashd[1].weight);
     refresh_one_knob(siv, RdKnob::SysCpuRatio, cs.sys_cpu_ratio);

@@ -154,13 +154,13 @@ a value argument or prompt.
 %% knob   hashd-mem              : Main workload memory footprint           :
 %% knob   hashd-file             : Main workload pagecache proportion       :
 %% knob   hashd-file-max         : Main workload max pagecache proportion   :
-%% knob   hashd-write            : Main workload write bandwidth            :
+%% knob   hashd-log-bps          : Main workload log write bandwidth        :
 %% knob   hashd-weight           : Main workload weight                     :
 %% knob   hashd-B-load           : Second workload load level               :
 %% knob   hashd-B-mem            : Second workload memory footprint         :
 %% knob   hashd-B-file           : Second workload pagecache proportion     :
 %% knob   hashd-B-file-max       : Second workload max pagecache proportion :
-%% knob   hashd-B-write          : Second workload write bandwidth          :
+%% knob   hashd-B-log-bps        : Second workload log write bandwidth      :
 %% knob   hashd-B-weight         : Second workload weight                   :
 %%
 %% knob   sys-cpu-ratio          : system CPU weight compared to workload   :
