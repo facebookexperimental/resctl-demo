@@ -268,8 +268,7 @@ fn main() {
         to_gb(asize)
     );
 
-    let mut dispatch =
-        hasher::Dispatch::new(args.size, tf, &params, create_logger(args, &params));
+    let mut dispatch = hasher::Dispatch::new(args.size, tf, &params, create_logger(args, &params));
 
     //
     // Monitor and report.

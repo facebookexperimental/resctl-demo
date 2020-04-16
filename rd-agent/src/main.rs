@@ -163,6 +163,7 @@ pub struct Config {
     pub side_bin_path: String,
     pub side_scr_path: String,
     pub sys_scr_path: String,
+    pub balloon_bin: String,
     pub side_linux_tar_path: Option<String>,
 
     pub sr_failed: HashSet<SysReq>,
@@ -379,9 +380,10 @@ impl Config {
             sideloader_daemon_jobs_path: top_path.clone() + "/sideloader/jobs.d",
             sideloader_daemon_status_path: top_path.clone() + "/sideloader/status.json",
             side_defs_path: top_path.clone() + "/sideload-defs.json",
-            side_bin_path,
+            side_bin_path: side_bin_path.clone(),
             side_scr_path,
             sys_scr_path,
+            balloon_bin: side_bin_path.clone() + "/memory-balloon.py",
             side_linux_tar_path: args.linux_tar.clone(),
             top_path,
             scr_path,
@@ -404,13 +406,16 @@ impl Config {
             return Ok(mi);
         }
 
-        run_command(
+        if let Err(e) = run_command(
             Command::new("mount")
                 .arg("-o")
                 .arg("remount,discard=async")
                 .arg(&mi.dest),
             "failed to enable async discard",
-        )?;
+        ) {
+            sr_failed.insert(SysReq::BtrfsAsyncDiscard);
+            bail!("{}", &e);
+        }
 
         info!("cfg: {:?} didn't have \"discard=async\", remounted", path);
         Ok(mi)

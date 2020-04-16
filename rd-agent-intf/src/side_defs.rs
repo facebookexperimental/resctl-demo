@@ -33,84 +33,84 @@ impl Default for SideloadDefs {
                     "build-linux-half".into(),
                     SideloadSpec {
                         args: vec!["build-linux.sh".into(), "1".into(), "2".into()],
-                        frozen_exp: 300,
+                        frozen_exp: 30,
                     },
                 ),
                 (
                     "build-linux-1x".into(),
                     SideloadSpec {
                         args: vec!["build-linux.sh".into(), "1".into()],
-                        frozen_exp: 300,
+                        frozen_exp: 30,
                     },
                 ),
                 (
                     "build-linux-2x".into(),
                     SideloadSpec {
                         args: vec!["build-linux.sh".into(), "2".into()],
-                        frozen_exp: 300,
+                        frozen_exp: 30,
                     },
                 ),
                 (
                     "build-linux-4x".into(),
                     SideloadSpec {
                         args: vec!["build-linux.sh".into(), "4".into()],
-                        frozen_exp: 300,
+                        frozen_exp: 30,
                     },
                 ),
                 (
                     "build-linux-8x".into(),
                     SideloadSpec {
                         args: vec!["build-linux.sh".into(), "8".into()],
-                        frozen_exp: 300,
+                        frozen_exp: 30,
                     },
                 ),
                 (
                     "build-linux-16x".into(),
                     SideloadSpec {
                         args: vec!["build-linux.sh".into(), "16".into()],
-                        frozen_exp: 300,
+                        frozen_exp: 30,
                     },
                 ),
                 (
                     "build-linux-32x".into(),
                     SideloadSpec {
                         args: vec!["build-linux.sh".into(), "32".into()],
-                        frozen_exp: 300,
+                        frozen_exp: 30,
                     },
                 ),
                 (
                     "build-linux-unlimited".into(),
                     SideloadSpec {
                         args: vec!["build-linux.sh".into()],
-                        frozen_exp: 300,
+                        frozen_exp: 30,
                     },
                 ),
                 (
-                    "memory-growth-10mbps".into(),
+                    "memory-growth-10pct".into(),
                     SideloadSpec {
-                        args: vec!["dlxu-memory-growth.py".into(), "10".into()],
-                        frozen_exp: 60,
+                        args: vec!["memory-growth.py".into(), "5%".into(), "10%".into()],
+                        frozen_exp: 30,
                     },
                 ),
                 (
-                    "memory-growth-50mbps".into(),
+                    "memory-growth-25pct".into(),
                     SideloadSpec {
-                        args: vec!["dlxu-memory-growth.py".into(), "50".into()],
-                        frozen_exp: 60,
+                        args: vec!["memory-growth.py".into(), "12.5%".into(), "25%".into()],
+                        frozen_exp: 30,
                     },
                 ),
                 (
-                    "memory-growth-100mbps".into(),
+                    "memory-growth-50pct".into(),
                     SideloadSpec {
-                        args: vec!["dlxu-memory-growth.py".into(), "100".into()],
-                        frozen_exp: 60,
+                        args: vec!["memory-growth.py".into(), "25%".into(), "50%".into()],
+                        frozen_exp: 30,
                     },
                 ),
                 (
-                    "tar-bomb".into(),
+                    "read-bomb".into(),
                     SideloadSpec {
-                        args: vec!["tar-bomb.sh".into()],
-                        frozen_exp: 60,
+                        args: vec!["read-bomb.py".into(), "4096".into(), "16384".into()],
+                        frozen_exp: 30,
                     },
                 ),
             ]

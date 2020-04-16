@@ -168,6 +168,13 @@ fn exec_cmd(siv: &mut Cursive, cmd: &RdCmd) {
                 RdSwitch::BenchHashd => {
                     cs.bench_hashd_next = cs.bench_hashd_cur + if is_on { 1 } else { 0 };
                 }
+                RdSwitch::BenchHashdLoop => {
+                    cs.bench_hashd_next = if is_on {
+                        std::u64::MAX
+                    } else {
+                        cs.bench_hashd_cur
+                    };
+                }
                 RdSwitch::BenchIoCost => {
                     cs.bench_iocost_next = cs.bench_iocost_cur + if is_on { 1 } else { 0 };
                 }
@@ -214,15 +221,20 @@ fn exec_cmd(siv: &mut Cursive, cmd: &RdCmd) {
             RdKnob::HashdBFile => cs.hashd[1].file_ratio = *val,
             RdKnob::HashdAFileMax => cs.hashd[0].file_max_ratio = *val,
             RdKnob::HashdBFileMax => cs.hashd[1].file_max_ratio = *val,
-            RdKnob::HashdAWrite => cs.hashd[0].write_ratio = *val,
-            RdKnob::HashdBWrite => cs.hashd[1].write_ratio = *val,
+            RdKnob::HashdALogBps => cs.hashd[0].log_bps_ratio = *val,
+            RdKnob::HashdBLogBps => cs.hashd[1].log_bps_ratio = *val,
             RdKnob::HashdAWeight => cs.hashd[0].weight = *val,
             RdKnob::HashdBWeight => cs.hashd[1].weight = *val,
             RdKnob::SysCpuRatio => cs.sys_cpu_ratio = *val,
             RdKnob::SysIoRatio => cs.sys_io_ratio = *val,
             RdKnob::MemMargin => cs.mem_margin = *val,
+            RdKnob::Balloon => cs.balloon_ratio = *val,
         },
         RdCmd::Reset(reset) => {
+            let reset_benches = |cs: &mut CmdState| {
+                cs.bench_hashd_next = cs.bench_hashd_cur;
+                cs.bench_iocost_next = cs.bench_iocost_cur;
+            };
             let reset_hashds = |cs: &mut CmdState| {
                 cs.hashd[0].active = false;
                 cs.hashd[1].active = false;
@@ -250,6 +262,7 @@ fn exec_cmd(siv: &mut Cursive, cmd: &RdCmd) {
                 cs.sys_cpu_ratio = SliceConfig::DFL_SYS_CPU_RATIO;
                 cs.sys_io_ratio = SliceConfig::DFL_SYS_IO_RATIO;
                 cs.mem_margin = SliceConfig::dfl_mem_margin() as f64 / *TOTAL_MEMORY as f64;
+                cs.balloon_ratio = 0.0;
             };
             let reset_oomd = |cs: &mut CmdState| {
                 cs.oomd = true;
@@ -259,6 +272,7 @@ fn exec_cmd(siv: &mut Cursive, cmd: &RdCmd) {
                 cs.oomd_sys_senpai = false;
             };
             let reset_all = |cs: &mut CmdState| {
+                reset_benches(cs);
                 reset_hashds(cs);
                 reset_secondaries(cs);
                 reset_resctl(cs);
@@ -266,10 +280,7 @@ fn exec_cmd(siv: &mut Cursive, cmd: &RdCmd) {
             };
 
             match reset {
-                RdReset::Benches => {
-                    cs.bench_hashd_next = cs.bench_hashd_cur;
-                    cs.bench_iocost_next = cs.bench_iocost_cur;
-                }
+                RdReset::Benches => reset_benches(&mut cs),
                 RdReset::Hashds => reset_hashds(&mut cs),
                 RdReset::HashdParams => reset_hashd_params(&mut cs),
                 RdReset::Sideloads => cs.sideloads.clear(),
@@ -328,10 +339,11 @@ fn format_knob_val(knob: &RdKnob, ratio: f64) -> String {
 
     let v = match knob {
         RdKnob::HashdAMem | RdKnob::HashdBMem => format_size(ratio * bench.hashd.mem_size as f64),
-        RdKnob::HashdAWrite | RdKnob::HashdBWrite => {
+        RdKnob::HashdALogBps | RdKnob::HashdBLogBps => {
             format_size(ratio * bench.iocost.model.wbps as f64)
         }
         RdKnob::MemMargin => format_size(ratio * *TOTAL_MEMORY as f64),
+        RdKnob::Balloon => format_size(ratio * *TOTAL_MEMORY as f64),
         _ => format_pct(ratio) + "%",
     };
 
@@ -355,6 +367,10 @@ fn refresh_toggles(siv: &mut Cursive, cs: &CmdState) {
     siv.call_on_name(
         &format!("{:?}", RdSwitch::BenchHashd),
         |c: &mut Checkbox| c.set_checked(cs.bench_hashd_next > cs.bench_hashd_cur),
+    );
+    siv.call_on_name(
+        &format!("{:?}", RdSwitch::BenchHashdLoop),
+        |c: &mut Checkbox| c.set_checked(cs.bench_hashd_next == std::u64::MAX),
     );
     siv.call_on_name(
         &format!("{:?}", RdSwitch::BenchIoCost),
@@ -441,13 +457,14 @@ fn refresh_knobs(siv: &mut Cursive, cs: &CmdState) {
     refresh_one_knob(siv, RdKnob::HashdBFile, cs.hashd[1].file_ratio);
     refresh_one_knob(siv, RdKnob::HashdAFileMax, cs.hashd[0].file_max_ratio);
     refresh_one_knob(siv, RdKnob::HashdBFileMax, cs.hashd[1].file_max_ratio);
-    refresh_one_knob(siv, RdKnob::HashdAWrite, cs.hashd[0].write_ratio);
-    refresh_one_knob(siv, RdKnob::HashdBWrite, cs.hashd[1].write_ratio);
+    refresh_one_knob(siv, RdKnob::HashdALogBps, cs.hashd[0].log_bps_ratio);
+    refresh_one_knob(siv, RdKnob::HashdBLogBps, cs.hashd[1].log_bps_ratio);
     refresh_one_knob(siv, RdKnob::HashdAWeight, cs.hashd[0].weight);
     refresh_one_knob(siv, RdKnob::HashdBWeight, cs.hashd[1].weight);
     refresh_one_knob(siv, RdKnob::SysCpuRatio, cs.sys_cpu_ratio);
     refresh_one_knob(siv, RdKnob::SysIoRatio, cs.sys_io_ratio);
     refresh_one_knob(siv, RdKnob::MemMargin, cs.mem_margin);
+    refresh_one_knob(siv, RdKnob::Balloon, cs.balloon_ratio);
 }
 
 fn refresh_docs(siv: &mut Cursive) {

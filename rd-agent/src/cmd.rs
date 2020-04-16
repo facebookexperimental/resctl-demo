@@ -10,7 +10,7 @@ use util::*;
 use rd_agent_intf::{RunnerState, Slice, SysReq};
 
 use super::hashd::HashdSet;
-use super::side::{SideRunner, Sideload, Sysload};
+use super::side::{Balloon, SideRunner, Sideload, Sysload};
 use super::{bench, report, slices};
 use super::{Config, SysObjs};
 
@@ -30,6 +30,7 @@ pub struct RunnerData {
 
     pub hashd_set: HashdSet,
     pub side_runner: SideRunner,
+    pub balloon: Balloon,
 }
 
 impl RunnerData {
@@ -44,6 +45,7 @@ impl RunnerData {
             bench_iocost: None,
             hashd_set: HashdSet::new(&cfg),
             side_runner: SideRunner::new(cfg.clone()),
+            balloon: Balloon::new(cfg.clone()),
             cfg,
         }
     }
@@ -158,12 +160,30 @@ impl RunnerData {
                     self.state = BenchIOCost;
                 } else if cmd.bench_hashd_seq > bench.hashd_seq {
                     if bench.iocost_seq > 0 {
+                        let work_mem_low = self.sobjs.slice_file.data[Slice::Work]
+                            .mem_low
+                            .nr_bytes(false);
+                        let mem_margin = if *TOTAL_MEMORY as u64 > work_mem_low {
+                            (*TOTAL_MEMORY as u64 - work_mem_low) as usize
+                        } else {
+                            0
+                        };
+                        if let Err(e) = self.balloon.set_size(mem_margin) {
+                            error!(
+                                "cmd: Failed to set balloon size to {:.2}G for hashd bench ({:?})",
+                                to_gb(mem_margin),
+                                &e
+                            );
+                            panic!();
+                        }
+
                         self.bench_hashd = Some(bench::start_hashd_bench(
                             &*self.cfg,
-                            (bench.iocost.model.wbps as f64 * cmd.hashd[0].write_ratio).round()
+                            (bench.iocost.model.wbps as f64 * cmd.hashd[0].log_bps_ratio).round()
                                 as u64,
                             0,
                         )?);
+
                         self.state = BenchHashd;
                     } else if !self.warned_bench {
                         warn!("cmd: iocost benchmark must be run before hashd benchmark");
@@ -193,6 +213,7 @@ impl RunnerData {
                     if let Err(e) = self.side_runner.apply_sysloads(
                         sysload_target,
                         side_defs,
+                        &self.sobjs.bench_file.data,
                         Some(removed_sysloads),
                     ) {
                         warn!("cmd: Failed to apply sysload changes ({:?})", &e);
@@ -201,9 +222,21 @@ impl RunnerData {
                     if let Err(e) = self.side_runner.apply_sideloads(
                         sideload_target,
                         side_defs,
+                        &self.sobjs.bench_file.data,
                         Some(removed_sideloads),
                     ) {
                         warn!("cmd: Failed to apply sideload changes ({:?})", &e);
+                    }
+
+                    let balloon_size =
+                        ((*TOTAL_MEMORY as f64) * &self.sobjs.cmd_file.data.balloon_ratio) as usize;
+                    if let Err(e) = self.balloon.set_size(balloon_size) {
+                        error!(
+                            "cmd: Failed to set balloon size to {:.2}G ({:?})",
+                            to_gb(balloon_size),
+                            &e
+                        );
+                        panic!();
                     }
                 }
             }

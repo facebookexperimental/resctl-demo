@@ -19,6 +19,7 @@ const RD_COMMENT_PREFIX: &str = "## ";
 #[derive(Debug, Clone)]
 pub enum RdSwitch {
     BenchHashd,
+    BenchHashdLoop,
     BenchIoCost,
     BenchNeeded,
     HashdA,
@@ -45,13 +46,14 @@ pub enum RdKnob {
     HashdBFile,
     HashdAFileMax,
     HashdBFileMax,
-    HashdAWrite,
-    HashdBWrite,
+    HashdALogBps,
+    HashdBLogBps,
     HashdAWeight,
     HashdBWeight,
     SysCpuRatio,
     SysIoRatio,
     MemMargin,
+    Balloon,
 }
 
 #[derive(Debug, Clone)]
@@ -222,6 +224,7 @@ impl RdCmd {
                 }
                 let sw = match args[1] {
                     "bench-hashd" => RdSwitch::BenchHashd,
+                    "bench-hashd-loop" => RdSwitch::BenchHashdLoop,
                     "bench-iocost" => RdSwitch::BenchIoCost,
                     "bench-needed" => RdSwitch::BenchNeeded,
                     "hashd" | "hashd-A" => RdSwitch::HashdA,
@@ -279,17 +282,18 @@ impl RdCmd {
                     "hashd-mem" | "hashd-A-mem" => RdKnob::HashdAMem,
                     "hashd-file" | "hashd-A-file" => RdKnob::HashdAFile,
                     "hashd-file-max" | "hashd-A-file-max" => RdKnob::HashdAFileMax,
-                    "hashd-write" | "hashd-A-write" => RdKnob::HashdAWrite,
+                    "hashd-log-bps" | "hashd-A-write" => RdKnob::HashdALogBps,
                     "hashd-weight" | "hashd-A-weight" => RdKnob::HashdAWeight,
                     "hashd-B-load" => RdKnob::HashdBLoad,
                     "hashd-B-mem" => RdKnob::HashdBMem,
                     "hashd-B-file" => RdKnob::HashdBFile,
                     "hashd-B-file-max" => RdKnob::HashdBFileMax,
-                    "hashd-B-write" => RdKnob::HashdBWrite,
+                    "hashd-B-log-bps" => RdKnob::HashdBLogBps,
                     "hashd-B-weight" => RdKnob::HashdBWeight,
                     "sys-cpu-ratio" => RdKnob::SysCpuRatio,
                     "sys-io-ratio" => RdKnob::SysIoRatio,
                     "mem-margin" => RdKnob::MemMargin,
+                    "balloon" => RdKnob::Balloon,
                     _ => bail!("invalid knob target"),
                 };
                 RdCmd::Knob(knob, val)

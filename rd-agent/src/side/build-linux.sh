@@ -5,8 +5,7 @@ set -xe
 
 NR_JOBS=
 if [ -n "$1" ]; then
-    NR_JOBS=$(nproc)
-    NR_JOBS=$((NR_JOBS * $1))
+    NR_JOBS=$((NR_CPUS * $1))
     if [ -n "$2" ]; then
         NR_JOBS=$((NR_JOBS / $2))
     fi

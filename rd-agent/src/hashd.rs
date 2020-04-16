@@ -61,24 +61,18 @@ impl Hashd {
         &mut self,
         knobs: &HashdKnobs,
         cmd: &HashdCmd,
-        mem_low: u64,
         max_wbps: u64,
         frac: f64,
     ) -> Result<()> {
         self.lat_target_pct = cmd.lat_target_pct;
         self.rps_max = ((knobs.rps_max as f64 * frac).round() as u32).max(1);
         let rps_target = ((self.rps_max as f64 * cmd.rps_target_ratio).round() as u32).max(1);
-        let log_bps = (max_wbps as f64 * cmd.write_ratio).round() as u64;
+        let log_bps = (max_wbps as f64 * cmd.log_bps_ratio).round() as u64;
 
-        let bench_size = (knobs.actual_mem_size() as f64).max(1.0);
-        let sys_size = *TOTAL_MEMORY as f64 - mem_low as f64;
-        let max_size = bench_size - sys_size;
-        let mem_ratio = match cmd.mem_ratio {
+        let mem_frac = match cmd.mem_ratio {
             Some(v) => v,
             None => knobs.mem_frac,
         };
-        let target_size = max_size * mem_ratio;
-        let mem_frac = (target_size / bench_size).max(0.0).min(1.0);
 
         let mut params = rd_hashd_intf::Params::load(&self.params_path)?;
         let mut changed = false;
@@ -123,7 +117,7 @@ impl Hashd {
                 cmd.lat_target * TO_MSEC,
                 cmd.lat_target_pct * TO_PCT,
                 rps_target,
-                mem_ratio * TO_PCT,
+                mem_frac * TO_PCT,
                 to_mb(log_bps),
                 frac
             );
@@ -269,7 +263,7 @@ impl HashdSet {
         // adjust the params files
         for i in 0..2 {
             if fracs[i] != 0.0 {
-                self.hashd[i].update_params(knobs, &cmd[i], mem_low, max_wbps, fracs[i])?;
+                self.hashd[i].update_params(knobs, &cmd[i], max_wbps, fracs[i])?;
             }
         }
 

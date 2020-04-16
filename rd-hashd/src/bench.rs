@@ -48,7 +48,6 @@ struct CpuCfg {
 
 struct CpuSatCfg {
     size: u64,
-    lat: f64,
     err: f64,
     rounds: u32,
     converge: ConvergeCfg,
@@ -63,9 +62,9 @@ struct MemIoSatCfg {
     bisect_done: Box<dyn 'static + Fn(&Params, f64, f64) -> bool>,
     next_refine_pos: Box<dyn 'static + Fn(&Params, Option<f64>) -> Option<f64>>,
 
-    lat: f64,
     term_err_good: f64,
     term_err_bad: f64,
+    up_err: f64,
     bisect_err: f64,
     refine_err: f64,
     up_converge: ConvergeCfg,
@@ -83,7 +82,7 @@ struct Cfg {
 impl Default for Cfg {
     fn default() -> Self {
         Self {
-            mem_buffer: 0.2,
+            mem_buffer: 0.0,
             cpu: CpuCfg {
                 size: 1 << 30,
                 lat: 10.0 * MSEC,
@@ -107,7 +106,6 @@ impl Default for Cfg {
             },
             cpu_sat: CpuSatCfg {
                 size: 1 << 30,
-                lat: 100.0 * MSEC,
                 err: 0.1,
                 rounds: 3,
                 converge: ConvergeCfg {
@@ -140,8 +138,8 @@ impl Default for Cfg {
                 bisect_done: Box::new(|_params, left, right| right - left < 0.05),
 
                 next_refine_pos: Box::new(|params, pos| {
-                    let step = 0.025;
-                    let min = (params.mem_frac - 0.25).max(0.001);
+                    let step = params.mem_frac * 0.05;
+                    let min = (params.mem_frac / 2.0).max(0.001);
                     match pos {
                         None => Some(params.mem_frac - step),
                         Some(v) if v >= min + step => Some(v - step),
@@ -149,10 +147,10 @@ impl Default for Cfg {
                     }
                 }),
 
-                lat: 100.0 * MSEC,
                 term_err_good: 0.05,
                 term_err_bad: 0.5,
-                bisect_err: 0.25,
+                up_err: 0.1,
+                bisect_err: 0.1,
                 refine_err: 0.1,
 
                 up_converge: ConvergeCfg {
@@ -179,7 +177,7 @@ impl Default for Cfg {
                     which: Rps,
                     converges: 5,
                     period: 15,
-                    min_dur: 120,
+                    min_dur: 60,
                     max_dur: 240,
                     slope: 0.01,
                     err_slope: 0.025,
@@ -629,7 +627,6 @@ impl Bench {
         let mut nr_rounds = 0;
         let tf = self.prep_tf(cfg.size, "cpu saturation bench");
         params.rps_target = u32::MAX;
-        params.lat_target = cfg.lat;
 
         let th = self.create_test_hasher(cfg.size, tf, &params, self.report_file.clone());
         let mut last_rps = 1.0;
@@ -640,16 +637,16 @@ impl Bench {
                 "[ CPU saturation bench: round {}/{}, latency target {:.2}ms ]",
                 nr_rounds,
                 cfg.rounds,
-                cfg.lat * TO_MSEC
+                params.lat_target * TO_MSEC
             );
 
             let (lat, rps) = th.converge_with_cfg(&cfg.converge);
-            let err = (lat - cfg.lat) / cfg.lat;
+            let err = (lat - params.lat_target) / params.lat_target;
 
             info!(
                 "Latency: {:.2} ~= {:.2}, error: |{:.2}%| <= {:.2}%",
                 lat * TO_MSEC,
-                cfg.lat * TO_MSEC,
+                params.lat_target * TO_MSEC,
                 err * TO_PCT,
                 cfg.err * TO_PCT
             );
@@ -680,12 +677,16 @@ impl Bench {
         cfg: &MemIoSatCfg,
         cvg_cfg: &ConvergeCfg,
         th: &TestHasher,
+        use_high_enough: bool,
     ) -> (f64, f64) {
         let rps_max = self.params.rps_max;
         let mut should_end = |now, streak, (lat, rps)| {
             if now < cvg_cfg.period {
                 None
-            } else if streak > 0 && rps > rps_max as f64 * (1.0 - cfg.term_err_good) {
+            } else if use_high_enough
+                && streak > 0
+                && rps > rps_max as f64 * (1.0 - cfg.term_err_good)
+            {
                 info!("RPS high enough, using the current values");
                 Some((lat, rps))
             } else if !super::is_rotational()
@@ -703,13 +704,25 @@ impl Bench {
         (rps, (rps - rps_max as f64) / rps_max as f64)
     }
 
+    fn memio_up_round(&self, cfg: &MemIoSatCfg, cvg_cfg: &ConvergeCfg, th: &TestHasher) -> bool {
+        let (rps, err) = self.memio_one_round(cfg, cvg_cfg, th, true);
+        info!(
+            "RPS: {:.1} ~= {}, error: {:.2}% <= -{:.2}%",
+            rps,
+            self.params.rps_max,
+            err * TO_PCT,
+            cfg.up_err * TO_PCT
+        );
+        err <= -cfg.up_err
+    }
+
     fn memio_bisect_round(
         &self,
         cfg: &MemIoSatCfg,
         cvg_cfg: &ConvergeCfg,
         th: &TestHasher,
     ) -> bool {
-        let (rps, err) = self.memio_one_round(cfg, cvg_cfg, th);
+        let (rps, err) = self.memio_one_round(cfg, cvg_cfg, th, true);
         info!(
             "RPS: {:.1} ~= {}, error: {:.2}% <= -{:.2}%",
             rps,
@@ -745,13 +758,10 @@ impl Bench {
         info!("[ {} ]", buf);
     }
 
-    fn bench_memio_saturation_bisect(&mut self, cfg: &MemIoSatCfg) -> f64 {
+    fn bench_memio_saturation_bisect(&mut self, cfg: &MemIoSatCfg, th: &mut TestHasher) -> f64 {
         let mut params: Params = self.params.clone();
-        let tf = self.prep_tf(self.max_size, &format!("{} saturation bench", cfg.name));
-        params.lat_target = cfg.lat;
         params.rps_target = self.params.rps_max;
 
-        let th = self.create_test_hasher(self.max_size, tf, &params, self.report_file.clone());
         //
         // Up-rounds - Coarsely scan up using bisect cfg to determine the first
         // resistance point. This phase is necessary because too high a memory
@@ -779,7 +789,7 @@ impl Bench {
                 &(cfg.fmt_pos)(self, pos)
             );
 
-            if self.memio_bisect_round(cfg, &cfg.up_converge, &th) {
+            if self.memio_up_round(cfg, &cfg.up_converge, &th) {
                 break;
             }
         }
@@ -853,14 +863,14 @@ impl Bench {
 
             if self.memio_bisect_round(cfg, &cfg.bisect_converge, &th) {
                 if was_right {
-                    right.clear();
+                    right.pop_back();
                     right.push_front(left.pop_front().unwrap());
                 } else {
                     break;
                 }
             } else {
                 if !was_right {
-                    left.clear();
+                    left.pop_back();
                     left.push_front(right.pop_front().unwrap());
                 } else {
                     break;
@@ -873,16 +883,9 @@ impl Bench {
 
     /// Refine-rounds - Reset to max_size and walk down from the
     /// saturation point looking for the first full performance point.
-    fn bench_memio_saturation_refine(&self, cfg: &MemIoSatCfg) -> f64 {
+    fn bench_memio_saturation_refine(&self, cfg: &MemIoSatCfg, th: &mut TestHasher) -> f64 {
         let mut params: Params = self.params.clone();
-        let tf = self.prep_tf(
-            self.max_size,
-            &format!("{} saturation bench - refine-rounds", cfg.name),
-        );
-        params.lat_target = cfg.lat;
         params.rps_target = self.params.rps_max;
-
-        let th = self.create_test_hasher(self.max_size, tf, &params, self.report_file.clone());
 
         let mut round = 0;
         let mut next_pos = None;
@@ -907,7 +910,7 @@ impl Bench {
             (cfg.set_pos)(&mut params, pos);
             th.disp_hist.lock().unwrap().disp.set_params(&params);
 
-            let (rps, err) = self.memio_one_round(cfg, &cfg.refine_converge, &th);
+            let (rps, err) = self.memio_one_round(cfg, &cfg.refine_converge, &th, false);
             info!(
                 "RPS: {:.1} ~= {}, error: |{:.2}%| <= {:.2}%",
                 rps,
@@ -947,7 +950,11 @@ impl Bench {
         //
         if args.bench_mem {
             self.max_size = args.size;
-            self.params.mem_frac = self.bench_memio_saturation_bisect(&cfg.mem_sat);
+            let tf = self.prep_tf(self.max_size, "Memory saturation bench");
+            let mut th =
+                self.create_test_hasher(self.max_size, tf, &self.params, self.report_file.clone());
+
+            self.params.mem_frac = self.bench_memio_saturation_bisect(&cfg.mem_sat, &mut th);
             let (fsize, asize) = self.mem_sizes(self.params.mem_frac);
             info!(
                 "[ Memory saturation bisect result: {:.2}G (file {:.2}G, anon {:.2}G) ]",
@@ -956,7 +963,7 @@ impl Bench {
                 to_gb(asize)
             );
 
-            self.params.mem_frac = self.bench_memio_saturation_refine(&cfg.mem_sat);
+            self.params.mem_frac = self.bench_memio_saturation_refine(&cfg.mem_sat, &mut th);
 
             // Longer-runs might need more memory due to access from
             // accumulating long tails and other system disturbances. Plus, IO

@@ -75,7 +75,11 @@ pub fn update_hashd(knobs: &mut BenchKnobs, cfg: &Config, hashd_seq: u64) -> Res
     knobs.hashd.mem_size = args.size;
     knobs.hashd.mem_frac = params.mem_frac;
 
-    knobs.hashd_seq = hashd_seq;
+    if hashd_seq == std::u64::MAX {
+        knobs.hashd_seq += 1;
+    } else {
+        knobs.hashd_seq = hashd_seq;
+    }
     knobs.timestamp = DateTime::from(SystemTime::now());
 
     fs::copy(

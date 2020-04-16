@@ -71,6 +71,10 @@ The followings are all available commands.
 %% off    bench-hashd            : [ Stop hashd benchmark ]
 %% toggle bench-hashd            : Toggle hashd benchmark
 %%
+%% on     bench-hashd-loop       : [ Start hashd benchmark loop ]
+%% off    bench-hashd-loop       : [ Stop hashd benchmark loop ]
+%% toggle bench-hashd-loop       : Toggle hashd benchmark loop
+%%
 %% on     hashd                  : [ Start hashd ]
 %% off    hashd                  : [ Stop hashd ]
 %% toggle hashd                  : Toggle hashd
@@ -86,13 +90,13 @@ points to an entry in sideload-defs.json and determines the specific workload.
 %% off sideload test-build                        : [ Stop a linux build sideload ]
 %% toggle sideload test-build build-linux-4x      : Toggle a linux build sideload
 %%
-%% on sideload test-mem memory-growth-100mbps     : [ Start a 100MBPS memory growth sideload ]
-%% off sideload test-mem                          : [ Stop a 100MBPS memory growth sideload ]
-%% toggle sideload test-mem memory-growth-100mbps : Toggle a 100MBPS memory growth sideload
+%% on sideload test-mem memory-growth-25pct       : [ Start a 25% memory growth sideload ]
+%% off sideload test-mem                          : [ Stop a 25% memory growth sideload ]
+%% toggle sideload test-mem memory-growth-25pct   : Toggle a 25% memory growth sideload
 %%
-%% on sideload test-io tar-bomb                   : [ Start an IO bomb sideload ]
-%% off sideload test-io                           : [ Stop an IO bomb sideload ]
-%% toggle sideload test-io tar-bomb               : Toggle an IO bomb sideload
+%% on sideload test-io read-bomb                  : [ Start a read bomb sideload ]
+%% off sideload test-io                           : [ Stop a read bomb sideload ]
+%% toggle sideload test-io read-bomb              : Toggle a read bomb sideload
 
 A sysload is a sideload which is run under system.slice without the supervision
 of sideloader and can be used to illustrate oomd workload protection or the need
@@ -102,13 +106,13 @@ for sideloader.
 %% off sysload test-build                        : [ Stop a linux build sysload ]
 %% toggle sysload test-build build-linux-4x      : Toggle a linux build sysload
 %%
-%% on sysload test-mem memory-growth-100mbps     : [ Start a 100MBPS memory growth sysload ]
-%% off sysload test-mem                          : [ Stop a 100MBPS memory growth sysload ]
-%% toggle sysload test-mem memory-growth-100mbps : Toggle a 100MBPS memory growth sysload
+%% on sysload test-mem memory-growth-25pct       : [ Start a 25% memory growth sysload ]
+%% off sysload test-mem                          : [ Stop a 25% memory growth sysload ]
+%% toggle sysload test-mem memory-growth-25pct   : Toggle a 25% memory growth sysload
 %%
-%% on sysload test-io tar-bomb                   : [ Start an IO bomb sysload ]
-%% off sysload test-io                           : [ Stop an IO bomb sysload ]
-%% toggle sysload test-io tar-bomb               : Toggle an IO bomb sysload
+%% on sysload test-io read-bomb                  : [ Start a read bomb sysload ]
+%% off sysload test-io                           : [ Stop a read bomb sysload ]
+%% toggle sysload test-io read-bomb              : Toggle a read bomb sysload
 %%
 %% on     cpu-resctl             : [ Turn on CPU resource protection ]
 %% off    cpu-resctl             : [ Turn off CPU resource protection ]
@@ -150,18 +154,19 @@ a value argument or prompt.
 %% knob   hashd-mem              : Main workload memory footprint           :
 %% knob   hashd-file             : Main workload pagecache proportion       :
 %% knob   hashd-file-max         : Main workload max pagecache proportion   :
-%% knob   hashd-write            : Main workload write bandwidth            :
+%% knob   hashd-log-bps          : Main workload log write bandwidth        :
 %% knob   hashd-weight           : Main workload weight                     :
 %% knob   hashd-B-load           : Second workload load level               :
 %% knob   hashd-B-mem            : Second workload memory footprint         :
 %% knob   hashd-B-file           : Second workload pagecache proportion     :
 %% knob   hashd-B-file-max       : Second workload max pagecache proportion :
-%% knob   hashd-B-write          : Second workload write bandwidth          :
+%% knob   hashd-B-log-bps        : Second workload log write bandwidth      :
 %% knob   hashd-B-weight         : Second workload weight                   :
 %%
 %% knob   sys-cpu-ratio          : system CPU weight compared to workload   :
 %% knob   sys-io-ratio           : system IO weight compared to workload    :
 %% knob   mem-margin             : Memory for the rest of the system        :
+%% knob   balloon                : Memory balloon size                      :
 
 Reset commands are shortcuts to restore to default configurations.
 
