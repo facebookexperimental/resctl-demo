@@ -167,7 +167,7 @@ pub struct Args {
 }
 
 impl Args {
-    pub const DFL_FILE_MAX_FRAC: f64 = 0.333;
+    pub const DFL_FILE_MAX_FRAC: f64 = 0.25;
 
     pub fn file_max_size(&self) -> u64 {
         (self.size as f64 * self.file_max_frac).ceil() as u64
@@ -185,7 +185,7 @@ impl Default for Args {
             params: None,
             report: None,
             log_dir: None,
-            log_size: size / 4,
+            log_size: *TOTAL_MEMORY as u64 / 2,
             interval: 10,
             rotational: None,
             clear_testfiles: false,

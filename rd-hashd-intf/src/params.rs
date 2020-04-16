@@ -100,8 +100,8 @@ pub struct Params {
 impl Params {
     pub const DFL_LAT_TARGET_PCT: f64 = 0.9;
     pub const DFL_STDEV: f64 = 0.33; // 3 sigma == mean
-    pub const ADDR_STDEV: f64 = 0.22; // narrower for longer tail
-    pub const DFL_FILE_FRAC: f64 = 0.25;
+    pub const ADDR_STDEV: f64 = 0.275; // narrower for longer tail
+    pub const DFL_FILE_FRAC: f64 = 0.15;
 
     pub fn log_padding(&self) -> u64 {
         if self.rps_max > 0 {
