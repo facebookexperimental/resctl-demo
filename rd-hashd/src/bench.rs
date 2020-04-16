@@ -149,7 +149,7 @@ impl Default for Cfg {
 
                 term_err_good: 0.05,
                 term_err_bad: 0.5,
-                up_err: 0.1,
+                up_err: 0.25,
                 bisect_err: 0.1,
                 refine_err: 0.1,
 
