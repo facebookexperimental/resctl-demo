@@ -82,7 +82,7 @@ struct Cfg {
 impl Default for Cfg {
     fn default() -> Self {
         Self {
-            mem_buffer: 0.0,
+            mem_buffer: 0.05,
             cpu: CpuCfg {
                 size: 1 << 30,
                 lat: 10.0 * MSEC,
