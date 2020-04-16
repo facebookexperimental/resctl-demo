@@ -262,9 +262,10 @@ fn refresh_layout(siv: &mut Cursive, layout: &Layout) {
     add_zoomed_layer(siv);
 
     doc::post_layout(siv);
+    graph::post_layout(siv);
 }
 
-fn kick_refresh(siv: &mut Cursive) {
+pub fn kick_refresh(siv: &mut Cursive) {
     prog_kick();
     for (_id, upds) in UPDATERS.lock().unwrap().journal.iter() {
         for upd in upds.iter() {

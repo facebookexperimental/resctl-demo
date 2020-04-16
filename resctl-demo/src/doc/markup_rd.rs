@@ -66,6 +66,7 @@ pub enum RdReset {
     ResCtl,
     ResCtlParams,
     Oomd,
+    Graph,
     AllWorkloads,  // Benches, Hashds, Sideloads, Sysloads
     Secondaries,   // Sideloads, Sysloads
     Protections,   // ResCtl, Oomd
@@ -81,6 +82,7 @@ pub enum RdCmd {
     Off(RdSwitch),
     Toggle(RdSwitch), // only w/ prompt
     Knob(RdKnob, f64),
+    Graph(String),
     Reset(RdReset),
     Jump(String),
 }
@@ -298,6 +300,13 @@ impl RdCmd {
                 };
                 RdCmd::Knob(knob, val)
             }
+            "graph" => {
+                match args.len() {
+                    1 => RdCmd::Graph("".into()),
+                    2 => RdCmd::Graph(args[1].into()),
+                    _ => bail!("invalid number of arguments"),
+                }
+            }
             "reset" => {
                 if args.len() != 2 {
                     bail!("invalid number of arguments");
@@ -311,6 +320,7 @@ impl RdCmd {
                     "resctl" => RdReset::ResCtl,
                     "resctl-params" => RdReset::ResCtlParams,
                     "oomd" => RdReset::Oomd,
+                    "graph" => RdReset::Graph,
                     "secondaries" => RdReset::Secondaries,
                     "all-workloads" => RdReset::AllWorkloads,
                     "protections" => RdReset::Protections,

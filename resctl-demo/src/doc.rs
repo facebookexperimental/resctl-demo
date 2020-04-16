@@ -16,6 +16,7 @@ mod markup_rd;
 
 use super::agent::AGENT_FILES;
 use super::command::{CmdState, CMD_STATE};
+use super::graph::{clear_main_graph, set_main_graph, GraphTag};
 use super::{get_layout, COLOR_ACTIVE, COLOR_ALERT};
 use markup_rd::{RdCmd, RdDoc, RdKnob, RdPara, RdReset, RdSwitch};
 use rd_agent_intf::{HashdCmd, SliceConfig, SysReq};
@@ -32,6 +33,7 @@ lazy_static! {
 
 fn load_docs() -> BTreeMap<String, &'static str> {
     let mut docs = BTreeMap::new();
+    let mut graphs = HashSet::new();
     let mut targets = HashSet::new();
 
     for i in 0..index::SOURCES.len() {
@@ -39,7 +41,7 @@ fn load_docs() -> BTreeMap<String, &'static str> {
         info!("Loading doc {}", i);
         let doc = match RdDoc::parse(src.as_bytes()) {
             Ok(v) => v,
-            Err(e) => panic!("Failed to load {:?} ({:?})", src, &e),
+            Err(e) => panic!("Failed to load {:?}... ({:?})", &src[..100], &e),
         };
 
         for cmd in doc
@@ -70,6 +72,11 @@ fn load_docs() -> BTreeMap<String, &'static str> {
                     }
                     _ => (),
                 },
+                RdCmd::Graph(tag) => {
+                    if tag.len() > 0 {
+                        graphs.insert(tag.clone());
+                    }
+                }
                 RdCmd::Jump(t) => {
                     targets.insert(t.to_string());
                 }
@@ -84,14 +91,25 @@ fn load_docs() -> BTreeMap<String, &'static str> {
     info!("SYSLOAD_NAMES: {:?}", &SYSLOAD_NAMES.lock().unwrap());
 
     let mut nr_missing = 0;
+
+    let graph_tags: HashSet<String> = GraphTag::into_enum_iter()
+        .map(|x| format!("{:?}", x))
+        .collect();
+    for tag in graphs.iter() {
+        if !graph_tags.contains(tag) {
+            error!("doc: invalid graph tag {:?}", tag);
+            nr_missing += 1;
+        }
+    }
+
     for t in targets {
         if !docs.contains_key(&t) {
             error!("doc: invalid jump target {:?}", t);
             nr_missing += 1;
         }
     }
-    assert!(nr_missing == 0);
 
+    assert!(nr_missing == 0);
     docs
 }
 
@@ -230,6 +248,17 @@ fn exec_cmd(siv: &mut Cursive, cmd: &RdCmd) {
             RdKnob::MemMargin => cs.mem_margin = *val,
             RdKnob::Balloon => cs.balloon_ratio = *val,
         },
+        RdCmd::Graph(tag_name) => {
+            if tag_name.len() > 0 {
+                let tag = GraphTag::into_enum_iter()
+                    .filter(|x| &format!("{:?}", x) == tag_name)
+                    .next()
+                    .unwrap();
+                set_main_graph(siv, tag);
+            } else {
+                clear_main_graph(siv);
+            }
+        }
         RdCmd::Reset(reset) => {
             let reset_benches = |cs: &mut CmdState| {
                 cs.bench_hashd_next = cs.bench_hashd_cur;
@@ -271,12 +300,16 @@ fn exec_cmd(siv: &mut Cursive, cmd: &RdCmd) {
                 cs.oomd_sys_mempress = true;
                 cs.oomd_sys_senpai = false;
             };
-            let reset_all = |cs: &mut CmdState| {
+            let reset_graph = |siv: &mut Cursive| {
+                clear_main_graph(siv);
+            };
+            let reset_all = |cs: &mut CmdState, siv: &mut Cursive| {
                 reset_benches(cs);
                 reset_hashds(cs);
                 reset_secondaries(cs);
                 reset_resctl(cs);
                 reset_oomd(cs);
+                reset_graph(siv);
             };
 
             match reset {
@@ -288,6 +321,7 @@ fn exec_cmd(siv: &mut Cursive, cmd: &RdCmd) {
                 RdReset::ResCtl => reset_resctl(&mut cs),
                 RdReset::ResCtlParams => reset_resctl_params(&mut cs),
                 RdReset::Oomd => reset_oomd(&mut cs),
+                RdReset::Graph => reset_graph(siv),
                 RdReset::Secondaries => reset_secondaries(&mut cs),
                 RdReset::AllWorkloads => {
                     reset_hashds(&mut cs);
@@ -298,14 +332,14 @@ fn exec_cmd(siv: &mut Cursive, cmd: &RdCmd) {
                     reset_oomd(&mut cs);
                 }
                 RdReset::All => {
-                    reset_all(&mut cs);
+                    reset_all(&mut cs, siv);
                 }
                 RdReset::Params => {
                     reset_hashd_params(&mut cs);
                     reset_resctl_params(&mut cs);
                 }
                 RdReset::AllWithParams => {
-                    reset_all(&mut cs);
+                    reset_all(&mut cs, siv);
                     reset_hashd_params(&mut cs);
                     reset_resctl_params(&mut cs);
                 }
@@ -548,6 +582,9 @@ fn render_cmd(prompt: &str, cmd: &RdCmd) -> impl View {
                     )
                     .child(TextView::new("]")),
             );
+        }
+        RdCmd::Graph(_) => {
+            view = view.child(create_button(prompt, move |siv| exec_cmd(siv, &cmdc)));
         }
         RdCmd::Reset(_) => {
             view = view.child(create_button(prompt, move |siv| exec_cmd(siv, &cmdc)));

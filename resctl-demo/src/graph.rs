@@ -3,9 +3,10 @@ use anyhow::{bail, Result};
 use cursive::theme::Style;
 use cursive::utils::markup::StyledString;
 use cursive::view::{Nameable, Resizable, SizeConstraint, View};
-use cursive::views::{DummyView, LinearLayout, Panel, ResizedView, TextView};
+use cursive::views::{DummyView, LinearLayout, NamedView, Panel, ResizedView, TextView};
 use cursive::{self, Cursive};
 use cursive_tabs::TabView;
+use enum_iterator::IntoEnumIterator;
 use lazy_static::lazy_static;
 use log::error;
 use std::collections::HashMap;
@@ -23,7 +24,7 @@ use util::*;
 use super::report_ring::ReportDataSet;
 use super::{
     get_layout, Layout, AGENT_FILES, COLOR_ACTIVE, COLOR_ALERT, COLOR_GRAPH_1, COLOR_GRAPH_2,
-    COLOR_GRAPH_3, COLOR_INACTIVE, TEMP_DIR,
+    COLOR_GRAPH_3, COLOR_INACTIVE, TEMP_DIR, kick_refresh
 };
 use rd_agent_intf::Report;
 
@@ -53,6 +54,28 @@ pub fn graph_intv_prev() {
     if *idx > 0 {
         *idx -= 1;
     }
+}
+
+fn refresh_main_graph_title(siv: &mut Cursive) {
+    let tag = *GRAPH_MAIN_TAG.lock().unwrap();
+    let (_, title, _) = ALL_GRAPHS.iter().filter(|x| x.0 == tag).next().unwrap();
+
+    let title = format!("{} - 'g': more graphs, 't/T': change timescale", title);
+    siv.call_on_name("graph-main-panel", |v: &mut Panel<NamedView<TextView>>| {
+        v.set_title(title)
+    });
+}
+
+pub fn set_main_graph(siv: &mut Cursive, tag: GraphTag) {
+    *GRAPH_MAIN_TAG.lock().unwrap() = tag;
+    refresh_main_graph_title(siv);
+    kick_refresh(siv);
+}
+
+pub fn clear_main_graph(siv: &mut Cursive) {
+    *GRAPH_MAIN_TAG.lock().unwrap() = GraphTag::HashdA;
+    refresh_main_graph_title(siv);
+    kick_refresh(siv);
 }
 
 fn graph_tab_focus(siv: &mut Cursive, idx: usize) {
@@ -624,7 +647,7 @@ fn plot_spec_factory(id: PlotId) -> PlotSpec {
     }
 }
 
-#[derive(Copy, Clone, Hash, PartialEq, Eq, Debug)]
+#[derive(Copy, Clone, Hash, PartialEq, Eq, Debug, IntoEnumIterator)]
 pub enum GraphTag {
     HashdA,
     HashdB,
@@ -790,8 +813,7 @@ pub fn layout_factory(id: GraphSetId) -> Box<dyn View> {
     match id {
         GraphSetId::Default => Box::new(resize_one(
             &layout,
-            Panel::new(TextView::new("").with_name("graph-main"))
-                .title("Workload RPS / Latency - 'g': more graphs, 't/T': change timescale"),
+            Panel::new(TextView::new("").with_name("graph-main")).with_name("graph-main-panel"),
         )),
         GraphSetId::FullScreen => {
             let mut panels = all_graph_panels();
@@ -884,4 +906,8 @@ pub fn layout_factory(id: GraphSetId) -> Box<dyn View> {
             )
         }
     }
+}
+
+pub fn post_layout(siv: &mut Cursive) {
+    refresh_main_graph_title(siv);
 }
