@@ -142,7 +142,6 @@ impl AnonArea {
 /// such that it gradually transforms into uniform distribution as stdev
 /// increases.
 struct ClampedNormal {
-    rng: SmallRng,
     normal: Normal<f64>,
     uniform: Uniform<f64>,
     left: f64,
@@ -153,7 +152,6 @@ impl ClampedNormal {
     fn new(mean: f64, stdev: f64, left: f64, right: f64) -> Self {
         assert!(left <= right);
         Self {
-            rng: SmallRng::from_entropy(),
             normal: Normal::new(mean, stdev).unwrap(),
             uniform: Uniform::new_inclusive(left, right),
             left: left,
@@ -161,12 +159,12 @@ impl ClampedNormal {
         }
     }
 
-    fn sample(&mut self) -> f64 {
-        let v = self.normal.sample(&mut self.rng);
+    fn sample<R: rand::Rng + ?Sized>(&self, rng: &mut R) -> f64 {
+        let v = self.normal.sample(rng);
         if self.left <= v && v <= self.right {
             return v;
         } else {
-            return self.uniform.sample(&mut self.rng);
+            return self.uniform.sample(rng);
         }
     }
 }
@@ -181,6 +179,7 @@ pub enum DispatchCmd {
 struct HashCompletion {
     ids: Vec<u64>,
     digest: Digest,
+    aa_sum: u64,
     started_at: Instant,
 }
 
@@ -409,6 +408,7 @@ impl DispatchThread {
         sleep_dur: f64,
         cpu_ratio: f64,
         anon_addr_frac: f64,
+        anon_write_frac: f64,
         cmpl_tx: Sender<HashCompletion>,
         started_at: Instant,
     ) {
@@ -422,10 +422,21 @@ impl DispatchThread {
         sleep(Duration::from_secs_f64(sleep_dur / 3.0));
 
         // Generate anonymous accesses.
+        let mut aa_sum: u64 = 0;
         let aa = anon_area.read().unwrap();
-        let mut addr_normal = ClampedNormal::new(0.0, anon_addr_stdev, -1.0, 1.0);
+        let addr_normal = ClampedNormal::new(0.0, anon_addr_stdev, -1.0, 1.0);
+        let rw_uniform = Uniform::new_inclusive(0.0, 1.0);
+        let mut rng = SmallRng::from_entropy();
+
         for _ in 0..anon_nr_pages {
-            *aa.access_rel(addr_normal.sample() * anon_addr_frac) += 1;
+            let ptr = aa.access_rel(addr_normal.sample(&mut rng) * anon_addr_frac);
+            aa_sum += *ptr as u64;
+            if rw_uniform.sample(&mut rng) <= anon_write_frac {
+                *ptr += 1;
+            }
+            if *ptr == 0 {
+                *ptr = 1;
+            }
         }
         sleep(Duration::from_secs_f64(sleep_dur / 3.0));
 
@@ -437,6 +448,7 @@ impl DispatchThread {
             .send(HashCompletion {
                 ids,
                 digest,
+                aa_sum,
                 started_at,
             })
             .unwrap();
@@ -465,14 +477,16 @@ impl DispatchThread {
         let sn = &mut self.sleep_normal;
         let faf = self.file_addr_frac;
         let aaf = self.anon_addr_frac;
+        let awf = self.params.anon_write_frac;
+        let mut rng = SmallRng::from_entropy();
 
         while self.nr_in_flight < self.concurrency as u32 {
             // Determine input size and indices.
-            let nr_files = (fsn.sample() / tf.unit_size as f64).round() as u64;
+            let nr_files = (fsn.sample(&mut rng) / tf.unit_size as f64).round() as u64;
             let ids: Vec<u64> = (0..nr_files)
                 .map(|_| {
                     Self::rel_to_file_idx(
-                        fin.sample() * faf,
+                        fin.sample(&mut rng) * faf,
                         tf.nr_files,
                         params.mem_frac * params.file_frac,
                     )
@@ -483,10 +497,10 @@ impl DispatchThread {
             // Determine anon access page count.  Indices are
             // determined by each hash worker to avoid overloading the
             // dispatch thread.
-            let anon_size = asn.sample().round() as usize;
+            let anon_size = asn.sample(&mut rng).round() as usize;
             let nr_pages = anon_size.div_ceil(&*PAGE_SIZE);
 
-            let sleep_dur = sn.sample();
+            let sleep_dur = sn.sample(&mut rng);
 
             let aa = self.anon_area.clone();
             let aas = self.anon_addr_stdev;
@@ -494,7 +508,9 @@ impl DispatchThread {
             let ct = self.cmpl_tx.clone();
             let at = Instant::now();
             self.wq.queue(move || {
-                Self::hasher_workfn(ids, paths, aa, nr_pages, aas, sleep_dur, cf, aaf, ct, at)
+                Self::hasher_workfn(
+                    ids, paths, aa, nr_pages, aas, sleep_dur, cf, aaf, awf, ct, at,
+                )
             });
             self.nr_in_flight += 1;
         }
@@ -583,7 +599,7 @@ impl DispatchThread {
 
         debug!(
             "p50={:.1} p84={:.1} p90={:.1} p95={:.1} p99={:.1} ctl={:.1} rps={:.1} con={:.1}/{:.1} \
-             ffrac={:.2} afrac-{:.2}",
+             ffrac={:.2} aafrac={:.2}",
             self.lat.p50 * TO_MSEC,
             self.lat.p84 * TO_MSEC,
             self.lat.p90 * TO_MSEC,
@@ -627,14 +643,14 @@ impl DispatchThread {
                 },
                 recv(self.cmpl_rx) -> cmpl => {
                     match cmpl {
-                        Ok(HashCompletion {ids, digest, started_at}) => {
+                        Ok(HashCompletion {ids, digest, aa_sum, started_at}) => {
                             self.nr_in_flight -= 1;
                             self.nr_done += 1;
                             let dur = Instant::now().duration_since(started_at).as_secs_f64();
                             self.ckms.insert(dur);
                             if let Some(logger) = self.logger.as_mut() {
-                                logger.log(&format!("{} {:.2}ms {:?}", digest,
-                                                    dur * TO_MSEC, ids));
+                                logger.log(&format!("{} {:8} {:.2}ms {:?}",
+                                                    digest, aa_sum, dur * TO_MSEC, ids));
                             }
                         },
                         Err(err) => {

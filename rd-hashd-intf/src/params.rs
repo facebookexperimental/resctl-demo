@@ -60,6 +60,7 @@ const PARAMS_DOC: &str = "\
 //  anon_size_stdev_ratio: Standard deviation of anon access sizes
 //  anon_addr_stdev_ratio: Standard deviation of anon access addresses
 //  anon_addr_rps_base_frac: Memory scaling starting point for anon accesses
+//  anon_write_frac: The proportion of writes in anon accesses
 //  sleep_mean: Worker sleep duration average
 //  sleep_stdev_ratio: Standard deviation of sleep duration distribution
 //  cpu_ratio: CPU usage scaling - 1.0 hashes all file accesses
@@ -89,6 +90,7 @@ pub struct Params {
     pub anon_size_stdev_ratio: f64,
     pub anon_addr_stdev_ratio: f64,
     pub anon_addr_rps_base_frac: f64,
+    pub anon_write_frac: f64,
     pub sleep_mean: f64,
     pub sleep_stdev_ratio: f64,
     pub cpu_ratio: f64,
@@ -100,7 +102,7 @@ pub struct Params {
 impl Params {
     pub const DFL_LAT_TARGET_PCT: f64 = 0.9;
     pub const DFL_STDEV: f64 = 0.33; // 3 sigma == mean
-    pub const ADDR_STDEV: f64 = 0.275; // narrower for longer tail
+    pub const ADDR_STDEV: f64 = 0.25; // narrower for longer tail
     pub const DFL_FILE_FRAC: f64 = 0.15;
 
     pub fn log_padding(&self) -> u64 {
@@ -131,6 +133,7 @@ impl Default for Params {
             anon_size_stdev_ratio: Self::DFL_STDEV,
             anon_addr_stdev_ratio: Self::ADDR_STDEV,
             anon_addr_rps_base_frac: 0.25,
+            anon_write_frac: 0.05,
             sleep_mean: 30.0 * MSEC,
             sleep_stdev_ratio: Self::DFL_STDEV,
             cpu_ratio: 1.0,
