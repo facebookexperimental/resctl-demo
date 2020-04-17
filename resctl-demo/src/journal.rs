@@ -60,6 +60,14 @@ fn format_journal_msg(msg: &JournalMsg, buf: &mut StyledString, long_fmt: bool) 
         style = style.combine(COLOR_ALERT);
     }
 
+    // systemd generates a lot of the following messages for transient units.
+    // It distracts without adding any value. Ignore.
+    if msg.msg.contains(".service: Failed to open ")
+        && msg.msg.contains(".service: No such file or directory")
+    {
+        return;
+    }
+
     for w in WARNS.iter() {
         if msg.msg.contains(w) {
             style = style.combine(COLOR_ALERT);
