@@ -364,7 +364,7 @@ impl Config {
                 },
             ],
             misc_bin_path: misc_bin_path.clone(),
-            io_latencies_bin: misc_bin_path.clone() + "/io_latencies.py",
+            io_latencies_bin: misc_bin_path.clone() + "/io_latencies_wrapper.sh",
             iocost_monitor_bin: misc_bin_path.clone() + "/iocost_monitor.py",
             iocost_paths: IOCostPaths {
                 bin: misc_bin_path.clone() + "/iocost_coef_gen.py",
@@ -621,9 +621,9 @@ impl Config {
             );
             self.sr_failed.insert(SysReq::Swap);
         }
-        if (swap_avail as f64) < (*TOTAL_MEMORY as f64 * 0.45) {
+        if (swap_avail as f64) < (*TOTAL_MEMORY as f64 * 0.45).min((31 << 30) as f64) {
             error!(
-                "cfg: Available swap {:.2}G is smaller than half of memory {:.2}G",
+                "cfg: Available swap {:.2}G is smaller than min(half of memory {:.2}G, 32G)",
                 to_gb(swap_avail),
                 to_gb(*TOTAL_MEMORY / 2)
             );

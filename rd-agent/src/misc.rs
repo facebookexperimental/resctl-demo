@@ -5,13 +5,17 @@ use anyhow::{bail, Result};
 use std::process::Command;
 use util::*;
 
-const MISC_BINS: [(&str, &[u8]); 4] = [
+const MISC_BINS: [(&str, &[u8]); 5] = [
     (
         "iocost_coef_gen.py",
         include_bytes!("misc/iocost_coef_gen.py"),
     ),
     ("sideloader.py", include_bytes!("misc/sideloader.py")),
     ("io_latencies.py", include_bytes!("misc/io_latencies.py")),
+    (
+        "io_latencies_wrapper.sh",
+        include_bytes!("misc/io_latencies_wrapper.sh"),
+    ),
     (
         "iocost_monitor.py",
         include_bytes!("misc/iocost_monitor.py"),
