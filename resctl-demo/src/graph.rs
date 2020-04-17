@@ -23,8 +23,8 @@ use util::*;
 
 use super::report_ring::ReportDataSet;
 use super::{
-    get_layout, Layout, AGENT_FILES, COLOR_ACTIVE, COLOR_ALERT, COLOR_GRAPH_1, COLOR_GRAPH_2,
-    COLOR_GRAPH_3, COLOR_INACTIVE, TEMP_DIR, kick_refresh
+    get_layout, kick_refresh, Layout, AGENT_FILES, COLOR_ACTIVE, COLOR_ALERT, COLOR_GRAPH_1,
+    COLOR_GRAPH_2, COLOR_GRAPH_3, COLOR_INACTIVE, TEMP_DIR,
 };
 use rd_agent_intf::Report;
 

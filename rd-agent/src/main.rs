@@ -364,7 +364,7 @@ impl Config {
                 },
             ],
             misc_bin_path: misc_bin_path.clone(),
-            io_latencies_bin: misc_bin_path.clone() + "/io_latencies.py",
+            io_latencies_bin: misc_bin_path.clone() + "/io_latencies_wrapper.sh",
             iocost_monitor_bin: misc_bin_path.clone() + "/iocost_monitor.py",
             iocost_paths: IOCostPaths {
                 bin: misc_bin_path.clone() + "/iocost_coef_gen.py",
