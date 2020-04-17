@@ -621,9 +621,9 @@ impl Config {
             );
             self.sr_failed.insert(SysReq::Swap);
         }
-        if (swap_avail as f64) < (*TOTAL_MEMORY as f64 * 0.45) {
+        if (swap_avail as f64) < (*TOTAL_MEMORY as f64 * 0.45).min((31 << 30) as f64) {
             error!(
-                "cfg: Available swap {:.2}G is smaller than half of memory {:.2}G",
+                "cfg: Available swap {:.2}G is smaller than min(half of memory {:.2}G, 32G)",
                 to_gb(swap_avail),
                 to_gb(*TOTAL_MEMORY / 2)
             );

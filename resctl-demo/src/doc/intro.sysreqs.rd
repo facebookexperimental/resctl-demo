@@ -89,7 +89,7 @@ there, what automatic configurations resctl-demo may apply and how to resolve if
   resctl-demo automatically disables wbt.
 
 * %SysReq::Swap%: Swap must be enabled with the default swappiness and at least
-  as large as half of the system memory.
+  as large as the smaller of half of the system memory or 32G.
 
   See %SysReq::SwapOnScratch%.
 
