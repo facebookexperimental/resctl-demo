@@ -90,6 +90,7 @@ pub enum RdCmd {
 #[derive(Debug)]
 pub struct RdCmdParsed {
     pub cmd: RdCmd,
+    pub cond: Option<String>,
     pub prompt: Option<String>,
     pub post: bool,
 }
@@ -210,10 +211,19 @@ fn parse_markup_text(input: &str) -> Option<StyledString> {
 }
 
 impl RdCmd {
-    fn parse(input: &str) -> Result<RdCmd> {
-        let args: Vec<&str> = input.split_whitespace().collect();
+    fn parse(input: &str) -> Result<(RdCmd, Option<String>)> {
+        let mut args: Vec<&str> = input.split_whitespace().collect();
 
-        Ok(match args[0] {
+        let mut cond = None;
+        if args.len() >= 2 {
+            let arg = args.last().unwrap();
+            if arg.starts_with("%") && arg.ends_with("%") {
+                cond = Some(arg[1..arg.len() - 1].to_string());
+                args.pop();
+            }
+        }
+
+        let cmd = match args[0] {
             "id" => {
                 if args.len() != 2 {
                     bail!("invalid number of arguments");
@@ -336,7 +346,8 @@ impl RdCmd {
                 RdCmd::Jump(args[1].into())
             }
             _ => bail!("invalid command"),
-        })
+        };
+        Ok((cmd, cond))
     }
 }
 
@@ -358,7 +369,7 @@ impl RdCmdParsed {
             bail!("no command specified");
         }
 
-        let cmd = RdCmd::parse(parts[0])?;
+        let (cmd, cond) = RdCmd::parse(parts[0])?;
         let prompt = if parts.len() == 2 {
             let p = if parts[1].starts_with(" ") {
                 &parts[1][1..]
@@ -389,7 +400,12 @@ impl RdCmdParsed {
             _ => (),
         }
 
-        Ok(Some(Self { cmd, prompt, post }))
+        Ok(Some(Self {
+            cmd,
+            cond,
+            prompt,
+            post,
+        }))
     }
 }
 
@@ -481,19 +497,15 @@ impl RdDoc {
                         &e
                     ),
                 };
+                if let Some(cond) = parsed.cond {
+                    if let None = format_markup_tags(&cond) {
+                        continue;
+                    }
+                }
                 if let RdCmd::Id(id) = parsed.cmd {
                     doc.id = id;
                     doc.desc = parsed.prompt.unwrap_or("".into());
-                } else if let Some(mut prompt) = parsed.prompt {
-                    if prompt.starts_with("%") {
-                        let parts: Vec<&str> = prompt[1..].splitn(2, '%').collect();
-                        if parts.len() == 2 {
-                            if let None = format_markup_tags(parts[0]) {
-                                continue;
-                            }
-                            prompt = parts[1].into();
-                        }
-                    }
+                } else if let Some(prompt) = parsed.prompt {
                     doc.body.push(RdPara::Prompt(prompt, parsed.cmd));
                 } else if parsed.post {
                     doc.post_cmds.push(parsed.cmd);

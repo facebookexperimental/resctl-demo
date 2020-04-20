@@ -236,14 +236,14 @@ impl UpdateWorker {
         let mut aggrs = vec![PlotDataAggr::AVG, PlotDataAggr::AVG, PlotDataAggr::AVG];
         let mut specs = Vec::new();
 
-        let mut idx = specs_input.len() - 1;
+        let mut idx = specs_input.len();
         while let Some(spec) = specs_input.pop() {
             let (sel, aggr, title, min, max) =
                 (spec.sel, spec.aggr, spec.title, spec.min, spec.max);
 
+            idx -= 1;
             fns[idx] = sel;
             aggrs[idx] = aggr;
-            idx -= 1;
 
             specs.insert(
                 0,
