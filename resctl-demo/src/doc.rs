@@ -520,6 +520,11 @@ pub fn show_doc(siv: &mut Cursive, target: &str, jump: bool) {
         info!("doc: jumping to {:?}", target);
 
         for cmd in &doc.pre_cmds {
+            if let RdCmd::Jump(target) = cmd {
+                drop(cur_doc);
+                show_doc(siv, target, true);
+                return;
+            }
             exec_cmd(siv, cmd);
         }
     }
@@ -583,10 +588,7 @@ fn render_cmd(prompt: &str, cmd: &RdCmd) -> impl View {
                     .child(TextView::new("]")),
             );
         }
-        RdCmd::Graph(_) => {
-            view = view.child(create_button(prompt, move |siv| exec_cmd(siv, &cmdc)));
-        }
-        RdCmd::Reset(_) => {
+        RdCmd::Graph(_) | RdCmd::Reset(_) => {
             view = view.child(create_button(prompt, move |siv| exec_cmd(siv, &cmdc)));
         }
         RdCmd::Jump(target) => {
