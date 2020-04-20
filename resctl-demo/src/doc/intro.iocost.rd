@@ -1,0 +1,132 @@
+## Copyright (c) Facebook, Inc. and its affiliates.
+%% id intro.iocost: iocost benchmark
+%% graph IoUtil
+
+*The cgroup2 IO cost model based controller*\n
+*==========================================*
+
+*Overview*
+
+As will be shown later in this demo, controlling who gets how much IO
+capacity is critical in achieving comprehensive resource control. The
+dependency is obvious for workloads which perform filesystem or raw device
+IOs directly but because memory management and IOs are intertwined any
+workload can become IO dependent especially when memory becomes short.
+
+One challenge of controlling IO resources is the lack of trivially
+observable cost metric. This is distinguished from CPU and memory where
+wallclock time and the number of bytes can serve as accurate enough
+approximations.
+
+Bandwidth and iops are the most commonly used metrics for IO devices but
+depending on the type and specifics of the device, different IO patterns
+easily lead to multiple orders of magnitude variations rendering them
+useless for the purpose of IO capacity distribution.  While on-device
+time, with a lot of clutches, could serve as a useful approximation for
+non-queued rotational devices, this is no longer viable with modern
+devices, even the rotational ones.
+
+While there is no cost metric we can trivially observe, it isn't a complete
+mystery. For example, on a rotational device, seek cost dominates while a
+contiguous transfer contributes a smaller amount proportional to the size.
+If we can characterize at least the relative costs of these different types
+of IOs, it should be possible to implement a reasonable work-conserving
+proportional IO resource distribution.
+
+The iocost controller solves this problem by employing an IO cost model to
+estimate the cost of each IO. Each IO is classified as sequential or random
+and given a base cost accordingly. On top of that, a size cost proportional
+to the length of the IO is added. While simple, this model captures the
+operational characteristics of a wide varienty of devices well enough.
+
+
+*The parameters*
+
+While the kernel comes with a few sets of default parameters, to achieve a
+reasonable level of control, the IO cost model should be configured in
+`/sys/fs/cgroup/io.cost.model` according to the specific device with the
+following parameters.
+
+* rbps      - Maximum sequential read BPS\n
+* rseqiops  - Maximum 4k sequential read IOPS\n
+* rrandiops - Maximum 4k random read IOPS\n
+* wbps      - Maximum sequential write BPS\n
+* wseqiops  - Maximum 4k sequential write IOPS\n
+* wrandiops - Maximum 4k random write IOPS
+
+The cost model is far from perfect and many devices show dynamic deviations
+in performance characteristics over time. The controller adapts to the
+situation by scaling the total command issue rate according to the
+Quality-of-Service parameters - the latency targets and vrate bounds. The
+following parameters are configured in `/sys/fs/cgroup/io.cost.qos`.
+
+* rpct      - Read latency percentile to use\n
+* rlat      - Read target latency\n
+* wpct      - Writ elatency percentile to use\n
+* wlat      - Write target latency\n
+* min       - vrate bound minimum\n
+* max       - vrate bound maximum
+
+The latency targets determine when the controller considers the device fully
+saturated. For example, "rpct=95 rlat=5000" means that if 95th percentile of
+read completion latency is above 5ms, the device is at capacity and command
+issuing should be throttled.
+
+The QoS vrate bounds express the percentage range of how much the device may
+be throttled up and down to meet the latency targets. For example, a range
+of 50% - 125% tells the controller to adjust maximum command issue rate
+between half and 1.25x of what would add upto 100% according to the cost
+model parameters. If `rbps` is 400MBps and the workload only doing
+sequential read, depending on the completion latency, iocost controller will
+allow issuing between 200MBps and 500MBps.
+
+The QoS parameters are affected by both the device itself and, to an a lot
+lesser extent, the requirements of the workloads. In most cases, a device's
+latency response graph has a point where latency takes off. The device is
+already saturated and adding more concurrent commands simply increases the
+latency. Target latencies should usually be set around that point.
+
+Another interesting aspect is that vrate range can play a guiding role for
+the underyling device. For example, some SSDs can complete a lot of writes
+at a very high speed for a short time and then go into semi-coma state,
+failing to complete other commands for hundreds or even thousands of
+milliseconds. While such bursts might look good on simple short benchmarks,
+they are deterimental to any latency sensitive workloads which may end
+getting hit by the following stalls. iocost can avoid such irregularities by
+limiting vrate max close to 100% so that no matter how quickly the device
+signals write completion, the system never issues more than it can sustain.
+
+There are also SSDs which show significalty raised latencies for a while no
+matter how few IOs are thrown at it, likely during a certain phase of
+garbage collection. In such cases, scaling down command issue rate further
+and further doesn't gain anything while losing the total amount of work. The
+vrate min bound can protect against such temporary extreme cases.
+
+These are a lot of numbers to configure but they're for the most part device
+model specific. In the future, we're hoping to build a database with known
+devices and their parameters so that they can be configured automatically.
+
+
+*The benchmark*
+
+`/var/lib/resctl-demo/misc-bin/iocost_coef_gen.py` runs as
+`rd-bench-iocost.service` and determines both the cost model and QoS
+parameters.
+
+The QoS parameters are calculated as 4 times the random IO completion
+latency at 90% load and the vrate range is between 25% and 100%. The
+formulas are derived emprically to achieve reliable demo behavior across a
+wide variety of devices and may not be optimal for other use cases.
+
+Once the benchmarks are complete, the results will be recorded in
+`/var/lib/resctl-demo/bench.json` and propagated to
+`/sys/fs/cgroup/io.cost.model` and `/sys/fs/cgroup/io.cost.qos`. If you edit
+the file, the kernel configurations will be udpated accordingly.
+
+
+*Read on*
+
+%% jump intro.hashd              : [ rd-hashd benchmark ]
+%% jump intro                    : [ Back to intro page ]
+%%
+%% jump index                    : [ Exit to index ]

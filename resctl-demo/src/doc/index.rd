@@ -7,6 +7,10 @@
 The only things currently available are the introduction and doc
 format documentation.
 
-%% jump intro                    : * Introduction
+*Introduction*
+
 %% jump intro.sysreqs            : * System Requirements
-%% jump doc-format               : * Doc Format
+%% jump intro.pre-bench          : * The Benchmarks
+%% jump intro.iocost             :   * iocost benchmark
+%% jump intro.hashd              :   * hashd benchmark
+%% jump intro.post-bench         : * Introduction to resctl-demo
