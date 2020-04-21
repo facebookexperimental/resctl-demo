@@ -167,6 +167,11 @@ fn format_markup_tags(tag: &str) -> Option<StyledString> {
                     return None;
                 }
             }
+            "DflMemMargin" => {
+                return Some(StyledString::plain(format_size(
+                    SliceConfig::dfl_mem_margin(),
+                )));
+            }
             _ => (),
         }
     }

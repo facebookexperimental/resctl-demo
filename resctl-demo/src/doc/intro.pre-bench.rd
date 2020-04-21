@@ -42,7 +42,7 @@ If you wanna learn more about what they are and why they need benchmarking,
 and tune and verify the bench results, please visit the following pages.
 
 %% jump intro.iocost             : [ io.cost Controller ]
-%% jump intro.hashd              : [ Hashd Benchmark ]
+%% jump intro.hashd              : [ rd-hashd Workload Simulator ]
 
 Otherwise, please sit back and wait the benchmarks to finish and then
 continue to the next page.

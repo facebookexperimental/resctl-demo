@@ -6,7 +6,7 @@ $$ reset graph
 *The cgroup2 IO cost model based controller*\n
 *==========================================*
 
-*Overview*
+___*Overview*___
 
 As will be shown later in this demo, controlling who gets how much IO
 capacity is critical in achieving comprehensive resource control. The
@@ -41,7 +41,7 @@ to the length of the IO is added. While simple, this model captures the
 operational characteristics of a wide varienty of devices well enough.
 
 
-*The parameters*
+___*The parameters*___
 
 While the kernel comes with a few sets of default parameters, to achieve a
 reasonable level of control, the IO cost model should be configured in
@@ -110,7 +110,7 @@ model specific. In the future, we're hoping to build a database with known
 devices and their parameters so that they can be configured automatically.
 
 
-*The benchmark*
+___*The benchmark*___
 
 `/var/lib/resctl-demo/misc-bin/iocost_coef_gen.py` runs as
 `rd-bench-iocost.service` and determines both the cost model and QoS
@@ -127,9 +127,9 @@ Once the benchmarks are complete, the results will be recorded in
 the file, the kernel configurations will be udpated accordingly.
 
 
-*Read on*
+___*Read on*___
 
-%% jump intro.hashd              : [ Next: Hashd Benchmark ]
-%% jump intro.pre-bench          : [ Back: Introduction ]
+%% jump intro.hashd              : [ Next: rd-hashd Workload Simulator ]
+%% jump intro.pre-bench          : [ Back: Benchmarks ]
 %%
 %% jump index                    : [ Exit: Index ]
