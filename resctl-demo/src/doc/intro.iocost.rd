@@ -1,6 +1,7 @@
 ## Copyright (c) Facebook, Inc. and its affiliates.
-%% id intro.iocost: iocost benchmark
+%% id intro.iocost: io.cost Controller
 %% graph IoUtil
+$$ reset graph
 
 *The cgroup2 IO cost model based controller*\n
 *==========================================*
@@ -54,11 +55,12 @@ following parameters.
 * wseqiops  - Maximum 4k sequential write IOPS\n
 * wrandiops - Maximum 4k random write IOPS
 
-The cost model is far from perfect and many devices show dynamic deviations
-in performance characteristics over time. The controller adapts to the
-situation by scaling the total command issue rate according to the
-Quality-of-Service parameters - the latency targets and vrate bounds. The
-following parameters are configured in `/sys/fs/cgroup/io.cost.qos`.
+The cost model is of course an approxmiation of reality and can't exactly
+predict how the hardware is going to behave, especially as the devices
+themselves show dynamic performance deviations over time. The controller
+adapts to the situation by scaling the total command issue rate according to
+the Quality-of-Service parameters - the latency targets and vrate bounds.
+The following parameters are configured in `/sys/fs/cgroup/io.cost.qos`.
 
 * rpct      - Read latency percentile to use\n
 * rlat      - Read target latency\n
@@ -91,10 +93,11 @@ the underyling device. For example, some SSDs can complete a lot of writes
 at a very high speed for a short time and then go into semi-coma state,
 failing to complete other commands for hundreds or even thousands of
 milliseconds. While such bursts might look good on simple short benchmarks,
-they are deterimental to any latency sensitive workloads which may end
-getting hit by the following stalls. iocost can avoid such irregularities by
-limiting vrate max close to 100% so that no matter how quickly the device
-signals write completion, the system never issues more than it can sustain.
+they don't bring a lot of practical benefits and are deterimental to any
+latency sensitive workloads which may end getting hit by the following
+stalls. iocost can avoid such irregularities by limiting vrate max close to
+100% so that no matter how quickly the device signals write completion, the
+system never issues more than it can sustain.
 
 There are also SSDs which show significalty raised latencies for a while no
 matter how few IOs are thrown at it, likely during a certain phase of
@@ -126,7 +129,7 @@ the file, the kernel configurations will be udpated accordingly.
 
 *Read on*
 
-%% jump intro.hashd              : [ rd-hashd benchmark ]
-%% jump intro                    : [ Back to intro page ]
+%% jump intro.hashd              : [ Next: Hashd Benchmark ]
+%% jump intro.pre-bench          : [ Back: Introduction ]
 %%
-%% jump index                    : [ Exit to index ]
+%% jump index                    : [ Exit: Index ]

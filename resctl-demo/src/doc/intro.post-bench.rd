@@ -73,4 +73,4 @@ wouldn't have been possible before.
 ## resource control, allow the user to disable some aspects and
 ## explain what fails and how, mention prio inversions etc.
 
-%% jump index                    : * Exit to Index
+%% jump index                    : [ Exit: Index ]
