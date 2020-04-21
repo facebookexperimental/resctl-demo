@@ -41,12 +41,12 @@ You can also access the logs directly with 'journalctl -u UNIT_NAME'.
 If you wanna learn more about what they are and why they need benchmarking,
 and tune and verify the bench results, please visit the following pages.
 
-%% jump intro.iocost             : [ io.cost controller ]
-## %% jump intro.hashd              : [ rd-hashd benchmark ]
+%% jump intro.iocost             : [ io.cost Controller ]
+%% jump intro.hashd              : [ Hashd Benchmark ]
 
 Otherwise, please sit back and wait the benchmarks to finish and then
 continue to the next page.
 
-%% jump intro.post-bench         : [ Next page ]
+%% jump intro.post-bench         : [ Next: Introduction ]
 %%
-%% jump index                    : [ Exit to index ]
+%% jump index                    : [ Exit: Index ]
