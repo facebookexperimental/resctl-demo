@@ -12,5 +12,5 @@ format documentation.
 %% jump intro.sysreqs            : * System Requirements
 %% jump intro.pre-bench          : * The Benchmarks
 %% jump intro.iocost             :   * io.cost Controller
-%% jump intro.hashd              :   * Hashd Benchmark
+%% jump intro.hashd              :   * rd-hashd Workload Simulator
 %% jump intro.post-bench         : * Introduction to resctl-demo
