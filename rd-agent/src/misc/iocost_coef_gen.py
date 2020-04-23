@@ -277,7 +277,7 @@ with open(outfile_path('wlat'), 'r') as f:
     wlat = round(max(wlat, rlat * 4))
 info(f'\nwpct={wpct} wlat={wlat}')
 
-(qos_vmin, qos_vmax) = (25, 100)
+(qos_vmin, qos_vmax) = (25, 90)
 
 restore_elevator_nomerges()
 atexit.unregister(restore_elevator_nomerges)
