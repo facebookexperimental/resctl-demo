@@ -191,7 +191,7 @@ fn format_markup_tags(tag: &str) -> Option<StyledString> {
     Some(StyledString::plain(format!("%{}%", tag)))
 }
 
-fn exec_cmd(siv: &mut Cursive, cmd: &RdCmd) {
+fn exec_one_cmd(siv: &mut Cursive, cmd: &RdCmd) {
     info!("executing {:?}", cmd);
 
     let mut cs = CMD_STATE.lock().unwrap();
@@ -371,6 +371,16 @@ fn exec_cmd(siv: &mut Cursive, cmd: &RdCmd) {
 
     drop(cs);
     refresh_docs(siv);
+}
+
+fn exec_cmd(siv: &mut Cursive, cmd: &RdCmd) {
+    if let RdCmd::Group(group) = cmd {
+        for cmd in group {
+            exec_one_cmd(siv, cmd);
+        }
+    } else {
+        exec_one_cmd(siv, cmd);
+    }
 }
 
 fn exec_toggle(siv: &mut Cursive, cmd: &RdCmd, val: bool) {
@@ -605,7 +615,7 @@ fn render_cmd(prompt: &str, cmd: &RdCmd) -> impl View {
                     .child(TextView::new("]")),
             );
         }
-        RdCmd::Graph(_) | RdCmd::Reset(_) => {
+        RdCmd::Graph(_) | RdCmd::Reset(_) | RdCmd::Group(_) => {
             view = view.child(create_button(prompt, move |siv| exec_cmd(siv, &cmdc)));
         }
         RdCmd::Jump(target) => {

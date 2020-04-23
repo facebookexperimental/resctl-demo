@@ -14,3 +14,7 @@ format documentation.
 %% jump intro.iocost             :   * io.cost Controller
 %% jump intro.hashd              :   * rd-hashd Workload Simulator
 %% jump intro.post-bench         : * Introduction to resctl-demo
+
+*The Building Blocks*
+
+##%% jump comp.cgroup              : * Cgroup and Protection

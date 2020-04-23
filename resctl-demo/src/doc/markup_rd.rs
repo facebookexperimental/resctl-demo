@@ -85,6 +85,7 @@ pub enum RdCmd {
     Graph(String),
     Reset(RdReset),
     Jump(String),
+    Group(Vec<RdCmd>),
 }
 
 #[derive(Debug)]
@@ -345,6 +346,12 @@ impl RdCmd {
                 }
                 RdCmd::Jump(args[1].into())
             }
+            "(" | ")" => {
+                if args.len() != 1 {
+                    bail!("invalid number of arguments");
+                }
+                RdCmd::Group(Vec::new())
+            }
             _ => bail!("invalid command"),
         };
         Ok((cmd, cond))
@@ -483,6 +490,9 @@ impl RdDoc {
 
         // parse each para line
         let mut doc = RdDoc::default();
+        let mut cur_group: Option<Vec<RdCmd>> = None;
+        let mut cur_group_prompt: Option<String> = None;
+        let mut cur_group_visible: bool = true;
         for line in lines {
             if line.0 == 0
                 && (line.1.starts_with(RD_PRE_CMD_PREFIX) || line.1.starts_with(RD_POST_CMD_PREFIX))
@@ -497,20 +507,75 @@ impl RdDoc {
                         &e
                     ),
                 };
-                if let Some(cond) = parsed.cond {
-                    if let None = format_markup_tags(&cond) {
+
+                if let None = &cur_group {
+                    // not in a group, process individual command
+                    let mut visible = true;
+                    if let Some(cond) = parsed.cond {
+                        if let None = format_markup_tags(&cond) {
+                            visible = false;
+                        }
+                    }
+                    // are we starting a group?
+                    if let RdCmd::Group(_) = parsed.cmd {
+                        if let None = parsed.prompt {
+                            bail!("group opening must have prompt in para {}", doc.body.len());
+                        }
+                        cur_group = Some(Vec::new());
+                        cur_group_prompt = parsed.prompt;
+                        cur_group_visible = visible;
                         continue;
                     }
-                }
-                if let RdCmd::Id(id) = parsed.cmd {
-                    doc.id = id;
-                    doc.desc = parsed.prompt.unwrap_or("".into());
-                } else if let Some(prompt) = parsed.prompt {
-                    doc.body.push(RdPara::Prompt(prompt, parsed.cmd));
-                } else if parsed.post {
-                    doc.post_cmds.push(parsed.cmd);
+                    if !visible {
+                        continue;
+                    }
+
+                    if let RdCmd::Id(id) = parsed.cmd {
+                        doc.id = id;
+                        doc.desc = parsed.prompt.unwrap_or("".into());
+                    } else if let Some(prompt) = parsed.prompt {
+                        doc.body.push(RdPara::Prompt(prompt, parsed.cmd));
+                    } else if parsed.post {
+                        doc.post_cmds.push(parsed.cmd);
+                    } else {
+                        doc.pre_cmds.push(parsed.cmd);
+                    }
+                } else if let RdCmd::Group(_) = parsed.cmd {
+                    // we're closing a group
+                    if let Some(_) = parsed.prompt {
+                        bail!("group closing can't have prompt in para {}", doc.body.len());
+                    }
+
+                    let gprompt = cur_group_prompt.take().unwrap();
+                    let gcmd = RdCmd::Group(cur_group.take().unwrap());
+                    if cur_group_visible {
+                        doc.body.push(RdPara::Prompt(gprompt, gcmd));
+                    }
                 } else {
-                    doc.pre_cmds.push(parsed.cmd);
+                    // appending to group
+                    let mut valid = match &parsed.cmd {
+                        RdCmd::On(_)
+                        | RdCmd::Off(_)
+                        | RdCmd::Graph(_)
+                        | RdCmd::Reset(_)
+                        | RdCmd::Jump(_) => true,
+                        RdCmd::Knob(_, v) => *v >= 0.0,
+                        _ => false,
+                    };
+                    if let Some(_) = parsed.cond {
+                        valid = false;
+                    }
+                    if let Some(_) = parsed.prompt {
+                        valid = false;
+                    }
+                    if !valid {
+                        bail!(
+                            "invalid command {:?} in a group in para {}",
+                            &parsed.cmd,
+                            doc.body.len()
+                        );
+                    }
+                    cur_group.as_mut().unwrap().push(parsed.cmd);
                 }
             } else {
                 if line.0 == 0 {
