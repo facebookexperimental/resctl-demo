@@ -6,10 +6,7 @@
 *Introduction*\n
 *============*
 
-%NeedBench%**NOTE: Benchmarks haven't completed yet!**
-%NeedBench%**NOTE: Wait until they're complete before continuing below.**
-
-%% jump intro.post-bench %NeedBench% : [ Refresh ]
+%WarnBench%
 
 The idea behind resource control is to distribute resources between
 workloads so that machines can be shared among different tasks without

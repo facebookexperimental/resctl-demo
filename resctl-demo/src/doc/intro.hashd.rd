@@ -158,11 +158,7 @@ modified through the demo interface.
 
 ___*Tuning the parameters*___
 
-%NeedBenchHashd%**NOTE: This section requires rd-hashd benchmark to be
-complete. Please wait for the bench to finish and refresh before
-proceeding**
-
-%% jump intro.hashd %NeedBenchHashd%: [ Refresh ]
+%WarnBench%
 
 The only parameter which may need manually tuning is `mem_frac`.
 

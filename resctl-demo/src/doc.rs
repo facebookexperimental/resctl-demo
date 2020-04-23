@@ -23,7 +23,7 @@ use rd_agent_intf::{HashdCmd, SliceConfig, SysReq};
 
 lazy_static! {
     pub static ref DOCS: BTreeMap<String, &'static str> = load_docs();
-    static ref CUR_DOC: Mutex<RdDoc> = Mutex::new(RdDoc {
+    pub static ref CUR_DOC: Mutex<RdDoc> = Mutex::new(RdDoc {
         id: "__dummy__".into(),
         ..Default::default()
     });
@@ -158,6 +158,18 @@ fn format_markup_tags(tag: &str) -> Option<StyledString> {
                     return None;
                 } else {
                     return empty_some;
+                }
+            }
+            "WarnBench" => {
+                if bench.hashd_seq > 0 && bench.iocost_seq > 0 {
+                    return None;
+                } else {
+                    return Some(StyledString::styled(
+                        "NOTE: This section requires the benchmarks to be complete. \
+                         Please wait for them to finish and refresh this page by \
+                         pressing 'r' before proceeding.",
+                        COLOR_ALERT,
+                    ));
                 }
             }
             "HaveBench" => {
