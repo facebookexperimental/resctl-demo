@@ -255,7 +255,7 @@ info(f'\nwrandiops={wrandiops}, determining rlat...')
 
 if is_ssd():
     rpct = 95
-    wpct = 50
+    wpct = 95
 else:
     rpct = 50
     wpct = 50
