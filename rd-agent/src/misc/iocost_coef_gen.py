@@ -229,29 +229,29 @@ with open(nomerges_path, 'w') as f:
 
 seqio_blksz = args.seqio_block_mb * (2 ** 20)
 
-info('Determining rbps...')
-rbps = run_fio(testfile, args.duration, 'read', 1, seqio_blksz,
-               args.numjobs, None, outfile_path('rbps'))
-info(f'\nrbps={rbps}, determining rseqiops...')
-rseqiops = round(
-    run_fio(testfile, args.duration, 'read', args.seq_depth, 4096,
-            args.numjobs, None, outfile_path('rseqiops')) / 4096)
-info(f'\nrseqiops={rseqiops}, determining rrandiops...')
-rrandiops = round(
-    run_fio(testfile, args.duration, 'randread', args.rand_depth, 4096,
-            args.numjobs, None, outfile_path('rrandiops')) / 4096)
-info(f'\nrrandiops={rrandiops}, determining wbps...')
+info('Determining wbps...')
 wbps = run_fio(testfile, args.duration, 'write', 1, seqio_blksz,
                args.numjobs, None, outfile_path('wbps'))
-info(f'\nwbps={wbps}, determining wseqiops...')
+info(f'\nwbps={wbps}, determining rbps...')
+rbps = run_fio(testfile, args.duration, 'read', 1, seqio_blksz,
+               args.numjobs, None, outfile_path('rbps'))
+info(f'\nrbps={rbps}, determining wseqiops...')
 wseqiops = round(
     run_fio(testfile, args.duration, 'write', args.seq_depth, 4096,
             args.numjobs, None, outfile_path('wseqiops')) / 4096)
-info(f'\nwseqiops={wseqiops}, determining wrandiops...')
+info(f'\nwseqiops={wseqiops}, determining rseqiops...')
+rseqiops = round(
+    run_fio(testfile, args.duration, 'read', args.seq_depth, 4096,
+            args.numjobs, None, outfile_path('rseqiops')) / 4096)
+info(f'\nrseqiops={rseqiops}, determining wrandiops...')
 wrandiops = round(
     run_fio(testfile, args.duration, 'randwrite', args.rand_depth, 4096,
             args.numjobs, None, outfile_path('wrandiops')) / 4096)
-info(f'\nwrandiops={wrandiops}, determining rlat...')
+info(f'\nwrandiops={wrandiops}, determining rrandiops...')
+rrandiops = round(
+    run_fio(testfile, args.duration, 'randread', args.rand_depth, 4096,
+            args.numjobs, None, outfile_path('rrandiops')) / 4096)
+info(f'\nrrandiops={rrandiops}, determining rlat...')
 
 if is_ssd():
     rpct = 95
