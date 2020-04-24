@@ -231,10 +231,11 @@ impl Config {
             Err(e) => bail!("can't determine version ({:?})", &e),
         };
 
-        let (maj, min, rel) = match scan_fmt!(&ver_str, "{*/[v]/}{}.{}.{}", u32, u32, u32) {
-            Ok(v) => v,
-            Err(e) => bail!("invalid version string {:?} ({:?})", ver_str.trim(), &e),
-        };
+        let (maj, min, rel) =
+            match scan_fmt!(&ver_str, "{*/[v]/}{}.{}.{/([0-9]+).*/}", u32, u32, u32) {
+                Ok(v) => v,
+                Err(e) => bail!("invalid version string {:?} ({:?})", ver_str.trim(), &e),
+            };
 
         if maj == 0 && min < 3 {
             bail!(
