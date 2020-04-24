@@ -23,7 +23,7 @@ use rd_agent_intf::{HashdCmd, SliceConfig, SysReq};
 
 lazy_static! {
     pub static ref DOCS: BTreeMap<String, &'static str> = load_docs();
-    static ref CUR_DOC: Mutex<RdDoc> = Mutex::new(RdDoc {
+    pub static ref CUR_DOC: Mutex<RdDoc> = Mutex::new(RdDoc {
         id: "__dummy__".into(),
         ..Default::default()
     });
@@ -160,6 +160,18 @@ fn format_markup_tags(tag: &str) -> Option<StyledString> {
                     return empty_some;
                 }
             }
+            "WarnBench" => {
+                if bench.hashd_seq > 0 && bench.iocost_seq > 0 {
+                    return None;
+                } else {
+                    return Some(StyledString::styled(
+                        "NOTE: This section requires the benchmarks to be complete. \
+                         Please wait for them to finish and refresh this page by \
+                         pressing 'r' before proceeding.",
+                        COLOR_ALERT,
+                    ));
+                }
+            }
             "HaveBench" => {
                 if bench.hashd_seq > 0 && bench.iocost_seq > 0 {
                     return empty_some;
@@ -179,7 +191,7 @@ fn format_markup_tags(tag: &str) -> Option<StyledString> {
     Some(StyledString::plain(format!("%{}%", tag)))
 }
 
-fn exec_cmd(siv: &mut Cursive, cmd: &RdCmd) {
+fn exec_one_cmd(siv: &mut Cursive, cmd: &RdCmd) {
     info!("executing {:?}", cmd);
 
     let mut cs = CMD_STATE.lock().unwrap();
@@ -359,6 +371,16 @@ fn exec_cmd(siv: &mut Cursive, cmd: &RdCmd) {
 
     drop(cs);
     refresh_docs(siv);
+}
+
+fn exec_cmd(siv: &mut Cursive, cmd: &RdCmd) {
+    if let RdCmd::Group(group) = cmd {
+        for cmd in group {
+            exec_one_cmd(siv, cmd);
+        }
+    } else {
+        exec_one_cmd(siv, cmd);
+    }
 }
 
 fn exec_toggle(siv: &mut Cursive, cmd: &RdCmd, val: bool) {
@@ -593,7 +615,7 @@ fn render_cmd(prompt: &str, cmd: &RdCmd) -> impl View {
                     .child(TextView::new("]")),
             );
         }
-        RdCmd::Graph(_) | RdCmd::Reset(_) => {
+        RdCmd::Graph(_) | RdCmd::Reset(_) | RdCmd::Group(_) => {
             view = view.child(create_button(prompt, move |siv| exec_cmd(siv, &cmdc)));
         }
         RdCmd::Jump(target) => {

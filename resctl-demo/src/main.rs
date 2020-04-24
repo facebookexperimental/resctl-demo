@@ -528,6 +528,10 @@ fn main() {
     siv.add_global_callback('~', |siv| siv.toggle_debug_console());
     siv.add_global_callback('i', |siv| doc::show_doc(siv, "index", true));
     siv.add_global_callback('!', |siv| doc::show_doc(siv, "doc-format", true));
+    siv.add_global_callback('r', |siv| {
+        let id = doc::CUR_DOC.lock().unwrap().id.clone();
+        doc::show_doc(siv, &id, true);
+    });
     siv.add_global_callback('q', |siv| {
         siv.add_layer(Dialog::around(TextView::new("Exiting...")));
         siv.quit();

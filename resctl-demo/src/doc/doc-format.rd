@@ -194,6 +194,15 @@ Reset commands are shortcuts to restore to default configurations.
 %% reset  all                    : [ All except params ]
 %% reset  all-with-params        : [ All ]
 
+Commands which don't need further inputs can be groups into a group which is
+presented as a single button.
+
+%% (                             : [ Reset params, start hashd and set load to 80% ]
+%% reset  params
+%% knob   hashd-load 0.8
+%% on     hashd
+%% )
+
 Jump commands navigate across docs.
 
 %% jump   index                  : * Exit to Index
