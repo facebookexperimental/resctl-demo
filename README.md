@@ -42,7 +42,7 @@ $ sudo ./install.sh /usr/local/bin
 ## Running resctl-demo
 
 ```
-$ sudo systemd-run --scope --slice hostcritial.slice --unit resctl-demo /usr/local/bin/resctl-demo
+$ sudo systemd-run --scope --slice hostcritical.slice --unit resctl-demo /usr/local/bin/resctl-demo
 ```
 
 ## License
