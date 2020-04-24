@@ -17,4 +17,4 @@ format documentation.
 
 *The Building Blocks*
 
-##%% jump comp.cgroup              : * Cgroup and Protection
+%% jump comp.cgroup              : * cgroup and Resource Protection
