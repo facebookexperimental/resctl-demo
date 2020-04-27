@@ -1,5 +1,5 @@
 ## Copyright (c) Facebook, Inc. and its affiliates.
-%% id intro.iocost: io.cost Controller
+%% id intro.iocost: Iocost Parameters and Benchmark
 %% graph IoUtil
 $$ reset graph
 
@@ -8,37 +8,17 @@ $$ reset graph
 
 ___*Overview*___
 
-As will be shown later in this demo, controlling who gets how much IO
-capacity is critical in achieving comprehensive resource control. The
-dependency is obvious for workloads which perform filesystem or raw device
-IOs directly but because memory management and IOs are intertwined any
-workload can become IO dependent especially when memory becomes short.
+The iocost controller uses an IO cost model to estimate the cost of each IO
+and implements work-conserving proportoinal control based on the estimated
+cost. Each IO is classified as sequential or random and given a base cost
+accordingly. On top of that, a size cost proportional to the length of the
+IO is added. While simple, this model captures the operational
+characteristics of a wide varienty of devices well enough.
 
-One challenge of controlling IO resources is the lack of trivially
-observable cost metric. This is distinguished from CPU and memory where
-wallclock time and the number of bytes can serve as accurate enough
-approximations.
+For more high level explanations of IO control and the io.cost controller,
+please visit the following page.
 
-Bandwidth and iops are the most commonly used metrics for IO devices but
-depending on the type and specifics of the device, different IO patterns
-easily lead to multiple orders of magnitude variations rendering them
-useless for the purpose of IO capacity distribution.  While on-device
-time, with a lot of clutches, could serve as a useful approximation for
-non-queued rotational devices, this is no longer viable with modern
-devices, even the rotational ones.
-
-While there is no cost metric we can trivially observe, it isn't a complete
-mystery. For example, on a rotational device, seek cost dominates while a
-contiguous transfer contributes a smaller amount proportional to the size.
-If we can characterize at least the relative costs of these different types
-of IOs, it should be possible to implement a reasonable work-conserving
-proportional IO resource distribution.
-
-The iocost controller solves this problem by employing an IO cost model to
-estimate the cost of each IO. Each IO is classified as sequential or random
-and given a base cost accordingly. On top of that, a size cost proportional
-to the length of the IO is added. While simple, this model captures the
-operational characteristics of a wide varienty of devices well enough.
+%% jump comp.cgroup.io           : [ IO Control ]
 
 
 ___*The parameters*___
@@ -117,9 +97,9 @@ ___*The benchmark*___
 parameters.
 
 The QoS parameters are calculated as 4 times the random IO completion
-latency at 90% load and the vrate range is between 25% and 100%. The
-formulas are derived emprically to achieve reliable demo behavior across a
-wide variety of devices and may not be optimal for other use cases.
+latency at 90% load and the vrate range is between 25% and 90%. The formulas
+are derived empirically to achieve reliable demo behavior across a wide
+variety of devices and may not be optimal for other use cases.
 
 Once the benchmarks are complete, the results will be recorded in
 `/var/lib/resctl-demo/bench.json` and propagated to
@@ -129,6 +109,11 @@ the file, the kernel configurations will be udpated accordingly.
 
 ___*Read on*___
 
+For more high level explanations of IO control and the io.cost controller,
+please visit the following page.
+
+%% jump comp.cgroup.io           : [ IO Control ]
+%%
 %% jump intro.hashd              : [ Next: rd-hashd Workload Simulator ]
 %% jump intro.pre-bench          : [ Back: Benchmarks ]
 %%
