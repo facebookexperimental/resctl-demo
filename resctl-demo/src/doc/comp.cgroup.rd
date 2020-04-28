@@ -1,6 +1,6 @@
 ## Copyright (c) Facebook, Inc. and its affiliates.
 %% id comp.cgroup: cgroup and Resource Protection
-%% reset all-workloads
+%% reset secondaries
 %% reset protections
 
 *cgroup and Resource Protection*\n
@@ -255,9 +255,14 @@ For more details on cgroup:
  * Control Cgroup v2
    https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tree/Documentation/admin-guide/cgroup-v2.rst
 
-Now that we have the basic understanding of cgroup and resource protection.
-Let's delve into how cgroup controllers for different resources work.
+Now that we have the basic understanding of cgroup and resource protection,
+let's delve into details of how different parts of cgroup work.
 
-##%% jump comp.cgroup.memory       : [ Next: The Memory Controller ]
+##%% jump comp.cgroup.memory     : * Memory Control
+%% jump comp.cgroup.io           : * IO Control
+##%% jump comp.cgroup.cpu        : * CPU Control
+##%% jump comp.cgroup.psi        : * Monitoring Resource Contention with Pressure Stall Information
+%%
+##%% jump comp.cgroup.memory     : [ Next: Memory Control ]
 %%
 %% jump index                    : [ Exit: Index ]
