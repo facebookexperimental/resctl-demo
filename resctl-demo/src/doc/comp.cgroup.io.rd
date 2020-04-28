@@ -6,6 +6,14 @@
 *IO Control*\n
 *==========*
 
+First, let's get hashd running full tilt so that it's all warmed up later
+when we want to test it. Ignore this if you came from a benchmark page.
+
+%% (                             : [ Start hashd at full load ]
+%% knob hashd-load 1.0
+%% on hashd
+%% )
+
 ___*Why IO control?*___
 
 Controlling who gets how much IO capacity is critical in achieving
@@ -96,6 +104,70 @@ much IO the device can do per second and can accordingly pace and limit the
 total IO rate. By configuring the maximum IO rate below the measured maximum
 with a sufficient buffer, iocost can prevent the device from developing deep
 queues and regulate responsiveness.
+
+
+___*IO control and filesystem*___
+
+When a file is read or written, it has to run through the tall stack of
+memory management, filesystem and IO layer before hitting the storage
+device. If any part of the stack has priority inversions where lower
+priority cgroups can block higher priority ones, IO control and thus
+resource control break down.
+
+Modern filesystems often have intricate and complex interlockings among
+operations making straight-forward issuer-based control insufficient. For
+example, if we blindly throttle down metadata updates from a low priority
+cgroup, other metadata updates from higher priority cgroups might get
+blocked behind due to constraints internal to the filesystem.
+
+To avoid such conditions, a filesystem has to be updated to judiciously
+apply different control strategies depending on the situation. Data writes
+without further dependency can be controlled directly. Metadata updates
+which may cause priority inversions must be performed right away regardless
+of who caused them. However, we want to balance the book after the fact by
+back-charging the issuing cgroup so that the book can be balanced over time.
+
+Currently, the only modern filesystem which has full support for IO control
+is btrfs. ext2 without journaling works too but likely isn't adequate for
+most applications at this point. The impact of these priority inversions
+will vary depending on how much of a bottleneck IO is on your system.
+
+
+___*Let's put it through the paces*___
+
+If hashd isn't running yet, start it up and wait for it to ramp up.
+
+%% (                             : [ Start hashd at full load ]
+%% knob hashd-load 1.0
+%% on hashd
+%% )
+
+Once hashd is warmed up, let's disable IO control and start IO bomb, which
+causes a lot of filesystem operations. (Memory bomb being used for now)
+
+%% (                             : [ Disable IO control features and start IO bomb ]
+%% off io-resctl
+%% on sysload memory-bomb memory-growth-50pct
+%% )
+
+Note that you lose visibility into which cgroup is using how much IO. This
+is because per-cgroup IO statistics are tied to the IO controller being
+enabled. The graphs aren't gonna be too useful but you can monitor the total
+usage on the last row in the statistics pane right above.
+
+The level of impact will depend on your IO device but it'd get impacted.
+Once it's struggling, let's turn back on IO protection and see how it
+behaves.
+
+%% (                             : [ Restore IO control ]
+%% reset protections
+%% )
+
+The kernel will be able to protect hashd indefinitely. oomd's system.slice
+long-term thrashing policy might trigger and kill the IO bomb tho.
+
+If you're curious, set up a system on a different filesystem and repeat this
+test and see how it works.
 
 
 ___*Read on*___
