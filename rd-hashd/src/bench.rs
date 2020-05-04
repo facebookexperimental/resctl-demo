@@ -58,7 +58,7 @@ struct MemIoSatCfg {
     pos_prefix: String,
     fmt_pos: Box<dyn 'static + Fn(&Bench, f64) -> String>,
     set_pos: Box<dyn 'static + Fn(&mut Params, f64)>,
-    next_up_pos: Box<dyn 'static + Fn(&Params, u64, Option<f64>) -> Option<f64>>,
+    next_up_pos: Box<dyn 'static + Fn(&Params, Option<f64>) -> Option<f64>>,
     bisect_done: Box<dyn 'static + Fn(&Params, f64, f64) -> bool>,
     next_refine_pos: Box<dyn 'static + Fn(&Params, Option<f64>) -> Option<f64>>,
 
@@ -129,14 +129,10 @@ impl Default for Cfg {
 
                 set_pos: Box::new(|params, pos| params.mem_frac = pos),
 
-                next_up_pos: Box::new(|params, tf_size, pos|{
-                    let step_size = 0.2 * *TOTAL_MEMORY as f64;
-                    let step = step_size / (tf_size as f64 / params.file_frac);
-                    match pos {
-                        None => Some(step),
-                        Some(v) if v < 0.99 => Some((v + step).min(1.0)),
-                        _ => None,
-                    }
+                next_up_pos: Box::new(|_params, pos| match pos {
+                    None => Some(0.2),
+                    Some(v) if v < 0.99 => Some((v + 0.2).min(1.0)),
+                    _ => None,
                 }),
 
                 bisect_done: Box::new(|_params, left, right| right - left < 0.05),
@@ -776,7 +772,7 @@ impl Bench {
         let mut pos = 0.0;
         loop {
             round += 1;
-            next_pos = (cfg.next_up_pos)(&params, self.max_size, next_pos);
+            next_pos = (cfg.next_up_pos)(&params, next_pos);
             if next_pos.is_none() {
                 break;
             }

@@ -160,14 +160,8 @@ impl RunnerData {
                     self.state = BenchIOCost;
                 } else if cmd.bench_hashd_seq > bench.hashd_seq {
                     if bench.iocost_seq > 0 {
-                        let work_mem_low = self.sobjs.slice_file.data[Slice::Work]
-                            .mem_low
-                            .nr_bytes(false);
-                        let mem_margin = if *TOTAL_MEMORY as u64 > work_mem_low {
-                            (*TOTAL_MEMORY as u64 - work_mem_low) as usize
-                        } else {
-                            0
-                        };
+                        let mem_margin = (*TOTAL_MEMORY / 4).min(2 << 30);
+
                         if let Err(e) = self.balloon.set_size(mem_margin) {
                             error!(
                                 "cmd: Failed to set balloon size to {:.2}G for hashd bench ({:?})",
