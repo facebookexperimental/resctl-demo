@@ -558,6 +558,8 @@ impl ReportWorker {
 
         let runner = self.runner.data.lock().unwrap();
         let cfg = &runner.cfg;
+
+        let (iolat_tx, iolat_rx) = channel::unbounded::<String>();
         let mut iolat = Command::new(&cfg.io_latencies_bin)
             .arg(format!("{}:{}", cfg.scr_devnr.0, cfg.scr_devnr.1))
             .args(&["-i", "1", "--json"])
@@ -566,24 +568,29 @@ impl ReportWorker {
             .stdout(Stdio::piped())
             .spawn()
             .unwrap();
-        let mut iocost_mon = Command::new(&cfg.iocost_monitor_bin)
-            .arg(&cfg.scr_dev)
-            .arg("--json")
-            .stdout(Stdio::piped())
-            .spawn()
-            .unwrap();
-        drop(runner);
-
         let iolat_stdout = iolat.stdout.take().unwrap();
-        let (iolat_tx, iolat_rx) = channel::unbounded::<String>();
         let iolat_jh = spawn(move || child_reader_thread("iolat".into(), iolat_stdout, iolat_tx));
 
-        let iocost_mon_stdout = iocost_mon.stdout.take().unwrap();
         let (iocost_mon_tx, iocost_mon_rx) = channel::unbounded::<String>();
-        let iocost_mon_jh = spawn(move || {
-            child_reader_thread("iocost_mon".into(), iocost_mon_stdout, iocost_mon_tx)
-        });
+        let (mut iocost_mon, mut iocost_mon_jh) = (None, None);
+        if cfg.iocost_monitor_bin.is_some() {
+            iocost_mon = Some(
+                Command::new(cfg.iocost_monitor_bin.as_ref().unwrap())
+                    .arg(&cfg.scr_dev)
+                    .arg("--json")
+                    .stdout(Stdio::piped())
+                    .spawn()
+                    .unwrap(),
+            );
+        }
+        if iocost_mon.is_some() {
+            let iocost_mon_stdout = iocost_mon.as_mut().unwrap().stdout.take().unwrap();
+            iocost_mon_jh = Some(spawn(move || {
+                child_reader_thread("iocost_mon".into(), iocost_mon_stdout, iocost_mon_tx)
+            }));
+        }
 
+        drop(runner);
         let mut sleep_dur = Duration::from_secs(0);
 
         'outer: loop {
@@ -657,12 +664,16 @@ impl ReportWorker {
 
         drop(iolat_rx);
         drop(iocost_mon_rx);
+
         let _ = iolat.kill();
-        let _ = iocost_mon.kill();
         let _ = iolat.wait();
-        let _ = iocost_mon.wait();
         iolat_jh.join().unwrap();
-        iocost_mon_jh.join().unwrap();
+
+        if iocost_mon.is_some() {
+            let _ = iocost_mon.as_mut().unwrap().kill();
+            let _ = iocost_mon.as_mut().unwrap().wait();
+            iocost_mon_jh.unwrap().join().unwrap();
+        }
     }
 
     pub fn run(self) {

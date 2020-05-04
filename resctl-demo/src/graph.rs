@@ -23,7 +23,7 @@ use util::*;
 
 use super::report_ring::ReportDataSet;
 use super::{
-    get_layout, kick_refresh, Layout, AGENT_FILES, COLOR_ACTIVE, COLOR_ALERT, COLOR_GRAPH_1,
+    get_layout, kick_refresh, Layout, AGENT_FILES, ARGS, COLOR_ACTIVE, COLOR_ALERT, COLOR_GRAPH_1,
     COLOR_GRAPH_2, COLOR_GRAPH_3, COLOR_INACTIVE, TEMP_DIR,
 };
 use rd_agent_intf::Report;
@@ -84,9 +84,17 @@ fn graph_tab_focus(siv: &mut Cursive, idx: usize) {
     });
 }
 
+fn graph_nr_active_tabs() -> usize {
+    if ARGS.lock().unwrap().as_ref().unwrap().iocost_mon {
+        GRAPH_NR_TABS
+    } else {
+        GRAPH_NR_TABS - 1
+    }
+}
+
 pub fn graph_tab_next(siv: &mut Cursive) {
     let mut idx = GRAPH_TAB_IDX.lock().unwrap();
-    *idx = (*idx + 1) % GRAPH_NR_TABS;
+    *idx = (*idx + 1) % graph_nr_active_tabs();
     graph_tab_focus(siv, *idx);
 }
 
@@ -95,7 +103,7 @@ pub fn graph_tab_prev(siv: &mut Cursive) {
     if *idx > 0 {
         *idx -= 1;
     } else {
-        *idx = GRAPH_NR_TABS - 1;
+        *idx = graph_nr_active_tabs() - 1;
     }
     graph_tab_focus(siv, *idx);
 }
@@ -798,7 +806,7 @@ pub fn layout_factory(id: GraphSetId) -> Box<dyn View> {
         titles[focus] = format!("[{}]", titles[focus].trim());
         styles[focus] = COLOR_ACTIVE.into();
 
-        for i in 0..titles.len() {
+        for i in 0..graph_nr_active_tabs() {
             if i > 0 {
                 buf.append_plain(" | ");
             }

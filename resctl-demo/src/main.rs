@@ -62,6 +62,7 @@ lazy_static! {
          -D, --dev=[DEVICE]     'Scratch device override (e.g. nvme0n1)'
          -l, --linux=[PATH]     'Path to linux.tar, downloaded automatically if not specified'
          -k, --keep             'Do not shutdown rd-agent on exit'
+         -i, --iocost-mon       'Enable drgn-based iocost stat monitoring'
              --force            'Ignore startup check failures'",
         dfl_dir = DFL_TOP,
     );
@@ -115,6 +116,7 @@ pub struct Args {
     pub dev: String,
     pub linux_tar: String,
     pub keep: bool,
+    pub iocost_mon: bool,
     pub force: bool,
 }
 
@@ -485,6 +487,7 @@ fn main() {
         dev: matches.value_of("dev").unwrap_or("").into(),
         linux_tar: matches.value_of("linux").unwrap_or("").into(),
         keep: matches.is_present("keep"),
+        iocost_mon: matches.is_present("iocost-mon"),
         force: matches.is_present("force"),
     };
 
