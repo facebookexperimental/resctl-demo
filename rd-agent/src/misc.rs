@@ -42,12 +42,14 @@ pub fn prepare_misc_bins(cfg: &Config) -> Result<()> {
         );
     }
 
-    run_command(
-        Command::new(&cfg.iocost_monitor_bin)
-            .arg(&cfg.scr_dev)
-            .args(&["-i", "0"]),
-        "is drgn working? https://github.com/osandov/drgn",
-    )?;
+    if cfg.iocost_monitor_bin.is_some() {
+        run_command(
+            Command::new(cfg.iocost_monitor_bin.as_ref().unwrap())
+                .arg(&cfg.scr_dev)
+                .args(&["-i", "0"]),
+            "is drgn working? https://github.com/osandov/drgn",
+        )?;
+    }
 
     Ok(())
 }

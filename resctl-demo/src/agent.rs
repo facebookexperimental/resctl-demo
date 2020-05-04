@@ -34,6 +34,7 @@ lazy_static! {
             &args.dev,
             &args.linux_tar,
             args.keep,
+            args.iocost_mon,
         ))
     };
 }
@@ -151,6 +152,7 @@ pub struct AgentMinder {
     scratch: String,
     dev: String,
     linux_tar: String,
+    iocost_mon: bool,
     force: bool,
     keep: bool,
     seen_running: bool,
@@ -160,7 +162,7 @@ pub struct AgentMinder {
 }
 
 impl AgentMinder {
-    fn new(dir: &str, dev: &str, linux_tar: &str, keep: bool) -> Self {
+    fn new(dir: &str, dev: &str, linux_tar: &str, keep: bool, iocost_mon: bool) -> Self {
         let agent_args = &AGENT_FILES.files.lock().unwrap().args.data;
 
         let dev = if dev.len() > 0 {
@@ -182,6 +184,7 @@ impl AgentMinder {
             linux_tar,
             force: false,
             keep,
+            iocost_mon,
             seen_running: false,
             started_at: UNIX_EPOCH,
             svc: None,
@@ -210,6 +213,9 @@ impl AgentMinder {
         if self.linux_tar.len() > 0 {
             args.push("--linux-tar".into());
             args.push(self.linux_tar.clone());
+        }
+        if self.iocost_mon {
+            args.push("--iocost-mon".into());
         }
         if self.force {
             args.push("--force".into());
