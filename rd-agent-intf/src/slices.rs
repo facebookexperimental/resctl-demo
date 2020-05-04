@@ -108,7 +108,7 @@ impl SliceConfig {
     pub const DFL_SYS_IO_RATIO: f64 = 0.1;
 
     pub fn dfl_mem_margin() -> u64 {
-        (*TOTAL_MEMORY as u64 / 4).min(2 << 30)
+        *TOTAL_MEMORY as u64 / 5
     }
 
     fn default(slice: Slice) -> Self {
