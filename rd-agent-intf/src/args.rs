@@ -43,6 +43,7 @@ lazy_static! {
              --force            'Ignore startup check results and proceed'
              --prepare          'Prepare the files and directories and exit'
              --linux-tar=[FILE] 'Path to linux source tarball to be used by build sideload'
+             --reset            'Reset all states except for bench results, linux.tar and testfiles'
          -a, --args=[FILE]      'Load base command line arguments from FILE'
          -v...                  'Sets the level of verbosity'",
         dfl_dir = DFL_TOP,
@@ -63,6 +64,8 @@ pub struct Args {
     pub prepare: bool,
     #[serde(skip)]
     pub linux_tar: Option<String>,
+    #[serde(skip)]
+    pub reset: bool,
 }
 
 impl Default for Args {
@@ -75,6 +78,7 @@ impl Default for Args {
             force: false,
             prepare: false,
             linux_tar: None,
+            reset: false,
         }
     }
 }
@@ -131,6 +135,7 @@ impl JsonArgs for Args {
         self.force = matches.is_present("force");
         self.prepare = matches.is_present("prepare");
         self.linux_tar = matches.value_of("linux-tar").map(|x| x.to_string());
+        self.reset = matches.is_present("reset");
 
         updated_base
     }

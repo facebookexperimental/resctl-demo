@@ -750,6 +750,60 @@ impl Drop for Config {
     }
 }
 
+fn reset_agent_states(cfg: &Config) {
+    for path in vec![
+        &cfg.index_path,
+        &cfg.sysreqs_path,
+        &cfg.cmd_path,
+        &cfg.report_path,
+        &cfg.report_1min_path,
+        &cfg.report_d_path,
+        &cfg.report_1min_d_path,
+        &cfg.slices_path,
+        &cfg.hashd_paths[0].args,
+        &cfg.hashd_paths[0].params,
+        &cfg.hashd_paths[1].args,
+        &cfg.hashd_paths[1].params,
+        &cfg.misc_bin_path,
+        &cfg.oomd_cfg_path,
+        &cfg.oomd_daemon_cfg_path,
+        &cfg.sideloader_daemon_cfg_path,
+        &cfg.sideloader_daemon_jobs_path,
+        &cfg.sideloader_daemon_status_path,
+        &cfg.side_defs_path,
+        &cfg.side_bin_path,
+        &cfg.side_scr_path,
+        &cfg.sys_scr_path,
+    ] {
+        let path = Path::new(path);
+
+        if !path.exists() {
+            continue;
+        }
+
+        if path.is_dir() {
+            match path.read_dir() {
+                Ok(files) => {
+                    for file in files.filter_map(|r| r.ok()).map(|e| e.path()) {
+                        info!("cfg: Removing {:?}", &file);
+                        if let Err(e) = fs::remove_file(&file) {
+                            warn!("cfg: Failed to remove {:?} ({:?})", &file, &e);
+                        }
+                    }
+                }
+                Err(e) => {
+                    warn!("cfg: Failed to read dir {:?} ({:?})", &path, &e);
+                }
+            }
+        } else {
+            info!("cfg: Removing {:?}", &path);
+            if let Err(e) = fs::remove_file(&path) {
+                warn!("cfg: Failed to remove {:?} ({:?})", &path, &e);
+            }
+        }
+    }
+}
+
 pub struct SysObjs {
     pub bench_file: JsonConfigFile<BenchKnobs>,
     pub slice_file: JsonConfigFile<SliceKnobs>,
@@ -837,6 +891,10 @@ fn main() {
     });
 
     let mut cfg = Config::new(&args_file);
+
+    if args_file.data.reset {
+        reset_agent_states(&cfg);
+    }
 
     if let Err(e) = update_index(&cfg) {
         error!("cfg: Failed to update {:?} ({:?})", &cfg.index_path, &e);

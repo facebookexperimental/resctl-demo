@@ -3,7 +3,9 @@ use anyhow::{anyhow, Result};
 use cursive;
 use cursive::utils::markup::StyledString;
 use cursive::view::{Nameable, Resizable, Scrollable, SizeConstraint, View};
-use cursive::views::{BoxedView, Button, Dialog, DummyView, EditView, LinearLayout, TextView};
+use cursive::views::{
+    BoxedView, Button, Checkbox, Dialog, DummyView, EditView, LinearLayout, TextView,
+};
 use cursive::Cursive;
 use lazy_static::lazy_static;
 use log::{debug, error, info};
@@ -193,7 +195,7 @@ impl AgentMinder {
         am
     }
 
-    pub fn restart(&mut self) -> Result<()> {
+    pub fn restart(&mut self, reset: bool) -> Result<()> {
         self.svc.take();
 
         let agent_bin =
@@ -219,6 +221,9 @@ impl AgentMinder {
         }
         if self.force {
             args.push("--force".into());
+        }
+        if reset {
+            args.push("--reset".into());
         }
         info!("agent: restarting with {:?}", &args);
 
@@ -294,7 +299,7 @@ impl AgentMinder {
                 debug!("agent: using existing rd-agent instance");
                 self.update_state(true, cb_sink);
             } else {
-                if let Err(e) = self.restart() {
+                if let Err(e) = self.restart(false) {
                     error!("agent: failed to start ({:?})", &e);
                     self.update_state(false, cb_sink);
                 }
@@ -340,12 +345,23 @@ fn update_agent_state(siv: &mut Cursive, start: bool, force: bool) {
         am.linux_tar = read_text_view(siv, "agent-arg-linux-tar");
         am.force = force;
 
+        let reset = siv
+            .call_on_name("agent-reset-on-start", |v: &mut Checkbox| {
+                if v.is_checked() {
+                    v.uncheck();
+                    true
+                } else {
+                    false
+                }
+            })
+            .unwrap_or(false);
+
         info!(
-            "agent: dir={:?} scr={:?} dev={:?} linux-tar={:?} force={}",
-            &am.dir, &am.scratch, &am.dev, &am.linux_tar, am.force
+            "agent: dir={:?} scr={:?} dev={:?} linux-tar={:?} force={} reset={}",
+            &am.dir, &am.scratch, &am.dev, &am.linux_tar, am.force, reset
         );
 
-        if let Err(e) = am.restart() {
+        if let Err(e) = am.restart(reset) {
             emsg = StyledString::styled(
                 format!("error: Failed to start ({})", &e)
                     .lines()
@@ -385,9 +401,14 @@ On the first startup, rd-agent downloads linux source code which is used for \
 build workloads. You can use a local copy by specifying the path to the \
 uncompressed tarball in the prompt below and starting rd-agent again.";
 
+const HELP_RESET: &str = "\
+Check the following to clear all configurations and states except for \
+bench results, linux.tar and testfiles on the following start. This is \
+primarily useful after resctl-demo version change.";
+
 const HELP_START: &str = "\
 rd-agent verifies requirements on start-up and refuses to start if not all \
-requirements are met. While you can force-start, missing requirements will \
+requirements are met. While you can FORCE-START, missing requirements will \
 impact how the demo behaves. To learn more about the requirements, dissmiss \
 this dialog with 'a' and read the documentation pane on the lower right \
 side. You can reopen this dialog by pressing 'a' again.";
@@ -448,6 +469,14 @@ pub fn layout_factory() -> Box<impl View> {
                 ),
         )
         .child(DummyView)
+        .child(TextView::new(HELP_RESET.to_string()))
+        .child(DummyView)
+        .child(
+            LinearLayout::horizontal()
+                .child(Checkbox::new().with_name("agent-reset-on-start"))
+                .child(TextView::new(" Reset on start")),
+        )
+        .child(DummyView)
         .child(TextView::new(HELP_START.to_string()))
         .child(DummyView)
         .child(
@@ -468,7 +497,7 @@ pub fn layout_factory() -> Box<impl View> {
                 .child(Button::new_raw(" FORCE START ", |siv| {
                     update_agent_state(siv, true, true);
                 }))
-                .child(TextView::new(StyledString::styled("] ", COLOR_ALERT))),
+                .child(TextView::new(StyledString::styled("]", COLOR_ALERT))),
         )
         .child(TextView::new(" ").with_name("agent-error"));
 
