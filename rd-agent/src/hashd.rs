@@ -45,8 +45,10 @@ pub struct Hashd {
 }
 
 impl Hashd {
-    fn start(&mut self) -> Result<()> {
+    fn start(&mut self, mem_size: u64) -> Result<()> {
         let mut args = self.path_args.clone();
+        args.push("--size".into());
+        args.push(format!("{}", mem_size));
         args.push("--file-max".into());
         args.push(format!("{}", self.file_max_ratio));
         debug!("args: {:#?}", &args);
@@ -270,7 +272,7 @@ impl HashdSet {
         // start missing ones
         for i in 0..2 {
             if cmd[i].active && self.hashd[i].svc.is_none() {
-                self.hashd[i].start()?;
+                self.hashd[i].start(knobs.mem_size)?;
             }
         }
 
