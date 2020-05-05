@@ -802,6 +802,23 @@ fn reset_agent_states(cfg: &Config) {
             }
         }
     }
+
+    info!("cfg: Preparing hashd config files...");
+
+    let mut hashd_args = hashd::hashd_path_args(&cfg, HashdSel::A);
+    hashd_args.push("--prepare-config".into());
+
+    Command::new(hashd_args.remove(0))
+        .args(hashd_args)
+        .status().expect("cfg: Failed to run rd-hashd --prepare");
+    fs::copy(
+        &cfg.hashd_paths(HashdSel::A).args,
+        &cfg.hashd_paths(HashdSel::B).args,
+    ).unwrap();
+    fs::copy(
+        &cfg.hashd_paths(HashdSel::A).params,
+        &cfg.hashd_paths(HashdSel::B).params,
+    ).unwrap();
 }
 
 pub struct SysObjs {
