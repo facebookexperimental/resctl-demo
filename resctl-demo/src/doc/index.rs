@@ -1,5 +1,5 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
-pub const SOURCES: [&str; 12] = [
+pub const SOURCES: [&str; 14] = [
     include_str!("index.rd"),
     include_str!("intro.rd"),
     include_str!("intro.pre-bench.rd"),
@@ -11,5 +11,7 @@ pub const SOURCES: [&str; 12] = [
     include_str!("comp.cgroup.memory.rd"),
     include_str!("comp.cgroup.io.rd"),
     include_str!("comp.cgroup.cpu.rd"),
+    include_str!("comp.psi.rd"),
+    include_str!("comp.oomd.rd"),
     include_str!("doc-format.rd"),
 ];

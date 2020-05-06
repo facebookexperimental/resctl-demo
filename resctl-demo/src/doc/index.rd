@@ -4,9 +4,6 @@
 *Table of contents*\n
 *=================*
 
-The only things currently available are the introduction and doc
-format documentation.
-
 *Introduction*
 
 %% jump intro.sysreqs            : * System Requirements
@@ -17,9 +14,9 @@ format documentation.
 
 *The Building Blocks*
 
-%% jump comp.cgroup              : * cgroup and Resource Protection
+%% jump comp.cgroup              : * Cgroup and Resource Protection
 %% jump comp.cgroup.memory       :   * Memory Control
 %% jump comp.cgroup.io           :   * IO Control
 %% jump comp.cgroup.cpu          :   * CPU Control
-##%% jump comp.cgroup.psi        :   * Monitoring Resource Contention with Pressure Stall Information
-##%% jump comp.oomd              : * oomd - The Out-Of-Memory Daemon
+%% jump comp.psi                 : * Monitoring Resource Contention with PSI
+%% jump comp.oomd                : * OOMD - The Out-Of-Memory Daemon

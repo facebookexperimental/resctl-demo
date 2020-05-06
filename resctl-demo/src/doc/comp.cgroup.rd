@@ -1,9 +1,9 @@
 ## Copyright (c) Facebook, Inc. and its affiliates.
-%% id comp.cgroup: cgroup and Resource Protection
+%% id comp.cgroup: Cgroup and Resource Protection
 %% reset secondaries
 %% reset protections
 
-*cgroup and Resource Protection*\n
+*Cgroup and Resource Protection*\n
 *==============================*
 
 ___*Web server and external memory leak*___
@@ -261,7 +261,6 @@ let's delve into details of how different parts of cgroup work.
 %% jump comp.cgroup.memory       : * Memory Control
 %% jump comp.cgroup.io           : * IO Control
 %% jump comp.cgroup.cpu          : * CPU Control
-##%% jump comp.cgroup.psi        : * Monitoring Resource Contention with Pressure Stall Information
 %%
 %% jump comp.cgroup.memory       : [ Next: Memory Control ]
 %% jump index                    : [ Exit: Index ]

@@ -20,5 +20,5 @@ ___*Overview*___
 ___*Read on*___
 
 %% jump comp.cgroup.io           : [ Next: IO Control ]
-%% jump comp.cgroup              : [ Up: cgroup and Resource Protection ]
+%% jump comp.cgroup              : [ Up: Cgroup and Resource Protection ]
 %% jump index                    : [ Exit: Index ]
