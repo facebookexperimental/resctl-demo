@@ -48,5 +48,4 @@ Otherwise, please sit back and wait the benchmarks to finish and then
 continue to the next page.
 
 %% jump intro.post-bench         : [ Next: Introduction ]
-%%
 %% jump index                    : [ Exit: Index ]

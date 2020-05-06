@@ -145,7 +145,7 @@ If hashd isn't running yet, start it up and wait for it to ramp up.
 Once hashd is warmed up, let's disable IO control and start IO bomb, which
 causes a lot of filesystem operations. (Memory bomb being used for now)
 
-%% (                             : [ Disable IO control features and start IO bomb ]
+%% (                             : [ Disable IO control and start IO bomb ]
 %% off io-resctl
 %% on sysload memory-bomb memory-growth-50pct
 %% )
@@ -178,6 +178,6 @@ benchmark page and want to go back, please follow the next link.
 %% jump intro.iocost             : [ Iocost Parameters and Benchmark ]
 %%
 %% jump comp.cgroup.cpu          : [ Next: CPU Control ]
+%% jump comp.cgroup.memory       : [ Back: Memory Control ]
 %% jump comp.cgroup              : [ Up: cgroup and Resource Protection ]
-%%
 %% jump index                    : [ Exit: Index ]

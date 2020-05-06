@@ -116,5 +116,4 @@ please visit the following page.
 %%
 %% jump intro.hashd              : [ Next: rd-hashd Workload Simulator ]
 %% jump intro.pre-bench          : [ Back: Benchmarks ]
-%%
 %% jump index                    : [ Exit: Index ]

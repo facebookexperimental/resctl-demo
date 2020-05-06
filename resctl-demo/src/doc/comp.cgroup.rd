@@ -258,11 +258,10 @@ For more details on cgroup:
 Now that we have the basic understanding of cgroup and resource protection,
 let's delve into details of how different parts of cgroup work.
 
-##%% jump comp.cgroup.memory     : * Memory Control
+%% jump comp.cgroup.memory       : * Memory Control
 %% jump comp.cgroup.io           : * IO Control
-##%% jump comp.cgroup.cpu        : * CPU Control
+%% jump comp.cgroup.cpu          : * CPU Control
 ##%% jump comp.cgroup.psi        : * Monitoring Resource Contention with Pressure Stall Information
 %%
-##%% jump comp.cgroup.memory     : [ Next: Memory Control ]
-%%
+%% jump comp.cgroup.memory       : [ Next: Memory Control ]
 %% jump index                    : [ Exit: Index ]
