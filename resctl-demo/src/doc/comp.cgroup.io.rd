@@ -179,5 +179,5 @@ benchmark page and want to go back, please follow the next link.
 %%
 %% jump comp.cgroup.cpu          : [ Next: CPU Control ]
 %% jump comp.cgroup.memory       : [ Back: Memory Control ]
-%% jump comp.cgroup              : [ Up: cgroup and Resource Protection ]
+%% jump comp.cgroup              : [ Up: Cgroup and Resource Protection ]
 %% jump index                    : [ Exit: Index ]

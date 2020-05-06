@@ -115,6 +115,13 @@ later when discussing sideloading.
 
 ___*Read on*___
 
+For working resource control, it's critical to understand which resources
+are being contended for. While cgroup provides resource utilization
+monitoring, it's impossible to understand resource shortages from
+utilization information. PSI provides the critical insight into resource
+contention both at system and per-cgroup level.
+
+%% jump comp.psi                 : [ Next: Monitoring Resource Contention with PSI ]
 %% jump comp.cgroup.io           : [ Back: IO Control ]
-%% jump comp.cgroup              : [ Up: cgroup and Resource Protection ]
+%% jump comp.cgroup              : [ Up: Cgroup and Resource Protection ]
 %% jump index                    : [ Exit: Index ]
