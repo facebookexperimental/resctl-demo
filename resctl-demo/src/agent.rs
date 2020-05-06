@@ -35,8 +35,9 @@ lazy_static! {
             &args.dir,
             &args.dev,
             &args.linux_tar,
-            args.keep,
             args.iocost_mon,
+            args.no_iolat,
+            args.keep,
         ))
     };
 }
@@ -155,6 +156,7 @@ pub struct AgentMinder {
     dev: String,
     linux_tar: String,
     iocost_mon: bool,
+    no_iolat: bool,
     force: bool,
     keep: bool,
     seen_running: bool,
@@ -164,7 +166,14 @@ pub struct AgentMinder {
 }
 
 impl AgentMinder {
-    fn new(dir: &str, dev: &str, linux_tar: &str, keep: bool, iocost_mon: bool) -> Self {
+    fn new(
+        dir: &str,
+        dev: &str,
+        linux_tar: &str,
+        iocost_mon: bool,
+        no_iolat: bool,
+        keep: bool,
+    ) -> Self {
         let agent_args = &AGENT_FILES.files.lock().unwrap().args.data;
 
         let dev = if dev.len() > 0 {
@@ -184,9 +193,10 @@ impl AgentMinder {
             scratch: agent_args.scratch.as_deref().unwrap_or("").into(),
             dev,
             linux_tar,
+            iocost_mon,
+            no_iolat,
             force: false,
             keep,
-            iocost_mon,
             seen_running: false,
             started_at: UNIX_EPOCH,
             svc: None,
@@ -218,6 +228,9 @@ impl AgentMinder {
         }
         if self.iocost_mon {
             args.push("--iocost-mon".into());
+        }
+        if self.no_iolat {
+            args.push("--no-iolat".into());
         }
         if self.force {
             args.push("--force".into());

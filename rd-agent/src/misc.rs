@@ -27,12 +27,14 @@ pub fn prepare_misc_bins(cfg: &Config) -> Result<()> {
         prepare_bin_file(&format!("{}/{}", &cfg.misc_bin_path, name), body)?;
     }
 
-    run_command(
-        Command::new(&cfg.io_latencies_bin)
-            .arg(format!("{}:{}", cfg.scr_devnr.0, cfg.scr_devnr.1))
-            .args(&["-i", "0"]),
-        "is bcc working? https://github.com/iovisor/bcc",
-    )?;
+    if cfg.io_latencies_bin.is_some() {
+        run_command(
+            Command::new(cfg.io_latencies_bin.as_ref().unwrap())
+                .arg(format!("{}:{}", cfg.scr_devnr.0, cfg.scr_devnr.1))
+                .args(&["-i", "0"]),
+            "is bcc working? https://github.com/iovisor/bcc",
+        )?;
+    }
 
     if let Err(e) = iocost_on_off(true, cfg) {
         bail!(
