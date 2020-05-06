@@ -148,7 +148,7 @@ pub struct Config {
     pub slices_path: String,
     pub hashd_paths: [HashdPaths; 2],
     pub misc_bin_path: String,
-    pub io_latencies_bin: String,
+    pub io_latencies_bin: Option<String>,
     pub iocost_monitor_bin: Option<String>,
     pub iocost_paths: IOCostPaths,
     pub oomd_bin: String,
@@ -299,6 +299,12 @@ impl Config {
         let misc_bin_path = top_path.clone() + "/misc-bin";
         Self::prep_dir(&misc_bin_path);
 
+        let io_latencies_bin = if args.no_iolat {
+            None
+        } else {
+            Some(misc_bin_path.clone() + "/io_latencies_wrapper.sh")
+        };
+
         let iocost_monitor_bin = if args.iocost_mon {
             Some(misc_bin_path.clone() + "/iocost_monitor.py")
         } else {
@@ -370,7 +376,7 @@ impl Config {
                 },
             ],
             misc_bin_path: misc_bin_path.clone(),
-            io_latencies_bin: misc_bin_path.clone() + "/io_latencies_wrapper.sh",
+            io_latencies_bin,
             iocost_monitor_bin,
             iocost_paths: IOCostPaths {
                 bin: misc_bin_path.clone() + "/iocost_coef_gen.py",

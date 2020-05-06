@@ -39,6 +39,7 @@ lazy_static! {
         "-d, --dir=[TOPDIR]     'Top-level dir for operation and scratch files (default: {dfl_dir})'
          -s, --scratch=[DIR]    'Scratch dir for workloads to use (default: $TOPDIR/scratch)'
          -i, --iocost-mon       'Enable drgn-based iocost stat monitoring'
+         -L, --no-iolat         'Disable bpf-based io latency stat monitoring'
              --dev=[NAME]       'Override storage device autodetection (e.g. sda, nvme0n1)'
              --force            'Ignore startup check results and proceed'
              --prepare          'Prepare the files and directories and exit'
@@ -57,6 +58,7 @@ pub struct Args {
     pub scratch: Option<String>,
     pub dev: Option<String>,
     pub iocost_mon: bool,
+    pub no_iolat: bool,
 
     #[serde(skip)]
     pub force: bool,
@@ -75,6 +77,7 @@ impl Default for Args {
             scratch: None,
             dev: None,
             iocost_mon: false,
+            no_iolat: false,
             force: false,
             prepare: false,
             linux_tar: None,
@@ -131,6 +134,7 @@ impl JsonArgs for Args {
         }
 
         self.iocost_mon = matches.is_present("iocost-mon");
+        self.no_iolat = matches.is_present("no-iolat");
 
         self.force = matches.is_present("force");
         self.prepare = matches.is_present("prepare");

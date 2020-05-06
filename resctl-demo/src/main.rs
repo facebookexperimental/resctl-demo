@@ -63,6 +63,7 @@ lazy_static! {
          -l, --linux=[PATH]     'Path to linux.tar, downloaded automatically if not specified'
          -k, --keep             'Do not shutdown rd-agent on exit'
          -i, --iocost-mon       'Enable drgn-based iocost stat monitoring'
+         -L, --no-iolat         'Disable bpf-based io latency stat monitoring'
              --force            'Ignore startup check failures'",
         dfl_dir = DFL_TOP,
     );
@@ -117,6 +118,7 @@ pub struct Args {
     pub linux_tar: String,
     pub keep: bool,
     pub iocost_mon: bool,
+    pub no_iolat: bool,
     pub force: bool,
 }
 
@@ -488,6 +490,7 @@ fn main() {
         linux_tar: matches.value_of("linux").unwrap_or("").into(),
         keep: matches.is_present("keep"),
         iocost_mon: matches.is_present("iocost-mon"),
+        no_iolat: matches.is_present("no-iolat"),
         force: matches.is_present("force"),
     };
 

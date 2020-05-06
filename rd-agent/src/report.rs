@@ -560,16 +560,23 @@ impl ReportWorker {
         let cfg = &runner.cfg;
 
         let (iolat_tx, iolat_rx) = channel::unbounded::<String>();
-        let mut iolat = Command::new(&cfg.io_latencies_bin)
-            .arg(format!("{}:{}", cfg.scr_devnr.0, cfg.scr_devnr.1))
-            .args(&["-i", "1", "--json"])
-            .arg("-p")
-            .args(IoLatReport::PCTS.iter().map(|x| format!("{}", x)))
-            .stdout(Stdio::piped())
-            .spawn()
-            .unwrap();
-        let iolat_stdout = iolat.stdout.take().unwrap();
-        let iolat_jh = spawn(move || child_reader_thread("iolat".into(), iolat_stdout, iolat_tx));
+        let (mut iolat, mut iolat_jh) = (None, None);
+        if cfg.io_latencies_bin.is_some() {
+            iolat = Some(
+                Command::new(&cfg.io_latencies_bin.as_ref().unwrap())
+                    .arg(format!("{}:{}", cfg.scr_devnr.0, cfg.scr_devnr.1))
+                    .args(&["-i", "1", "--json"])
+                    .arg("-p")
+                    .args(IoLatReport::PCTS.iter().map(|x| format!("{}", x)))
+                    .stdout(Stdio::piped())
+                    .spawn()
+                    .unwrap(),
+            );
+            let iolat_stdout = iolat.as_mut().unwrap().stdout.take().unwrap();
+            iolat_jh = Some(spawn(move || {
+                child_reader_thread("iolat".into(), iolat_stdout, iolat_tx)
+            }));
+        }
 
         let (iocost_mon_tx, iocost_mon_rx) = channel::unbounded::<String>();
         let (mut iocost_mon, mut iocost_mon_jh) = (None, None);
@@ -582,8 +589,6 @@ impl ReportWorker {
                     .spawn()
                     .unwrap(),
             );
-        }
-        if iocost_mon.is_some() {
             let iocost_mon_stdout = iocost_mon.as_mut().unwrap().stdout.take().unwrap();
             iocost_mon_jh = Some(spawn(move || {
                 child_reader_thread("iocost_mon".into(), iocost_mon_stdout, iocost_mon_tx)
@@ -665,9 +670,11 @@ impl ReportWorker {
         drop(iolat_rx);
         drop(iocost_mon_rx);
 
-        let _ = iolat.kill();
-        let _ = iolat.wait();
-        iolat_jh.join().unwrap();
+        if iolat.is_some() {
+            let _ = iolat.as_mut().unwrap().kill();
+            let _ = iolat.as_mut().unwrap().wait();
+            iolat_jh.unwrap().join().unwrap();
+        }
 
         if iocost_mon.is_some() {
             let _ = iocost_mon.as_mut().unwrap().kill();
