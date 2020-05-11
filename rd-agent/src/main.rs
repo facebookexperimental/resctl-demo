@@ -816,15 +816,18 @@ fn reset_agent_states(cfg: &Config) {
 
     Command::new(hashd_args.remove(0))
         .args(hashd_args)
-        .status().expect("cfg: Failed to run rd-hashd --prepare");
+        .status()
+        .expect("cfg: Failed to run rd-hashd --prepare");
     fs::copy(
         &cfg.hashd_paths(HashdSel::A).args,
         &cfg.hashd_paths(HashdSel::B).args,
-    ).unwrap();
+    )
+    .unwrap();
     fs::copy(
         &cfg.hashd_paths(HashdSel::A).params,
         &cfg.hashd_paths(HashdSel::B).params,
-    ).unwrap();
+    )
+    .unwrap();
 }
 
 pub struct SysObjs {

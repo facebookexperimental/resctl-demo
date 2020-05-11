@@ -48,9 +48,9 @@ lazy_static! {
         sys.refresh_memory();
         sys.get_total_swap() as usize * 1024
     };
-    pub static ref PAGE_SIZE: usize = { ::page_size::get() };
-    pub static ref NR_CPUS: usize = { ::num_cpus::get() };
-    pub static ref ROTATIONAL_SWAP: bool = { storage_info::is_swap_rotational() };
+    pub static ref PAGE_SIZE: usize = ::page_size::get();
+    pub static ref NR_CPUS: usize = ::num_cpus::get();
+    pub static ref ROTATIONAL_SWAP: bool = storage_info::is_swap_rotational();
 }
 
 pub fn to_gb<T>(size: T) -> f64

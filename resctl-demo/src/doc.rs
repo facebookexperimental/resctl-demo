@@ -44,18 +44,7 @@ fn load_docs() -> BTreeMap<String, &'static str> {
             Err(e) => panic!("Failed to load {:?}... ({:?})", &src[..100], &e),
         };
 
-        for cmd in doc
-            .pre_cmds
-            .iter()
-            .chain(doc.body.iter().filter_map(|para| {
-                if let RdPara::Prompt(_, cmd) = para {
-                    Some(cmd)
-                } else {
-                    None
-                }
-            }))
-            .chain(doc.post_cmds.iter())
-        {
+        let mut register_one_cmd = |cmd: &RdCmd| {
             match cmd {
                 RdCmd::On(sw) | RdCmd::Toggle(sw) => match sw {
                     RdSwitch::Sideload(tag, id) => {
@@ -81,6 +70,27 @@ fn load_docs() -> BTreeMap<String, &'static str> {
                     targets.insert(t.to_string());
                 }
                 _ => (),
+            }
+        };
+
+        for cmd in doc
+            .pre_cmds
+            .iter()
+            .chain(doc.body.iter().filter_map(|para| {
+                if let RdPara::Prompt(_, cmd) = para {
+                    Some(cmd)
+                } else {
+                    None
+                }
+            }))
+            .chain(doc.post_cmds.iter())
+        {
+            if let RdCmd::Group(group) = cmd {
+                for cmd in group {
+                    register_one_cmd(cmd);
+                }
+            } else {
+                register_one_cmd(cmd);
             }
         }
 
