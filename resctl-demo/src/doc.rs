@@ -597,23 +597,27 @@ fn render_cmd(prompt: &str, cmd: &RdCmd) -> impl View {
                     .child(TextView::new(prompt)),
             );
         }
-        RdCmd::Knob(knob, _) => {
-            let digit_name = format!("{:?}-digit", knob);
-            let slider_name = format!("{:?}-slider", knob);
-            let range = (width as i32 - prompt.len() as i32 - 13).max(5) as usize;
-            view = view.child(
-                LinearLayout::horizontal()
-                    .child(TextView::new(prompt))
-                    .child(DummyView)
-                    .child(TextView::new(format_knob_val(knob, 0.0)).with_name(digit_name))
-                    .child(TextView::new(" ["))
-                    .child(
-                        SliderView::new(Orientation::Horizontal, range)
-                            .on_change(move |siv, val| exec_knob(siv, &cmdc, val, range))
-                            .with_name(slider_name),
-                    )
-                    .child(TextView::new("]")),
-            );
+        RdCmd::Knob(knob, val) => {
+            if *val < 0.0 {
+                let digit_name = format!("{:?}-digit", knob);
+                let slider_name = format!("{:?}-slider", knob);
+                let range = (width as i32 - prompt.len() as i32 - 13).max(5) as usize;
+                view = view.child(
+                    LinearLayout::horizontal()
+                        .child(TextView::new(prompt))
+                        .child(DummyView)
+                        .child(TextView::new(format_knob_val(knob, 0.0)).with_name(digit_name))
+                        .child(TextView::new(" ["))
+                        .child(
+                            SliderView::new(Orientation::Horizontal, range)
+                                .on_change(move |siv, val| exec_knob(siv, &cmdc, val, range))
+                                .with_name(slider_name),
+                        )
+                        .child(TextView::new("]")),
+                );
+            } else {
+                view = view.child(create_button(prompt, move |siv| exec_cmd(siv, &cmdc)));
+            }
         }
         RdCmd::Graph(_) | RdCmd::Reset(_) | RdCmd::Group(_) => {
             view = view.child(create_button(prompt, move |siv| exec_cmd(siv, &cmdc)));

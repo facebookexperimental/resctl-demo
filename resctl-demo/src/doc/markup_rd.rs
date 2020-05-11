@@ -390,13 +390,6 @@ impl RdCmdParsed {
 
         match &cmd {
             RdCmd::Knob(knob, v) => {
-                if *v >= 0.0 && prompt.is_some() {
-                    bail!(
-                        "{:?} prompt {:?} must not have paramter value",
-                        knob,
-                        prompt
-                    );
-                }
                 if *v < 0.0 && prompt.is_none() {
                     bail!("{:?} must have paramter value", knob);
                 }

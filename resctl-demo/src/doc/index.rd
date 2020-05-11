@@ -20,3 +20,13 @@
 %% jump comp.cgroup.cpu          :   * CPU Control
 %% jump comp.psi                 : * Monitoring Resource Contention with PSI
 %% jump comp.oomd                : * OOMD - The Out-Of-Memory Daemon
+
+*Comprehensive Protection Demo*
+
+%% jump prot.demo                : * Throwing Everything At It
+
+*Sideloading*
+
+%% jump side.intro               : * What is Sideloading?
+%% jump side.sideloader          : * The Sideloader
+%% jump side.details             : * Some Details on Sideloading
