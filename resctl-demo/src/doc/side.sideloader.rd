@@ -2,8 +2,11 @@
 %% id side.sideloader: The Sideloader
 %% reset secondaries
 %% reset protections
+%% knob sys-cpu-ratio 0.01
+%% knob sys-io-ratio 0.01
 %% knob hashd-load 0.5
 %% on hashd
+$$ reset resctl-params
 
 *The Sideloader*\n
 *==============*
@@ -101,17 +104,10 @@ its status.
 Let's repeat the experiment from the last section but launch the linux build
 job as a sideload which is supervised by the sideloader.
 
-rd-hashd should already be running at 50% load. If not, please start it
-below and let it warm up.
-
-%% (                             : [ Start hashd at 50% load ]
-%% knob hashd-load 0.5
-%% on hashd
-%% )
-
-Let's start a linux build job with 2x CPU count concurrency as before. It'll
-have the same resource weights as before the only difference is that it's
-now being run under the supervision of sideloader.
+rd-hashd should already be running at 50% load. Once it warms up, let's
+start a linux build job with 2x CPU count concurrency as before. It'll have
+the same resource weights as before the only difference is that it's now
+being run under the supervision of sideloader.
 
 %% (                             : [ Start linux build job as a sideload ]
 %% on sideload build-linux build-linux-2x

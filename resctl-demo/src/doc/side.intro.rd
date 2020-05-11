@@ -6,7 +6,7 @@
 %% knob sys-io-ratio 0.01
 %% knob hashd-load 0.5
 %% on hashd
-$$ reset protections
+$$ reset resctl-params
 
 *What is Sideloading?*\n
 *====================*
@@ -79,16 +79,9 @@ workloads with a sideload, maybe that's just gonna work?
 We already know that rd-hashd can be protected pretty well at full load.
 Let's see how latency at and ramping up from 50% load level is impacted.
 
-rd-hashd should already be running at 50% load. If not, please start it
-below and let it warm up.
-
-%% (                             : [ Start hashd at 50% load ]
-%% knob hashd-load 0.5
-%% on hashd
-%% )
-
-Let's start a linux build job with 2x CPU count concurrency. Pay attention
-to how the latency in the left graph pane changes.
+rd-hashd should already be running at 50% load. Once it's warmed up, let's
+start a linux build job with 2x CPU count concurrency. Pay attention to how
+the latency in the left graph pane changes.
 
 %% (                             : [ Start linux build job ]
 %% on sysload build-linux build-linux-2x
