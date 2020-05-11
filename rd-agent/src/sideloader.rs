@@ -47,7 +47,7 @@ const SIDELOADER_CONFIG: &str = r#"{
 }
 "#;
 
-fn sideloader_config(cpu_headroom: u32, slice_knobs: &SliceKnobs) -> String {
+fn sideloader_config(cpu_headroom: f64, slice_knobs: &SliceKnobs) -> String {
     let main_sk = slice_knobs.slices.get(Slice::Work.name()).unwrap();
     let host_sk = slice_knobs.slices.get(Slice::Host.name()).unwrap();
     let side_sk = slice_knobs.slices.get(Slice::Side.name()).unwrap();
@@ -104,7 +104,7 @@ impl Sideloader {
     }
 
     fn update_cfg_file(&self, cmd: &SideloaderCmd, slice_knobs: &SliceKnobs) -> Result<()> {
-        let cfg = sideloader_config((cmd.cpu_headroom * 100.0).round() as u32, slice_knobs);
+        let cfg = sideloader_config(cmd.cpu_headroom * 100.0, slice_knobs);
         if let Ok(mut f) = fs::OpenOptions::new()
             .read(true)
             .open(&self.daemon_cfg_path)

@@ -19,7 +19,7 @@ use super::command::{CmdState, CMD_STATE};
 use super::graph::{clear_main_graph, set_main_graph, GraphTag};
 use super::{get_layout, COLOR_ACTIVE, COLOR_ALERT};
 use markup_rd::{RdCmd, RdDoc, RdKnob, RdPara, RdReset, RdSwitch};
-use rd_agent_intf::{HashdCmd, SliceConfig, SysReq};
+use rd_agent_intf::{HashdCmd, SliceConfig, SysReq, Cmd};
 
 lazy_static! {
     pub static ref DOCS: BTreeMap<String, &'static str> = load_docs();
@@ -274,6 +274,7 @@ fn exec_one_cmd(siv: &mut Cursive, cmd: &RdCmd) {
             RdKnob::SysIoRatio => cs.sys_io_ratio = *val,
             RdKnob::MemMargin => cs.mem_margin = *val,
             RdKnob::Balloon => cs.balloon_ratio = *val,
+            RdKnob::CpuHeadroom => cs.cpu_headroom = *val,
         },
         RdCmd::Graph(tag_name) => {
             if tag_name.len() > 0 {
@@ -315,10 +316,13 @@ fn exec_one_cmd(siv: &mut Cursive, cmd: &RdCmd) {
                 cs.io = true;
             };
             let reset_resctl_params = |cs: &mut CmdState| {
+                let dfl_cmd = Cmd::default();
+
                 cs.sys_cpu_ratio = SliceConfig::DFL_SYS_CPU_RATIO;
                 cs.sys_io_ratio = SliceConfig::DFL_SYS_IO_RATIO;
                 cs.mem_margin = SliceConfig::dfl_mem_margin() as f64 / *TOTAL_MEMORY as f64;
-                cs.balloon_ratio = 0.0;
+                cs.balloon_ratio = dfl_cmd.balloon_ratio;
+                cs.cpu_headroom = dfl_cmd.sideloader.cpu_headroom;
             };
             let reset_oomd = |cs: &mut CmdState| {
                 cs.oomd = true;
@@ -536,6 +540,7 @@ fn refresh_knobs(siv: &mut Cursive, cs: &CmdState) {
     refresh_one_knob(siv, RdKnob::SysIoRatio, cs.sys_io_ratio);
     refresh_one_knob(siv, RdKnob::MemMargin, cs.mem_margin);
     refresh_one_knob(siv, RdKnob::Balloon, cs.balloon_ratio);
+    refresh_one_knob(siv, RdKnob::CpuHeadroom, cs.cpu_headroom);
 }
 
 fn refresh_docs(siv: &mut Cursive) {

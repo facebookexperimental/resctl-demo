@@ -75,6 +75,7 @@ impl RunnerData {
 
     fn maybe_reload(&mut self) -> bool {
         let sobjs = &mut self.sobjs;
+        let last_cpu_headroom = sobjs.cmd_file.data.sideloader.cpu_headroom;
         let (re_bench, re_slice, _re_side, re_oomd, re_cmd) = (
             Self::maybe_reload_one(&mut sobjs.bench_file),
             Self::maybe_reload_one(&mut sobjs.slice_file),
@@ -106,6 +107,8 @@ impl RunnerData {
             }
         }
 
+        let mut apply_sideloader = false;
+
         if re_slice {
             if sobjs
                 .slice_file
@@ -119,13 +122,25 @@ impl RunnerData {
             } else {
                 if sobjs.sideloader.svc.unit.state != US::Running {
                     info!("cmd: All controller enabled, enabling sideloader");
-                    let sideloader_cmd = &sobjs.cmd_file.data.sideloader;
-                    let slice_knobs = &sobjs.slice_file.data;
-                    if let Err(e) = sobjs.sideloader.apply(sideloader_cmd, slice_knobs) {
-                        error!("cmd: Failed to start sideloader ({:?})", &e);
-                        panic!();
-                    }
+                    apply_sideloader = true;
                 }
+            }
+        }
+
+        if sobjs.cmd_file.data.sideloader.cpu_headroom != last_cpu_headroom {
+            info!(
+                "cmd: Updating sideloader headroom from {:.2} to {:.2}",
+                last_cpu_headroom, sobjs.cmd_file.data.sideloader.cpu_headroom
+            );
+            apply_sideloader = true;
+        }
+
+        if apply_sideloader {
+            let sideloader_cmd = &sobjs.cmd_file.data.sideloader;
+            let slice_knobs = &sobjs.slice_file.data;
+            if let Err(e) = sobjs.sideloader.apply(sideloader_cmd, slice_knobs) {
+                error!("cmd: Failed to apply sideloader changes ({:?})", &e);
+                panic!();
             }
         }
 

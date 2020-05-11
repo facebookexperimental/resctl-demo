@@ -167,6 +167,7 @@ a value argument or prompt.
 %% knob   sys-io-ratio           : system IO weight compared to workload    :
 %% knob   mem-margin             : Memory for the rest of the system        :
 %% knob   balloon                : Memory balloon size                      :
+%% knob   cpu-headroom           : CPU headroom                             :
 
 The main graph pane can view different graphs. For available graph tags, see
 graph.rs::GraphTag.

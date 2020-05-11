@@ -20,13 +20,14 @@ pub struct CmdState {
     pub bench_iocost_cur: u64,
 
     pub hashd: [HashdCmd; 2],
+    pub sideloads: BTreeMap<String, String>,
+    pub sysloads: BTreeMap<String, String>,
+
     pub sys_cpu_ratio: f64,
     pub sys_io_ratio: f64,
     pub mem_margin: f64,
-
-    pub sideloads: BTreeMap<String, String>,
-    pub sysloads: BTreeMap<String, String>,
     pub balloon_ratio: f64,
+    pub cpu_headroom: f64,
 
     pub cpu: bool,
     pub mem: bool,
@@ -74,6 +75,7 @@ impl CmdState {
                 .min(*TOTAL_MEMORY as u64)) as f64
             / *TOTAL_MEMORY as f64;
         self.balloon_ratio = cmd.balloon_ratio;
+        self.cpu_headroom = cmd.sideloader.cpu_headroom;
 
         self.sideloads = cmd.sideloads.clone();
         self.sysloads = cmd.sysloads.clone();
@@ -112,6 +114,7 @@ impl CmdState {
         cmd.sideloads = self.sideloads.clone();
         cmd.sysloads = self.sysloads.clone();
         cmd.balloon_ratio = self.balloon_ratio;
+        cmd.sideloader.cpu_headroom = self.cpu_headroom;
 
         slices.disable_seqs.cpu = match self.cpu {
             true => 0,

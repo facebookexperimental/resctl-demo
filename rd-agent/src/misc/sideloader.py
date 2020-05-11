@@ -971,6 +971,7 @@ def config_cpu_max(pct):
         warn(f'Failed to configure {cpu_max_file} ({e})')
 
 # Run
+config_mod_at = os.path.getmtime(args.config)
 config = Config(json.load(open(args.config, 'r'))['sideloader_config'])
 dbg(f'Config: {config.__dict__}')
 log(f'INIT: sideloads in {config.side_slice}, main workloads in {config.main_slice}')
@@ -1024,6 +1025,16 @@ if len(svcs_to_stop):
 while True:
     last = now
     now = time.time()
+
+    # Apply config change, only cpu headroom can be updated while running
+    if config_mod_at != os.path.getmtime(args.config):
+        config_mod_at = os.path.getmtime(args.config)
+        new_cfg = json.load(open(args.config, 'r'))['sideloader_config']
+        new_cpu_headroom = float(new_cfg['cpu_headroom'])
+        if config.cpu_headroom != new_cpu_headroom:
+            log(f'CFG: CPU headroom changed from {config.cpu_headroom:.2f} to {new_cpu_headroom:.2f}')
+            config.cpu_headroom = new_cpu_headroom
+
     # Handle job starts and stops
     jobs_to_kill, jobs_to_start = process_job_dir(jobfiles, jobs, now)
 
