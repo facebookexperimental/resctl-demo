@@ -175,7 +175,7 @@ impl RunnerData {
                     self.state = BenchIOCost;
                 } else if cmd.bench_hashd_seq > bench.hashd_seq {
                     if bench.iocost_seq > 0 {
-                        let mem_margin = (*TOTAL_MEMORY / 4).min(2 << 30);
+                        let mem_margin = (*TOTAL_MEMORY / 8).min(512 << 20);
 
                         if let Err(e) = self.balloon.set_size(mem_margin) {
                             error!(
