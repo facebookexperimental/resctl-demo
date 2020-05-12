@@ -72,7 +72,12 @@ pub struct Stat {
     pub nr_done: u64,
     pub nr_workers: usize,
     pub nr_idle_workers: usize,
-    pub lat: Latencies, // at the end for TOML serialization
+    pub lat: Latencies,
+
+    pub file_size: u64,
+    pub file_dist: Vec<u64>,
+    pub anon_size: usize,
+    pub anon_dist: Vec<u64>,
 }
 
 impl ops::AddAssign<&Stat> for Stat {

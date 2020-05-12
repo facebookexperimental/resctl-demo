@@ -93,7 +93,7 @@ performs benchmark to determine the parameters and then starts a normal run.
   $ rd-hashd --args ~/rd-hashd/args.json --testfiles ~/rd-hashd/testfiles \\
              --params ~/rd-hashd/params.json --report ~/rd-hashd/report.json \\
              --log-dir ~/rd-hashd/logs --interval 1 --bench
-  $ rd-hashd --args ~/rd-hashd-/args.json
+  $ rd-hashd --args ~/rd-hashd/args.json
 
 [ COMMAND LINE HELP ]
 ";
