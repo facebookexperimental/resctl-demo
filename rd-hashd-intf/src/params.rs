@@ -65,6 +65,7 @@ const PARAMS_DOC: &str = "\
 //  sleep_stdev_ratio: Standard deviation of sleep duration distribution
 //  cpu_ratio: CPU usage scaling - 1.0 hashes all file accesses
 //  log_bps: Log write bps at rps_max
+//  acc_dist_slots: Access distribution report slots - 0 disables
 //  lat_pid: PID controller parameters for latency convergence
 //  rps_pid: PID controller parameters for RPS convergence
 //
@@ -95,6 +96,7 @@ pub struct Params {
     pub sleep_stdev_ratio: f64,
     pub cpu_ratio: f64,
     pub log_bps: u64,
+    pub acc_dist_slots: usize,
     pub lat_pid: PidParams,
     pub rps_pid: PidParams,
 }
@@ -138,6 +140,7 @@ impl Default for Params {
             sleep_stdev_ratio: Self::DFL_STDEV,
             cpu_ratio: 1.0,
             log_bps: 0,
+            acc_dist_slots: 0,
             lat_pid: PidParams {
                 kp: 0.1,
                 ki: 0.01,

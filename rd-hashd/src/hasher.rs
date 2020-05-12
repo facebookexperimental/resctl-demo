@@ -181,6 +181,7 @@ struct HashCompletion {
     digest: Digest,
     aa_sum: u64,
     started_at: Instant,
+    anon_dist: Vec<u64>,
 }
 
 /// Dispatch thread which is started when Dispatch is created and
@@ -224,6 +225,9 @@ struct DispatchThread {
     rps: f64,
     file_addr_frac: f64,
     anon_addr_frac: f64,
+
+    file_dist: Vec<u64>,
+    anon_dist: Vec<u64>,
 }
 
 impl DispatchThread {
@@ -312,6 +316,11 @@ impl DispatchThread {
             );
             self.params.file_frac = file_max_frac;
         }
+
+        self.file_dist = vec![];
+        self.anon_dist = vec![];
+        self.file_dist.resize(self.params.acc_dist_slots, 0);
+        self.anon_dist.resize(self.params.acc_dist_slots, 0);
     }
 
     pub fn new(
@@ -361,11 +370,38 @@ impl DispatchThread {
             file_addr_frac: 1.0,
             anon_addr_frac: 1.0,
 
+            file_dist: vec![],
+            anon_dist: vec![],
+
             // Should be the last to allow preceding borrows.
             params,
         };
         dt.verify_params();
         dt
+    }
+
+    fn file_dist_count(file_dist: &mut [u64], id: u64, tf: &TestFiles) {
+        if file_dist.len() == 0 {
+            return;
+        }
+
+        let rel = id as f64 / tf.nr_files as f64;
+        let slot = ((file_dist.len() as f64 * rel) as usize).min(file_dist.len() - 1);
+
+        file_dist[slot] += tf.unit_size / 4096;
+    }
+
+    fn anon_dist_count(anon_dist: &mut [u64], rel: f64, aa: &AnonArea) {
+        if anon_dist.len() == 0 {
+            return;
+        }
+
+        // do a round-trip through rel_to_idx_off() to verify the calculation
+        let (idx, off) = AnonArea::rel_to_idx_off(rel, aa.size);
+        let rel = (AnonArea::UNIT_SIZE * idx + off) as f64 / aa.size as f64;
+        let slot = ((anon_dist.len() as f64 * rel) as usize).min(anon_dist.len() - 1);
+
+        anon_dist[slot] += 1;
     }
 
     fn update_params(&mut self, new_params: Params) {
@@ -411,7 +447,11 @@ impl DispatchThread {
         anon_write_frac: f64,
         cmpl_tx: Sender<HashCompletion>,
         started_at: Instant,
+        anon_dist_slots: usize,
     ) {
+        let mut anon_dist = Vec::<u64>::new();
+        anon_dist.resize(anon_dist_slots, 0);
+
         // Load hash input files.
         let mut rdh = Hasher::new(cpu_ratio);
         for path in paths {
@@ -429,7 +469,8 @@ impl DispatchThread {
         let mut rng = SmallRng::from_entropy();
 
         for _ in 0..anon_nr_pages {
-            let ptr = aa.access_rel(addr_normal.sample(&mut rng) * anon_addr_frac);
+            let rel = addr_normal.sample(&mut rng) * anon_addr_frac;
+            let ptr = aa.access_rel(rel);
             aa_sum += *ptr as u64;
             if rw_uniform.sample(&mut rng) <= anon_write_frac {
                 *ptr += 1;
@@ -437,6 +478,7 @@ impl DispatchThread {
             if *ptr == 0 {
                 *ptr = 1;
             }
+            Self::anon_dist_count(&mut anon_dist, rel, &aa);
         }
         sleep(Duration::from_secs_f64(sleep_dur / 3.0));
 
@@ -450,6 +492,7 @@ impl DispatchThread {
                 digest,
                 aa_sum,
                 started_at,
+                anon_dist,
             })
             .unwrap();
     }
@@ -494,6 +537,10 @@ impl DispatchThread {
                 .collect();
             let paths: Vec<PathBuf> = ids.iter().map(|&id| tf.path(id)).collect();
 
+            for id in ids.iter() {
+                Self::file_dist_count(&mut self.file_dist, *id, tf);
+            }
+
             // Determine anon access page count.  Indices are
             // determined by each hash worker to avoid overloading the
             // dispatch thread.
@@ -507,9 +554,10 @@ impl DispatchThread {
             let cf = self.params.cpu_ratio;
             let ct = self.cmpl_tx.clone();
             let at = Instant::now();
+            let ads = self.anon_dist.len();
             self.wq.queue(move || {
                 Self::hasher_workfn(
-                    ids, paths, aa, nr_pages, aas, sleep_dur, cf, aaf, awf, ct, at,
+                    ids, paths, aa, nr_pages, aas, sleep_dur, cf, aaf, awf, ct, at, ads,
                 )
             });
             self.nr_in_flight += 1;
@@ -625,6 +673,13 @@ impl DispatchThread {
                     match cmd {
                         Ok(DispatchCmd::SetParams(params)) => self.update_params(params),
                         Ok(DispatchCmd::GetStat(ch)) => {
+                            let mut file_dist = vec![];
+                            let mut anon_dist = vec![];
+                            file_dist.resize(self.params.acc_dist_slots, 0);
+                            anon_dist.resize(self.params.acc_dist_slots, 0);
+                            std::mem::swap(&mut self.file_dist, &mut file_dist);
+                            std::mem::swap(&mut self.anon_dist, &mut anon_dist);
+
                             ch.send(Stat { lat: self.lat.clone(),
                                            rps: self.rps,
                                            concurrency: self.concurrency,
@@ -632,7 +687,12 @@ impl DispatchThread {
                                            anon_addr_frac: self.anon_addr_frac,
                                            nr_done: self.nr_done,
                                            nr_workers: self.wq.nr_workers(),
-                                           nr_idle_workers: self.wq.nr_idle_workers()})
+                                           nr_idle_workers: self.wq.nr_idle_workers(),
+                                           file_size: self.tf.size,
+                                           file_dist,
+                                           anon_size: self.anon_area.read().unwrap().size,
+                                           anon_dist,
+                            })
                                 .unwrap();
                         },
                         Err(err) => {
@@ -643,7 +703,7 @@ impl DispatchThread {
                 },
                 recv(self.cmpl_rx) -> cmpl => {
                     match cmpl {
-                        Ok(HashCompletion {ids, digest, aa_sum, started_at}) => {
+                        Ok(HashCompletion {ids, digest, aa_sum, started_at, anon_dist}) => {
                             self.nr_in_flight -= 1;
                             self.nr_done += 1;
                             let dur = Instant::now().duration_since(started_at).as_secs_f64();
@@ -651,6 +711,11 @@ impl DispatchThread {
                             if let Some(logger) = self.logger.as_mut() {
                                 logger.log(&format!("{} {:8} {:.2}ms {:?}",
                                                     digest, aa_sum, dur * TO_MSEC, ids));
+                            }
+                            if anon_dist.len() == self.anon_dist.len() {
+                                for i in 0..anon_dist.len() {
+                                    self.anon_dist[i] += anon_dist[i];
+                                }
                             }
                         },
                         Err(err) => {

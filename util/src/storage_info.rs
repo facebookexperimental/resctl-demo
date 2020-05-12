@@ -13,7 +13,7 @@ use std::os::linux::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 
 lazy_static! {
-    static ref MOUNT_LIST: Result<MountList> = { Ok(MountList::new()?) };
+    static ref MOUNT_LIST: Result<MountList> = Ok(MountList::new()?);
 }
 
 /// Given a path, find out the containing mountpoint.

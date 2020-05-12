@@ -19,7 +19,7 @@ use super::command::{CmdState, CMD_STATE};
 use super::graph::{clear_main_graph, set_main_graph, GraphTag};
 use super::{get_layout, COLOR_ACTIVE, COLOR_ALERT};
 use markup_rd::{RdCmd, RdDoc, RdKnob, RdPara, RdReset, RdSwitch};
-use rd_agent_intf::{HashdCmd, SliceConfig, SysReq};
+use rd_agent_intf::{HashdCmd, SliceConfig, SysReq, Cmd};
 
 lazy_static! {
     pub static ref DOCS: BTreeMap<String, &'static str> = load_docs();
@@ -44,18 +44,7 @@ fn load_docs() -> BTreeMap<String, &'static str> {
             Err(e) => panic!("Failed to load {:?}... ({:?})", &src[..100], &e),
         };
 
-        for cmd in doc
-            .pre_cmds
-            .iter()
-            .chain(doc.body.iter().filter_map(|para| {
-                if let RdPara::Prompt(_, cmd) = para {
-                    Some(cmd)
-                } else {
-                    None
-                }
-            }))
-            .chain(doc.post_cmds.iter())
-        {
+        let mut register_one_cmd = |cmd: &RdCmd| {
             match cmd {
                 RdCmd::On(sw) | RdCmd::Toggle(sw) => match sw {
                     RdSwitch::Sideload(tag, id) => {
@@ -81,6 +70,27 @@ fn load_docs() -> BTreeMap<String, &'static str> {
                     targets.insert(t.to_string());
                 }
                 _ => (),
+            }
+        };
+
+        for cmd in doc
+            .pre_cmds
+            .iter()
+            .chain(doc.body.iter().filter_map(|para| {
+                if let RdPara::Prompt(_, cmd) = para {
+                    Some(cmd)
+                } else {
+                    None
+                }
+            }))
+            .chain(doc.post_cmds.iter())
+        {
+            if let RdCmd::Group(group) = cmd {
+                for cmd in group {
+                    register_one_cmd(cmd);
+                }
+            } else {
+                register_one_cmd(cmd);
             }
         }
 
@@ -264,6 +274,7 @@ fn exec_one_cmd(siv: &mut Cursive, cmd: &RdCmd) {
             RdKnob::SysIoRatio => cs.sys_io_ratio = *val,
             RdKnob::MemMargin => cs.mem_margin = *val,
             RdKnob::Balloon => cs.balloon_ratio = *val,
+            RdKnob::CpuHeadroom => cs.cpu_headroom = *val,
         },
         RdCmd::Graph(tag_name) => {
             if tag_name.len() > 0 {
@@ -305,10 +316,13 @@ fn exec_one_cmd(siv: &mut Cursive, cmd: &RdCmd) {
                 cs.io = true;
             };
             let reset_resctl_params = |cs: &mut CmdState| {
+                let dfl_cmd = Cmd::default();
+
                 cs.sys_cpu_ratio = SliceConfig::DFL_SYS_CPU_RATIO;
                 cs.sys_io_ratio = SliceConfig::DFL_SYS_IO_RATIO;
                 cs.mem_margin = SliceConfig::dfl_mem_margin() as f64 / *TOTAL_MEMORY as f64;
-                cs.balloon_ratio = 0.0;
+                cs.balloon_ratio = dfl_cmd.balloon_ratio;
+                cs.cpu_headroom = dfl_cmd.sideloader.cpu_headroom;
             };
             let reset_oomd = |cs: &mut CmdState| {
                 cs.oomd = true;
@@ -526,6 +540,7 @@ fn refresh_knobs(siv: &mut Cursive, cs: &CmdState) {
     refresh_one_knob(siv, RdKnob::SysIoRatio, cs.sys_io_ratio);
     refresh_one_knob(siv, RdKnob::MemMargin, cs.mem_margin);
     refresh_one_knob(siv, RdKnob::Balloon, cs.balloon_ratio);
+    refresh_one_knob(siv, RdKnob::CpuHeadroom, cs.cpu_headroom);
 }
 
 fn refresh_docs(siv: &mut Cursive) {
@@ -597,23 +612,27 @@ fn render_cmd(prompt: &str, cmd: &RdCmd) -> impl View {
                     .child(TextView::new(prompt)),
             );
         }
-        RdCmd::Knob(knob, _) => {
-            let digit_name = format!("{:?}-digit", knob);
-            let slider_name = format!("{:?}-slider", knob);
-            let range = (width as i32 - prompt.len() as i32 - 13).max(5) as usize;
-            view = view.child(
-                LinearLayout::horizontal()
-                    .child(TextView::new(prompt))
-                    .child(DummyView)
-                    .child(TextView::new(format_knob_val(knob, 0.0)).with_name(digit_name))
-                    .child(TextView::new(" ["))
-                    .child(
-                        SliderView::new(Orientation::Horizontal, range)
-                            .on_change(move |siv, val| exec_knob(siv, &cmdc, val, range))
-                            .with_name(slider_name),
-                    )
-                    .child(TextView::new("]")),
-            );
+        RdCmd::Knob(knob, val) => {
+            if *val < 0.0 {
+                let digit_name = format!("{:?}-digit", knob);
+                let slider_name = format!("{:?}-slider", knob);
+                let range = (width as i32 - prompt.len() as i32 - 13).max(5) as usize;
+                view = view.child(
+                    LinearLayout::horizontal()
+                        .child(TextView::new(prompt))
+                        .child(DummyView)
+                        .child(TextView::new(format_knob_val(knob, 0.0)).with_name(digit_name))
+                        .child(TextView::new(" ["))
+                        .child(
+                            SliderView::new(Orientation::Horizontal, range)
+                                .on_change(move |siv, val| exec_knob(siv, &cmdc, val, range))
+                                .with_name(slider_name),
+                        )
+                        .child(TextView::new("]")),
+                );
+            } else {
+                view = view.child(create_button(prompt, move |siv| exec_cmd(siv, &cmdc)));
+            }
         }
         RdCmd::Graph(_) | RdCmd::Reset(_) | RdCmd::Group(_) => {
             view = view.child(create_button(prompt, move |siv| exec_cmd(siv, &cmdc)));
