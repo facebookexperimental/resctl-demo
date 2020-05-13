@@ -11,6 +11,7 @@ const BENCH_DOC: &str = "\
 //  timestamp: When this report was generated
 //  hashd_seq: Current rd-hashd bench result sequence, see cmd.json
 //  iocost_seq: Current iocost bench result sequence, see cmd.json
+//  hashd[].hash_size: Mean hash size which determines CPU usage
 //  hashd[].rps_max: Maximum RPS
 //  hashd[].mem_size: Memory size base
 //  hashd[].mem_frac: Memory size is mem_size * mem_frac, tune this if needed
@@ -23,6 +24,7 @@ const BENCH_DOC: &str = "\
 #[derive(Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct HashdKnobs {
+    pub hash_size: usize,
     pub rps_max: u32,
     pub mem_size: u64,
     pub mem_frac: f64,

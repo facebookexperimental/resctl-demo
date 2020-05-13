@@ -71,6 +71,7 @@ pub fn update_hashd(knobs: &mut BenchKnobs, cfg: &Config, hashd_seq: u64) -> Res
     let args = rd_hashd_intf::Args::load(&cfg.hashd_paths(HashdSel::A).args)?;
     let params = rd_hashd_intf::Params::load(&cfg.hashd_paths(HashdSel::A).params)?;
 
+    knobs.hashd.hash_size = params.file_size_mean;
     knobs.hashd.rps_max = params.rps_max as u32;
     knobs.hashd.mem_size = args.size;
     knobs.hashd.mem_frac = params.mem_frac;
