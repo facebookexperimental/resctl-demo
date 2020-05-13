@@ -1055,9 +1055,9 @@ while True:
                    '--slice', config.side_slice, '--unit', job.svc_name]
             if job.working_dir is not None:
                 cmd += ['--working-directory', job.working_dir]
-            cmd += job.args
             for env in job.envs:
                 cmd += ['-E', env]
+            cmd += job.args
             subprocess.run(cmd)
         jobs_pending = {}
 
