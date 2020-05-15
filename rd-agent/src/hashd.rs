@@ -79,6 +79,10 @@ impl Hashd {
         let mut params = rd_hashd_intf::Params::load(&self.params_path)?;
         let mut changed = false;
 
+        if params.file_size_mean != knobs.hash_size {
+            params.file_size_mean = knobs.hash_size;
+            changed = true;
+        }
         if params.lat_target_pct != self.lat_target_pct {
             params.lat_target_pct = self.lat_target_pct;
             changed = true;

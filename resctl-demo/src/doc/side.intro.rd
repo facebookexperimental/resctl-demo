@@ -4,7 +4,7 @@
 %% reset protections
 %% knob sys-cpu-ratio 0.01
 %% knob sys-io-ratio 0.01
-%% knob hashd-load 0.5
+%% knob hashd-load 0.6
 %% on hashd
 $$ reset resctl-params
 
@@ -46,18 +46,18 @@ workloads.
 
 ___*Sideloading*___
 
-Let's say CPUs on your machines are 50% loaded on average for DR-buffer and
-other reasons, which isn't great but not too shabby either. It's likely that
-the actual utilization in terms of total work done is somewhat higher too
-given that it doesn't linearly scale with CPU time based utilization. Still,
-there's quite a bit of CPU cycles and most likely memory and IO capacities
-going unused.
+Let's say your machines are loaded 60% on average for DR-buffer and other
+reasons, which isn't great but not horrible either. Note that while the CPUs
+are doing 60% of total work it can do, it might be reporting a number
+noticeably lower than 60% for CPU utilizaion. This is a measuring artifact
+that we'll get back to later.
 
-It'd be great if we can put something else on the system which can consume
-the idle resources. The extra workload would have to be opportunistic as it
-doesn't have any persistent claim on resources - it's just using whatever is
-left over in the system. Let's call the existing latency sensitive workload
-the main workload and the extra opportunistic one sideload.
+We have about 40% of compute capacity sitting idle and it'd be great if we
+can put something else on the system which can consume the idle resources.
+The extra workload would have to be opportunistic as it doesn't have any
+persistent claim on resources - it's just using whatever is left over in the
+system. Let's call the existing latency sensitive workload the main workload
+and the extra opportunistic one sideload.
 
 For sideloading to work, the followings should hold.
 
@@ -77,9 +77,9 @@ with limited impact on the main workload. If we replace misbehaving
 workloads with a sideload, maybe that's just gonna work?
 
 We already know that rd-hashd can be protected pretty well at full load.
-Let's see how latency at and ramping up from 50% load level is impacted.
+Let's see how latency at and ramping up from 60% load level is impacted.
 
-rd-hashd should already be running at 50% load. Once it's warmed up, let's
+rd-hashd should already be running at 60% load. Once it's warmed up, let's
 start a linux build job with 2x CPU count concurrency. Pay attention to how
 the latency in the left graph pane changes.
 
@@ -100,9 +100,9 @@ impacted too.
 It does climb but seems kinda sluggish. Let's compare it with load rising
 without the build job.
 
-%% (                             : [ Stop linux build and set 50% load ]
+%% (                             : [ Stop linux build and set 60% load ]
 %% off sysload build-linux
-%% knob hashd-load 0.5
+%% knob hashd-load 0.6
 %% )
 
 Wait until it stabilizes and ramp it upto 100%.

@@ -4,7 +4,7 @@
 %% reset protections
 %% knob sys-cpu-ratio 0.01
 %% knob sys-io-ratio 0.01
-%% knob hashd-load 0.5
+%% knob hashd-load 0.6
 %% on hashd
 $$ reset resctl-params
 
@@ -62,7 +62,7 @@ implements the followings:
 * CPU headroom by dynamically adjusting the maximum CPU bandwidth that
   sideloads can consume using `cpu.max` so that the main workload always has
   a configurable level of CPU utilization headroom. For example, if the main
-  workload is currently consuming 50% and the headroom is configured at 15%,
+  workload is currently consuming 60% and the headroom is configured at 15%,
   sideloads will only be allowed to use upto 25% of CPU time.
 
 * Sideload freezing and killing. Depending on the memory footprint and
@@ -104,7 +104,7 @@ its status.
 Let's repeat the experiment from the last section but launch the linux build
 job as a sideload which is supervised by the sideloader.
 
-rd-hashd should already be running at 50% load. Once it warms up, let's
+rd-hashd should already be running at 60% load. Once it warms up, let's
 start a linux build job with 2x CPU count concurrency as before. It'll have
 the same resource weights as before the only difference is that it's now
 being run under the supervision of sideloader.

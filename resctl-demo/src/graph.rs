@@ -442,6 +442,7 @@ enum PlotId {
     HashdALat,
     HashdBRps,
     HashdBLat,
+    HashdARpsMax100,
     WorkCpu,
     SideCpu,
     SysCpu,
@@ -480,13 +481,13 @@ enum PlotId {
 }
 
 fn plot_spec_factory(id: PlotId) -> PlotSpec {
-    fn rps_spec(idx: usize) -> PlotSpec {
+    fn rps_spec(idx: usize, range_factor: f64) -> PlotSpec {
         PlotSpec {
             sel: Box::new(move |rep: &Report| rep.hashd[idx].rps),
             aggr: PlotDataAggr::AVG,
             title: Box::new(|| "rps".into()),
             min: Box::new(|| 0.0),
-            max: Box::new(|| AGENT_FILES.bench().hashd.rps_max as f64 * 1.1),
+            max: Box::new(move || AGENT_FILES.bench().hashd.rps_max as f64 * range_factor),
         }
     }
     fn lat_spec(idx: usize) -> PlotSpec {
@@ -601,10 +602,11 @@ fn plot_spec_factory(id: PlotId) -> PlotSpec {
     }
 
     match id {
-        PlotId::HashdARps => rps_spec(0),
+        PlotId::HashdARps => rps_spec(0, 1.1),
         PlotId::HashdALat => lat_spec(0),
-        PlotId::HashdBRps => rps_spec(1),
+        PlotId::HashdBRps => rps_spec(1, 1.1),
         PlotId::HashdBLat => lat_spec(1),
+        PlotId::HashdARpsMax100 => rps_spec(0, 1.0),
         PlotId::WorkCpu => cpu_spec("workload.slice"),
         PlotId::SideCpu => cpu_spec("sideload.slice"),
         PlotId::SysCpu => cpu_spec("system.slice"),
@@ -671,6 +673,7 @@ pub enum GraphTag {
     ReadLat,
     WriteLat,
     IoCost,
+    RpsCpu,
 }
 
 static ALL_GRAPHS: &[(GraphTag, &str, &[PlotId])] = &[
@@ -747,6 +750,11 @@ static ALL_GRAPHS: &[(GraphTag, &str, &[PlotId])] = &[
         GraphTag::IoCost,
         "iocost controller stats",
         &[PlotId::IoCostVrate, PlotId::IoCostBusy],
+    ),
+    (
+        GraphTag::RpsCpu,
+        "Workload RPS / CPU util",
+        &[PlotId::HashdARpsMax100, PlotId::WorkCpu],
     ),
 ];
 
