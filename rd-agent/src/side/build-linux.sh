@@ -1,7 +1,7 @@
 #!/bin/bash
 # Copyright (c) Facebook, Inc. and its affiliates
 
-set -xe
+set -e
 
 NR_JOBS=
 if [ -n "$2" ]; then
@@ -12,8 +12,10 @@ if [ -n "$2" ]; then
     NR_JOBS=$(((NR_JOBS * 12 + 9) / 10))
 fi
 
+echo "Building $1 kernel with $NR_JOBS jobs..."
+
 rm -rf linux-*
-tar xvf ../../linux.tar
+tar --checkpoint=2500 --checkpoint-action=echo="Untarred %u files: %T" -xf ../../linux.tar
 cd linux-*
 make "$1"
 
