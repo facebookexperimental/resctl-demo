@@ -19,7 +19,7 @@ use super::command::{CmdState, CMD_STATE};
 use super::graph::{clear_main_graph, set_main_graph, GraphTag};
 use super::{get_layout, COLOR_ACTIVE, COLOR_ALERT};
 use markup_rd::{RdCmd, RdDoc, RdKnob, RdPara, RdReset, RdSwitch};
-use rd_agent_intf::{HashdCmd, SliceConfig, SysReq, Cmd};
+use rd_agent_intf::{Cmd, HashdCmd, SliceConfig, SysReq};
 
 lazy_static! {
     pub static ref DOCS: BTreeMap<String, &'static str> = load_docs();
@@ -27,8 +27,8 @@ lazy_static! {
         id: "__dummy__".into(),
         ..Default::default()
     });
-    pub static ref SIDELOAD_NAMES: Mutex<BTreeSet<(String, String)>> = Mutex::new(BTreeSet::new());
-    pub static ref SYSLOAD_NAMES: Mutex<BTreeSet<(String, String)>> = Mutex::new(BTreeSet::new());
+    pub static ref SIDELOAD_NAMES: Mutex<BTreeSet<String>> = Mutex::new(BTreeSet::new());
+    pub static ref SYSLOAD_NAMES: Mutex<BTreeSet<String>> = Mutex::new(BTreeSet::new());
 }
 
 fn load_docs() -> BTreeMap<String, &'static str> {
@@ -44,33 +44,25 @@ fn load_docs() -> BTreeMap<String, &'static str> {
             Err(e) => panic!("Failed to load {:?}... ({:?})", &src[..100], &e),
         };
 
-        let mut register_one_cmd = |cmd: &RdCmd| {
-            match cmd {
-                RdCmd::On(sw) | RdCmd::Toggle(sw) => match sw {
-                    RdSwitch::Sideload(tag, id) => {
-                        SIDELOAD_NAMES
-                            .lock()
-                            .unwrap()
-                            .insert((tag.into(), id.into()));
-                    }
-                    RdSwitch::Sysload(tag, id) => {
-                        SYSLOAD_NAMES
-                            .lock()
-                            .unwrap()
-                            .insert((tag.into(), id.into()));
-                    }
-                    _ => (),
-                },
-                RdCmd::Graph(tag) => {
-                    if tag.len() > 0 {
-                        graphs.insert(tag.clone());
-                    }
+        let mut register_one_cmd = |cmd: &RdCmd| match cmd {
+            RdCmd::On(sw) | RdCmd::Toggle(sw) => match sw {
+                RdSwitch::Sideload(tag, _id) => {
+                    SIDELOAD_NAMES.lock().unwrap().insert(tag.into());
                 }
-                RdCmd::Jump(t) => {
-                    targets.insert(t.to_string());
+                RdSwitch::Sysload(tag, _id) => {
+                    SYSLOAD_NAMES.lock().unwrap().insert(tag.into());
                 }
                 _ => (),
+            },
+            RdCmd::Graph(tag) => {
+                if tag.len() > 0 {
+                    graphs.insert(tag.clone());
+                }
             }
+            RdCmd::Jump(t) => {
+                targets.insert(t.to_string());
+            }
+            _ => (),
         };
 
         for cmd in doc
@@ -458,17 +450,17 @@ fn refresh_toggles(siv: &mut Cursive, cs: &CmdState) {
         c.set_checked(cs.hashd[1].active)
     });
 
-    for (tag, id) in SIDELOAD_NAMES.lock().unwrap().iter() {
+    for tag in SIDELOAD_NAMES.lock().unwrap().iter() {
         let active = cs.sideloads.contains_key(tag);
         siv.call_on_name(
-            &format!("{:?}", RdSwitch::Sideload(tag.into(), id.into())),
+            &format!("{:?}", RdSwitch::Sideload(tag.into(), "ID".into())),
             |c: &mut Checkbox| c.set_checked(active),
         );
     }
-    for (tag, id) in SYSLOAD_NAMES.lock().unwrap().iter() {
+    for tag in SYSLOAD_NAMES.lock().unwrap().iter() {
         let active = cs.sysloads.contains_key(tag);
         siv.call_on_name(
-            &format!("{:?}", RdSwitch::Sysload(tag.into(), id.into())),
+            &format!("{:?}", RdSwitch::Sysload(tag.into(), "ID".into())),
             |c: &mut Checkbox| c.set_checked(active),
         );
     }
@@ -600,7 +592,16 @@ fn render_cmd(prompt: &str, cmd: &RdCmd) -> impl View {
             view = view.child(create_button(prompt, move |siv| exec_cmd(siv, &cmdc)));
         }
         RdCmd::Toggle(sw) => {
-            let name = format!("{:?}", sw);
+            let name = match sw {
+                RdSwitch::Sideload(tag, _id) => {
+                    format!("{:?}", RdSwitch::Sideload(tag.into(), "ID".into()))
+                }
+                RdSwitch::Sysload(tag, _id) => {
+                    format!("{:?}", RdSwitch::Sysload(tag.into(), "ID".into()))
+                }
+                _ => format!("{:?}", sw),
+            };
+
             view = view.child(
                 LinearLayout::horizontal()
                     .child(

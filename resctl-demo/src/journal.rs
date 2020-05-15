@@ -195,7 +195,7 @@ pub fn updater_factory(cb_sink: cursive::CbSink, id: JournalViewId) -> Vec<Updat
                 .lock()
                 .unwrap()
                 .iter()
-                .map(|(tag, _id)| format!("{}{}.service", SIDELOAD_SVC_PREFIX, tag))
+                .map(|tag| format!("{}{}.service", SIDELOAD_SVC_PREFIX, tag))
                 .collect();
             bot_svcs.append(&mut side_svcs.iter().map(|x| x.as_str()).collect());
 
@@ -203,7 +203,7 @@ pub fn updater_factory(cb_sink: cursive::CbSink, id: JournalViewId) -> Vec<Updat
                 .lock()
                 .unwrap()
                 .iter()
-                .map(|(tag, _id)| format!("{}{}.service", SYSLOAD_SVC_PREFIX, tag))
+                .map(|tag| format!("{}{}.service", SYSLOAD_SVC_PREFIX, tag))
                 .collect();
             bot_svcs.append(&mut sys_svcs.iter().map(|x| x.as_str()).collect());
 

@@ -32,56 +32,54 @@ impl Default for SideloadDefs {
                 (
                     "build-linux-half".into(),
                     SideloadSpec {
-                        args: vec!["build-linux.sh".into(), "allmodconfig".into(),
-                                   "1".into(), "2".into()],
+                        args: vec![
+                            "build-linux.sh".into(),
+                            "allmodconfig".into(),
+                            "1".into(),
+                            "2".into(),
+                        ],
                         frozen_exp: 30,
                     },
                 ),
                 (
                     "build-linux-1x".into(),
                     SideloadSpec {
-                        args: vec!["build-linux.sh".into(), "allmodconfig".into(),
-                                   "1".into()],
+                        args: vec!["build-linux.sh".into(), "allmodconfig".into(), "1".into()],
                         frozen_exp: 30,
                     },
                 ),
                 (
                     "build-linux-2x".into(),
                     SideloadSpec {
-                        args: vec!["build-linux.sh".into(), "allmodconfig".into(),
-                                   "2".into()],
+                        args: vec!["build-linux.sh".into(), "allmodconfig".into(), "2".into()],
                         frozen_exp: 30,
                     },
                 ),
                 (
                     "build-linux-4x".into(),
                     SideloadSpec {
-                        args: vec!["build-linux.sh".into(), "allmodconfig".into(),
-                                   "4".into()],
+                        args: vec!["build-linux.sh".into(), "allmodconfig".into(), "4".into()],
                         frozen_exp: 30,
                     },
                 ),
                 (
                     "build-linux-8x".into(),
                     SideloadSpec {
-                        args: vec!["build-linux.sh".into(), "allmodconfig".into(),
-                                   "8".into()],
+                        args: vec!["build-linux.sh".into(), "allmodconfig".into(), "8".into()],
                         frozen_exp: 30,
                     },
                 ),
                 (
                     "build-linux-16x".into(),
                     SideloadSpec {
-                        args: vec!["build-linux.sh".into(), "allmodconfig".into(),
-                                   "16".into()],
+                        args: vec!["build-linux.sh".into(), "allmodconfig".into(), "16".into()],
                         frozen_exp: 30,
                     },
                 ),
                 (
                     "build-linux-32x".into(),
                     SideloadSpec {
-                        args: vec!["build-linux.sh".into(), "allmodconfig".into()
-                                   , "32".into()],
+                        args: vec!["build-linux.sh".into(), "allmodconfig".into(), "32".into()],
                         frozen_exp: 30,
                     },
                 ),
@@ -95,16 +93,14 @@ impl Default for SideloadDefs {
                 (
                     "build-linux-allnoconfig-2x".into(),
                     SideloadSpec {
-                        args: vec!["build-linux.sh".into(), "allnoconfig".into(),
-                                   "2".into()],
+                        args: vec!["build-linux.sh".into(), "allnoconfig".into(), "2".into()],
                         frozen_exp: 30,
                     },
                 ),
                 (
                     "build-linux-defconfig-2x".into(),
                     SideloadSpec {
-                        args: vec!["build-linux.sh".into(), "defconfig".into(),
-                                   "2".into()],
+                        args: vec!["build-linux.sh".into(), "defconfig".into(), "2".into()],
                         frozen_exp: 30,
                     },
                 ),

@@ -94,7 +94,7 @@ lazy_static! {
             .lock()
             .unwrap()
             .iter()
-            .map(|(tag, _id)| format!("{}{}.service", SIDELOAD_SVC_PREFIX, tag))
+            .map(|tag| format!("{}{}.service", SIDELOAD_SVC_PREFIX, tag))
         {
             names.push(name);
         }
@@ -103,7 +103,7 @@ lazy_static! {
             .lock()
             .unwrap()
             .iter()
-            .map(|(tag, _id)| format!("{}{}.service", SYSLOAD_SVC_PREFIX, tag))
+            .map(|tag| format!("{}{}.service", SYSLOAD_SVC_PREFIX, tag))
         {
             names.push(name);
         }
