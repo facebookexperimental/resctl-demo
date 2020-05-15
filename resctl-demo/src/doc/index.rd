@@ -30,3 +30,4 @@
 %% jump side.intro               : * What is Sideloading?
 %% jump side.sideloader          : * The Sideloader
 %% jump side.details             : * Some Details on Sideloading
+%% jump side.exp                 : * Experiment with Sideloading

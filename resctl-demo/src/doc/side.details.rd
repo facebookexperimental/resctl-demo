@@ -197,5 +197,6 @@ sub-resource contention and how much extra work can be extracted with
 sideloads. If you're itching to test your own sideloading scenarios, proceed
 to the next page.
 
+%% jump side.exp                 : [ Next: Experiment with Sideloading ]
 %% jump side.sideloader          : [ Prev: Sideloader ]
 %% jump index                    : [ Exit: Index ]
