@@ -552,8 +552,11 @@ impl Bench {
     fn time_hash(size: usize, tf: &TestFiles) -> f64 {
         let mut hasher = hasher::Hasher::new(1.0);
         let started_at = Instant::now();
-        for i in 0..(size as u64 / TESTFILE_UNIT_SIZE) {
-            hasher.load(tf.path(i)).unwrap();
+        let pages_per_unit = tf.unit_size / *PAGE_SIZE as u64;
+        for i in 0..(size as u64 / *PAGE_SIZE as u64) {
+            hasher
+                .load(tf.path(i / pages_per_unit), i % pages_per_unit, *PAGE_SIZE)
+                .unwrap();
         }
         hasher.sha1();
         Instant::now().duration_since(started_at).as_secs_f64()

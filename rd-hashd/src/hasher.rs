@@ -10,8 +10,8 @@ use rand::SeedableRng;
 use rand_distr::{Distribution, Normal, Uniform};
 use sha1::{Digest, Sha1};
 use std::fs::File;
-use std::io::prelude::*;
-use std::path::{Path, PathBuf};
+use std::io::{prelude::*, SeekFrom};
+use std::path::Path;
 use std::sync::{Arc, RwLock};
 use std::thread::{sleep, spawn, JoinHandle};
 use std::time::{Duration, Instant};
@@ -39,13 +39,17 @@ impl Hasher {
         }
     }
 
-    pub fn load<P: AsRef<Path>>(&mut self, path: P) -> Result<()> {
-        let mut f = File::open(path)?;
-        let len = self.off + f.metadata()?.len() as usize;
+    pub fn load<P: AsRef<Path>>(
+        &mut self,
+        path: P,
+        input_off: u64,
+        input_size: usize,
+    ) -> Result<()> {
+        let len = self.off + input_size;
+        self.buf.resize(len, 0);
 
-        if len > self.buf.len() {
-            self.buf.resize(len, 0);
-        }
+        let mut f = File::open(path)?;
+        f.seek(SeekFrom::Start(input_off))?;
         f.read(&mut self.buf[self.off..len])?;
         self.off = len;
         Ok(())
@@ -177,29 +181,71 @@ pub enum DispatchCmd {
 
 /// Hasher worker thread's completion for the dispatch thread.
 struct HashCompletion {
-    ids: Vec<u64>,
     digest: Digest,
     aa_sum: u64,
     started_at: Instant,
+    file_dist: Vec<u64>,
     anon_dist: Vec<u64>,
 }
 
 struct HasherThread {
-    ids: Vec<u64>,
-    paths: Vec<PathBuf>,
+    tf: Arc<TestFiles>,
+    mem_frac: f64,
+    file_max_frac: f64,
+    file_frac: f64,
+    file_nr_pages: usize,
+    file_addr_stdev_ratio: f64,
+    file_addr_frac: f64,
+
     anon_area: Arc<RwLock<AnonArea>>,
     anon_nr_pages: usize,
-    anon_addr_stdev: f64,
-    sleep_dur: f64,
-    cpu_ratio: f64,
+    anon_addr_stdev_ratio: f64,
     anon_addr_frac: f64,
     anon_write_frac: f64,
+
+    sleep_dur: f64,
+    cpu_ratio: f64,
+
     cmpl_tx: Sender<HashCompletion>,
+
     started_at: Instant,
+    file_dist_slots: usize,
     anon_dist_slots: usize,
 }
 
 impl HasherThread {
+    /// Translate [-1.0, 1.0] `rel` to page index. Similar to
+    /// AnonArea::rel_to_idx_off().
+    fn rel_to_file_page(&self, rel: f64) -> u64 {
+        let frac = self.mem_frac * self.file_frac / self.file_max_frac;
+        let nr_pages = ((self.tf.size as f64 * frac) as u64).min(self.tf.size) / *PAGE_SIZE as u64;
+        let mut pg_idx = ((nr_pages / 2) as f64 * rel.abs()) as u64;
+        pg_idx *= 2;
+        if rel.is_sign_negative() {
+            pg_idx += 1;
+        }
+        pg_idx.min(nr_pages - 1)
+    }
+
+    fn file_page_to_idx_off(&self, page: u64) -> (u64, u64) {
+        let pages_per_unit = self.tf.unit_size / *PAGE_SIZE as u64;
+        (
+            page / pages_per_unit,
+            (page % pages_per_unit) * *PAGE_SIZE as u64,
+        )
+    }
+
+    fn file_dist_count(file_dist: &mut [u64], page: u64, tf: &TestFiles) {
+        if file_dist.len() == 0 {
+            return;
+        }
+
+        let rel = page as f64 / (tf.size / *PAGE_SIZE as u64) as f64;
+        let slot = ((file_dist.len() as f64 * rel) as usize).min(file_dist.len() - 1);
+
+        file_dist[slot] += 1;
+    }
+
     fn anon_dist_count(anon_dist: &mut [u64], rel: f64, aa: &AnonArea) {
         if anon_dist.len() == 0 {
             return;
@@ -214,27 +260,37 @@ impl HasherThread {
     }
 
     fn run(self) {
+        let mut rng = SmallRng::from_entropy();
+
+        let mut file_dist = Vec::<u64>::new();
         let mut anon_dist = Vec::<u64>::new();
+        file_dist.resize(self.file_dist_slots, 0);
         anon_dist.resize(self.anon_dist_slots, 0);
 
         // Load hash input files.
+        let file_addr_normal = ClampedNormal::new(0.0, self.file_addr_stdev_ratio, -1.0, 1.0);
+
         let mut rdh = Hasher::new(self.cpu_ratio);
-        for path in self.paths {
-            if let Err(e) = rdh.load(&path) {
-                error!("Failed to open load {:?} ({:?})", &path, &e);
+        for _ in 0..self.file_nr_pages {
+            let rel = file_addr_normal.sample(&mut rng) * self.file_addr_frac;
+            let page = self.rel_to_file_page(rel);
+            let (file_idx, file_off) = self.file_page_to_idx_off(page);
+            let path = self.tf.path(file_idx);
+            if let Err(e) = rdh.load(&path, file_off, *PAGE_SIZE) {
+                error!("Failed to load {:?}:{} ({:?})", &path, file_off, &e);
             }
+            Self::file_dist_count(&mut file_dist, page, &self.tf);
         }
         sleep(Duration::from_secs_f64(self.sleep_dur / 3.0));
 
         // Generate anonymous accesses.
         let mut aa_sum: u64 = 0;
         let aa = self.anon_area.read().unwrap();
-        let addr_normal = ClampedNormal::new(0.0, self.anon_addr_stdev, -1.0, 1.0);
+        let anon_addr_normal = ClampedNormal::new(0.0, self.anon_addr_stdev_ratio, -1.0, 1.0);
         let rw_uniform = Uniform::new_inclusive(0.0, 1.0);
-        let mut rng = SmallRng::from_entropy();
 
         for _ in 0..self.anon_nr_pages {
-            let rel = addr_normal.sample(&mut rng) * self.anon_addr_frac;
+            let rel = anon_addr_normal.sample(&mut rng) * self.anon_addr_frac;
             let ptr = aa.access_rel(rel);
             aa_sum += *ptr as u64;
             if rw_uniform.sample(&mut rng) <= self.anon_write_frac {
@@ -253,10 +309,10 @@ impl HasherThread {
 
         self.cmpl_tx
             .send(HashCompletion {
-                ids: self.ids,
                 digest,
                 aa_sum,
                 started_at: self.started_at,
+                file_dist,
                 anon_dist,
             })
             .unwrap();
@@ -268,7 +324,7 @@ impl HasherThread {
 struct DispatchThread {
     // Basic plumbing.
     max_size: u64,
-    tf: TestFiles,
+    tf: Arc<TestFiles>,
     params: Params,
     params_at: Instant,
     logger: Option<Logger>,
@@ -280,10 +336,8 @@ struct DispatchThread {
 
     // Hash input file and anon area access patterns.
     file_size_normal: ClampedNormal,
-    file_idx_normal: ClampedNormal,
     anon_area: Arc<RwLock<AnonArea>>,
     anon_size_normal: ClampedNormal,
-    anon_addr_stdev: f64,
     sleep_normal: ClampedNormal,
 
     // Latency percentile calculation.
@@ -313,28 +367,6 @@ impl DispatchThread {
     const WQ_IDLE_TIMEOUT: f64 = 60.0;
     const CKMS_ERROR: f64 = 0.001;
 
-    fn file_normals(params: &Params, tf: &TestFiles) -> (ClampedNormal, ClampedNormal) {
-        let size_mean = params.file_size_mean as f64;
-        let size_stdev = size_mean * params.file_size_stdev_ratio;
-
-        debug!(
-            "file: size_mean={} size_stdev={} idx_stdev={:.2}",
-            size_mean.round(),
-            size_stdev.round(),
-            params.file_addr_stdev_ratio
-        );
-
-        (
-            ClampedNormal::new(
-                size_mean,
-                size_stdev,
-                tf.unit_size as f64,
-                2.0 * size_mean as f64,
-            ),
-            ClampedNormal::new(0.0, params.file_addr_stdev_ratio, -1.0, 1.0),
-        )
-    }
-
     fn anon_total(max_size: u64, params: &Params) -> usize {
         (max_size as f64
             * (params.mem_frac * (1.0 - params.file_frac))
@@ -342,20 +374,39 @@ impl DispatchThread {
                 .min(1.0)) as usize
     }
 
-    fn anon_normals(params: &Params) -> (ClampedNormal, f64) {
+    fn file_size_normal(params: &Params) -> ClampedNormal {
+        let size_mean = params.file_size_mean as f64;
+        let size_stdev = size_mean * params.file_size_stdev_ratio;
+
+        debug!(
+            "file: size_mean={} size_stdev={}",
+            size_mean.round(),
+            size_stdev.round(),
+        );
+
+        ClampedNormal::new(
+            size_mean,
+            size_stdev,
+            *PAGE_SIZE as f64,
+            2.0 * size_mean as f64,
+        )
+    }
+
+    fn anon_size_normal(params: &Params) -> ClampedNormal {
         let size_mean = (params.file_size_mean as f64 * params.anon_size_ratio as f64).max(0.0);
         let size_stdev = size_mean * params.anon_size_stdev_ratio;
 
         debug!(
-            "anon: size_mean={} size_stdev={} addr_stdev={:.2}",
+            "anon: size_mean={} size_stdev={}",
             size_mean.round(),
             size_stdev.round(),
-            params.anon_addr_stdev_ratio
         );
 
-        (
-            ClampedNormal::new(size_mean, size_stdev, 0.0, 2.0 * size_mean as f64),
-            params.anon_addr_stdev_ratio,
+        ClampedNormal::new(
+            size_mean,
+            size_stdev,
+            *PAGE_SIZE as f64,
+            2.0 * size_mean as f64,
         )
     }
 
@@ -410,16 +461,12 @@ impl DispatchThread {
         cmd_rx: Receiver<DispatchCmd>,
     ) -> Self {
         let (cmpl_tx, cmpl_rx) = channel::unbounded::<HashCompletion>();
-        let (file_size_normal, file_idx_normal) = Self::file_normals(&params, &tf);
-        let anon_total = Self::anon_total(max_size, &params);
-        let (anon_size_normal, anon_addr_stdev) = Self::anon_normals(&params);
-        let sleep_normal = Self::sleep_normal(&params);
         let (lat_pid, rps_pid) = Self::pid_controllers(&params);
+        let anon_total = Self::anon_total(max_size, &params);
         let now = Instant::now();
 
         let mut dt = Self {
             max_size,
-            tf,
             params_at: now,
             cmd_rx,
             logger,
@@ -427,12 +474,10 @@ impl DispatchThread {
 
             cmpl_tx,
             cmpl_rx,
-            file_size_normal,
-            file_idx_normal,
+            file_size_normal: Self::file_size_normal(&params),
             anon_area: Arc::new(RwLock::new(AnonArea::new(anon_total))),
-            anon_size_normal,
-            anon_addr_stdev,
-            sleep_normal,
+            anon_size_normal: Self::anon_size_normal(&params),
+            sleep_normal: Self::sleep_normal(&params),
 
             ckms: CKMS::<f64>::new(Self::CKMS_ERROR),
             ckms_at: now,
@@ -453,21 +498,11 @@ impl DispatchThread {
             anon_dist: vec![],
 
             // Should be the last to allow preceding borrows.
+            tf: Arc::new(tf),
             params,
         };
         dt.verify_params();
         dt
-    }
-
-    fn file_dist_count(file_dist: &mut [u64], id: u64, tf: &TestFiles) {
-        if file_dist.len() == 0 {
-            return;
-        }
-
-        let rel = id as f64 / tf.nr_files as f64;
-        let slot = ((file_dist.len() as f64 * rel) as usize).min(file_dist.len() - 1);
-
-        file_dist[slot] += tf.unit_size / 4096;
     }
 
     fn update_params(&mut self, new_params: Params) {
@@ -477,15 +512,10 @@ impl DispatchThread {
         self.verify_params();
         let params = &self.params;
 
-        let (fsn, fin) = Self::file_normals(params, &self.tf);
-        let (asn, aas) = Self::anon_normals(params);
-        let sn = Self::sleep_normal(params);
+        self.file_size_normal = Self::file_size_normal(params);
+        self.anon_size_normal = Self::anon_size_normal(params);
+        self.sleep_normal = Self::sleep_normal(params);
         let (lp, rp) = Self::pid_controllers(params);
-        self.file_size_normal = fsn;
-        self.file_idx_normal = fin;
-        self.anon_size_normal = asn;
-        self.anon_addr_stdev = aas;
-        self.sleep_normal = sn;
         self.lat_pid = lp;
         self.rps_pid = rp;
 
@@ -501,66 +531,42 @@ impl DispatchThread {
         self.params_at = Instant::now();
     }
 
-    /// Translate [-1.0, 1.0] `rel` to file index. Similar to
-    /// AnonArea::rel_to_idx_off().
-    fn rel_to_file_idx(rel: f64, tf_nr: u64, frac: f64) -> u64 {
-        let total_files = ((tf_nr as f64 * frac).max(1.0) as u64).min(tf_nr);
-
-        let pos = ((total_files / 2) as f64 * rel.abs()) as u64;
-        let mut idx = pos * 2;
-        if rel.is_sign_negative() {
-            idx += 1;
-        }
-        idx.min(total_files - 1)
-    }
-
     fn launch_hashers(&mut self) {
         // Fire off hash workers to fill up the target concurrency.
-        let params = &self.params;
-        let tf = &self.tf;
-        let fsn = &mut self.file_size_normal;
-        let fin = &mut self.file_idx_normal;
-        let asn = &mut self.anon_size_normal;
-        let sn = &mut self.sleep_normal;
-        let faf = self.file_addr_frac;
         let mut rng = SmallRng::from_entropy();
 
         while self.nr_in_flight < self.concurrency as u32 {
-            // Determine input size and indices.
-            let nr_files = (fsn.sample(&mut rng) / tf.unit_size as f64).round() as u64;
-            let ids: Vec<u64> = (0..nr_files)
-                .map(|_| {
-                    Self::rel_to_file_idx(
-                        fin.sample(&mut rng) * faf,
-                        tf.nr_files,
-                        params.mem_frac * params.file_frac,
-                    )
-                })
-                .collect();
-            let paths: Vec<PathBuf> = ids.iter().map(|&id| tf.path(id)).collect();
-
-            for id in ids.iter() {
-                Self::file_dist_count(&mut self.file_dist, *id, tf);
-            }
-
-            // Determine anon access page count.  Indices are
+            // Determine file and anon access page counts. Indices are
             // determined by each hash worker to avoid overloading the
             // dispatch thread.
-            let anon_size = asn.sample(&mut rng).round() as usize;
+            let file_size = self.file_size_normal.sample(&mut rng).round() as usize;
+            let file_nr_pages = file_size.div_ceil(&*PAGE_SIZE);
+
+            let anon_size = self.anon_size_normal.sample(&mut rng).round() as usize;
             let anon_nr_pages = anon_size.div_ceil(&*PAGE_SIZE);
 
             let hasher_thread = HasherThread {
-                ids,
-                paths,
+                tf: self.tf.clone(),
+                mem_frac: self.params.mem_frac,
+                file_max_frac: self.tf.size as f64 / self.max_size as f64,
+                file_frac: self.params.file_frac,
+                file_nr_pages,
+                file_addr_stdev_ratio: self.params.file_addr_stdev_ratio,
+                file_addr_frac: self.file_addr_frac,
+
                 anon_area: self.anon_area.clone(),
                 anon_nr_pages,
-                anon_addr_stdev: self.anon_addr_stdev,
-                sleep_dur: sn.sample(&mut rng),
-                cpu_ratio: self.params.cpu_ratio,
+                anon_addr_stdev_ratio: self.params.anon_addr_stdev_ratio,
                 anon_addr_frac: self.anon_addr_frac,
                 anon_write_frac: self.params.anon_write_frac,
+
+                sleep_dur: self.sleep_normal.sample(&mut rng),
+                cpu_ratio: self.params.cpu_ratio,
+
                 cmpl_tx: self.cmpl_tx.clone(),
+
                 started_at: Instant::now(),
+                file_dist_slots: self.file_dist.len(),
                 anon_dist_slots: self.anon_dist.len(),
             };
 
@@ -709,14 +715,19 @@ impl DispatchThread {
                 },
                 recv(self.cmpl_rx) -> cmpl => {
                     match cmpl {
-                        Ok(HashCompletion {ids, digest, aa_sum, started_at, anon_dist}) => {
+                        Ok(HashCompletion {digest, aa_sum, started_at, file_dist, anon_dist}) => {
                             self.nr_in_flight -= 1;
                             self.nr_done += 1;
                             let dur = Instant::now().duration_since(started_at).as_secs_f64();
                             self.ckms.insert(dur);
                             if let Some(logger) = self.logger.as_mut() {
-                                logger.log(&format!("{} {:8} {:.2}ms {:?}",
-                                                    digest, aa_sum, dur * TO_MSEC, ids));
+                                logger.log(&format!("{} {:8} {:.2}ms",
+                                                    digest, aa_sum, dur * TO_MSEC));
+                            }
+                            if file_dist.len() == self.file_dist.len() {
+                                for i in 0..file_dist.len() {
+                                    self.file_dist[i] += file_dist[i];
+                                }
                             }
                             if anon_dist.len() == self.anon_dist.len() {
                                 for i in 0..anon_dist.len() {
@@ -872,34 +883,6 @@ mod tests {
             println!("idx={} pos={}", idx, pos);
             assert_eq!(idx, pos);
             pos += 2;
-        }
-    }
-
-    #[test]
-    fn test_file_rel_to_idx() {
-        let _ = ::env_logger::try_init();
-        let rel_to_file_idx = super::DispatchThread::rel_to_file_idx;
-
-        let mut pos = 403;
-        for i in -100..-1 {
-            let fidx = rel_to_file_idx(i as f64 / 100.0 + 0.005, 400, 1.0);
-            let hidx = rel_to_file_idx(i as f64 / 100.0 + 0.005, 400, 0.5);
-            pos -= 4;
-            println!("pos={} fidx={} hidx={}", pos, fidx, hidx);
-            assert!(fidx % 2 == 1 && hidx % 2 == 1);
-            assert!(fidx >= (pos - 4) as u64, fidx <= (pos + 4) as u64);
-            assert!(fidx >= (pos / 2 - 2) as u64, fidx <= (pos / 2 + 2) as u64);
-        }
-
-        let mut pos = 0;
-        for i in 0..100 {
-            let fidx = rel_to_file_idx(i as f64 / 100.0 + 0.005, 400, 1.0);
-            let hidx = rel_to_file_idx(i as f64 / 100.0 + 0.005, 400, 0.5);
-            pos += 4;
-            println!("pos={} fidx={} hidx={}", pos, fidx, hidx);
-            assert!(fidx % 2 == 0 && hidx % 2 == 0);
-            assert!(fidx >= (pos - 4) as u64, fidx <= (pos + 4) as u64);
-            assert!(fidx >= (pos / 2 - 2) as u64, fidx <= (pos / 2 + 2) as u64);
         }
     }
 }
