@@ -184,6 +184,85 @@ struct HashCompletion {
     anon_dist: Vec<u64>,
 }
 
+struct HasherThread {
+    ids: Vec<u64>,
+    paths: Vec<PathBuf>,
+    anon_area: Arc<RwLock<AnonArea>>,
+    anon_nr_pages: usize,
+    anon_addr_stdev: f64,
+    sleep_dur: f64,
+    cpu_ratio: f64,
+    anon_addr_frac: f64,
+    anon_write_frac: f64,
+    cmpl_tx: Sender<HashCompletion>,
+    started_at: Instant,
+    anon_dist_slots: usize,
+}
+
+impl HasherThread {
+    fn anon_dist_count(anon_dist: &mut [u64], rel: f64, aa: &AnonArea) {
+        if anon_dist.len() == 0 {
+            return;
+        }
+
+        // do a round-trip through rel_to_idx_off() to verify the calculation
+        let (idx, off) = AnonArea::rel_to_idx_off(rel, aa.size);
+        let rel = (AnonArea::UNIT_SIZE * idx + off) as f64 / aa.size as f64;
+        let slot = ((anon_dist.len() as f64 * rel) as usize).min(anon_dist.len() - 1);
+
+        anon_dist[slot] += 1;
+    }
+
+    fn run(self) {
+        let mut anon_dist = Vec::<u64>::new();
+        anon_dist.resize(self.anon_dist_slots, 0);
+
+        // Load hash input files.
+        let mut rdh = Hasher::new(self.cpu_ratio);
+        for path in self.paths {
+            if let Err(e) = rdh.load(&path) {
+                error!("Failed to open load {:?} ({:?})", &path, &e);
+            }
+        }
+        sleep(Duration::from_secs_f64(self.sleep_dur / 3.0));
+
+        // Generate anonymous accesses.
+        let mut aa_sum: u64 = 0;
+        let aa = self.anon_area.read().unwrap();
+        let addr_normal = ClampedNormal::new(0.0, self.anon_addr_stdev, -1.0, 1.0);
+        let rw_uniform = Uniform::new_inclusive(0.0, 1.0);
+        let mut rng = SmallRng::from_entropy();
+
+        for _ in 0..self.anon_nr_pages {
+            let rel = addr_normal.sample(&mut rng) * self.anon_addr_frac;
+            let ptr = aa.access_rel(rel);
+            aa_sum += *ptr as u64;
+            if rw_uniform.sample(&mut rng) <= self.anon_write_frac {
+                *ptr += 1;
+            }
+            if *ptr == 0 {
+                *ptr = 1;
+            }
+            Self::anon_dist_count(&mut anon_dist, rel, &aa);
+        }
+        sleep(Duration::from_secs_f64(self.sleep_dur / 3.0));
+
+        // Calculate sha1 and signal completion.
+        let digest = rdh.sha1();
+        sleep(Duration::from_secs_f64(self.sleep_dur / 3.0));
+
+        self.cmpl_tx
+            .send(HashCompletion {
+                ids: self.ids,
+                digest,
+                aa_sum,
+                started_at: self.started_at,
+                anon_dist,
+            })
+            .unwrap();
+    }
+}
+
 /// Dispatch thread which is started when Dispatch is created and
 /// keeps scheduling Hasher workers according to the params.
 struct DispatchThread {
@@ -391,19 +470,6 @@ impl DispatchThread {
         file_dist[slot] += tf.unit_size / 4096;
     }
 
-    fn anon_dist_count(anon_dist: &mut [u64], rel: f64, aa: &AnonArea) {
-        if anon_dist.len() == 0 {
-            return;
-        }
-
-        // do a round-trip through rel_to_idx_off() to verify the calculation
-        let (idx, off) = AnonArea::rel_to_idx_off(rel, aa.size);
-        let rel = (AnonArea::UNIT_SIZE * idx + off) as f64 / aa.size as f64;
-        let slot = ((anon_dist.len() as f64 * rel) as usize).min(anon_dist.len() - 1);
-
-        anon_dist[slot] += 1;
-    }
-
     fn update_params(&mut self, new_params: Params) {
         let old_anon_total = Self::anon_total(self.max_size, &self.params);
         let new_anon_total = Self::anon_total(self.max_size, &new_params);
@@ -435,68 +501,6 @@ impl DispatchThread {
         self.params_at = Instant::now();
     }
 
-    fn hasher_workfn(
-        ids: Vec<u64>,
-        paths: Vec<PathBuf>,
-        anon_area: Arc<RwLock<AnonArea>>,
-        anon_nr_pages: usize,
-        anon_addr_stdev: f64,
-        sleep_dur: f64,
-        cpu_ratio: f64,
-        anon_addr_frac: f64,
-        anon_write_frac: f64,
-        cmpl_tx: Sender<HashCompletion>,
-        started_at: Instant,
-        anon_dist_slots: usize,
-    ) {
-        let mut anon_dist = Vec::<u64>::new();
-        anon_dist.resize(anon_dist_slots, 0);
-
-        // Load hash input files.
-        let mut rdh = Hasher::new(cpu_ratio);
-        for path in paths {
-            if let Err(e) = rdh.load(&path) {
-                error!("Failed to open load {:?} ({:?})", &path, &e);
-            }
-        }
-        sleep(Duration::from_secs_f64(sleep_dur / 3.0));
-
-        // Generate anonymous accesses.
-        let mut aa_sum: u64 = 0;
-        let aa = anon_area.read().unwrap();
-        let addr_normal = ClampedNormal::new(0.0, anon_addr_stdev, -1.0, 1.0);
-        let rw_uniform = Uniform::new_inclusive(0.0, 1.0);
-        let mut rng = SmallRng::from_entropy();
-
-        for _ in 0..anon_nr_pages {
-            let rel = addr_normal.sample(&mut rng) * anon_addr_frac;
-            let ptr = aa.access_rel(rel);
-            aa_sum += *ptr as u64;
-            if rw_uniform.sample(&mut rng) <= anon_write_frac {
-                *ptr += 1;
-            }
-            if *ptr == 0 {
-                *ptr = 1;
-            }
-            Self::anon_dist_count(&mut anon_dist, rel, &aa);
-        }
-        sleep(Duration::from_secs_f64(sleep_dur / 3.0));
-
-        // Calculate sha1 and signal completion.
-        let digest = rdh.sha1();
-        sleep(Duration::from_secs_f64(sleep_dur / 3.0));
-
-        cmpl_tx
-            .send(HashCompletion {
-                ids,
-                digest,
-                aa_sum,
-                started_at,
-                anon_dist,
-            })
-            .unwrap();
-    }
-
     /// Translate [-1.0, 1.0] `rel` to file index. Similar to
     /// AnonArea::rel_to_idx_off().
     fn rel_to_file_idx(rel: f64, tf_nr: u64, frac: f64) -> u64 {
@@ -519,8 +523,6 @@ impl DispatchThread {
         let asn = &mut self.anon_size_normal;
         let sn = &mut self.sleep_normal;
         let faf = self.file_addr_frac;
-        let aaf = self.anon_addr_frac;
-        let awf = self.params.anon_write_frac;
         let mut rng = SmallRng::from_entropy();
 
         while self.nr_in_flight < self.concurrency as u32 {
@@ -545,21 +547,25 @@ impl DispatchThread {
             // determined by each hash worker to avoid overloading the
             // dispatch thread.
             let anon_size = asn.sample(&mut rng).round() as usize;
-            let nr_pages = anon_size.div_ceil(&*PAGE_SIZE);
+            let anon_nr_pages = anon_size.div_ceil(&*PAGE_SIZE);
 
-            let sleep_dur = sn.sample(&mut rng);
+            let hasher_thread = HasherThread {
+                ids,
+                paths,
+                anon_area: self.anon_area.clone(),
+                anon_nr_pages,
+                anon_addr_stdev: self.anon_addr_stdev,
+                sleep_dur: sn.sample(&mut rng),
+                cpu_ratio: self.params.cpu_ratio,
+                anon_addr_frac: self.anon_addr_frac,
+                anon_write_frac: self.params.anon_write_frac,
+                cmpl_tx: self.cmpl_tx.clone(),
+                started_at: Instant::now(),
+                anon_dist_slots: self.anon_dist.len(),
+            };
 
-            let aa = self.anon_area.clone();
-            let aas = self.anon_addr_stdev;
-            let cf = self.params.cpu_ratio;
-            let ct = self.cmpl_tx.clone();
-            let at = Instant::now();
-            let ads = self.anon_dist.len();
-            self.wq.queue(move || {
-                Self::hasher_workfn(
-                    ids, paths, aa, nr_pages, aas, sleep_dur, cf, aaf, awf, ct, at, ads,
-                )
-            });
+            self.wq.queue(move || hasher_thread.run());
+
             self.nr_in_flight += 1;
         }
     }
