@@ -167,7 +167,7 @@ pub struct Args {
 }
 
 impl Args {
-    pub const DFL_SIZE_MULT: u64 = 3;
+    pub const DFL_SIZE_MULT: u64 = 4;
     pub const DFL_FILE_MAX_FRAC: f64 = 0.25;
 
     pub fn file_max_size(&self) -> u64 {
