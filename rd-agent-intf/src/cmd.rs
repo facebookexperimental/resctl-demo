@@ -42,7 +42,7 @@ lazy_static! {
 //  hashd[].mem_ratio: Memory footprint adj [0.0, 1.0], null to use bench result
 //  hashd[].file_ratio: Pagecache portion of memory [0.0, 1.0], default ${dfl_file_ratio}
 //  hashd[].file_max_ratio: Max file_ratio, requires hashd restart [0.0, 1.0], default ${dfl_file_max_ratio}
-//  hashd[].log_bps_ratio: IO write bandwidth adj [0.0, 1.0], default ${dfl_log_bps_ratio}
+//  hashd[].log_bps: IO write bandwidth, default ${dfl_log_bps}Mbps
 //  hashd[].weight: Relative weight between the two hashd instances
 //  sysloads{{}}: \"NAME\": \"DEF_ID\" pairs for active sysloads
 //  sideloads{{}}: \"NAME\": \"DEF_ID\" pairs for active sideloads
@@ -50,7 +50,7 @@ lazy_static! {
 ",
         dfl_file_ratio = rd_hashd_intf::Params::DFL_FILE_FRAC,
         dfl_file_max_ratio = rd_hashd_intf::Args::DFL_FILE_MAX_FRAC,
-        dfl_log_bps_ratio = HashdCmd::DFL_LOG_BPS_RATIO,
+        dfl_log_bps = to_mb(HashdCmd::DFL_LOG_BPS),
     );
 }
 
@@ -68,12 +68,12 @@ pub struct HashdCmd {
     pub mem_ratio: Option<f64>,
     pub file_ratio: f64,
     pub file_max_ratio: f64,
-    pub log_bps_ratio: f64,
+    pub log_bps: u64,
     pub weight: f64,
 }
 
 impl HashdCmd {
-    pub const DFL_LOG_BPS_RATIO: f64 = 0.05;
+    pub const DFL_LOG_BPS: u64 = 16 << 20;
 }
 
 impl Default for HashdCmd {
@@ -86,7 +86,7 @@ impl Default for HashdCmd {
             mem_ratio: None,
             file_ratio: rd_hashd_intf::Params::DFL_FILE_FRAC,
             file_max_ratio: rd_hashd_intf::Args::DFL_FILE_MAX_FRAC,
-            log_bps_ratio: Self::DFL_LOG_BPS_RATIO,
+            log_bps: Self::DFL_LOG_BPS,
             weight: 1.0,
         }
     }

@@ -20,9 +20,9 @@ mod workqueue;
 use logger::Logger;
 use testfiles::TestFiles;
 
-const TESTFILE_UNIT_SIZE: u64 = 1 << 20;
+const TESTFILE_UNIT_SIZE: u64 = 32 << 20;
 const LOGFILE_UNIT_SIZE: u64 = 1 << 30;
-const LOGGER_HOLD_SEC: f64 = 10.0;
+const LOGGER_HOLD_SEC: f64 = 300.0;
 
 static ROTATIONAL: AtomicBool = AtomicBool::new(false);
 static ROTATIONAL_TESTFILES: AtomicBool = AtomicBool::new(false);

@@ -59,17 +59,10 @@ impl Hashd {
         Ok(())
     }
 
-    fn update_params(
-        &mut self,
-        knobs: &HashdKnobs,
-        cmd: &HashdCmd,
-        max_wbps: u64,
-        frac: f64,
-    ) -> Result<()> {
+    fn update_params(&mut self, knobs: &HashdKnobs, cmd: &HashdCmd, frac: f64) -> Result<()> {
         self.lat_target_pct = cmd.lat_target_pct;
         self.rps_max = ((knobs.rps_max as f64 * frac).round() as u32).max(1);
         let rps_target = ((self.rps_max as f64 * cmd.rps_target_ratio).round() as u32).max(1);
-        let log_bps = (max_wbps as f64 * cmd.log_bps_ratio).round() as u64;
 
         let mem_frac = match cmd.mem_ratio {
             Some(v) => v,
@@ -107,8 +100,8 @@ impl Hashd {
             params.file_frac = cmd.file_ratio;
             changed = true;
         }
-        if params.log_bps != log_bps {
-            params.log_bps = log_bps;
+        if params.log_bps != cmd.log_bps {
+            params.log_bps = cmd.log_bps;
             changed = true;
         }
 
@@ -124,7 +117,7 @@ impl Hashd {
                 cmd.lat_target_pct * TO_PCT,
                 rps_target,
                 mem_frac * TO_PCT,
-                to_mb(log_bps),
+                to_mb(cmd.log_bps),
                 frac
             );
             params.save(&self.params_path)?;
@@ -237,13 +230,7 @@ impl HashdSet {
         }
     }
 
-    pub fn apply(
-        &mut self,
-        cmd: &[HashdCmd; 2],
-        knobs: &HashdKnobs,
-        mem_low: u64,
-        max_wbps: u64,
-    ) -> Result<()> {
+    pub fn apply(&mut self, cmd: &[HashdCmd; 2], knobs: &HashdKnobs, mem_low: u64) -> Result<()> {
         let fracs = Self::weights_to_fracs(cmd);
         debug!("hashd: fracs={:?}", &fracs);
 
@@ -269,7 +256,7 @@ impl HashdSet {
         // adjust the params files
         for i in 0..2 {
             if fracs[i] != 0.0 {
-                self.hashd[i].update_params(knobs, &cmd[i], max_wbps, fracs[i])?;
+                self.hashd[i].update_params(knobs, &cmd[i], fracs[i])?;
             }
         }
 

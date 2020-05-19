@@ -90,7 +90,7 @@ impl Default for Cfg {
                 size: 1 << 30,
                 lat: 15.0 * MSEC,
                 io_lat: 2.5 * MSEC,
-                io_ratio: 0.1,
+                io_ratio: 0.2,
                 err: 0.1,
                 fsz_pid: PidParams {
                     kp: 0.25,
@@ -556,20 +556,20 @@ impl Bench {
         let chunks_per_unit = (tf.unit_size as usize).div_ceil(&chunk_size);
         let started_at = Instant::now();
         for i in 0..(size / chunk_size) {
-            hasher
-                .load(
-                    tf.path((i / chunks_per_unit) as u64),
-                    ((i % chunks_per_unit) * chunk_pages) as u64,
-                    chunk_size,
-                )
-                .unwrap();
+            let path = tf.path((i / chunks_per_unit) as u64);
+            let off = ((i % chunks_per_unit) * chunk_pages) as u64;
+
+            hasher.load(&path, off, chunk_size).expect(&format!(
+                "failed to load chunk {}, chunk_size={} chunks_per_unit={} path={:?} off={}",
+                i, chunk_size, chunks_per_unit, &path, off
+            ));
         }
         hasher.sha1();
         Instant::now().duration_since(started_at).as_secs_f64()
     }
 
     fn bench_cpu(&self, cfg: &CpuCfg) -> (usize, usize) {
-        const TIME_HASH_SIZE: usize = 128 * TESTFILE_UNIT_SIZE as usize;
+        const TIME_HASH_SIZE: usize = 128 << 20;
         let mut params: Params = self.params.clone();
         let mut nr_rounds = 0;
         let max_size = cfg.size.max(TIME_HASH_SIZE as u64);

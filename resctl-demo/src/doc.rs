@@ -197,6 +197,7 @@ fn exec_one_cmd(siv: &mut Cursive, cmd: &RdCmd) {
     info!("executing {:?}", cmd);
 
     let mut cs = CMD_STATE.lock().unwrap();
+    let wbps = AGENT_FILES.bench().iocost.model.wbps as f64;
 
     match cmd {
         RdCmd::On(sw) | RdCmd::Off(sw) => {
@@ -258,8 +259,8 @@ fn exec_one_cmd(siv: &mut Cursive, cmd: &RdCmd) {
             RdKnob::HashdBFile => cs.hashd[1].file_ratio = *val,
             RdKnob::HashdAFileMax => cs.hashd[0].file_max_ratio = *val,
             RdKnob::HashdBFileMax => cs.hashd[1].file_max_ratio = *val,
-            RdKnob::HashdALogBps => cs.hashd[0].log_bps_ratio = *val,
-            RdKnob::HashdBLogBps => cs.hashd[1].log_bps_ratio = *val,
+            RdKnob::HashdALogBps => cs.hashd[0].log_bps = (wbps * *val).round() as u64,
+            RdKnob::HashdBLogBps => cs.hashd[1].log_bps = (wbps * *val).round() as u64,
             RdKnob::HashdAWeight => cs.hashd[0].weight = *val,
             RdKnob::HashdBWeight => cs.hashd[1].weight = *val,
             RdKnob::SysCpuRatio => cs.sys_cpu_ratio = *val,
@@ -516,6 +517,8 @@ fn hmem_ratio(knob: Option<f64>) -> f64 {
 }
 
 fn refresh_knobs(siv: &mut Cursive, cs: &CmdState) {
+    let wbps = AGENT_FILES.bench().iocost.model.wbps as f64;
+
     refresh_one_knob(siv, RdKnob::HashdALoad, cs.hashd[0].rps_target_ratio);
     refresh_one_knob(siv, RdKnob::HashdBLoad, cs.hashd[1].rps_target_ratio);
     refresh_one_knob(siv, RdKnob::HashdAMem, hmem_ratio(cs.hashd[0].mem_ratio));
@@ -524,8 +527,8 @@ fn refresh_knobs(siv: &mut Cursive, cs: &CmdState) {
     refresh_one_knob(siv, RdKnob::HashdBFile, cs.hashd[1].file_ratio);
     refresh_one_knob(siv, RdKnob::HashdAFileMax, cs.hashd[0].file_max_ratio);
     refresh_one_knob(siv, RdKnob::HashdBFileMax, cs.hashd[1].file_max_ratio);
-    refresh_one_knob(siv, RdKnob::HashdALogBps, cs.hashd[0].log_bps_ratio);
-    refresh_one_knob(siv, RdKnob::HashdBLogBps, cs.hashd[1].log_bps_ratio);
+    refresh_one_knob(siv, RdKnob::HashdALogBps, cs.hashd[0].log_bps as f64 / wbps);
+    refresh_one_knob(siv, RdKnob::HashdBLogBps, cs.hashd[1].log_bps as f64 / wbps);
     refresh_one_knob(siv, RdKnob::HashdAWeight, cs.hashd[0].weight);
     refresh_one_knob(siv, RdKnob::HashdBWeight, cs.hashd[1].weight);
     refresh_one_knob(siv, RdKnob::SysCpuRatio, cs.sys_cpu_ratio);

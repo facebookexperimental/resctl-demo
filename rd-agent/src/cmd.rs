@@ -154,8 +154,7 @@ impl RunnerData {
             .mem_low
             .nr_bytes(false);
 
-        self.hashd_set
-            .apply(&cmd.hashd, &bench.hashd, mem_low, bench.iocost.model.wbps)?;
+        self.hashd_set.apply(&cmd.hashd, &bench.hashd, mem_low)?;
         Ok(())
     }
 
@@ -188,8 +187,7 @@ impl RunnerData {
 
                         self.bench_hashd = Some(bench::start_hashd_bench(
                             &*self.cfg,
-                            (bench.iocost.model.wbps as f64 * cmd.hashd[0].log_bps_ratio).round()
-                                as u64,
+                            cmd.hashd[0].log_bps,
                             0,
                         )?);
 
