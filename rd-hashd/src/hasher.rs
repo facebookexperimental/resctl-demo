@@ -43,16 +43,18 @@ impl Hasher {
         &mut self,
         path: P,
         input_off: u64,
-        input_size: usize,
-    ) -> Result<()> {
+        mut input_size: usize,
+    ) -> Result<usize> {
+        let mut f = File::open(path)?;
+        input_size = input_size.min((f.metadata()?.len() - input_off) as usize);
+
         let len = self.off + input_size;
         self.buf.resize(len, 0);
 
-        let mut f = File::open(path)?;
         f.seek(SeekFrom::Start(input_off))?;
         f.read(&mut self.buf[self.off..len])?;
         self.off = len;
-        Ok(())
+        Ok(input_size)
     }
 
     /// Calculates sha1 of self.buf * self.cpu_ratio.  Hasher exists
@@ -135,10 +137,6 @@ impl AnonArea {
         idx = idx.min(size / Self::UNIT_SIZE - 1);
         (idx, addr % Self::UNIT_SIZE)
     }
-
-    fn access_rel<'a>(&'a self, pos: f64) -> &'a mut u8 {
-        self.access_idx_off(Self::rel_to_idx_off(pos, self.size))
-    }
 }
 
 /// Normal distribution with clamps. The portion of the distribution which is
@@ -191,14 +189,16 @@ struct HashCompletion {
 struct HasherThread {
     tf: Arc<TestFiles>,
     mem_frac: f64,
+    mem_chunk_pages: usize,
+
     file_max_frac: f64,
     file_frac: f64,
-    file_nr_pages: usize,
+    file_nr_chunks: usize,
     file_addr_stdev_ratio: f64,
     file_addr_frac: f64,
 
     anon_area: Arc<RwLock<AnonArea>>,
-    anon_nr_pages: usize,
+    anon_nr_chunks: usize,
     anon_addr_stdev_ratio: f64,
     anon_addr_frac: f64,
     anon_write_frac: f64,
@@ -235,7 +235,7 @@ impl HasherThread {
         )
     }
 
-    fn file_dist_count(file_dist: &mut [u64], page: u64, tf: &TestFiles) {
+    fn file_dist_count(file_dist: &mut [u64], page: u64, cnt: u64, tf: &TestFiles) {
         if file_dist.len() == 0 {
             return;
         }
@@ -243,20 +243,18 @@ impl HasherThread {
         let rel = page as f64 / (tf.size / *PAGE_SIZE as u64) as f64;
         let slot = ((file_dist.len() as f64 * rel) as usize).min(file_dist.len() - 1);
 
-        file_dist[slot] += 1;
+        file_dist[slot] += cnt;
     }
 
-    fn anon_dist_count(anon_dist: &mut [u64], rel: f64, aa: &AnonArea) {
+    fn anon_dist_count(anon_dist: &mut [u64], idx: usize, off: usize, cnt: usize, aa: &AnonArea) {
         if anon_dist.len() == 0 {
             return;
         }
 
-        // do a round-trip through rel_to_idx_off() to verify the calculation
-        let (idx, off) = AnonArea::rel_to_idx_off(rel, aa.size);
         let rel = (AnonArea::UNIT_SIZE * idx + off) as f64 / aa.size as f64;
         let slot = ((anon_dist.len() as f64 * rel) as usize).min(anon_dist.len() - 1);
 
-        anon_dist[slot] += 1;
+        anon_dist[slot] += cnt as u64;
     }
 
     fn run(self) {
@@ -271,15 +269,21 @@ impl HasherThread {
         let file_addr_normal = ClampedNormal::new(0.0, self.file_addr_stdev_ratio, -1.0, 1.0);
 
         let mut rdh = Hasher::new(self.cpu_ratio);
-        for _ in 0..self.file_nr_pages {
+        for _ in 0..self.file_nr_chunks {
             let rel = file_addr_normal.sample(&mut rng) * self.file_addr_frac;
             let page = self.rel_to_file_page(rel);
             let (file_idx, file_off) = self.file_page_to_idx_off(page);
             let path = self.tf.path(file_idx);
-            if let Err(e) = rdh.load(&path, file_off, *PAGE_SIZE) {
-                error!("Failed to load {:?}:{} ({:?})", &path, file_off, &e);
+
+            match rdh.load(&path, file_off, *PAGE_SIZE * self.mem_chunk_pages) {
+                Ok(size) => Self::file_dist_count(
+                    &mut file_dist,
+                    page,
+                    (size / *PAGE_SIZE) as u64,
+                    &self.tf,
+                ),
+                Err(e) => error!("Failed to load {:?}:{} ({:?})", &path, file_off, &e),
             }
-            Self::file_dist_count(&mut file_dist, page, &self.tf);
         }
         sleep(Duration::from_secs_f64(self.sleep_dur / 3.0));
 
@@ -289,17 +293,26 @@ impl HasherThread {
         let anon_addr_normal = ClampedNormal::new(0.0, self.anon_addr_stdev_ratio, -1.0, 1.0);
         let rw_uniform = Uniform::new_inclusive(0.0, 1.0);
 
-        for _ in 0..self.anon_nr_pages {
+        for _ in 0..self.anon_nr_chunks {
             let rel = anon_addr_normal.sample(&mut rng) * self.anon_addr_frac;
-            let ptr = aa.access_rel(rel);
-            aa_sum += *ptr as u64;
-            if rw_uniform.sample(&mut rng) <= self.anon_write_frac {
-                *ptr += 1;
+            let (idx, mut off) = AnonArea::rel_to_idx_off(rel, aa.size);
+            let cnt = (AnonArea::UNIT_SIZE - off)
+                .div_ceil(&*PAGE_SIZE)
+                .min(self.mem_chunk_pages);
+            let is_write = rw_uniform.sample(&mut rng) <= self.anon_write_frac;
+
+            for _ in 0..cnt {
+                let ptr = aa.access_idx_off((idx, off));
+                aa_sum += *ptr as u64;
+                if *ptr == 0 {
+                    *ptr = 1;
+                }
+                if is_write {
+                    *ptr += 1;
+                }
+                off += *PAGE_SIZE;
             }
-            if *ptr == 0 {
-                *ptr = 1;
-            }
-            Self::anon_dist_count(&mut anon_dist, rel, &aa);
+            Self::anon_dist_count(&mut anon_dist, idx, off, cnt, &aa);
         }
         sleep(Duration::from_secs_f64(self.sleep_dur / 3.0));
 
@@ -536,26 +549,29 @@ impl DispatchThread {
         let mut rng = SmallRng::from_entropy();
 
         while self.nr_in_flight < self.concurrency as u32 {
-            // Determine file and anon access page counts. Indices are
+            let chunk_size = *PAGE_SIZE * self.params.mem_chunk_pages;
+
+            // Determine file and anon access chunk counts. Indices are
             // determined by each hash worker to avoid overloading the
             // dispatch thread.
             let file_size = self.file_size_normal.sample(&mut rng).round() as usize;
-            let file_nr_pages = file_size.div_ceil(&*PAGE_SIZE);
-
+            let file_nr_chunks = file_size.div_ceil(&chunk_size);
             let anon_size = self.anon_size_normal.sample(&mut rng).round() as usize;
-            let anon_nr_pages = anon_size.div_ceil(&*PAGE_SIZE);
+            let anon_nr_chunks = anon_size.div_ceil(&chunk_size);
 
             let hasher_thread = HasherThread {
                 tf: self.tf.clone(),
                 mem_frac: self.params.mem_frac,
+                mem_chunk_pages: self.params.mem_chunk_pages,
+
                 file_max_frac: self.tf.size as f64 / self.max_size as f64,
                 file_frac: self.params.file_frac,
-                file_nr_pages,
+                file_nr_chunks,
                 file_addr_stdev_ratio: self.params.file_addr_stdev_ratio,
                 file_addr_frac: self.file_addr_frac,
 
                 anon_area: self.anon_area.clone(),
-                anon_nr_pages,
+                anon_nr_chunks,
                 anon_addr_stdev_ratio: self.params.anon_addr_stdev_ratio,
                 anon_addr_frac: self.anon_addr_frac,
                 anon_write_frac: self.params.anon_write_frac,
