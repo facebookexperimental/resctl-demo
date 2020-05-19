@@ -1,7 +1,7 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
 use anyhow::Result;
 use crossbeam::channel::{self, select, Receiver, Sender};
-use log::{debug, error, warn};
+use log::{debug, error, trace, warn};
 use num::Integer;
 use pid::Pid;
 use quantiles::ckms::CKMS;
@@ -63,6 +63,8 @@ impl Hasher {
     pub fn sha1(&mut self) -> Digest {
         let mut repeat = self.cpu_ratio;
         let mut hasher = Sha1::new();
+        let mut nr_bytes = 0;
+
         while repeat > 0.01 {
             if repeat < 0.99 {
                 self.buf
@@ -71,8 +73,10 @@ impl Hasher {
             } else {
                 repeat -= 1.0;
             }
+            nr_bytes += self.buf.len();
             hasher.update(&self.buf);
         }
+        trace!("hashed {} bytes, cpu_ratio={}", nr_bytes, self.cpu_ratio);
         hasher.digest()
     }
 }
@@ -268,7 +272,11 @@ impl HasherThread {
         // Load hash input files.
         let file_addr_normal = ClampedNormal::new(0.0, self.file_addr_stdev_ratio, -1.0, 1.0);
 
-        let mut rdh = Hasher::new(self.cpu_ratio);
+        let file_ratio =
+            self.file_nr_chunks as f64 / (self.file_nr_chunks + self.anon_nr_chunks) as f64;
+        trace!("hasher::run(): cpu_ratio={:.2} file_ratio={:.2} adj_ratio={:.2}",
+               self.cpu_ratio, file_ratio, self.cpu_ratio / file_ratio);
+        let mut rdh = Hasher::new(self.cpu_ratio / file_ratio);
         for _ in 0..self.file_nr_chunks {
             let rel = file_addr_normal.sample(&mut rng) * self.file_addr_frac;
             let page = self.rel_to_file_page(rel);
@@ -555,7 +563,7 @@ impl DispatchThread {
             // determined by each hash worker to avoid overloading the
             // dispatch thread.
             let file_size = self.file_size_normal.sample(&mut rng).round() as usize;
-            let file_nr_chunks = file_size.div_ceil(&chunk_size);
+            let file_nr_chunks = file_size.div_ceil(&chunk_size).max(1);
             let anon_size = self.anon_size_normal.sample(&mut rng).round() as usize;
             let anon_nr_chunks = anon_size.div_ceil(&chunk_size);
 

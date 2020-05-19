@@ -550,14 +550,16 @@ impl Bench {
         )
     }
 
-    fn time_hash(size: usize, chunk_pages: usize, tf: &TestFiles) -> f64 {
+    fn time_hash(size: usize, params: &Params, tf: &TestFiles) -> f64 {
         let mut hasher = hasher::Hasher::new(1.0);
-        let chunk_size = chunk_pages * *PAGE_SIZE;
+        let chunk_size = params.mem_chunk_pages * *PAGE_SIZE;
         let chunks_per_unit = (tf.unit_size as usize).div_ceil(&chunk_size);
+
         let started_at = Instant::now();
+
         for i in 0..(size / chunk_size) {
             let path = tf.path((i / chunks_per_unit) as u64);
-            let off = ((i % chunks_per_unit) * chunk_pages) as u64;
+            let off = ((i % chunks_per_unit) * params.mem_chunk_pages) as u64;
 
             hasher.load(&path, off, chunk_size).expect(&format!(
                 "failed to load chunk {}, chunk_size={} chunks_per_unit={} path={:?} off={}",
@@ -565,6 +567,7 @@ impl Bench {
             ));
         }
         hasher.sha1();
+
         Instant::now().duration_since(started_at).as_secs_f64()
     }
 
@@ -596,15 +599,22 @@ impl Bench {
         let mut last_mem_chunk_pages = 1;
         let mut nr_converges = 0;
         for i in 0..10 {
-            let base_time = Self::time_hash(TIME_HASH_SIZE, params.mem_chunk_pages, &tf);
-            params.file_size_mean = (cfg.lat / base_time * TIME_HASH_SIZE as f64) as usize;
+            let base_time = Self::time_hash(TIME_HASH_SIZE, &params, &tf);
+            let time_per_byte = base_time / TIME_HASH_SIZE as f64;
+            let target_bytes = cfg.lat / time_per_byte;
+            let cpu_ratio = params.cpu_ratio / (1.0 / (1.0 + params.anon_size_ratio));
+            params.file_size_mean = (target_bytes / cpu_ratio) as usize;
 
             let total_size = params.file_size_mean as f64 / params.file_frac;
             let nr_pages = total_size / *PAGE_SIZE as f64;
             params.mem_chunk_pages = (nr_pages / nr_chunks).ceil() as usize;
             debug!(
-                "time_hash: round {}, file_size_mean={} mem_chunk_pages={}",
+                "time_hash: round {}, time_per_byte={:.2}ns target_bytes={:.2} \
+                 cpu_ratio={:.2} file_size_mean={} mem_chunk_pages={}",
                 i + 1,
+                time_per_byte * 1000_000_000.0,
+                target_bytes,
+                cpu_ratio,
                 params.file_size_mean,
                 params.mem_chunk_pages
             );

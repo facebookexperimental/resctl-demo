@@ -1,4 +1,5 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
+use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
 use util::*;
@@ -64,7 +65,7 @@ const PARAMS_DOC: &str = "\
 //  anon_write_frac: The proportion of writes in anon accesses
 //  sleep_mean: Worker sleep duration average
 //  sleep_stdev_ratio: Standard deviation of sleep duration distribution
-//  cpu_ratio: CPU usage scaling - 1.0 hashes all file accesses
+//  cpu_ratio: CPU usage scaling - 1.0 hashes the same number of bytes as accessed
 //  log_bps: Log write bps at rps_max
 //  acc_dist_slots: Access distribution report slots - 0 disables
 //  lat_pid: PID controller parameters for latency convergence
@@ -158,7 +159,12 @@ impl Default for Params {
     }
 }
 
-impl JsonLoad for Params {}
+impl JsonLoad for Params {
+    fn loaded(&mut self, _prev: Option<&mut Self>) -> Result<()> {
+        self.file_frac = self.file_frac.max(0.001);
+        Ok(())
+    }
+}
 
 impl JsonSave for Params {
     fn preamble() -> Option<String> {
