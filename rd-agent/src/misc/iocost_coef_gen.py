@@ -56,6 +56,10 @@ parser.add_argument('--numjobs', type=int, metavar='JOBS', default=1,
                     help='Number of parallel fio jobs to run (default: %(default)s)')
 parser.add_argument('--json', metavar='FILE',
                     help='Store the results to the specified json file')
+parser.add_argument('--model-override', metavar='"rbps=XXX rseqiops=XXX..."',
+                    help='Use the specified model params instead of testing for them')
+parser.add_argument('--lat-override', metavar='"rpct=XXX rlat=XXX wpct=XXX wlat=XXX"',
+                    help='Use the specified latency params instead of testing for them')
 parser.add_argument('--quiet', action='store_true')
 parser.add_argument('--verbose', action='store_true')
 
@@ -171,6 +175,72 @@ def is_ssd():
 def sig_handler(_signo, _stack_frame):
     sys.exit(0)
 
+def parse_override(ovrstr):
+    ovr = {}
+    for field in ovrstr.split():
+        if '=' in field:
+            (key, val) = field.split('=')
+            ovr[key] = float(val)
+
+    return ovr
+
+def determine_model(args, testfile):
+    seqio_blksz = args.seqio_block_mb * (2 ** 20)
+
+    info('Determining wbps...')
+    wbps = run_fio(testfile, args.duration, 'write', 1, seqio_blksz,
+                   args.numjobs, None, outfile_path('wbps'))
+    info(f'\nwbps={wbps}, determining rbps...')
+    rbps = run_fio(testfile, args.duration, 'read', 1, seqio_blksz,
+                   args.numjobs, None, outfile_path('rbps'))
+    info(f'\nrbps={rbps}, determining wseqiops...')
+    wseqiops = round(
+        run_fio(testfile, args.duration, 'write', args.seq_depth, 4096,
+                args.numjobs, None, outfile_path('wseqiops')) / 4096)
+    info(f'\nwseqiops={wseqiops}, determining rseqiops...')
+    rseqiops = round(
+        run_fio(testfile, args.duration, 'read', args.seq_depth, 4096,
+                args.numjobs, None, outfile_path('rseqiops')) / 4096)
+    info(f'\nrseqiops={rseqiops}, determining wrandiops...')
+    wrandiops = round(
+        run_fio(testfile, args.duration, 'randwrite', args.rand_depth, 4096,
+                args.numjobs, None, outfile_path('wrandiops')) / 4096)
+    info(f'\nwrandiops={wrandiops}, determining rrandiops...')
+    rrandiops = round(
+        run_fio(testfile, args.duration, 'randread', args.rand_depth, 4096,
+                args.numjobs, None, outfile_path('rrandiops')) / 4096)
+    info(f'\nrrandiops={rrandiops}')
+
+    return (rbps, rseqiops, rrandiops, wbps, wseqiops, wrandiops)
+
+def determine_lat(args, testfile, rrandiops, wrandiops):
+    if is_ssd():
+        rpct = 95
+        wpct = 95
+    else:
+        rpct = 50
+        wpct = 50
+
+    info('Determining latency targets...')
+    run_fio(testfile, args.duration, 'randread', args.rand_depth, 4096,
+            args.numjobs, int(rrandiops * 0.9), outfile_path('rlat'))
+
+    with open(outfile_path('rlat'), 'r') as f:
+        r = json.load(f)
+        rlat = read_lat(rpct, r['jobs'][0]['read']['clat_ns']['percentile'])
+        rlat = round(rlat * 4)
+    info(f'\nrpct={rpct} rlat={rlat}, Determining wlat...')
+
+    run_fio(testfile, args.duration, 'randwrite', args.rand_depth, 4096,
+            args.numjobs, int(wrandiops * 0.9), outfile_path('wlat'))
+    with open(outfile_path('wlat'), 'r') as f:
+        r = json.load(f)
+        wlat = read_lat(wpct, r['jobs'][0]['write']['clat_ns']['percentile'])
+        wlat = round(wlat * 4)
+    info(f'\nwpct={wpct} wlat={wlat}')
+
+    return (rpct, rlat, wpct, wlat)
+
 #
 # Execution starts here
 #
@@ -227,57 +297,24 @@ with open(elevator_path, 'w') as f:
 with open(nomerges_path, 'w') as f:
     f.write('1')
 
-seqio_blksz = args.seqio_block_mb * (2 ** 20)
-
-info('Determining wbps...')
-wbps = run_fio(testfile, args.duration, 'write', 1, seqio_blksz,
-               args.numjobs, None, outfile_path('wbps'))
-info(f'\nwbps={wbps}, determining rbps...')
-rbps = run_fio(testfile, args.duration, 'read', 1, seqio_blksz,
-               args.numjobs, None, outfile_path('rbps'))
-info(f'\nrbps={rbps}, determining wseqiops...')
-wseqiops = round(
-    run_fio(testfile, args.duration, 'write', args.seq_depth, 4096,
-            args.numjobs, None, outfile_path('wseqiops')) / 4096)
-info(f'\nwseqiops={wseqiops}, determining rseqiops...')
-rseqiops = round(
-    run_fio(testfile, args.duration, 'read', args.seq_depth, 4096,
-            args.numjobs, None, outfile_path('rseqiops')) / 4096)
-info(f'\nrseqiops={rseqiops}, determining wrandiops...')
-wrandiops = round(
-    run_fio(testfile, args.duration, 'randwrite', args.rand_depth, 4096,
-            args.numjobs, None, outfile_path('wrandiops')) / 4096)
-info(f'\nwrandiops={wrandiops}, determining rrandiops...')
-rrandiops = round(
-    run_fio(testfile, args.duration, 'randread', args.rand_depth, 4096,
-            args.numjobs, None, outfile_path('rrandiops')) / 4096)
-info(f'\nrrandiops={rrandiops}, determining rlat...')
-
-if is_ssd():
-    rpct = 95
-    wpct = 95
+if args.model_override is None:
+    (rbps, rseqiops, rrandiops, wbps, wseqiops, wrandiops) = \
+        determine_model(args, testfile)
 else:
-    rpct = 50
-    wpct = 50
+    ovr = parse_override(args.model_override)
+    (rbps, rseqiops, rrandiops, wbps, wseqiops, wrandiops) = \
+        (ovr['rbps'], ovr['rseqiops'], ovr['rrandiops'],
+         ovr['wbps'], ovr['wseqiops'], ovr['wrandiops'])
 
-run_fio(testfile, args.duration, 'randread', args.rand_depth, 4096,
-        args.numjobs, int(rrandiops * 0.9), outfile_path('rlat'))
+if args.lat_override is None:
+    (rpct, rlat, wpct, wlat) = \
+        determine_lat(args, testfile, rrandiops, wrandiops)
+else:
+    ovr = parse_override(args.lat_override)
+    (rpct, rlat, wpct, wlat) = \
+        (ovr['rpct'], ovr['rlat'], ovr['wpct'], ovr['wlat'])
 
-with open(outfile_path('rlat'), 'r') as f:
-    r = json.load(f)
-    rlat = read_lat(rpct, r['jobs'][0]['read']['clat_ns']['percentile'])
-    rlat = round(rlat * 4)
-info(f'\nrpct={rpct} rlat={rlat}, Determining wlat...')
-
-run_fio(testfile, args.duration, 'randwrite', args.rand_depth, 4096,
-        args.numjobs, int(wrandiops * 0.9), outfile_path('wlat'))
-with open(outfile_path('wlat'), 'r') as f:
-    r = json.load(f)
-    wlat = read_lat(wpct, r['jobs'][0]['read']['clat_ns']['percentile'])
-    wlat = round(max(wlat, rlat * 4))
-info(f'\nwpct={wpct} wlat={wlat}')
-
-(qos_vmin, qos_vmax) = (25, 90)
+(vmin, vmax) = (25, 90)
 
 restore_elevator_nomerges()
 atexit.unregister(restore_elevator_nomerges)
@@ -298,8 +335,8 @@ if args.json:
             'rlat': rlat,
             'wpct': wpct,
             'wlat': wlat,
-            'min': qos_vmin,
-            'max': qos_vmax,
+            'min': vmin,
+            'max': vmax,
         },
     }
 
@@ -312,4 +349,4 @@ print(f'io.cost.model: {devnr} rbps={rbps} rseqiops={rseqiops} '
       f'rrandiops={rrandiops} wbps={wbps} wseqiops={wseqiops} '
       f'wrandiops={wrandiops}')
 print(f'io.cost.qos: {devnr} rpct={rpct} rlat={rlat} '
-      f'wpct={wpct} wlat={wlat} min={qos_vmin} max={qos_vmax}')
+      f'wpct={wpct} wlat={wlat} min={vmin} max={vmax}')
