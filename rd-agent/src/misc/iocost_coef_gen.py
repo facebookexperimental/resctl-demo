@@ -58,8 +58,8 @@ parser.add_argument('--json', metavar='FILE',
                     help='Store the results to the specified json file')
 parser.add_argument('--model-override', metavar='"rbps=XXX rseqiops=XXX..."',
                     help='Use the specified model params instead of testing for them')
-parser.add_argument('--lat-override', metavar='"rpct=XXX rlat=XXX wpct=XXX wlat=XXX"',
-                    help='Use the specified latency params instead of testing for them')
+parser.add_argument('--qos-override', metavar='"rpct=XXX rlat=XXX wpct=XXX wlat=XXX min=XXX max=XXX"',
+                    help='Use the specified QoS params instead of testing for them')
 parser.add_argument('--quiet', action='store_true')
 parser.add_argument('--verbose', action='store_true')
 
@@ -213,7 +213,26 @@ def determine_model(args, testfile):
 
     return (rbps, rseqiops, rrandiops, wbps, wseqiops, wrandiops)
 
-def determine_lat(args, testfile, rrandiops, wrandiops):
+def determine_lat(args, testfile, rw, pct, randiops):
+    if rw == 'read':
+        (rw, io_type, lat_type) = ('read', 'randread', 'rlat')
+    elif rw == 'write':
+        (rw, io_type, lat_type) = ('write', 'randwrite', 'wlat')
+    else:
+        raise Exception(f'invalid rw value "{rw}"')
+
+    info(f'Determining {rw} QoS params...')
+
+    run_fio(testfile, args.duration, io_type, args.rand_depth, 4096,
+            args.numjobs, int(randiops * 0.9), outfile_path(lat_type))
+
+    with open(outfile_path(lat_type), 'r') as f:
+        r = json.load(f)
+        lat = read_lat(pct, r['jobs'][0][rw]['clat_ns']['percentile'])
+
+    return round(lat)
+
+def determine_qos(args, testfile, rrandiops, wrandiops):
     if is_ssd():
         rpct = 95
         wpct = 95
@@ -221,25 +240,10 @@ def determine_lat(args, testfile, rrandiops, wrandiops):
         rpct = 50
         wpct = 50
 
-    info('Determining latency targets...')
-    run_fio(testfile, args.duration, 'randread', args.rand_depth, 4096,
-            args.numjobs, int(rrandiops * 0.9), outfile_path('rlat'))
+    rlat = determine_lat(args, testfile, 'read', rpct, rrandiops)
+    wlat = determine_lat(args, testfile, 'write', wpct, wrandiops)
 
-    with open(outfile_path('rlat'), 'r') as f:
-        r = json.load(f)
-        rlat = read_lat(rpct, r['jobs'][0]['read']['clat_ns']['percentile'])
-        rlat = round(rlat * 4)
-    info(f'\nrpct={rpct} rlat={rlat}, Determining wlat...')
-
-    run_fio(testfile, args.duration, 'randwrite', args.rand_depth, 4096,
-            args.numjobs, int(wrandiops * 0.9), outfile_path('wlat'))
-    with open(outfile_path('wlat'), 'r') as f:
-        r = json.load(f)
-        wlat = read_lat(wpct, r['jobs'][0]['write']['clat_ns']['percentile'])
-        wlat = round(wlat * 4)
-    info(f'\nwpct={wpct} wlat={wlat}')
-
-    return (rpct, rlat, wpct, wlat)
+    return (rpct, rlat, wpct, wlat, 25, 90)
 
 #
 # Execution starts here
@@ -306,15 +310,14 @@ else:
         (ovr['rbps'], ovr['rseqiops'], ovr['rrandiops'],
          ovr['wbps'], ovr['wseqiops'], ovr['wrandiops'])
 
-if args.lat_override is None:
-    (rpct, rlat, wpct, wlat) = \
-        determine_lat(args, testfile, rrandiops, wrandiops)
+if args.qos_override is None:
+    (rpct, rlat, wpct, wlat, vmin, vmax) = \
+        determine_qos(args, testfile, rrandiops, wrandiops)
 else:
-    ovr = parse_override(args.lat_override)
-    (rpct, rlat, wpct, wlat) = \
-        (ovr['rpct'], ovr['rlat'], ovr['wpct'], ovr['wlat'])
-
-(vmin, vmax) = (25, 90)
+    ovr = parse_override(args.qos_override)
+    (rpct, rlat, wpct, wlat, vmin, vmax) = \
+        (ovr['rpct'], ovr['rlat'], ovr['wpct'], ovr['wlat'],
+         ovr['min'], ovr['max'])
 
 restore_elevator_nomerges()
 atexit.unregister(restore_elevator_nomerges)
