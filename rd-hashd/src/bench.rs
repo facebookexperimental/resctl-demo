@@ -85,7 +85,7 @@ struct Cfg {
 impl Default for Cfg {
     fn default() -> Self {
         Self {
-            mem_buffer: 0.05,
+            mem_buffer: 0.0,
             cpu: CpuCfg {
                 size: 1 << 30,
                 lat: 15.0 * MSEC,
@@ -146,7 +146,7 @@ impl Default for Cfg {
                     let step = params.mem_frac * 0.05;
                     let min = (params.mem_frac / 2.0).max(0.001);
                     match pos {
-                        None => Some(params.mem_frac - step),
+                        None => Some(params.mem_frac),
                         Some(v) if v >= min + step => Some(v - step),
                         _ => None,
                     }
