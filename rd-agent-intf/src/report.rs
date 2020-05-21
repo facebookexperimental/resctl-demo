@@ -149,9 +149,9 @@ pub struct UsageReport {
     pub swap_bytes: u64,
     pub io_rbps: u64,
     pub io_wbps: u64,
-    pub cpu_pressure: f64,
-    pub mem_pressure: f64,
-    pub io_pressure: f64,
+    pub cpu_pressures: (f64, f64),
+    pub mem_pressures: (f64, f64),
+    pub io_pressures: (f64, f64),
 }
 
 impl ops::AddAssign<&UsageReport> for UsageReport {
@@ -161,9 +161,12 @@ impl ops::AddAssign<&UsageReport> for UsageReport {
         self.swap_bytes += rhs.swap_bytes;
         self.io_rbps += rhs.io_rbps;
         self.io_wbps += rhs.io_wbps;
-        self.cpu_pressure += rhs.cpu_pressure;
-        self.mem_pressure += rhs.mem_pressure;
-        self.io_pressure += rhs.io_pressure;
+        self.cpu_pressures.0 += rhs.cpu_pressures.0;
+        self.cpu_pressures.1 += rhs.cpu_pressures.1;
+        self.mem_pressures.0 += rhs.mem_pressures.0;
+        self.mem_pressures.1 += rhs.mem_pressures.1;
+        self.io_pressures.0 += rhs.io_pressures.0;
+        self.io_pressures.1 += rhs.io_pressures.1;
     }
 }
 
@@ -175,9 +178,12 @@ impl<T: Into<f64>> ops::DivAssign<T> for UsageReport {
         self.swap_bytes = (self.swap_bytes as f64 / div).round() as u64;
         self.io_rbps = (self.io_rbps as f64 / div).round() as u64;
         self.io_wbps = (self.io_wbps as f64 / div).round() as u64;
-        self.cpu_pressure /= div;
-        self.mem_pressure /= div;
-        self.io_pressure /= div;
+        self.cpu_pressures.0 /= div;
+        self.cpu_pressures.1 /= div;
+        self.mem_pressures.0 /= div;
+        self.mem_pressures.1 /= div;
+        self.io_pressures.0 /= div;
+        self.io_pressures.1 /= div;
     }
 }
 

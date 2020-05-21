@@ -274,8 +274,12 @@ impl HasherThread {
 
         let file_ratio =
             self.file_nr_chunks as f64 / (self.file_nr_chunks + self.anon_nr_chunks) as f64;
-        trace!("hasher::run(): cpu_ratio={:.2} file_ratio={:.2} adj_ratio={:.2}",
-               self.cpu_ratio, file_ratio, self.cpu_ratio / file_ratio);
+        trace!(
+            "hasher::run(): cpu_ratio={:.2} file_ratio={:.2} adj_ratio={:.2}",
+            self.cpu_ratio,
+            file_ratio,
+            self.cpu_ratio / file_ratio
+        );
         let mut rdh = Hasher::new(self.cpu_ratio / file_ratio);
         for _ in 0..self.file_nr_chunks {
             let rel = file_addr_normal.sample(&mut rng) * self.file_addr_frac;

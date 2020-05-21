@@ -431,9 +431,9 @@ fn format_row_data(usage: &UsageReport) -> String {
         &format_size(usage.swap_bytes),
         &format_size(usage.io_rbps),
         &format_size(usage.io_wbps),
-        &format_pct(usage.cpu_pressure),
-        &format_pct(usage.mem_pressure),
-        &format_pct(usage.io_pressure)
+        &format_pct(usage.cpu_pressures.1),
+        &format_pct(usage.mem_pressures.1),
+        &format_pct(usage.io_pressures.1)
     )
 }
 

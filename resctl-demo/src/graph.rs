@@ -23,7 +23,7 @@ use util::*;
 
 use super::report_ring::ReportDataSet;
 use super::{
-    get_layout, kick_refresh, Layout, AGENT_FILES, ARGS, COLOR_ACTIVE, COLOR_ALERT, COLOR_GRAPH_1,
+    get_layout, kick_refresh, Layout, AGENT_FILES, COLOR_ACTIVE, COLOR_ALERT, COLOR_GRAPH_1,
     COLOR_GRAPH_2, COLOR_GRAPH_3, COLOR_INACTIVE, TEMP_DIR,
 };
 use rd_agent_intf::Report;
@@ -85,11 +85,7 @@ fn graph_tab_focus(siv: &mut Cursive, idx: usize) {
 }
 
 fn graph_nr_active_tabs() -> usize {
-    if ARGS.lock().unwrap().as_ref().unwrap().iocost_mon {
-        GRAPH_NR_TABS
-    } else {
-        GRAPH_NR_TABS - 1
-    }
+    GRAPH_NR_TABS
 }
 
 pub fn graph_tab_next(siv: &mut Cursive) {
@@ -461,15 +457,21 @@ enum PlotId {
     WorkSwap,
     SideSwap,
     SysSwap,
-    WorkCpuPsi,
-    WorkMemPsi,
-    WorkIoPsi,
-    SideCpuPsi,
-    SideMemPsi,
-    SideIoPsi,
-    SysCpuPsi,
-    SysMemPsi,
-    SysIoPsi,
+    WorkCpuPsiSome,
+    SideCpuPsiSome,
+    SysCpuPsiSome,
+    WorkMemPsiSome,
+    SideMemPsiSome,
+    SysMemPsiSome,
+    WorkIoPsiSome,
+    SideIoPsiSome,
+    SysIoPsiSome,
+    WorkMemPsiFull,
+    SideMemPsiFull,
+    SysMemPsiFull,
+    WorkIoPsiFull,
+    SideIoPsiFull,
+    SysIoPsiFull,
     ReadLatP50,
     ReadLatP90,
     ReadLatP99,
@@ -564,29 +566,49 @@ fn plot_spec_factory(id: PlotId) -> PlotSpec {
             max: Box::new(|| 0.0),
         }
     }
-    fn cpu_psi_spec(slice: &'static str) -> PlotSpec {
+    fn cpu_psi_some_spec(slice: &'static str) -> PlotSpec {
         PlotSpec {
-            sel: Box::new(move |rep: &Report| rep.usages.get(slice).unwrap().cpu_pressure * 100.0),
+            sel: Box::new(move |rep: &Report| {
+                rep.usages.get(slice).unwrap().cpu_pressures.0 * 100.0
+            }),
             aggr: PlotDataAggr::AVG,
-            title: Box::new(move || format!("{}-cpu-pressure", slice.trim_end_matches(".slice"))),
+            title: Box::new(move || format!("{}-cpu-psi-some", slice.trim_end_matches(".slice"))),
             min: Box::new(|| 0.0),
             max: Box::new(|| 100.0),
         }
     }
-    fn mem_psi_spec(slice: &'static str) -> PlotSpec {
+    fn mem_psi_spec(slice: &'static str, is_full: bool) -> PlotSpec {
+        let which = if is_full { "full" } else { "some" };
         PlotSpec {
-            sel: Box::new(move |rep: &Report| rep.usages.get(slice).unwrap().mem_pressure * 100.0),
+            sel: Box::new(move |rep: &Report| {
+                if is_full {
+                    rep.usages.get(slice).unwrap().mem_pressures.1 * 100.0
+                } else {
+                    rep.usages.get(slice).unwrap().mem_pressures.0 * 100.0
+                }
+            }),
             aggr: PlotDataAggr::AVG,
-            title: Box::new(move || format!("{}-mem-pressure", slice.trim_end_matches(".slice"))),
+            title: Box::new(move || {
+                format!("{}-mem-psi-{}", slice.trim_end_matches(".slice"), which)
+            }),
             min: Box::new(|| 0.0),
             max: Box::new(|| 100.0),
         }
     }
-    fn io_psi_spec(slice: &'static str) -> PlotSpec {
+    fn io_psi_spec(slice: &'static str, is_full: bool) -> PlotSpec {
+        let which = if is_full { "full" } else { "some" };
         PlotSpec {
-            sel: Box::new(move |rep: &Report| rep.usages.get(slice).unwrap().io_pressure * 100.0),
+            sel: Box::new(move |rep: &Report| {
+                if is_full {
+                    rep.usages.get(slice).unwrap().io_pressures.1 * 100.0
+                } else {
+                    rep.usages.get(slice).unwrap().io_pressures.0 * 100.0
+                }
+            }),
             aggr: PlotDataAggr::AVG,
-            title: Box::new(move || format!("{}-io-pressure", slice.trim_end_matches(".slice"))),
+            title: Box::new(move || {
+                format!("{}-io-psi-{}", slice.trim_end_matches(".slice"), which)
+            }),
             min: Box::new(|| 0.0),
             max: Box::new(|| 100.0),
         }
@@ -625,15 +647,21 @@ fn plot_spec_factory(id: PlotId) -> PlotSpec {
         PlotId::WorkWrite => io_write_spec("workload.slice"),
         PlotId::SideWrite => io_write_spec("sideload.slice"),
         PlotId::SysWrite => io_write_spec("system.slice"),
-        PlotId::WorkCpuPsi => cpu_psi_spec("workload.slice"),
-        PlotId::WorkMemPsi => mem_psi_spec("workload.slice"),
-        PlotId::WorkIoPsi => io_psi_spec("workload.slice"),
-        PlotId::SideCpuPsi => cpu_psi_spec("sideload.slice"),
-        PlotId::SideMemPsi => mem_psi_spec("sideload.slice"),
-        PlotId::SideIoPsi => io_psi_spec("sideload.slice"),
-        PlotId::SysCpuPsi => cpu_psi_spec("system.slice"),
-        PlotId::SysMemPsi => mem_psi_spec("system.slice"),
-        PlotId::SysIoPsi => io_psi_spec("system.slice"),
+        PlotId::WorkCpuPsiSome => cpu_psi_some_spec("workload.slice"),
+        PlotId::SideCpuPsiSome => cpu_psi_some_spec("sideload.slice"),
+        PlotId::SysCpuPsiSome => cpu_psi_some_spec("system.slice"),
+        PlotId::WorkMemPsiSome => mem_psi_spec("workload.slice", false),
+        PlotId::SideMemPsiSome => mem_psi_spec("sideload.slice", false),
+        PlotId::SysMemPsiSome => mem_psi_spec("system.slice", false),
+        PlotId::WorkIoPsiSome => io_psi_spec("workload.slice", false),
+        PlotId::SideIoPsiSome => io_psi_spec("sideload.slice", false),
+        PlotId::SysIoPsiSome => io_psi_spec("system.slice", false),
+        PlotId::WorkMemPsiFull => mem_psi_spec("workload.slice", true),
+        PlotId::SideMemPsiFull => mem_psi_spec("sideload.slice", true),
+        PlotId::SysMemPsiFull => mem_psi_spec("system.slice", true),
+        PlotId::WorkIoPsiFull => io_psi_spec("workload.slice", true),
+        PlotId::SideIoPsiFull => io_psi_spec("sideload.slice", true),
+        PlotId::SysIoPsiFull => io_psi_spec("system.slice", true),
         PlotId::ReadLatP50 => io_lat_spec("read", "50"),
         PlotId::ReadLatP90 => io_lat_spec("read", "90"),
         PlotId::ReadLatP99 => io_lat_spec("read", "99"),
@@ -667,9 +695,11 @@ pub enum GraphTag {
     ReadBps,
     WriteBps,
     SwapUtil,
-    MemPsi,
-    IoPsi,
-    CpuPsi,
+    CpuPsiSome,
+    MemPsiSome,
+    IoPsiSome,
+    MemPsiFull,
+    IoPsiFull,
     ReadLat,
     WriteLat,
     IoCost,
@@ -718,19 +748,49 @@ static ALL_GRAPHS: &[(GraphTag, &str, &[PlotId])] = &[
         &[PlotId::WorkSwap, PlotId::SideSwap, PlotId::SysSwap],
     ),
     (
-        GraphTag::MemPsi,
-        "Memory Pressures in top-level slices",
-        &[PlotId::WorkMemPsi, PlotId::SideMemPsi, PlotId::SysMemPsi],
+        GraphTag::CpuPsiSome,
+        "CPU some pressures in top-level slices",
+        &[
+            PlotId::WorkCpuPsiSome,
+            PlotId::SideCpuPsiSome,
+            PlotId::SysCpuPsiSome,
+        ],
     ),
     (
-        GraphTag::IoPsi,
-        "IO Pressures in top-level slices",
-        &[PlotId::WorkIoPsi, PlotId::SideIoPsi, PlotId::SysIoPsi],
+        GraphTag::MemPsiSome,
+        "Memory some pressures in top-level slices",
+        &[
+            PlotId::WorkMemPsiSome,
+            PlotId::SideMemPsiSome,
+            PlotId::SysMemPsiSome,
+        ],
     ),
     (
-        GraphTag::CpuPsi,
-        "CPU Pressures in top-level slices",
-        &[PlotId::WorkCpuPsi, PlotId::SideCpuPsi, PlotId::SysCpuPsi],
+        GraphTag::IoPsiSome,
+        "IO some pressures in top-level slices",
+        &[
+            PlotId::WorkIoPsiSome,
+            PlotId::SideIoPsiSome,
+            PlotId::SysIoPsiSome,
+        ],
+    ),
+    (
+        GraphTag::MemPsiFull,
+        "Memory full pressures in top-level slices",
+        &[
+            PlotId::WorkMemPsiFull,
+            PlotId::SideMemPsiFull,
+            PlotId::SysMemPsiFull,
+        ],
+    ),
+    (
+        GraphTag::IoPsiFull,
+        "IO full pressures in top-level slices",
+        &[
+            PlotId::WorkIoPsiFull,
+            PlotId::SideIoPsiFull,
+            PlotId::SysIoPsiFull,
+        ],
     ),
     (
         GraphTag::ReadLat,
@@ -807,7 +867,7 @@ pub fn layout_factory(id: GraphSetId) -> Box<dyn View> {
             " rps/psi ".into(),
             " utilization ".into(),
             " IO ".into(),
-            " Misc ".into(),
+            " misc/psi-some ".into(),
         ];
         let mut styles: [Style; GRAPH_NR_TABS] = [COLOR_INACTIVE.into(); GRAPH_NR_TABS];
 
@@ -850,12 +910,12 @@ pub fn layout_factory(id: GraphSetId) -> Box<dyn View> {
                     .child(
                         horiz_or_vert()
                             .child(graph(GraphTag::HashdA))
-                            .child(graph(GraphTag::MemPsi)),
+                            .child(graph(GraphTag::MemPsiFull)),
                     )
                     .child(
                         horiz_or_vert()
-                            .child(graph(GraphTag::CpuPsi))
-                            .child(graph(GraphTag::IoPsi)),
+                            .child(graph(GraphTag::CpuPsiSome))
+                            .child(graph(GraphTag::IoPsiFull)),
                     ),
             );
             tabs.add_tab(
@@ -895,12 +955,12 @@ pub fn layout_factory(id: GraphSetId) -> Box<dyn View> {
                     .child(
                         horiz_or_vert()
                             .child(graph(GraphTag::IoCost))
-                            .child(resize_one(&layout, DummyView)),
+                            .child(graph(GraphTag::MemPsiSome)),
                     )
                     .child(
                         horiz_or_vert()
                             .child(resize_one(&layout, DummyView))
-                            .child(resize_one(&layout, DummyView)),
+                            .child(graph(GraphTag::IoPsiSome)),
                     ),
             );
 

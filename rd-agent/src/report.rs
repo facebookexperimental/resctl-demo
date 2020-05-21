@@ -1,5 +1,5 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
-use anyhow::{anyhow, bail, Result};
+use anyhow::{anyhow, Result};
 use chrono::prelude::*;
 use crossbeam::channel::{self, select, Receiver, Sender};
 use enum_iterator::IntoEnumIterator;
@@ -33,12 +33,12 @@ struct Usage {
     swap_bytes: u64,
     io_rbytes: u64,
     io_wbytes: u64,
-    cpu_stall: f64,
-    mem_stall: f64,
-    io_stall: f64,
+    cpu_stalls: (f64, f64),
+    mem_stalls: (f64, f64),
+    io_stalls: (f64, f64),
 }
 
-fn read_stalls(path: &str) -> Result<(Option<f64>, Option<f64>)> {
+fn read_stalls(path: &str) -> Result<(f64, f64)> {
     let f = fs::OpenOptions::new().read(true).open(path)?;
     let r = BufReader::new(f);
     let (mut some, mut full) = (None, None);
@@ -58,15 +58,7 @@ fn read_stalls(path: &str) -> Result<(Option<f64>, Option<f64>)> {
         }
     }
 
-    Ok((some, full))
-}
-
-fn read_some_stall(path: &str) -> Result<f64> {
-    let (some, _full) = read_stalls(path)?;
-    match some {
-        Some(v) => Ok(v),
-        None => bail!("failed to read {:?} some stall", path),
-    }
+    Ok((some.unwrap_or(0.0), full.unwrap_or(0.0)))
 }
 
 fn read_system_usage(devnr: (u32, u32)) -> Result<(Usage, f64)> {
@@ -104,9 +96,9 @@ fn read_system_usage(devnr: (u32, u32)) -> Result<(Usage, f64)> {
             swap_bytes,
             io_rbytes,
             io_wbytes,
-            cpu_stall: read_some_stall("/proc/pressure/cpu")?,
-            mem_stall: read_some_stall("/proc/pressure/memory")?,
-            io_stall: read_some_stall("/proc/pressure/io")?,
+            cpu_stalls: read_stalls("/proc/pressure/cpu")?,
+            mem_stalls: read_stalls("/proc/pressure/memory")?,
+            io_stalls: read_stalls("/proc/pressure/io")?,
         },
         cpu_total,
     ))
@@ -177,14 +169,14 @@ fn read_cgroup_usage(cgrp: &str, devnr: (u32, u32)) -> Usage {
         }
     }
 
-    if let Ok(v) = read_some_stall(&(cgrp.to_string() + "/cpu.pressure")) {
-        usage.cpu_stall = v;
+    if let Ok(v) = read_stalls(&(cgrp.to_string() + "/cpu.pressure")) {
+        usage.cpu_stalls = v;
     }
-    if let Ok(v) = read_some_stall(&(cgrp.to_string() + "/memory.pressure")) {
-        usage.mem_stall = v;
+    if let Ok(v) = read_stalls(&(cgrp.to_string() + "/memory.pressure")) {
+        usage.mem_stalls = v;
     }
-    if let Ok(v) = read_some_stall(&(cgrp.to_string() + "/io.pressure")) {
-        usage.io_stall = v;
+    if let Ok(v) = read_stalls(&(cgrp.to_string() + "/io.pressure")) {
+        usage.io_stalls = v;
     }
 
     usage
@@ -267,9 +259,30 @@ impl UsageTracker {
                 if cur.io_wbytes >= last.io_wbytes {
                     rep.io_wbps = ((cur.io_wbytes - last.io_wbytes) as f64 / dur).round() as u64;
                 }
-                rep.cpu_pressure = ((cur.cpu_stall - last.cpu_stall) / dur).min(1.0).max(0.0);
-                rep.mem_pressure = ((cur.mem_stall - last.mem_stall) / dur).min(1.0).max(0.0);
-                rep.io_pressure = ((cur.io_stall - last.io_stall) / dur).min(1.0).max(0.0);
+                rep.cpu_pressures = (
+                    ((cur.cpu_stalls.0 - last.cpu_stalls.0) / dur)
+                        .min(1.0)
+                        .max(0.0),
+                    ((cur.cpu_stalls.1 - last.cpu_stalls.1) / dur)
+                        .min(1.0)
+                        .max(0.0),
+                );
+                rep.mem_pressures = (
+                    ((cur.mem_stalls.0 - last.mem_stalls.0) / dur)
+                        .min(1.0)
+                        .max(0.0),
+                    ((cur.mem_stalls.1 - last.mem_stalls.1) / dur)
+                        .min(1.0)
+                        .max(0.0),
+                );
+                rep.io_pressures = (
+                    ((cur.io_stalls.0 - last.io_stalls.0) / dur)
+                        .min(1.0)
+                        .max(0.0),
+                    ((cur.io_stalls.1 - last.io_stalls.1) / dur)
+                        .min(1.0)
+                        .max(0.0),
+                );
             }
 
             reps.insert(slice.into(), rep);
