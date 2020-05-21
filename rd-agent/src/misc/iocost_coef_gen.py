@@ -230,7 +230,7 @@ def determine_lat(args, testfile, rw, pct, randiops):
         r = json.load(f)
         lat = read_lat(pct, r['jobs'][0][rw]['clat_ns']['percentile'])
 
-    return round(lat)
+    return round(lat * 1.5)
 
 def determine_qos(args, testfile, rrandiops, wrandiops):
     if is_ssd():
@@ -243,7 +243,7 @@ def determine_qos(args, testfile, rrandiops, wrandiops):
     rlat = determine_lat(args, testfile, 'read', rpct, rrandiops)
     wlat = determine_lat(args, testfile, 'write', wpct, wrandiops)
 
-    return (rpct, rlat, wpct, wlat, 25, 90)
+    return (rpct, rlat, wpct, wlat, 60, 100)
 
 #
 # Execution starts here
