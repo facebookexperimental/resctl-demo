@@ -126,6 +126,20 @@ impl Default for SideloadDefs {
                     },
                 ),
                 (
+                    "memory-growth-1x".into(),
+                    SideloadSpec {
+                        args: vec!["memory-growth.py".into(), "0%".into(), "100%".into()],
+                        frozen_exp: 30,
+                    },
+                ),
+                (
+                    "memory-growth-2x".into(),
+                    SideloadSpec {
+                        args: vec!["memory-growth.py".into(), "0%".into(), "200%".into()],
+                        frozen_exp: 30,
+                    },
+                ),
+                (
                     "read-bomb".into(),
                     SideloadSpec {
                         args: vec!["read-bomb.py".into(), "4096".into(), "16384".into()],

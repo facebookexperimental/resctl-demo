@@ -86,33 +86,41 @@ The followings are all available commands.
 A sideload is identified with the tag, "test-build" here. The following job ID
 points to an entry in sideload-defs.json and determines the specific workload.
 
-%% on sideload test-build build-linux-4x          : [ Start a linux build sideload ]
-%% off sideload test-build                        : [ Stop a linux build sideload ]
-%% toggle sideload test-build build-linux-4x      : Toggle a linux build sideload
+%% on sideload test-build build-linux-4x        : [ Start a linux build sideload ]
+%% off sideload test-build                      : [ Stop a linux build sideload ]
+%% toggle sideload test-build build-linux-4x    : Toggle a linux build sideload
 %%
-%% on sideload test-mem memory-growth-25pct       : [ Start a 25% memory growth sideload ]
-%% off sideload test-mem                          : [ Stop a 25% memory growth sideload ]
-%% toggle sideload test-mem memory-growth-25pct   : Toggle a 25% memory growth sideload
+%% on sideload test-mem memory-growth-50pct     : [ Start a 50% memory growth sideload ]
+%% off sideload test-mem                        : [ Stop a 50% memory growth sideload ]
+%% toggle sideload test-mem memory-growth-50pct : Toggle a 50% memory growth sideload
 %%
-%% on sideload test-io read-bomb                  : [ Start a read bomb sideload ]
-%% off sideload test-io                           : [ Stop a read bomb sideload ]
-%% toggle sideload test-io read-bomb              : Toggle a read bomb sideload
+%% on sideload test-mem-1x memory-growth-1x        : [ Start a 1x memory growth sideload ]
+%% off sideload test-mem-1x                        : [ Stop a 1x memory growth sideload ]
+%% toggle sideload test-mem-1x memory-growth-1x    : Toggle a 1x memory growth sideload
+%%
+%% on sideload test-io read-bomb                : [ Start a read bomb sideload ]
+%% off sideload test-io                         : [ Stop a read bomb sideload ]
+%% toggle sideload test-io read-bomb            : Toggle a read bomb sideload
 
 A sysload is a sideload which is run under system.slice without the supervision
 of sideloader and can be used to illustrate oomd workload protection or the need
 for sideloader.
 
-%% on sysload test-build build-linux-4x          : [ Start a linux build sysload ]
-%% off sysload test-build                        : [ Stop a linux build sysload ]
-%% toggle sysload test-build build-linux-4x      : Toggle a linux build sysload
+%% on sysload test-build build-linux-4x        : [ Start a linux build sysload ]
+%% off sysload test-build                      : [ Stop a linux build sysload ]
+%% toggle sysload test-build build-linux-4x    : Toggle a linux build sysload
 %%
-%% on sysload test-mem memory-growth-25pct       : [ Start a 25% memory growth sysload ]
-%% off sysload test-mem                          : [ Stop a 25% memory growth sysload ]
-%% toggle sysload test-mem memory-growth-25pct   : Toggle a 25% memory growth sysload
+%% on sysload test-mem memory-growth-50pct     : [ Start a 50% memory growth sysload ]
+%% off sysload test-mem                        : [ Stop a 50% memory growth sysload ]
+%% toggle sysload test-mem memory-growth-50pct : Toggle a 50% memory growth sysload
 %%
-%% on sysload test-io read-bomb                  : [ Start a read bomb sysload ]
-%% off sysload test-io                           : [ Stop a read bomb sysload ]
-%% toggle sysload test-io read-bomb              : Toggle a read bomb sysload
+%% on sysload test-mem-1x memory-growth-1x     : [ Start a 1x memory growth sysload ]
+%% off sysload test-mem-1x                     : [ Stop a 1x memory growth sysload ]
+%% toggle sysload test-mem-1x memory-growth-1x : Toggle a 1x memory growth sysload
+%%
+%% on sysload test-io read-bomb                : [ Start a read bomb sysload ]
+%% off sysload test-io                         : [ Stop a read bomb sysload ]
+%% toggle sysload test-io read-bomb            : Toggle a read bomb sysload
 %%
 %% on     cpu-resctl             : [ Turn on CPU resource protection ]
 %% off    cpu-resctl             : [ Turn off CPU resource protection ]
