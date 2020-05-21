@@ -15,6 +15,7 @@ const BENCH_DOC: &str = "\
 //  hashd[].rps_max: Maximum RPS
 //  hashd[].mem_size: Memory size base
 //  hashd[].mem_frac: Memory size is mem_size * mem_frac, tune this if needed
+//  hashd[].mem_chunk_pages: Memory access chunk size in pages
 //  iocost.devnr: Storage device devnr
 //  iocost.model: Model parameters
 //  iocost.qos: QoS parameters
@@ -28,6 +29,7 @@ pub struct HashdKnobs {
     pub rps_max: u32,
     pub mem_size: u64,
     pub mem_frac: f64,
+    pub mem_chunk_pages: usize,
 }
 
 impl HashdKnobs {

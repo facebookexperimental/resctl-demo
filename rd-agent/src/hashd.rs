@@ -96,6 +96,10 @@ impl Hashd {
             params.mem_frac = mem_frac;
             changed = true;
         }
+        if params.mem_chunk_pages != knobs.mem_chunk_pages {
+            params.mem_chunk_pages = knobs.mem_chunk_pages;
+            changed = true;
+        }
         if params.file_frac != cmd.file_ratio {
             params.file_frac = cmd.file_ratio;
             changed = true;
