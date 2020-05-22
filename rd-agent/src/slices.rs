@@ -13,6 +13,7 @@ use std::path::Path;
 use util::systemd::UnitState as US;
 use util::*;
 
+use super::Config;
 use rd_agent_intf::{DisableSeqKnobs, MemoryKnob, Slice, SliceKnobs, SysReq};
 
 pub fn check_other_io_controllers(sr_failed: &mut HashSet<SysReq>) {
@@ -195,7 +196,7 @@ fn apply_one_slice(knobs: &SliceKnobs, slice: Slice, zero_mem_low: bool) -> Resu
     Ok(true)
 }
 
-pub fn apply_slices(knobs: &mut SliceKnobs, hashd_mem_size: u64) -> Result<()> {
+pub fn apply_slices(knobs: &mut SliceKnobs, hashd_mem_size: u64, cfg: &Config) -> Result<()> {
     if knobs.work_mem_low_none {
         let sk = knobs.slices.get_mut(Slice::Work.name()).unwrap();
         sk.mem_low = MemoryKnob::Bytes((hashd_mem_size as f64 * 0.75).ceil() as u64);
@@ -225,6 +226,13 @@ pub fn apply_slices(knobs: &mut SliceKnobs, hashd_mem_size: u64) -> Result<()> {
         info!("resctl: Applying updated slice configurations");
         systemd::daemon_reload()?;
     }
+
+    let enable_iocost = knobs.disable_seqs.io < super::instance_seq();
+    if let Err(e) = super::bench::iocost_on_off(enable_iocost, cfg) {
+        warn!("resctl: Failed to enable/disable iocost ({:?})", &e);
+        return Err(e);
+    }
+
     Ok(())
 }
 
@@ -411,13 +419,7 @@ fn fix_overrides(dseqs: &DisableSeqKnobs) -> Result<()> {
         disable += " -cpu";
     }
 
-    enable += " +memory";
-
-    if dseqs.io < seq {
-        enable += " +io";
-    } else {
-        disable += " -io";
-    }
+    enable += " +memory +io";
 
     if disable.len() > 0 {
         let mut scs: Vec<String> = glob("/sys/fs/cgroup/**/cgroup.subtree_control")

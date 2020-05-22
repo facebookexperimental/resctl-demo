@@ -134,11 +134,6 @@ operations. (Memory bomb being used for now)
 %% on sysload memory-bomb memory-growth-1x
 %% )
 
-Note that you lose visibility into which cgroup is using how much IO. This
-is because per-cgroup IO statistics are tied to the IO controller being
-enabled. The graphs aren't gonna be too useful but you can monitor the total
-usage on the last row in the statistics pane right above.
-
 The level of impact will depend on your IO device but it'd get impacted.
 Once it's struggling, let's turn back on IO protection and see how it
 behaves.

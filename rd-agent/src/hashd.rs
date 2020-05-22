@@ -104,8 +104,7 @@ impl Hashd {
             params.mem_chunk_pages = knobs.mem_chunk_pages;
             changed = true;
         }
-        if params.file_addr_stdev_ratio != addr_stdev ||
-            params.anon_addr_stdev_ratio != addr_stdev
+        if params.file_addr_stdev_ratio != addr_stdev || params.anon_addr_stdev_ratio != addr_stdev
         {
             params.file_addr_stdev_ratio = addr_stdev;
             params.anon_addr_stdev_ratio = addr_stdev;

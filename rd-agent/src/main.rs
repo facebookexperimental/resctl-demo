@@ -956,7 +956,7 @@ fn main() {
 
     if let Err(e) = bench::apply_iocost(&sobjs.bench_file.data, &cfg) {
         error!(
-            "cfg: Failed to enable iocost controller on {:?} ({:?})",
+            "cfg: Failed to configure iocost controller on {:?} ({:?})",
             cfg.scr_dev, &e
         );
         panic!();
@@ -965,7 +965,7 @@ fn main() {
     let mem_size = sobjs.bench_file.data.hashd.actual_mem_size();
     let workload_senpai = sobjs.oomd.workload_senpai_enabled();
 
-    if let Err(e) = slices::apply_slices(&mut sobjs.slice_file.data, mem_size) {
+    if let Err(e) = slices::apply_slices(&mut sobjs.slice_file.data, mem_size, &cfg) {
         error!("cfg: Failed to apply slice configurations ({:?})", &e);
         panic!();
     }

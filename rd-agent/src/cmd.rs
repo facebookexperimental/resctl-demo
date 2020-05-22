@@ -95,7 +95,7 @@ impl RunnerData {
         }
 
         if re_bench || re_slice {
-            if let Err(e) = slices::apply_slices(&mut sobjs.slice_file.data, mem_size) {
+            if let Err(e) = slices::apply_slices(&mut sobjs.slice_file.data, mem_size, &self.cfg) {
                 warn!("cmd: Failed to apply updated slice overrides ({:?})", &e);
             }
         }
@@ -256,7 +256,9 @@ impl RunnerData {
             BenchIOCost => {
                 if cmd.bench_iocost_seq <= bench.iocost_seq {
                     info!("cmd: Canceling iocost benchmark");
-                    bench::apply_iocost(&self.sobjs.bench_file.data, &self.cfg)?;
+                    if let Err(e) = bench::iocost_on_off(true, &self.cfg) {
+                        warn!("cmd: Failed to restore iocost ({:?})", &e);
+                    }
                     self.become_idle();
                 }
             }

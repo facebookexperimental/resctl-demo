@@ -166,7 +166,7 @@ pub fn apply_iocost(knobs: &BenchKnobs, cfg: &Config) -> Result<()> {
 
     let qos = &knobs.iocost.qos;
     let qos_line = format!(
-        "{}:{} enable=1 rpct={} rlat={} wpct={} wlat={} min={} max={}",
+        "{}:{} rpct={} rlat={} wpct={} wlat={} min={} max={}",
         maj, min, qos.rpct, qos.rlat, qos.wpct, qos.wlat, qos.min, qos.max
     );
     debug!("iocost.qos: {}", &qos_line);
