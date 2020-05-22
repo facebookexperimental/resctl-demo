@@ -40,6 +40,7 @@ lazy_static! {
 //  hashd[].rps_target_ratio: RPS target as a ratio of bench::hashd.rps_max,
 //                            if >> 1.0, no practical rps limit, default 0.5
 //  hashd[].mem_ratio: Memory footprint adj [0.0, 1.0], null to use bench result
+//  hashd[].addr_stdev: Memory access stdev in ratio of mean, null to use ${dfl_addr_stdev}
 //  hashd[].file_ratio: Pagecache portion of memory [0.0, 1.0], default ${dfl_file_ratio}
 //  hashd[].file_max_ratio: Max file_ratio, requires hashd restart [0.0, 1.0], default ${dfl_file_max_ratio}
 //  hashd[].log_bps: IO write bandwidth, default ${dfl_log_bps}Mbps
@@ -48,6 +49,7 @@ lazy_static! {
 //  sideloads{{}}: \"NAME\": \"DEF_ID\" pairs for active sideloads
 //
 ",
+        dfl_addr_stdev = rd_hashd_intf::Params::DFL_ADDR_STDEV,
         dfl_file_ratio = rd_hashd_intf::Params::DFL_FILE_FRAC,
         dfl_file_max_ratio = rd_hashd_intf::Args::DFL_FILE_MAX_FRAC,
         dfl_log_bps = to_mb(HashdCmd::DFL_LOG_BPS),
@@ -66,6 +68,7 @@ pub struct HashdCmd {
     pub lat_target: f64,
     pub rps_target_ratio: f64,
     pub mem_ratio: Option<f64>,
+    pub addr_stdev: Option<f64>,
     pub file_ratio: f64,
     pub file_max_ratio: f64,
     pub log_bps: u64,
@@ -84,6 +87,7 @@ impl Default for HashdCmd {
             lat_target: 100.0 * MSEC,
             rps_target_ratio: 0.5,
             mem_ratio: None,
+            addr_stdev: None,
             file_ratio: rd_hashd_intf::Params::DFL_FILE_FRAC,
             file_max_ratio: rd_hashd_intf::Args::DFL_FILE_MAX_FRAC,
             log_bps: Self::DFL_LOG_BPS,

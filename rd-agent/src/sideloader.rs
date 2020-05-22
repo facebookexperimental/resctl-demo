@@ -25,8 +25,8 @@ const SIDELOADER_CONFIG: &str = r#"{
         "main_io_weight": __MAIN_IO_WEIGHT__,
         "host_io_weight": __HOST_IO_WEIGHT__,
         "side_io_weight": __SIDE_IO_WEIGHT__,
-        "side_memory_high": __SIDE_MEMORY_HIGH__,
-        "side_swap_max": "25%",
+        "side_memory_high": "100%",
+        "side_swap_max": "50%",
 
         "cpu_headroom_period": 5,
         "cpu_headroom": __CPU_HEADROOM__,
@@ -60,10 +60,6 @@ fn sideloader_config(cpu_headroom: f64, slice_knobs: &SliceKnobs) -> String {
         .replace("__MAIN_IO_WEIGHT__", &format!("{}", main_sk.io_weight))
         .replace("__HOST_IO_WEIGHT__", &format!("{}", host_sk.io_weight))
         .replace("__SIDE_IO_WEIGHT__", &format!("{}", side_sk.io_weight))
-        .replace(
-            "__SIDE_MEMORY_HIGH__",
-            &format!("{}", side_sk.mem_high.nr_bytes(true)),
-        )
         .replace("__CPU_HEADROOM__", &format!("{}", cpu_headroom))
 }
 

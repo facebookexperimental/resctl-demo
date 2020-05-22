@@ -258,9 +258,9 @@ For more details on cgroup:
 Now that we have the basic understanding of cgroup and resource protection,
 let's delve into details of how different parts of cgroup work.
 
-%% jump comp.cgroup.memory       : * Memory Control
+%% jump comp.cgroup.mem          : * Memory Control
 %% jump comp.cgroup.io           : * IO Control
 %% jump comp.cgroup.cpu          : * CPU Control
 %%
-%% jump comp.cgroup.memory       : [ Next: Memory Control ]
+%% jump comp.cgroup.mem          : [ Next: Memory Control ]
 %% jump index                    : [ Exit: Index ]

@@ -15,7 +15,8 @@
 *The Building Blocks*
 
 %% jump comp.cgroup              : * Cgroup and Resource Protection
-%% jump comp.cgroup.memory       :   * Memory Control
+%% jump comp.cgroup.mem          :   * Memory Control
+%% jump comp.cgroup.mem.thrash   :     * The Anatomy of Thrashing
 %% jump comp.cgroup.io           :   * IO Control
 %% jump comp.cgroup.cpu          :   * CPU Control
 %% jump comp.psi                 : * Monitoring Resource Contention with PSI

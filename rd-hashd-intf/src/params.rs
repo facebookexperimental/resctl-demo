@@ -107,7 +107,7 @@ pub struct Params {
 impl Params {
     pub const DFL_LAT_TARGET_PCT: f64 = 0.9;
     pub const DFL_STDEV: f64 = 0.33; // 3 sigma == mean
-    pub const ADDR_STDEV: f64 = 0.25;
+    pub const DFL_ADDR_STDEV: f64 = 0.25;
     pub const DFL_FILE_FRAC: f64 = 0.15;
 
     pub fn log_padding(&self) -> u64 {
@@ -133,11 +133,11 @@ impl Default for Params {
             file_frac: Self::DFL_FILE_FRAC,
             file_size_mean: 4 << 20,
             file_size_stdev_ratio: Self::DFL_STDEV,
-            file_addr_stdev_ratio: Self::ADDR_STDEV,
+            file_addr_stdev_ratio: Self::DFL_ADDR_STDEV,
             file_addr_rps_base_frac: 0.5,
             anon_size_ratio: 1.0,
             anon_size_stdev_ratio: Self::DFL_STDEV,
-            anon_addr_stdev_ratio: Self::ADDR_STDEV,
+            anon_addr_stdev_ratio: Self::DFL_ADDR_STDEV,
             anon_addr_rps_base_frac: 0.5,
             anon_write_frac: 0.05,
             sleep_mean: 30.0 * MSEC,

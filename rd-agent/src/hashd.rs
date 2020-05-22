@@ -68,6 +68,10 @@ impl Hashd {
             Some(v) => v,
             None => knobs.mem_frac,
         };
+        let addr_stdev = match cmd.addr_stdev {
+            Some(v) => v,
+            None => rd_hashd_intf::Params::DFL_ADDR_STDEV,
+        };
 
         let mut params = rd_hashd_intf::Params::load(&self.params_path)?;
         let mut changed = false;
@@ -98,6 +102,13 @@ impl Hashd {
         }
         if params.mem_chunk_pages != knobs.mem_chunk_pages {
             params.mem_chunk_pages = knobs.mem_chunk_pages;
+            changed = true;
+        }
+        if params.file_addr_stdev_ratio != addr_stdev ||
+            params.anon_addr_stdev_ratio != addr_stdev
+        {
+            params.file_addr_stdev_ratio = addr_stdev;
+            params.anon_addr_stdev_ratio = addr_stdev;
             changed = true;
         }
         if params.file_frac != cmd.file_ratio {

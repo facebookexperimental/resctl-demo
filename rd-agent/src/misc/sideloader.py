@@ -606,14 +606,22 @@ class SysChecker:
     def __check_and_fix_side_memory_high(self):
         global config
         warns = []
+        need_fix = False
         try:
-            high = int(read_first_line(f'{self.side_cgrp}/memory.high'))
+            high = read_first_line(f'{self.side_cgrp}/memory.high')
+            if high == "max":
+                high = self.mem_total
+            else:
+                high = int(high)
+
             if high >> 20 != config.side_memory_high >> 20:
                 warns.append(f'{config.side_slice} memory.high is not {config.side_memory_high}')
+                need_fix = True
         except Exception as e:
             warns.append(f'failed to check {config.side_slice} memory.high ({e})')
+            need_fix = True
 
-        if self.fix:
+        if self.fix and need_fix:
             try:
                 subprocess.check_call(['systemctl', 'set-property', config.side_slice,
                                        f'MemoryHigh={config.side_memory_high}',

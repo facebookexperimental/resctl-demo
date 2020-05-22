@@ -2,19 +2,11 @@
 %% id comp.cgroup.io: IO Control
 %% reset secondaries
 %% reset protections
+%% knob hashd-load 1.0
+%% on hashd
 
 *IO Control*\n
 *==========*
-
-First, let's get hashd running full tilt so that it's all warmed up later
-when we want to test it. Ignore this if you came from a benchmark page.
-
-%% (                             : [ Start hashd at full load ]
-%% knob hashd-load 1.0
-%% on hashd
-%% )
-
-___*Why IO control?*___
 
 Controlling who gets how much IO capacity is critical in achieving
 comprehensive resource control. The dependency is obvious for workloads
@@ -101,9 +93,7 @@ bloked on the hardware queue.
 
 Through the cost model, the iocost controller has an understanding of how
 much IO the device can do per second and can accordingly pace and limit the
-total IO rate. By configuring the maximum IO rate below the measured maximum
-with a sufficient buffer, iocost can prevent the device from developing deep
-queues and regulate responsiveness.
+total IO rate.
 
 
 ___*IO control and filesystem*___
@@ -135,19 +125,13 @@ will vary depending on how much of a bottleneck IO is on your system.
 
 ___*Let's put it through the paces*___
 
-If hashd isn't running yet, start it up and wait for it to ramp up.
-
-%% (                             : [ Start hashd at full load ]
-%% knob hashd-load 1.0
-%% on hashd
-%% )
-
-Once hashd is warmed up, let's disable IO control and start IO bomb, which
-causes a lot of filesystem operations. (Memory bomb being used for now)
+rd-hashd should already be running at full load. Once it warms up, let's
+disable IO control and start IO bomb, which causes a lot of filesystem
+operations. (Memory bomb being used for now)
 
 %% (                             : [ Disable IO control and start IO bomb ]
 %% off io-resctl
-%% on sysload memory-bomb memory-growth-50pct
+%% on sysload memory-bomb memory-growth-1x
 %% )
 
 Note that you lose visibility into which cgroup is using how much IO. This
@@ -178,6 +162,6 @@ benchmark page and want to go back, please follow the next link.
 %% jump intro.iocost             : [ Iocost Parameters and Benchmark ]
 %%
 %% jump comp.cgroup.cpu          : [ Next: CPU Control ]
-%% jump comp.cgroup.memory       : [ Back: Memory Control ]
+%% jump comp.cgroup.mem.thrash   : [ Next: The Anatomy of Thrashing ]
 %% jump comp.cgroup              : [ Up: Cgroup and Resource Protection ]
 %% jump index                    : [ Exit: Index ]
