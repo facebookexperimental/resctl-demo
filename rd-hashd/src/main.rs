@@ -166,11 +166,11 @@ fn main() {
     //
     let mut params_file = JsonConfigFile::<Params>::load_or_create(args.params.as_ref())
         .expect("failed to process params file");
-    let params = &params_file.data;
+    let params = &mut params_file.data;
 
     if params.file_frac > args.file_max_frac {
-        warn!("--file-max is lower than Params::file_frac, force-matchching file_frac");
-        args.file_max_frac = params.file_frac;
+        warn!("--file-max is lower than Params::file_frac, adjusting file_frac");
+        params.file_frac = args.file_max_frac;
     }
 
     //
