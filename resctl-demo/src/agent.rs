@@ -421,7 +421,7 @@ primarily useful after resctl-demo version change.";
 
 const HELP_START: &str = "\
 rd-agent verifies requirements on start-up and refuses to start if not all \
-requirements are met. While you can FORCE-START, missing requirements will \
+requirements are met. While you can FORCE-RESTART, missing requirements will \
 impact how the demo behaves. To learn more about the requirements, dissmiss \
 this dialog with 'a' and read the documentation pane on the lower right \
 side. You can reopen this dialog by pressing 'a' again.";
@@ -487,7 +487,7 @@ pub fn layout_factory() -> Box<impl View> {
         .child(
             LinearLayout::horizontal()
                 .child(Checkbox::new().with_name("agent-reset-on-start"))
-                .child(TextView::new(" Reset on start")),
+                .child(TextView::new(" Reset on restart")),
         )
         .child(DummyView)
         .child(TextView::new(HELP_START.to_string()))
@@ -496,18 +496,18 @@ pub fn layout_factory() -> Box<impl View> {
             LinearLayout::horizontal()
                 .child(TextView::new(" ["))
                 .child(
-                    Button::new_raw("    Start    ", |siv| {
+                    Button::new_raw("   Restart   ", |siv| {
                         update_agent_state(siv, true, false);
                     })
                     .with_name("agent-start"),
                 )
                 .child(TextView::new("]  ["))
-                .child(Button::new_raw("    Stop     ", |siv| {
+                .child(Button::new_raw("    Stop    ", |siv| {
                     update_agent_state(siv, false, false);
                 }))
                 .child(TextView::new("] "))
                 .child(TextView::new(StyledString::styled(" [", COLOR_ALERT)))
-                .child(Button::new_raw(" FORCE START ", |siv| {
+                .child(Button::new_raw(" FORCE RESTART ", |siv| {
                     update_agent_state(siv, true, true);
                 }))
                 .child(TextView::new(StyledString::styled("]", COLOR_ALERT))),

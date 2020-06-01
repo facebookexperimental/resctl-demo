@@ -74,7 +74,7 @@ fn read_system_usage(devnr: (u32, u32)) -> Result<(Usage, f64)> {
         + cpu.steal.unwrap() as f64
         + cpu.guest.unwrap() as f64
         + cpu.guest_nice.unwrap() as f64;
-    let cpu_busy = cpu_total - cpu.idle as f64;
+    let cpu_busy = cpu_total - cpu.idle as f64 - cpu.iowait.unwrap() as f64;
 
     let mstat = procfs::Meminfo::new()?;
     let mem_bytes = mstat.mem_total - mstat.mem_free;
