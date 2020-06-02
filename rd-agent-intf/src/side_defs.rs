@@ -140,6 +140,13 @@ impl Default for SideloadDefs {
                     },
                 ),
                 (
+                    "memory-bloat-1x".into(),
+                    SideloadSpec {
+                        args: vec!["memory-growth.py".into(), "1000%".into(), "100%".into()],
+                        frozen_exp: 30,
+                    },
+                ),
+                (
                     "read-bomb".into(),
                     SideloadSpec {
                         args: vec!["read-bomb.py".into(), "4096".into(), "16384".into()],

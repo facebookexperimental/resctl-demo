@@ -14,7 +14,7 @@ use super::Config;
 const OOMD_RULE_HEAD: &str = r#"{
     "rulesets": ["#;
 
-const OOMD_RULE_OVERVIEW: &str = r#"
+const _OOMD_RULE_OVERVIEW: &str = r#"
         {
             "name": "system overview",
             "silence-logs": "engine",
@@ -172,7 +172,6 @@ fn oomd_cfg_slice_mem_pressure(knobs: &OomdSliceMemPressureKnobs, slice: Slice) 
     if knobs.disable_seq >= super::instance_seq() {
         return oomd_cfg;
     }
-    oomd_cfg += ",";
     oomd_cfg += &oomd_rule_memory(slice.name(), knobs.threshold, knobs.duration);
     oomd_cfg
 }
@@ -182,7 +181,6 @@ fn oomd_cfg_slice_senpai(knobs: &OomdSliceSenpaiKnobs, slice: Slice, mem_size: u
     if !knobs.enable {
         return oomd_cfg;
     }
-    oomd_cfg += ",";
     oomd_cfg += &oomd_rule_senpai(
         slice.name(),
         (knobs.min_bytes_frac * mem_size as f64).round() as u64,
@@ -236,16 +234,35 @@ impl Oomd {
         }
 
         let mut oomd_cfg = OOMD_RULE_HEAD.to_string();
+        let mut oomd_cfg_append = |x: &str| {
+            if let Some('}') = oomd_cfg.chars().last() {
+                oomd_cfg += ",";
+            }
+            oomd_cfg += x;
+        };
 
-        oomd_cfg += OOMD_RULE_OVERVIEW;
-        oomd_cfg += &oomd_cfg_slice_mem_pressure(&knobs.workload.mem_pressure, Slice::Work);
-        oomd_cfg += &oomd_cfg_slice_mem_pressure(&knobs.system.mem_pressure, Slice::Sys);
-        oomd_cfg += &oomd_cfg_slice_senpai(&knobs.workload.senpai, Slice::Work, hashd_mem_size);
-        oomd_cfg += &oomd_cfg_slice_senpai(&knobs.system.senpai, Slice::Sys, hashd_mem_size);
+        //oomd_cfg += OOMD_RULE_OVERVIEW;
+        oomd_cfg_append(&oomd_cfg_slice_mem_pressure(
+            &knobs.workload.mem_pressure,
+            Slice::Work,
+        ));
+        oomd_cfg_append(&oomd_cfg_slice_mem_pressure(
+            &knobs.system.mem_pressure,
+            Slice::Sys,
+        ));
+        oomd_cfg_append(&oomd_cfg_slice_senpai(
+            &knobs.workload.senpai,
+            Slice::Work,
+            hashd_mem_size,
+        ));
+        oomd_cfg_append(&oomd_cfg_slice_senpai(
+            &knobs.system.senpai,
+            Slice::Sys,
+            hashd_mem_size,
+        ));
 
         if knobs.swap_enable {
-            oomd_cfg += ",";
-            oomd_cfg += &oomd_rule_swap(knobs.swap_threshold);
+            oomd_cfg_append(&oomd_rule_swap(knobs.swap_threshold));
         }
 
         oomd_cfg += OOMD_RULE_TAIL;
