@@ -47,9 +47,14 @@ BPF_PERCPU_ARRAY(rwdf_100ms, u64, 400);
 BPF_PERCPU_ARRAY(rwdf_1ms, u64, 400);
 BPF_PERCPU_ARRAY(rwdf_10us, u64, 400);
 
+static unsigned int rq_cmd(unsigned int cmd_flags)
+{
+        __asm__ __volatile__("" : : : "memory");
+        return cmd_flags & REQ_OP_MASK;
+}
+
 void kprobe_blk_account_io_done(struct pt_regs *ctx, struct request *rq, u64 now)
 {
-        unsigned int cmd_flags;
         u64 dur;
         size_t base, slot;
 
@@ -61,23 +66,21 @@ void kprobe_blk_account_io_done(struct pt_regs *ctx, struct request *rq, u64 now
             rq->rq_disk->first_minor != __MINOR__)
                 return;
 
-        cmd_flags = rq->cmd_flags;
-        switch (cmd_flags & REQ_OP_MASK) {
-        case REQ_OP_READ:
+        /*
+         * bcc chokes when the following switch block is converted to a jump
+         * table. Work around by using if/else with forced memory access each
+         * step.
+         */
+        if (rq_cmd(rq->cmd_flags) == REQ_OP_READ)
                 base = 0;
-                break;
-        case REQ_OP_WRITE:
+        else if (rq_cmd(rq->cmd_flags) == REQ_OP_WRITE)
                 base = 100;
-                break;
-        case REQ_OP_DISCARD:
+        else if (rq_cmd(rq->cmd_flags) == REQ_OP_DISCARD)
                 base = 200;
-                break;
-        case REQ_OP_FLUSH:
+        else if (rq_cmd(rq->cmd_flags) == REQ_OP_FLUSH)
                 base = 300;
-                break;
-        default:
+        else
                 return;
-        }
 
         dur = now - rq->__START_TIME_FIELD__;
 
