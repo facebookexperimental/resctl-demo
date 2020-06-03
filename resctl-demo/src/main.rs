@@ -8,10 +8,11 @@ use cursive::views::{BoxedView, Dialog, LinearLayout, TextView};
 use cursive::{event, logger, Cursive, Vec2};
 use lazy_static::lazy_static;
 use libc;
-use log::{error, info};
+use log::{error, info, warn};
 use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::fs;
+use std::process;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::thread::sleep;
@@ -417,6 +418,15 @@ fn set_cursive_theme(siv: &mut Cursive) {
     siv.set_theme(theme);
 }
 
+fn unit_has_journal(unit_name: &str) -> Result<bool> {
+    Ok(process::Command::new("journalctl")
+       .args(&["-o", "json", "-n", "1", "-u", unit_name])
+        .output()?
+        .stdout
+        .len()
+        > 0)
+}
+
 // Touch systemd units into existence before initializing journal
 // tailing. Otherwise, journal tailer won't pick up messages from
 // units that didn't exist on startup.
@@ -427,48 +437,41 @@ fn touch_units() {
         .unwrap()
         .to_string();
 
-    let mut svcs = Vec::new();
-    for svc_name in SVC_NAMES.iter() {
-        match systemd::Unit::new(false, svc_name.into()) {
-            Ok(unit) if unit.state != systemd::UnitState::NotFound => continue,
-            _ => (),
-        }
-        info!("touching {:?}", svc_name);
+    let mut nr_tries = 10;
+    while nr_tries > 0 {
+        nr_tries -= 1;
 
-        let args: Vec<String> = vec![
-            echo_bin.clone(),
-            "[resctl-demo] systemd unit initialization".into(),
-        ];
-        match TransientService::new_sys(svc_name.into(), args, Vec::new(), Some(0o002)) {
-            Ok(mut svc) => match svc.start() {
-                Ok(()) => svcs.push(svc),
+        let mut nr_touched = 0;
+
+        for svc_name in SVC_NAMES.iter() {
+            if let Ok(true) = unit_has_journal(svc_name) {
+                continue;
+            }
+
+            info!("touching {:?}", svc_name);
+            nr_touched += 1;
+
+            let args: Vec<String> = vec![
+                echo_bin.clone(),
+                "[resctl-demo] systemd unit initialization".into(),
+            ];
+            match TransientService::new_sys(svc_name.into(), args, Vec::new(), Some(0o002)) {
+                Ok(mut svc) => {
+                    if let Err(e) = svc.start() {
+                        error!("Failed to touch {:?} ({:?})", svc_name, &e);
+                    }
+                }
                 Err(e) => error!("Failed to touch {:?} ({:?})", svc_name, &e),
-            },
-            Err(e) => error!("Failed to touch {:?} ({:?})", svc_name, &e),
+            }
         }
-    }
 
-    for svc in svcs.iter_mut() {
-        let loop_cnt = 1000;
-        for i in 0..loop_cnt {
-            if let Err(e) = svc.unit.refresh() {
-                error!(
-                    "Failed to refresh {:?} for touching ({:?})",
-                    &svc.unit.name, &e
-                );
-                break;
-            }
-            if svc.unit.state != systemd::UnitState::Running {
-                info!("Touched {:?} after {} tries", svc.unit.name, i);
-                break;
-            }
-            if i < loop_cnt {
-                sleep(Duration::from_millis(100));
-            } else {
-                error!("Timed out while touching {:?}", svc.unit.name);
-            }
+        if nr_touched == 0 {
+            return;
         }
+
+        sleep(Duration::from_millis(100));
     }
+    warn!("Failed to populate journal logs for all units");
 }
 
 fn main() {
