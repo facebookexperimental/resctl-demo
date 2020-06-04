@@ -124,7 +124,7 @@ impl SliceConfig {
                 ..Default::default()
             },
             Slice::User => Self {
-                mem_low: MemoryKnob::Bytes((*TOTAL_MEMORY / 10) as u64),
+                mem_low: MemoryKnob::Bytes(512 << 20),
                 ..Default::default()
             },
             Slice::Sys => Self {

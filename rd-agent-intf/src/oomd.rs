@@ -30,6 +30,7 @@ pub struct OomdSliceMemPressureKnobs {
 pub struct OomdSliceSenpaiKnobs {
     pub enable: bool,
     pub min_bytes_frac: f64,
+    pub max_bytes_frac: f64,
     pub interval: u32,
     pub stall_threshold: f64,
     pub max_probe: f64,
@@ -43,9 +44,10 @@ impl Default for OomdSliceSenpaiKnobs {
         Self {
             enable: false,
             min_bytes_frac: 0.0,
-            interval: 6,
-            stall_threshold: 0.01,
-            max_probe: 0.01,
+            max_bytes_frac: 1.0,
+            interval: 3,
+            stall_threshold: 0.1,
+            max_probe: 0.05,
             max_backoff: 1.0,
             coeff_probe: 10.0,
             coeff_backoff: 20.0,

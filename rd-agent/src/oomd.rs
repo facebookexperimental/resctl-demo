@@ -118,7 +118,7 @@ const OOMD_RULE_TAIL: &str = r#"
 const OOMD_RULE_SENPAI: &str = r#"
         {
             "name": "__SLICE__ senpai ruleset",
-            "silence-logs": "engine,plugins",
+            "silence-logs": "engine",
             "detectors": [
                 [
                     "continue detector group",
@@ -133,6 +133,7 @@ const OOMD_RULE_SENPAI: &str = r#"
                     "name": "senpai",
                     "args": {
                         "limit_min_bytes": "__MIN_BYTES__",
+                        "limit_max_bytes": "__MAX_BYTES__",
                         "interval": "__INTERVAL__",
                         "pressure_ms": "__PRES_THR__",
                         "max_probe": "__MAX_PROBE__",
@@ -148,6 +149,7 @@ const OOMD_RULE_SENPAI: &str = r#"
 fn oomd_rule_senpai(
     slice: &str,
     min_bytes: u64,
+    max_bytes: u64,
     interval: u32,
     pres_thr: f64,
     max_probe: f64,
@@ -158,6 +160,7 @@ fn oomd_rule_senpai(
     OOMD_RULE_SENPAI
         .to_string()
         .replace("__MIN_BYTES__", &format!("{}", min_bytes))
+        .replace("__MAX_BYTES__", &format!("{}", max_bytes))
         .replace("__INTERVAL__", &format!("{}", interval))
         .replace("__PRES_THR__", &format!("{}", (pres_thr * TO_MSEC).round()))
         .replace("__MAX_PROBE__", &format!("{}", max_probe))
@@ -184,6 +187,7 @@ fn oomd_cfg_slice_senpai(knobs: &OomdSliceSenpaiKnobs, slice: Slice, mem_size: u
     oomd_cfg += &oomd_rule_senpai(
         slice.name(),
         (knobs.min_bytes_frac * mem_size as f64).round() as u64,
+        (knobs.max_bytes_frac * mem_size as f64).round() as u64,
         knobs.interval,
         knobs.stall_threshold,
         knobs.max_probe,
