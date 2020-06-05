@@ -101,7 +101,7 @@ impl RunnerData {
         }
 
         if re_bench || re_oomd {
-            if let Err(e) = sobjs.oomd.apply(mem_size) {
+            if let Err(e) = sobjs.oomd.apply() {
                 error!("cmd: Failed to apply oomd configuration ({:?})", &e);
                 panic!();
             }

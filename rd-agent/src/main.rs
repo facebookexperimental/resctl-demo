@@ -982,7 +982,7 @@ fn main() {
         panic!();
     }
 
-    if let Err(e) = sobjs.oomd.apply(mem_size) {
+    if let Err(e) = sobjs.oomd.apply() {
         error!("cfg: Failed to initialize oomd ({:?})", &e);
         panic!();
     }

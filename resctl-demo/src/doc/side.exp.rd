@@ -36,5 +36,6 @@ Sysload toggles:
 
 ___*Read on*___
 
+%% jump senpai.intro             : [ Next: The Problem of Sizing Memory ]
 %% jump side.details             : [ Prev: Some Details on Sideloading ]
 %% jump index                    : [ Exit: Index ]

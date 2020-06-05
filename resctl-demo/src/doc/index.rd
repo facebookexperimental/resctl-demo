@@ -32,3 +32,9 @@
 %% jump side.sideloader          : * The Sideloader
 %% jump side.details             : * Some Details on Sideloading
 %% jump side.exp                 : * Experiment with Sideloading
+
+*Memory Sizing With Senpai*
+
+%% jump senpai.intro             : * The Problem of Memory Sizing
+%% jump senpai.senpai            : * Senpai
+%% jump senpai.exp               : * Senpai Playground

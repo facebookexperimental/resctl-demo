@@ -218,7 +218,7 @@ impl Oomd {
         })
     }
 
-    pub fn apply(&mut self, hashd_mem_size: u64) -> Result<()> {
+    pub fn apply(&mut self) -> Result<()> {
         let knobs = &self.file.data;
 
         if self.svc.is_some() {
@@ -257,12 +257,12 @@ impl Oomd {
         oomd_cfg_append(&oomd_cfg_slice_senpai(
             &knobs.workload.senpai,
             Slice::Work,
-            hashd_mem_size,
+            *TOTAL_MEMORY as u64,
         ));
         oomd_cfg_append(&oomd_cfg_slice_senpai(
             &knobs.system.senpai,
             Slice::Sys,
-            hashd_mem_size,
+            *TOTAL_MEMORY as u64,
         ));
 
         if knobs.swap_enable {
