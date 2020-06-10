@@ -1077,7 +1077,7 @@ while True:
 
     cpu_cur_idle = min(sysinfo.cpu_avg_idle(nr_cpu_headroom_intvs),
                        sysinfo.cpu_avg_idle(1))
-    cpu_cur_side = max(sysinfo.cpu_avg_side(nr_cpu_headroom_intvs),
+    cpu_cur_side = min(sysinfo.cpu_avg_side(nr_cpu_headroom_intvs),
                        sysinfo.cpu_avg_side(1))
     cpu_avail = max(cpu_cur_side + cpu_cur_idle - config.cpu_headroom,
                     config.cpu_floor)

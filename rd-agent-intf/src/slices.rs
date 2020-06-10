@@ -120,7 +120,7 @@ impl SliceConfig {
             },
             Slice::Host => Self {
                 cpu_weight: 10,
-                mem_min: MemoryKnob::Bytes(512 << 20),
+                mem_min: MemoryKnob::Bytes(768 << 20),
                 ..Default::default()
             },
             Slice::User => Self {
