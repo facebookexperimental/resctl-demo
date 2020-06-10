@@ -515,14 +515,14 @@ impl Unit {
         self.sd_bus().with(|s| s.start_unit(&self.name))?;
         self.wait_transition(
             |x| match x {
-                US::Running | US::Failed(_) => true,
+                US::Running | US::Exited | US::Failed(_) => true,
                 _ => false,
             },
             *DBUS_TIMEOUT,
         );
         info!("svc: {:?} started ({:?})", &self.name, &self.state);
         match self.state {
-            US::Running => Ok(true),
+            US::Running | US::Exited => Ok(true),
             _ => Ok(false),
         }
     }
@@ -635,7 +635,7 @@ impl TransientService {
 
         self.unit.wait_transition(
             |x| match x {
-                US::Running | US::Failed(_) => true,
+                US::Running | US::Exited | US::Failed(_) => true,
                 _ => false,
             },
             *DBUS_TIMEOUT,
@@ -645,7 +645,7 @@ impl TransientService {
             &self.unit.name, &self.unit.state
         );
         match self.unit.state {
-            US::Running => Ok(true),
+            US::Running | US::Exited => Ok(true),
             _ => Ok(false),
         }
     }
