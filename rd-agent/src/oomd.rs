@@ -218,24 +218,28 @@ impl Oomd {
         })
     }
 
-    pub fn apply(&mut self) -> Result<()> {
-        let knobs = &self.file.data;
+    pub fn stop(&mut self) {
+        debug!("oomd: Stoppping");
+        self.svc = None;
 
-        if self.svc.is_some() {
-            debug!("oomd: Stoppping");
-            self.svc = None;
-
-            for slice in &[Slice::Work, Slice::Sys] {
-                let path = format!("/sys/fs/cgroup/{}/memory.high", slice.name());
-                debug!("oomd: clearing {:?}", &path);
-                if let Err(e) = write_one_line(&path, "max") {
-                    warn!(
-                        "oomd: Failed to clear ${:?} after shutdown ({:?})",
-                        &path, &e
-                    );
-                }
+        for slice in &[Slice::Work, Slice::Sys] {
+            let path = format!("/sys/fs/cgroup/{}/memory.high", slice.name());
+            debug!("oomd: clearing {:?}", &path);
+            if let Err(e) = write_one_line(&path, "max") {
+                warn!(
+                    "oomd: Failed to clear ${:?} after shutdown ({:?})",
+                    &path, &e
+                );
             }
         }
+    }
+
+    pub fn apply(&mut self) -> Result<()> {
+        if self.svc.is_some() {
+            self.stop();
+        }
+
+        let knobs = &self.file.data;
 
         let mut oomd_cfg = OOMD_RULE_HEAD.to_string();
         let mut oomd_cfg_append = |x: &str| {

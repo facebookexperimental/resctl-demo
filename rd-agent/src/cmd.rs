@@ -24,6 +24,7 @@ pub struct RunnerData {
     pub state: RunnerState,
     warned_bench: bool,
     warned_init: bool,
+    force_apply: bool,
 
     pub bench_hashd: Option<TransientService>,
     pub bench_iocost: Option<TransientService>,
@@ -41,6 +42,7 @@ impl RunnerData {
             state: Idle,
             warned_bench: false,
             warned_init: false,
+            force_apply: false,
             bench_hashd: None,
             bench_iocost: None,
             hashd_set: HashdSet::new(&cfg),
@@ -76,13 +78,24 @@ impl RunnerData {
     fn maybe_reload(&mut self) -> bool {
         let sobjs = &mut self.sobjs;
         let last_cpu_headroom = sobjs.cmd_file.data.sideloader.cpu_headroom;
-        let (re_bench, re_slice, _re_side, re_oomd, re_cmd) = (
-            Self::maybe_reload_one(&mut sobjs.bench_file),
-            Self::maybe_reload_one(&mut sobjs.slice_file),
-            Self::maybe_reload_one(&mut sobjs.side_def_file),
-            Self::maybe_reload_one(&mut sobjs.oomd.file),
-            Self::maybe_reload_one(&mut sobjs.cmd_file),
-        );
+
+        // Configs are controlled by benchmarks while they're running, don't
+        // reload.
+        let (re_bench, re_slice, _re_side, re_oomd) = match self.state {
+            BenchIOCost | BenchHashd => (false, false, false, false),
+            _ => {
+                let force = self.force_apply;
+                self.force_apply = false;
+                (
+                    Self::maybe_reload_one(&mut sobjs.bench_file) || force,
+                    Self::maybe_reload_one(&mut sobjs.slice_file) || force,
+                    Self::maybe_reload_one(&mut sobjs.side_def_file) || force,
+                    Self::maybe_reload_one(&mut sobjs.oomd.file) || force,
+                )
+            }
+        };
+        let re_cmd = Self::maybe_reload_one(&mut sobjs.cmd_file);
+
         let mem_size = sobjs.bench_file.data.hashd.actual_mem_size();
 
         if re_bench {
@@ -172,6 +185,7 @@ impl RunnerData {
                 if cmd.bench_iocost_seq > bench.iocost_seq {
                     self.bench_iocost = Some(bench::start_iocost_bench(&*self.cfg)?);
                     self.state = BenchIOCost;
+                    self.force_apply = true;
                 } else if cmd.bench_hashd_seq > bench.hashd_seq {
                     if bench.iocost_seq > 0 {
                         let mem_margin = (*TOTAL_MEMORY / 8).min(512 << 20);
@@ -185,6 +199,8 @@ impl RunnerData {
                             panic!();
                         }
 
+                        self.sobjs.oomd.stop();
+
                         self.bench_hashd = Some(bench::start_hashd_bench(
                             &*self.cfg,
                             cmd.hashd[0].log_bps,
@@ -192,6 +208,7 @@ impl RunnerData {
                         )?);
 
                         self.state = BenchHashd;
+                        self.force_apply = true;
                     } else if !self.warned_bench {
                         warn!("cmd: iocost benchmark must be run before hashd benchmark");
                         self.warned_bench = true;
@@ -256,9 +273,6 @@ impl RunnerData {
             BenchIOCost => {
                 if cmd.bench_iocost_seq <= bench.iocost_seq {
                     info!("cmd: Canceling iocost benchmark");
-                    if let Err(e) = bench::iocost_on_off(true, &self.cfg) {
-                        warn!("cmd: Failed to restore iocost ({:?})", &e);
-                    }
                     self.become_idle();
                 }
             }
