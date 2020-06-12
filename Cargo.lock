@@ -980,6 +980,7 @@ dependencies = [
  "clap 2.33.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "enum-iterator 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "lazy_static 1.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "log 0.4.8 (registry+https://github.com/rust-lang/crates.io-index)",
  "rd-hashd-intf 0.1.0",
  "serde 1.0.111 (registry+https://github.com/rust-lang/crates.io-index)",
  "util 0.1.0",

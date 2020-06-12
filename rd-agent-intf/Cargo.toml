@@ -15,5 +15,6 @@ clap = "2.33.0"
 chrono = { version = "0.4.10", features = ["serde"] }
 enum-iterator = "0.5.0"
 lazy_static = "1.4.0"
+log = "0.4.8"
 serde = { version = "1.0.104", features = ["derive"] }
 util = { path = "../util" }

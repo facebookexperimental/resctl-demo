@@ -108,10 +108,20 @@ impl SliceConfig {
     pub const DFL_SYS_IO_RATIO: f64 = 0.1;
 
     pub fn dfl_mem_margin() -> u64 {
-        *TOTAL_MEMORY as u64 / 4
+        let margin = *TOTAL_MEMORY as u64 / 4;
+        if *IS_FB_PROD {
+            (margin + 2 << 30).min(*TOTAL_MEMORY as u64 / 2)
+        } else {
+            margin
+        }
     }
 
     fn default(slice: Slice) -> Self {
+        let mut hostcrit_min = 768 << 20;
+        if *IS_FB_PROD {
+            hostcrit_min += 512 << 20;
+        }
+
         match slice {
             Slice::Init => Self {
                 cpu_weight: 10,
@@ -120,7 +130,7 @@ impl SliceConfig {
             },
             Slice::Host => Self {
                 cpu_weight: 10,
-                mem_min: MemoryKnob::Bytes(768 << 20),
+                mem_min: MemoryKnob::Bytes(hostcrit_min),
                 ..Default::default()
             },
             Slice::User => Self {

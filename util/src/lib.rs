@@ -2,6 +2,7 @@
 use anyhow::{anyhow, bail, Result};
 use crossbeam::channel::Sender;
 use env_logger;
+use glob::glob;
 use lazy_static::lazy_static;
 use log::{info, warn};
 use num;
@@ -51,6 +52,19 @@ lazy_static! {
     pub static ref PAGE_SIZE: usize = ::page_size::get();
     pub static ref NR_CPUS: usize = ::num_cpus::get();
     pub static ref ROTATIONAL_SWAP: bool = storage_info::is_swap_rotational();
+    pub static ref IS_FB_PROD: bool = {
+        match glob("/sys/fs/cgroup/**/fbagentd.service")
+            .unwrap()
+            .filter_map(|x| x.ok())
+            .next()
+        {
+            Some(_) => {
+                warn!("FB PROD detected, default parameters will be adjusted");
+                true
+            }
+            None => false,
+        }
+    };
 }
 
 pub fn to_gb<T>(size: T) -> f64
