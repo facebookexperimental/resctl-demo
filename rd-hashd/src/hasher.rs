@@ -141,29 +141,30 @@ impl AnonArea {
         self.size = size;
     }
 
+    /// Determine the page given the relative position `rel` and `size` of
+    /// the anon area. `rel` is in the range [-1.0, 1.0] with the position
+    /// 0.0 mapping to the first page, positive positions to even slots and
+    /// negative odd so that modulating the amplitude of `rel` changes how
+    /// much area is accessed without shifting the center.
+    fn rel_to_page_idx(rel: f64, size: usize) -> usize {
+        let addr = ((size / 2) as f64 * rel.abs()) as usize;
+        let mut page = (addr / *PAGE_SIZE) * 2;
+        if rel.is_sign_negative() {
+            page += 1;
+        }
+        page.min(size / *PAGE_SIZE - 1)
+    }
+
     /// Return a mutable u8 reference to the position specified by the `(idx,
     /// off)` where `idx` identifies the `UNIT_SIZE` block and `off` the offset
     /// within the block. The anon area is shared and there's no access control.
-    fn access_idx_off<'a>(&'a self, pos: (usize, usize)) -> &'a mut u8 {
+    fn access_page<'a>(&'a self, page: usize) -> &'a mut [u8] {
+        let pages_per_unit = Self::UNIT_SIZE / *PAGE_SIZE;
+        let pos = (page / pages_per_unit, (page % pages_per_unit) * *PAGE_SIZE);
         unsafe {
             let ptr = self.units[pos.0].data.offset(pos.1 as isize);
-            std::mem::transmute::<*mut u8, &'a mut u8>(ptr)
+            std::slice::from_raw_parts_mut(ptr, *PAGE_SIZE)
         }
-    }
-
-    /// Determine the slot given the relative position `rel` and `size` of the
-    /// anon area. `rel` is in the range [-1.0, 1.0] with the position 0.0
-    /// mapping to the first slot, positive positions to even slots and negative
-    /// odd so that modulating the amplitude of `rel` changes how much area is
-    /// accessed without shifting the center.
-    fn rel_to_idx_off(rel: f64, size: usize) -> (usize, usize) {
-        let addr = ((size / 2) as f64 * rel.abs()) as usize;
-        let mut idx = (addr / Self::UNIT_SIZE) * 2;
-        if rel.is_sign_negative() {
-            idx += 1;
-        }
-        idx = idx.min(size / Self::UNIT_SIZE - 1);
-        (idx, addr % Self::UNIT_SIZE)
     }
 }
 
@@ -243,7 +244,7 @@ struct HasherThread {
 
 impl HasherThread {
     /// Translate [-1.0, 1.0] `rel` to page index. Similar to
-    /// AnonArea::rel_to_idx_off().
+    /// AnonArea::rel_to_page().
     fn rel_to_file_page(&self, rel: f64) -> u64 {
         let frac = self.mem_frac * self.file_frac / self.file_max_frac;
         let nr_pages = ((self.tf.size as f64 * frac) as u64).min(self.tf.size) / *PAGE_SIZE as u64;
@@ -274,12 +275,12 @@ impl HasherThread {
         file_dist[slot] += cnt;
     }
 
-    fn anon_dist_count(anon_dist: &mut [u64], idx: usize, off: usize, cnt: usize, aa: &AnonArea) {
+    fn anon_dist_count(anon_dist: &mut [u64], page_idx: usize, cnt: usize, aa: &AnonArea) {
         if anon_dist.len() == 0 {
             return;
         }
 
-        let rel = (AnonArea::UNIT_SIZE * idx + off) as f64 / aa.size as f64;
+        let rel = page_idx as f64 / (aa.size / *PAGE_SIZE) as f64;
         let slot = ((anon_dist.len() as f64 * rel) as usize).min(anon_dist.len() - 1);
 
         anon_dist[slot] += cnt as u64;
@@ -331,24 +332,21 @@ impl HasherThread {
 
         for _ in 0..self.anon_nr_chunks {
             let rel = anon_addr_normal.sample(&mut rng) * self.anon_addr_frac;
-            let (idx, mut off) = AnonArea::rel_to_idx_off(rel, aa.size);
-            let cnt = (AnonArea::UNIT_SIZE - off)
-                .div_ceil(&*PAGE_SIZE)
-                .min(self.mem_chunk_pages);
+            let page_idx =
+                AnonArea::rel_to_page_idx(rel, aa.size - (self.mem_chunk_pages - 1) * *PAGE_SIZE);
             let is_write = rw_uniform.sample(&mut rng) <= self.anon_write_frac;
 
-            for _ in 0..cnt {
-                let ptr = aa.access_idx_off((idx, off));
-                aa_sum += *ptr as u64;
-                if *ptr == 0 {
-                    *ptr = 1;
+            for i in 0..self.mem_chunk_pages {
+                let page = aa.access_page(page_idx + i);
+                aa_sum += page[0] as u64;
+                if page[0] == 0 {
+                    page[0] = 1;
                 }
                 if is_write {
-                    *ptr += 1;
+                    page[0] += 1;
                 }
-                off += *PAGE_SIZE;
             }
-            Self::anon_dist_count(&mut anon_dist, idx, off, cnt, &aa);
+            Self::anon_dist_count(&mut anon_dist, page_idx, self.mem_chunk_pages, &aa);
         }
         sleep(Duration::from_secs_f64(self.sleep_dur / 3.0));
 
