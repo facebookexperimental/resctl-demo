@@ -6,6 +6,7 @@ use num::Integer;
 use pid::Pid;
 use quantiles::ckms::CKMS;
 use rand::rngs::SmallRng;
+use rand::Rng;
 use rand::SeedableRng;
 use rand_distr::{Distribution, Normal, Uniform};
 use sha1::{Digest, Sha1};
@@ -158,11 +159,12 @@ impl AnonArea {
     /// Return a mutable u8 reference to the position specified by the `(idx,
     /// off)` where `idx` identifies the `UNIT_SIZE` block and `off` the offset
     /// within the block. The anon area is shared and there's no access control.
-    fn access_page<'a>(&'a self, page: usize) -> &'a mut [u8] {
+    fn access_page<'a>(&'a self, page: usize) -> &'a mut [u64] {
         let pages_per_unit = Self::UNIT_SIZE / *PAGE_SIZE;
         let pos = (page / pages_per_unit, (page % pages_per_unit) * *PAGE_SIZE);
         unsafe {
             let ptr = self.units[pos.0].data.offset(pos.1 as isize);
+            let ptr = ptr.cast::<u64>();
             std::slice::from_raw_parts_mut(ptr, *PAGE_SIZE)
         }
     }
@@ -209,7 +211,6 @@ pub enum DispatchCmd {
 /// Hasher worker thread's completion for the dispatch thread.
 struct HashCompletion {
     digest: Digest,
-    aa_sum: u64,
     started_at: Instant,
     file_dist: Vec<u64>,
     anon_dist: Vec<u64>,
@@ -325,7 +326,6 @@ impl HasherThread {
         sleep(Duration::from_secs_f64(self.sleep_dur / 3.0));
 
         // Generate anonymous accesses.
-        let mut aa_sum: u64 = 0;
         let aa = self.anon_area.read().unwrap();
         let anon_addr_normal = ClampedNormal::new(0.0, self.anon_addr_stdev_ratio, -1.0, 1.0);
         let rw_uniform = Uniform::new_inclusive(0.0, 1.0);
@@ -334,16 +334,18 @@ impl HasherThread {
             let rel = anon_addr_normal.sample(&mut rng) * self.anon_addr_frac;
             let page_idx =
                 AnonArea::rel_to_page_idx(rel, aa.size - (self.mem_chunk_pages - 1) * *PAGE_SIZE);
-            let is_write = rw_uniform.sample(&mut rng) <= self.anon_write_frac;
+            let mut is_write = rw_uniform.sample(&mut rng) <= self.anon_write_frac;
 
             for i in 0..self.mem_chunk_pages {
                 let page = aa.access_page(page_idx + i);
-                aa_sum += page[0] as u64;
                 if page[0] == 0 {
-                    page[0] = 1;
+                    for j in 0..*PAGE_SIZE / 8 {
+                        page[j] = rng.gen();
+                    }
+                    is_write = true;
                 }
                 if is_write {
-                    page[0] += 1;
+                    page[0] = page[0].wrapping_add(1).max(1);
                 }
             }
             Self::anon_dist_count(&mut anon_dist, page_idx, self.mem_chunk_pages, &aa);
@@ -357,7 +359,6 @@ impl HasherThread {
         self.cmpl_tx
             .send(HashCompletion {
                 digest,
-                aa_sum,
                 started_at: self.started_at,
                 file_dist,
                 anon_dist,
@@ -765,14 +766,14 @@ impl DispatchThread {
                 },
                 recv(self.cmpl_rx) -> cmpl => {
                     match cmpl {
-                        Ok(HashCompletion {digest, aa_sum, started_at, file_dist, anon_dist}) => {
+                        Ok(HashCompletion {digest, started_at, file_dist, anon_dist}) => {
                             self.nr_in_flight -= 1;
                             self.nr_done += 1;
                             let dur = Instant::now().duration_since(started_at).as_secs_f64();
                             self.ckms.insert(dur);
                             if let Some(logger) = self.logger.as_mut() {
-                                logger.log(&format!("{} {:8} {:.2}ms",
-                                                    digest, aa_sum, dur * TO_MSEC));
+                                logger.log(&format!("{} {:.2}ms",
+                                                    digest, dur * TO_MSEC));
                             }
                             if file_dist.len() == self.file_dist.len() {
                                 for i in 0..file_dist.len() {
