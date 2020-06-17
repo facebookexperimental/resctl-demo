@@ -59,6 +59,10 @@ impl Hasher {
         Ok(input_size)
     }
 
+    pub fn append(&mut self, data: &[u8]) {
+        self.buf.extend_from_slice(data);
+    }
+
     /// Calculates sha1 of self.buf * self.cpu_ratio.  Hasher exists
     /// to waste cpu and io and self.cpu_ratio controls the ratio
     /// between cpu and io.
@@ -159,12 +163,12 @@ impl AnonArea {
     /// Return a mutable u8 reference to the position specified by the `(idx,
     /// off)` where `idx` identifies the `UNIT_SIZE` block and `off` the offset
     /// within the block. The anon area is shared and there's no access control.
-    fn access_page<'a>(&'a self, page: usize) -> &'a mut [u64] {
+    fn access_page<'a, T>(&'a self, page: usize) -> &'a mut [T] {
         let pages_per_unit = Self::UNIT_SIZE / *PAGE_SIZE;
         let pos = (page / pages_per_unit, (page % pages_per_unit) * *PAGE_SIZE);
         unsafe {
             let ptr = self.units[pos.0].data.offset(pos.1 as isize);
-            let ptr = ptr.cast::<u64>();
+            let ptr = ptr.cast::<T>();
             std::slice::from_raw_parts_mut(ptr, *PAGE_SIZE)
         }
     }
@@ -298,15 +302,8 @@ impl HasherThread {
         // Load hash input files.
         let file_addr_normal = ClampedNormal::new(0.0, self.file_addr_stdev_ratio, -1.0, 1.0);
 
-        let file_ratio =
-            self.file_nr_chunks as f64 / (self.file_nr_chunks + self.anon_nr_chunks) as f64;
-        trace!(
-            "hasher::run(): cpu_ratio={:.2} file_ratio={:.2} adj_ratio={:.2}",
-            self.cpu_ratio,
-            file_ratio,
-            self.cpu_ratio / file_ratio
-        );
-        let mut rdh = Hasher::new(self.cpu_ratio / file_ratio);
+        trace!("hasher::run(): cpu_ratio={:.2}", self.cpu_ratio);
+        let mut rdh = Hasher::new(self.cpu_ratio);
         for _ in 0..self.file_nr_chunks {
             let rel = file_addr_normal.sample(&mut rng) * self.file_addr_frac;
             let page = self.rel_to_file_page(rel);
@@ -337,7 +334,7 @@ impl HasherThread {
             let mut is_write = rw_uniform.sample(&mut rng) <= self.anon_write_frac;
 
             for i in 0..self.mem_chunk_pages {
-                let page = aa.access_page(page_idx + i);
+                let page: &mut [u64] = aa.access_page(page_idx + i);
                 if page[0] == 0 {
                     for j in 0..*PAGE_SIZE / 8 {
                         page[j] = rng.gen();
@@ -347,6 +344,7 @@ impl HasherThread {
                 if is_write {
                     page[0] = page[0].wrapping_add(1).max(1);
                 }
+                rdh.append(aa.access_page(page_idx + i))
             }
             Self::anon_dist_count(&mut anon_dist, page_idx, self.mem_chunk_pages, &aa);
         }
