@@ -9,6 +9,7 @@ use rand::rngs::SmallRng;
 use rand::SeedableRng;
 use rand_distr::{Distribution, Normal, Uniform};
 use sha1::{Digest, Sha1};
+use std::alloc::{alloc, dealloc, Layout};
 use std::fs::File;
 use std::io::{prelude::*, SeekFrom};
 use std::path::Path;
@@ -81,8 +82,34 @@ impl Hasher {
     }
 }
 
+struct AnonUnit {
+    data: *mut u8,
+    layout: Layout,
+}
+
+impl AnonUnit {
+    fn new(size: usize) -> Self {
+        let layout = Layout::from_size_align(size, *PAGE_SIZE).unwrap();
+        Self {
+            data: unsafe { alloc(layout) },
+            layout: layout,
+        }
+    }
+}
+
+unsafe impl Send for AnonUnit {}
+unsafe impl Sync for AnonUnit {}
+
+impl Drop for AnonUnit {
+    fn drop(&mut self) {
+        unsafe {
+            dealloc(self.data, self.layout);
+        }
+    }
+}
+
 struct AnonArea {
-    array: Vec<Vec<u8>>,
+    units: Vec<AnonUnit>,
     size: usize,
 }
 
@@ -94,7 +121,7 @@ impl AnonArea {
 
     fn new(size: usize) -> Self {
         let mut area = AnonArea {
-            array: Vec::new(),
+            units: Vec::new(),
             size: 0,
         };
         area.resize(size);
@@ -105,14 +132,10 @@ impl AnonArea {
         size = size.max(Self::UNIT_SIZE);
         let nr = size.div_ceil(&Self::UNIT_SIZE);
 
-        self.array.truncate(nr);
-        self.array.reserve(nr);
-        for _ in self.array.len()..nr {
-            let mut inner = Vec::with_capacity(Self::UNIT_SIZE);
-            unsafe {
-                inner.set_len(Self::UNIT_SIZE);
-            }
-            self.array.push(inner);
+        self.units.truncate(nr);
+        self.units.reserve(nr);
+        for _ in self.units.len()..nr {
+            self.units.push(AnonUnit::new(Self::UNIT_SIZE));
         }
 
         self.size = size;
@@ -122,9 +145,10 @@ impl AnonArea {
     /// off)` where `idx` identifies the `UNIT_SIZE` block and `off` the offset
     /// within the block. The anon area is shared and there's no access control.
     fn access_idx_off<'a>(&'a self, pos: (usize, usize)) -> &'a mut u8 {
-        let ptr = &self.array[pos.0][pos.1] as *const u8;
-        let mut_ref = unsafe { std::mem::transmute::<*const u8, &'a mut u8>(ptr) };
-        mut_ref
+        unsafe {
+            let ptr = self.units[pos.0].data.offset(pos.1 as isize);
+            std::mem::transmute::<*mut u8, &'a mut u8>(ptr)
+        }
     }
 
     /// Determine the slot given the relative position `rel` and `size` of the
