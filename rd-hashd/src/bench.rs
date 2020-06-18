@@ -91,7 +91,7 @@ impl Default for Cfg {
                 lat: 15.0 * MSEC,
                 io_lat: 2.5 * MSEC,
                 io_ratio: 0.2,
-                err: 0.1,
+                err: 0.05,
                 fsz_pid: PidParams {
                     kp: 0.25,
                     ki: 0.01,
@@ -111,8 +111,8 @@ impl Default for Cfg {
             },
             cpu_sat: CpuSatCfg {
                 size: *TOTAL_MEMORY as u64 / 2,
-                err: 0.1,
-                rounds: 3,
+                err: 0.05,
+                rounds: 5,
                 converge: ConvergeCfg {
                     which: Rps,
                     converges: 5,
@@ -578,7 +578,7 @@ impl Bench {
     }
 
     fn bench_cpu(&self, cfg: &CpuCfg) -> (usize, usize) {
-        const TIME_HASH_SIZE: usize = 128 << 20;
+        const TIME_HASH_SIZE: usize = 256 << 20;
         let mut params: Params = self.params.clone();
         let mut nr_rounds = 0;
         let max_size = cfg.size.max(TIME_HASH_SIZE as u64);
@@ -638,6 +638,7 @@ impl Bench {
                 nr_converges = 0;
             }
         }
+        params.file_size_mean = (params.file_size_mean as f64 * 1.05) as usize;
 
         let th = self.create_test_hasher(max_size, tf, &params, self.report_file.clone(), true);
         let mut pid = Pid::new(
