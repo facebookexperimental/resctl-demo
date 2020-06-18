@@ -240,8 +240,12 @@ impl TestHasher {
         logger: Option<super::Logger>,
         hist_max: usize,
         report_file: Arc<Mutex<JsonReportFile<Report>>>,
+        fill_anon: bool,
     ) -> Self {
         let disp = hasher::Dispatch::new(max_size, tf, params, logger);
+        if fill_anon {
+            disp.fill_anon();
+        }
         let hist = VecDeque::new();
         let disp_hist = Arc::new(Mutex::new(DispHist { disp, hist }));
         let dh_copy = disp_hist.clone();
@@ -539,6 +543,7 @@ impl Bench {
         tf: TestFiles,
         params: &Params,
         report_file: Arc<Mutex<JsonReportFile<Report>>>,
+        fill_anon: bool,
     ) -> TestHasher {
         TestHasher::new(
             max_size,
@@ -547,6 +552,7 @@ impl Bench {
             create_logger(&self.args_file.data, params),
             HIST_MAX,
             report_file,
+            fill_anon,
         )
     }
 
@@ -590,7 +596,9 @@ impl Bench {
 
         params.concurrency_max = 1;
         params.file_size_stdev_ratio = 0.0;
+        params.file_addr_stdev_ratio = 100.0;
         params.anon_size_stdev_ratio = 0.0;
+        params.anon_addr_stdev_ratio = 100.0;
         params.sleep_mean = 0.0;
         params.sleep_stdev_ratio = 0.0;
 
@@ -631,7 +639,7 @@ impl Bench {
             }
         }
 
-        let th = self.create_test_hasher(max_size, tf, &params, self.report_file.clone());
+        let th = self.create_test_hasher(max_size, tf, &params, self.report_file.clone(), true);
         let mut pid = Pid::new(
             cfg.fsz_pid.kp,
             cfg.fsz_pid.ki,
@@ -684,9 +692,12 @@ impl Bench {
         let mut params: Params = self.params.clone();
         let mut nr_rounds = 0;
         let tf = self.prep_tf(cfg.size, "cpu saturation bench");
+
+        params.file_addr_stdev_ratio = 100.0;
+        params.anon_addr_stdev_ratio = 100.0;
         params.rps_target = u32::MAX;
 
-        let th = self.create_test_hasher(cfg.size, tf, &params, self.report_file.clone());
+        let th = self.create_test_hasher(cfg.size, tf, &params, self.report_file.clone(), true);
         let mut last_rps = 1.0;
 
         while nr_rounds < cfg.rounds {
@@ -1011,8 +1022,13 @@ impl Bench {
         //
         if args.bench_mem {
             let tf = self.prep_tf(max_size, "Memory saturation bench");
-            let mut th =
-                self.create_test_hasher(max_size, tf, &self.params, self.report_file.clone());
+            let mut th = self.create_test_hasher(
+                max_size,
+                tf,
+                &self.params,
+                self.report_file.clone(),
+                false,
+            );
 
             self.params.mem_frac = self.bench_memio_saturation_bisect(&cfg.mem_sat, &mut th);
             let (fsize, asize) = self.mem_sizes(self.params.mem_frac);

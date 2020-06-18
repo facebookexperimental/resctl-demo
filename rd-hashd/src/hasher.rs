@@ -6,7 +6,6 @@ use num::Integer;
 use pid::Pid;
 use quantiles::ckms::CKMS;
 use rand::rngs::SmallRng;
-use rand::Rng;
 use rand::SeedableRng;
 use rand_distr::{Distribution, Normal, Uniform};
 use sha1::{Digest, Sha1};
@@ -24,6 +23,15 @@ use util::*;
 use super::logger::Logger;
 use super::testfiles::TestFiles;
 use super::workqueue::WorkQueue;
+
+fn fill_random<R: rand::Rng + ?Sized>(page: &mut [u64], rng: &mut R) {
+    for i in 0..page.len() {
+        page[i] = rng.gen();
+    }
+    if page[0] == 0 {
+        page[0] = 1;
+    }
+}
 
 /// Load files and calculate sha1.
 pub struct Hasher {
@@ -153,23 +161,25 @@ impl AnonArea {
     /// much area is accessed without shifting the center.
     fn rel_to_page_idx(rel: f64, size: usize) -> usize {
         let addr = ((size / 2) as f64 * rel.abs()) as usize;
-        let mut page = (addr / *PAGE_SIZE) * 2;
+        let mut page_idx = (addr / *PAGE_SIZE) * 2;
         if rel.is_sign_negative() {
-            page += 1;
+            page_idx += 1;
         }
-        page.min(size / *PAGE_SIZE - 1)
+        page_idx.min(size / *PAGE_SIZE - 1)
     }
 
-    /// Return a mutable u8 reference to the position specified by the `(idx,
-    /// off)` where `idx` identifies the `UNIT_SIZE` block and `off` the offset
-    /// within the block. The anon area is shared and there's no access control.
-    fn access_page<'a, T>(&'a self, page: usize) -> &'a mut [T] {
+    /// Return a mutable u8 reference to the position specified by the page
+    /// index. The anon area is shared and there's no access control.
+    fn access_page<'a, T>(&'a self, page_idx: usize) -> &'a mut [T] {
         let pages_per_unit = Self::UNIT_SIZE / *PAGE_SIZE;
-        let pos = (page / pages_per_unit, (page % pages_per_unit) * *PAGE_SIZE);
+        let pos = (
+            page_idx / pages_per_unit,
+            (page_idx % pages_per_unit) * *PAGE_SIZE,
+        );
         unsafe {
             let ptr = self.units[pos.0].data.offset(pos.1 as isize);
             let ptr = ptr.cast::<T>();
-            std::slice::from_raw_parts_mut(ptr, *PAGE_SIZE)
+            std::slice::from_raw_parts_mut(ptr, *PAGE_SIZE / std::mem::size_of::<T>())
         }
     }
 }
@@ -210,6 +220,7 @@ impl ClampedNormal {
 pub enum DispatchCmd {
     SetParams(Params),
     GetStat(Sender<Stat>),
+    FillAnon,
 }
 
 /// Hasher worker thread's completion for the dispatch thread.
@@ -329,24 +340,21 @@ impl HasherThread {
 
         for _ in 0..self.anon_nr_chunks {
             let rel = anon_addr_normal.sample(&mut rng) * self.anon_addr_frac;
-            let page_idx =
+            let page_base =
                 AnonArea::rel_to_page_idx(rel, aa.size - (self.mem_chunk_pages - 1) * *PAGE_SIZE);
-            let mut is_write = rw_uniform.sample(&mut rng) <= self.anon_write_frac;
+            let is_write = rw_uniform.sample(&mut rng) <= self.anon_write_frac;
 
-            for i in 0..self.mem_chunk_pages {
-                let page: &mut [u64] = aa.access_page(page_idx + i);
+            for page_idx in page_base..page_base + self.mem_chunk_pages {
+                let page: &mut [u64] = aa.access_page(page_idx);
                 if page[0] == 0 {
-                    for j in 0..*PAGE_SIZE / 8 {
-                        page[j] = rng.gen();
-                    }
-                    is_write = true;
+                    fill_random(page, &mut rng);
                 }
                 if is_write {
                     page[0] = page[0].wrapping_add(1).max(1);
                 }
-                rdh.append(aa.access_page(page_idx + i))
+                rdh.append(aa.access_page(page_idx))
             }
-            Self::anon_dist_count(&mut anon_dist, page_idx, self.mem_chunk_pages, &aa);
+            Self::anon_dist_count(&mut anon_dist, page_base, self.mem_chunk_pages, &aa);
         }
         sleep(Duration::from_secs_f64(self.sleep_dur / 3.0));
 
@@ -755,7 +763,14 @@ impl DispatchThread {
                                            anon_dist,
                             })
                                 .unwrap();
-                        },
+                        }
+                        Ok(DispatchCmd::FillAnon) => {
+                            let aa = self.anon_area.read().unwrap();
+                            let mut rng = SmallRng::from_entropy();
+                            for i in 0 .. aa.size / *PAGE_SIZE {
+                                fill_random(aa.access_page(i), &mut rng);
+                            }
+                        }
                         Err(err) => {
                             debug!("DispatchThread: cmd_rx terminated ({:?})", err);
                             return;
@@ -850,6 +865,14 @@ impl Dispatch {
             .send(DispatchCmd::GetStat(self.stat_tx.clone()))
             .unwrap();
         self.stat_rx.recv().unwrap()
+    }
+
+    pub fn fill_anon(&self) {
+        self.cmd_tx
+            .as_ref()
+            .unwrap()
+            .send(DispatchCmd::FillAnon)
+            .unwrap();
     }
 }
 
