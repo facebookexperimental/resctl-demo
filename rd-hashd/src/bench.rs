@@ -87,7 +87,7 @@ impl Default for Cfg {
         Self {
             mem_buffer: 0.0,
             cpu: CpuCfg {
-                size: 1 << 30,
+                size: *TOTAL_MEMORY as u64 / 2,
                 lat: 15.0 * MSEC,
                 io_lat: 2.5 * MSEC,
                 io_ratio: 0.2,
@@ -110,7 +110,7 @@ impl Default for Cfg {
                 },
             },
             cpu_sat: CpuSatCfg {
-                size: 1 << 30,
+                size: *TOTAL_MEMORY as u64 / 2,
                 err: 0.1,
                 rounds: 3,
                 converge: ConvergeCfg {
