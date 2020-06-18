@@ -177,7 +177,12 @@ fn main() {
     // Create the testfiles root dir and determine whether we're on rotational
     // devices.
     //
-    let mut tf = TestFiles::new(tf_path, TESTFILE_UNIT_SIZE, args.file_max_size());
+    let mut tf = TestFiles::new(
+        tf_path,
+        TESTFILE_UNIT_SIZE,
+        args.file_max_size(),
+        args.compressibility,
+    );
     tf.prep_base_dir().unwrap();
 
     ROTATIONAL_TESTFILES.store(storage_info::is_path_rotational(tf_path), Ordering::Relaxed);
@@ -268,7 +273,13 @@ fn main() {
         to_gb(asize)
     );
 
-    let mut dispatch = hasher::Dispatch::new(args.size, tf, &params, create_logger(args, &params));
+    let mut dispatch = hasher::Dispatch::new(
+        args.size,
+        tf,
+        &params,
+        args.compressibility,
+        create_logger(args, &params),
+    );
 
     //
     // Monitor and report.

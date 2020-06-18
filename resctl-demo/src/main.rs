@@ -420,7 +420,7 @@ fn set_cursive_theme(siv: &mut Cursive) {
 
 fn unit_has_journal(unit_name: &str) -> Result<bool> {
     Ok(process::Command::new("journalctl")
-       .args(&["-o", "json", "-n", "1", "-u", unit_name])
+        .args(&["-o", "json", "-n", "1", "-u", unit_name])
         .output()?
         .stdout
         .len()

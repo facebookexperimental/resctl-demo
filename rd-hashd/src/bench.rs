@@ -237,12 +237,13 @@ impl TestHasher {
         max_size: u64,
         tf: TestFiles,
         params: &Params,
+        comp: f64,
         logger: Option<super::Logger>,
         hist_max: usize,
         report_file: Arc<Mutex<JsonReportFile<Report>>>,
         fill_anon: bool,
     ) -> Self {
-        let disp = hasher::Dispatch::new(max_size, tf, params, logger);
+        let disp = hasher::Dispatch::new(max_size, tf, params, comp, logger);
         if fill_anon {
             disp.fill_anon();
         }
@@ -523,6 +524,7 @@ impl Bench {
             self.args_file.data.testfiles.as_ref().unwrap(),
             TESTFILE_UNIT_SIZE,
             size,
+            self.args_file.data.compressibility
         );
         let mut tfbar = TestFilesProgressBar::new(size, self.bar_hidden);
         let mut report_file = self.report_file.lock().unwrap();
@@ -542,6 +544,7 @@ impl Bench {
         max_size: u64,
         tf: TestFiles,
         params: &Params,
+        comp: f64,
         report_file: Arc<Mutex<JsonReportFile<Report>>>,
         fill_anon: bool,
     ) -> TestHasher {
@@ -549,6 +552,7 @@ impl Bench {
             max_size,
             tf,
             params,
+            comp,
             create_logger(&self.args_file.data, params),
             HIST_MAX,
             report_file,
@@ -640,7 +644,14 @@ impl Bench {
         }
         params.file_size_mean = (params.file_size_mean as f64 * 1.05) as usize;
 
-        let th = self.create_test_hasher(max_size, tf, &params, self.report_file.clone(), true);
+        let th = self.create_test_hasher(
+            max_size,
+            tf,
+            &params,
+            self.args_file.data.compressibility,
+            self.report_file.clone(),
+            true,
+        );
         let mut pid = Pid::new(
             cfg.fsz_pid.kp,
             cfg.fsz_pid.ki,
@@ -698,7 +709,14 @@ impl Bench {
         params.anon_addr_stdev_ratio = 100.0;
         params.rps_target = u32::MAX;
 
-        let th = self.create_test_hasher(cfg.size, tf, &params, self.report_file.clone(), true);
+        let th = self.create_test_hasher(
+            cfg.size,
+            tf,
+            &params,
+            self.args_file.data.compressibility,
+            self.report_file.clone(),
+            true,
+        );
         let mut last_rps = 1.0;
 
         while nr_rounds < cfg.rounds {
@@ -1027,6 +1045,7 @@ impl Bench {
                 max_size,
                 tf,
                 &self.params,
+                self.args_file.data.compressibility,
                 self.report_file.clone(),
                 false,
             );

@@ -24,15 +24,6 @@ use super::logger::Logger;
 use super::testfiles::TestFiles;
 use super::workqueue::WorkQueue;
 
-fn fill_random<R: rand::Rng + ?Sized>(page: &mut [u64], rng: &mut R) {
-    for i in 0..page.len() {
-        page[i] = rng.gen();
-    }
-    if page[0] == 0 {
-        page[0] = 1;
-    }
-}
-
 /// Load files and calculate sha1.
 pub struct Hasher {
     buf: Vec<u8>,
@@ -124,6 +115,7 @@ impl Drop for AnonUnit {
 struct AnonArea {
     units: Vec<AnonUnit>,
     size: usize,
+    comp: f64,
 }
 
 /// Anonymous memory which can be shared by multiple threads with RwLock
@@ -132,10 +124,11 @@ struct AnonArea {
 impl AnonArea {
     const UNIT_SIZE: usize = 32 << 20;
 
-    fn new(size: usize) -> Self {
+    fn new(size: usize, comp: f64) -> Self {
         let mut area = AnonArea {
             units: Vec::new(),
             size: 0,
+            comp,
         };
         area.resize(size);
         area
@@ -347,7 +340,7 @@ impl HasherThread {
             for page_idx in page_base..page_base + self.mem_chunk_pages {
                 let page: &mut [u64] = aa.access_page(page_idx);
                 if page[0] == 0 {
-                    fill_random(page, &mut rng);
+                    fill_area_with_random(page, aa.comp, &mut rng);
                 }
                 if is_write {
                     page[0] = page[0].wrapping_add(1).max(1);
@@ -511,6 +504,7 @@ impl DispatchThread {
         max_size: u64,
         tf: TestFiles,
         params: Params,
+        anon_comp: f64,
         logger: Option<Logger>,
         cmd_rx: Receiver<DispatchCmd>,
     ) -> Self {
@@ -529,7 +523,7 @@ impl DispatchThread {
             cmpl_tx,
             cmpl_rx,
             file_size_normal: Self::file_size_normal(&params),
-            anon_area: Arc::new(RwLock::new(AnonArea::new(anon_total))),
+            anon_area: Arc::new(RwLock::new(AnonArea::new(anon_total, anon_comp))),
             anon_size_normal: Self::anon_size_normal(&params),
             sleep_normal: Self::sleep_normal(&params),
 
@@ -768,7 +762,7 @@ impl DispatchThread {
                             let aa = self.anon_area.read().unwrap();
                             let mut rng = SmallRng::from_entropy();
                             for i in 0 .. aa.size / *PAGE_SIZE {
-                                fill_random(aa.access_page(i), &mut rng);
+                                fill_area_with_random(aa.access_page::<u8>(i), aa.comp, &mut rng);
                             }
                         }
                         Err(err) => {
@@ -833,11 +827,17 @@ pub struct Dispatch {
 }
 
 impl Dispatch {
-    pub fn new(max_size: u64, tf: TestFiles, params: &Params, logger: Option<Logger>) -> Self {
+    pub fn new(
+        max_size: u64,
+        tf: TestFiles,
+        params: &Params,
+        anon_comp: f64,
+        logger: Option<Logger>,
+    ) -> Self {
         let params_copy = params.clone();
         let (cmd_tx, cmd_rx) = channel::unbounded();
         let dispatch_jh = Option::Some(spawn(move || {
-            let mut dt = DispatchThread::new(max_size, tf, params_copy, logger, cmd_rx);
+            let mut dt = DispatchThread::new(max_size, tf, params_copy, anon_comp, logger, cmd_rx);
             dt.run();
         }));
         let (stat_tx, stat_rx) = channel::unbounded();

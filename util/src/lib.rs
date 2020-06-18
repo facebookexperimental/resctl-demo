@@ -13,6 +13,7 @@ use std::ffi::{CString, OsStr, OsString};
 use std::fs;
 use std::io::prelude::*;
 use std::io::BufReader;
+use std::mem::size_of;
 use std::os::linux::fs::MetadataExt as LinuxME;
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::MetadataExt as UnixME;
@@ -273,6 +274,33 @@ pub fn run_command(cmd: &mut Command, emsg: &str) -> Result<()> {
         Ok(rc) if rc.success() => Ok(()),
         Ok(rc) => bail!("{:?} ({:?}): {}", &cmd_str, &rc, emsg,),
         Err(e) => bail!("{:?} ({:?}): {}", &cmd_str, &e, emsg,),
+    }
+}
+
+pub fn fill_area_with_random<T, R: rand::Rng + ?Sized>(area: &mut [T], comp: f64, rng: &mut R) {
+    let area = unsafe {
+        std::slice::from_raw_parts_mut(
+            std::mem::transmute::<*mut T, *mut u64>(area.as_mut_ptr()),
+            area.len() * size_of::<T>() / size_of::<u64>(),
+        )
+    };
+
+    const BLOCK_SIZE: usize = 512;
+    const WORDS_PER_BLOCK: usize = BLOCK_SIZE / size_of::<u64>();
+    let rands_per_block = (((WORDS_PER_BLOCK as f64) * (1.0 - comp)) as usize).min(WORDS_PER_BLOCK);
+    let last_first = area[0];
+
+    for i in 0..area.len() {
+        area[i] = if i % WORDS_PER_BLOCK < rands_per_block {
+            rng.gen()
+        } else {
+            0
+        };
+    }
+
+    // guarantee that the first word doesn't stay the same
+    if area[0] == last_first {
+        area[0] += 1;
     }
 }
 

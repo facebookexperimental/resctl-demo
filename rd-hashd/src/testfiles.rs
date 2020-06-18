@@ -3,13 +3,14 @@ use anyhow::{bail, Result};
 use log::{debug, trace, warn};
 use num::Integer;
 use rand::rngs::SmallRng;
-use rand::{Rng, SeedableRng};
+use rand::SeedableRng;
 use std::ffi::OsStr;
 use std::fs;
-use std::io::Write;
+use std::io::{Read, Write};
 use std::os::unix::io::AsRawFd;
 use std::path::{Path, PathBuf};
 use std::u32;
+use util::*;
 
 const DFL_PREFIX: &str = "rdh-";
 const FILE_BITS: usize = 28;
@@ -23,16 +24,18 @@ pub struct TestFiles {
     pub unit_size: u64,
     pub size: u64,
     pub nr_files: u64,
+    pub comp: f64,
     prefix: String,
 }
 
 impl TestFiles {
-    pub fn new<P: AsRef<Path>>(base_path: P, unit_size: u64, size: u64) -> Self {
+    pub fn new<P: AsRef<Path>>(base_path: P, unit_size: u64, size: u64, comp: f64) -> Self {
         TestFiles {
             base_path: PathBuf::from(base_path.as_ref()),
             unit_size,
             size,
             nr_files: size.div_ceil(&unit_size),
+            comp,
             prefix: String::from(DFL_PREFIX),
         }
     }
@@ -85,6 +88,14 @@ impl TestFiles {
         (di, fi, dname, fname)
     }
 
+    fn read_comp<P: AsRef<Path>>(path_in: P) -> Result<f64> {
+        let path = path_in.as_ref();
+        let mut f = fs::File::open(path)?;
+        let mut buf = [0u8; 8];
+        f.read(&mut buf)?;
+        Ok(f64::from_le_bytes(buf))
+    }
+
     pub fn setup<F: FnMut(u64)>(&mut self, mut progress: F) -> Result<()> {
         let mut rng = SmallRng::from_entropy();
 
@@ -109,10 +120,14 @@ impl TestFiles {
                 fs::create_dir_all(&dpath)?;
             }
 
-            // if file exists and already of the right size, skip
+            // if file exists and already of the right size and compressibility, skip
             if fpath.exists() {
                 match fpath.metadata() {
-                    Ok(ref md) if md.is_file() && md.len() == self.unit_size => {
+                    Ok(ref md)
+                        if md.is_file()
+                            && md.len() == self.unit_size
+                            && Self::read_comp(&fpath).unwrap_or(-1.0) == self.comp =>
+                    {
                         trace!("testfiles: using existing {:?}", &fpath);
                         continue;
                     }
@@ -132,8 +147,11 @@ impl TestFiles {
                 .write(true)
                 .create_new(true)
                 .open(&fpath)?;
-            let v: Vec<u8> = (0..self.unit_size).map(|_| rng.gen()).collect();
-            f.write_all(&v)?;
+
+            let mut buf = vec![0u8; self.unit_size as usize];
+            fill_area_with_random(&mut buf, self.comp, &mut rng);
+            buf[0..8].copy_from_slice(&self.comp.to_ne_bytes());
+            f.write_all(&buf)?;
 
             progress(i * self.unit_size);
         }

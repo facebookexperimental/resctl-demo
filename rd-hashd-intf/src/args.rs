@@ -102,9 +102,10 @@ lazy_static! {
     static ref ARGS_STR: String = {
         let dfl: Args = Default::default();
         format!(
-            "-t, --testfiles=[DIR]   'Testfiles directory'
-             -s, --size=[SIZE]       'Max memory footprint, affects testfiles size (default: {dfl_size:.2}G)'
-             -f, --file-max=[FRAC]   'Max fraction of page cache, affects testfiles size (default: {dfl_file_max_frac:.2})'
+            "-t, --testfiles=[DIR]       'Testfiles directory'
+             -s, --size=[SIZE]           'Max memory footprint, affects testfiles size (default: {dfl_size:.2}G)'
+             -f, --file-max=[FRAC]       'Max fraction of page cache, affects testfiles size (default: {dfl_file_max_frac:.2})'
+             -c, --compressibility=[FRAC] 'File and anon data compressibility (default: 0)
              -p, --params=[FILE]         'Runtime updatable parameters, will be created if non-existent'
              -r, --report=[FILE]         'Runtime report file, FILE.staging will be used for staging'
              -l, --log-dir=[PATH]        'Record hash results to the files in PATH'
@@ -143,6 +144,7 @@ pub struct Args {
     pub testfiles: Option<String>,
     pub size: u64,
     pub file_max_frac: f64,
+    pub compressibility: f64,
     pub params: Option<String>,
     pub report: Option<String>,
     pub log_dir: Option<String>,
@@ -181,6 +183,7 @@ impl Default for Args {
             testfiles: None,
             size: Self::DFL_SIZE_MULT * *TOTAL_MEMORY as u64,
             file_max_frac: Self::DFL_FILE_MAX_FRAC,
+            compressibility: 0.0,
             params: None,
             report: None,
             log_dir: None,
@@ -248,6 +251,14 @@ impl JsonArgs for Args {
                 v.parse::<f64>().unwrap().max(0.0).min(1.0)
             } else {
                 dfl.file_max_frac
+            };
+            updated_base = true;
+        }
+        if let Some(v) = matches.value_of("compressibility") {
+            self.compressibility = if v.len() > 0 {
+                v.parse::<f64>().unwrap().max(0.0).min(1.0)
+            } else {
+                0.0
             };
             updated_base = true;
         }
