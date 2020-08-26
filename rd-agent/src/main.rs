@@ -411,26 +411,34 @@ impl Config {
 
     fn check_one_fs(path: &str, sr_failed: &mut HashSet<SysReq>) -> Result<MountInfo> {
         let mi = path_to_mountpoint(path)?;
+        let rot = is_path_rotational(path);
         if mi.fstype != "btrfs" {
             sr_failed.insert(SysReq::Btrfs);
             bail!("{:?} is not on btrfs", path);
         }
-        if is_path_rotational(path) || mi.options.contains(&"discard=async".into()) {
+        if mi.options.contains(&"space_cache=v2".into())
+            && (rot || mi.options.contains(&"discard=async".into()))
+        {
             return Ok(mi);
         }
 
+        let mut opts = String::from("remount,space_cache=v2");
+        if !rot {
+            opts += ",discard=async";
+        }
+
         if let Err(e) = run_command(
-            Command::new("mount")
-                .arg("-o")
-                .arg("remount,discard=async")
-                .arg(&mi.dest),
-            "failed to enable async discard",
+            Command::new("mount").arg("-o").arg(&opts).arg(&mi.dest),
+            "failed to enable space_cache=v2 and discard=async",
         ) {
             sr_failed.insert(SysReq::BtrfsAsyncDiscard);
             bail!("{}", &e);
         }
 
-        info!("cfg: {:?} didn't have \"discard=async\", remounted", path);
+        info!(
+            "cfg: {:?} didn't have \"space_cache=v2\" and/or \"discard=async\", remounted",
+            path
+        );
         Ok(mi)
     }
 
@@ -691,7 +699,7 @@ impl Config {
         }
 
         // hostcriticals - ones which can be restarted for relocation
-        for svc_name in ["systemd-journald.service", "sshd.service"].iter() {
+        for svc_name in ["systemd-journald.service", "sshd.service", "sssd.service"].iter() {
             if let Err(e) = Self::check_one_hostcritical_service(svc_name, true) {
                 error!("cfg: {}", &e);
                 self.sr_failed.insert(SysReq::HostCriticalServices);
