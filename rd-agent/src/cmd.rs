@@ -362,8 +362,7 @@ impl Runner {
             }
 
             if let Err(e) = data.check_completions() {
-                error!("cmd: Failed to check completions ({:?})", &e);
-                panic!();
+                warn!("cmd: Failed to check completions ({:?})", &e);
             }
 
             // Stopping sys/sideloads and clearing scratch dirs can
