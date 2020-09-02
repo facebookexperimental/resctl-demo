@@ -479,7 +479,8 @@ enum PlotId {
     WriteLatP90,
     WriteLatP99,
     IoCostVrate,
-    IoCostBusy,
+    IoCostUsage,
+    Dummy,
 }
 
 fn plot_spec_factory(id: PlotId) -> PlotSpec {
@@ -675,12 +676,19 @@ fn plot_spec_factory(id: PlotId) -> PlotSpec {
             min: Box::new(|| 0.0),
             max: Box::new(|| 0.0),
         },
-        PlotId::IoCostBusy => PlotSpec {
-            sel: Box::new(move |rep: &Report| rep.iocost.busy),
+        PlotId::IoCostUsage => PlotSpec {
+            sel: Box::new(move |rep: &Report| rep.iocost.usage * 100.0),
             aggr: PlotDataAggr::AVG,
-            title: Box::new(move || "busy-level".into()),
-            min: Box::new(|| -1.0),
-            max: Box::new(|| -1.0),
+            title: Box::new(move || "usage%".into()),
+            min: Box::new(|| 0.0),
+            max: Box::new(|| 0.0),
+        },
+        PlotId::Dummy => PlotSpec {
+            sel: Box::new(move |_rep: &Report| 0.0),
+            aggr: PlotDataAggr::AVG,
+            title: Box::new(move || "".into()),
+            min: Box::new(|| 0.0),
+            max: Box::new(|| 0.0),
         },
     }
 }
@@ -809,7 +817,7 @@ static ALL_GRAPHS: &[(GraphTag, &str, &[PlotId])] = &[
     (
         GraphTag::IoCost,
         "iocost controller stats",
-        &[PlotId::IoCostVrate, PlotId::IoCostBusy],
+        &[PlotId::IoCostVrate, PlotId::IoCostUsage, PlotId::Dummy],
     ),
     (
         GraphTag::RpsCpu,

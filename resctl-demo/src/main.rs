@@ -118,7 +118,6 @@ pub struct Args {
     pub dev: String,
     pub linux_tar: String,
     pub keep: bool,
-    pub iocost_mon: bool,
     pub no_iolat: bool,
     pub force: bool,
 }
@@ -492,7 +491,6 @@ fn main() {
         dev: matches.value_of("dev").unwrap_or("").into(),
         linux_tar: matches.value_of("linux").unwrap_or("").into(),
         keep: matches.is_present("keep"),
-        iocost_mon: matches.is_present("iocost-mon"),
         no_iolat: matches.is_present("no-iolat"),
         force: matches.is_present("force"),
     };

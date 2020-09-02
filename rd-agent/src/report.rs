@@ -117,7 +117,7 @@ fn read_cgroup_flat_keyed_file(path: &str) -> Result<HashMap<String, u64>> {
     Ok(map)
 }
 
-fn read_cgroup_nested_keyed_file(path: &str) -> Result<HashMap<String, HashMap<String, u64>>> {
+fn read_cgroup_nested_keyed_file(path: &str) -> Result<HashMap<String, HashMap<String, String>>> {
     let f = fs::OpenOptions::new().read(true).open(path)?;
     let r = BufReader::new(f);
     let mut top_map = HashMap::new();
@@ -128,7 +128,7 @@ fn read_cgroup_nested_keyed_file(path: &str) -> Result<HashMap<String, HashMap<S
 
         let mut map = HashMap::new();
         for tok in split {
-            if let Ok((key, val)) = scan_fmt!(tok, "{}={d}", String, u64) {
+            if let Ok((key, val)) = scan_fmt!(tok, "{}={}", String, String) {
                 map.insert(key, val);
             }
         }
@@ -160,11 +160,11 @@ fn read_cgroup_usage(cgrp: &str, devnr: (u32, u32)) -> Usage {
 
     if let Ok(is) = read_cgroup_nested_keyed_file(&(cgrp.to_string() + "/io.stat")) {
         if let Some(stat) = is.get(&format!("{}:{}", devnr.0, devnr.1)) {
-            if let Some(v) = stat.get("rbytes") {
-                usage.io_rbytes = *v;
+            if let Some(val) = stat.get("rbytes") {
+                usage.io_rbytes = scan_fmt!(&val, "{}", u64).unwrap_or(0);
             }
-            if let Some(v) = stat.get("wbytes") {
-                usage.io_wbytes = *v;
+            if let Some(val) = stat.get("wbytes") {
+                usage.io_wbytes = scan_fmt!(&val, "{}", u64).unwrap_or(0);
             }
         }
     }
@@ -444,8 +444,8 @@ struct ReportWorker {
     report_file: ReportFile,
     report_file_1min: ReportFile,
     iolat: IoLatReport,
-    iocost_vrate: f64,
-    iocost_busy: f64,
+    iocost_devnr: (u32, u32),
+    iocost_last_usage: (u64, SystemTime),
 }
 
 impl ReportWorker {
@@ -469,20 +469,50 @@ impl ReportWorker {
                 &cfg.report_1min_d_path,
                 cfg.scr_devnr,
             ),
+
+            iolat: Default::default(),
+            iocost_devnr: cfg.scr_devnr,
+            iocost_last_usage: (0, UNIX_EPOCH),
+
             runner: {
                 drop(rdata);
                 runner
             },
-            iolat: Default::default(),
-            iocost_vrate: 0.0,
-            iocost_busy: 0.0,
         })
     }
 
+    fn read_iocost(&mut self, now: SystemTime) -> Result<IoCostReport> {
+        let is = read_cgroup_nested_keyed_file("/sys/fs/cgroup/io.stat")?;
+        let mut rep = IoCostReport {
+            vrate: 0.0,
+            usage: 0.0,
+        };
+
+        if let Some(stat) = is.get(&format!("{}:{}", self.iocost_devnr.0, self.iocost_devnr.1)) {
+            if let Some(val) = stat.get("cost.vrate") {
+                rep.vrate = scan_fmt!(&val, "{}", f64).unwrap_or(0.0) / 100.0;
+            }
+            if let Some(val) = stat.get("cost.usage") {
+                let usage = scan_fmt!(&val, "{}", u64).unwrap_or(0);
+                if usage > self.iocost_last_usage.0 {
+                    rep.usage = (usage - self.iocost_last_usage.0) as f64
+                        / 1000000.0 // usecs to secs
+                        / now.duration_since(self.iocost_last_usage.1)?.as_secs_f64();
+                }
+                self.iocost_last_usage = (usage, now);
+            }
+        }
+
+        Ok(rep)
+    }
+
     fn base_report(&mut self) -> Result<Report> {
-        let mut runner = self.runner.data.lock().unwrap();
         let now = SystemTime::now();
         let expiration = now - Duration::from_secs(3);
+
+        let iocost = self.read_iocost(now)?;
+
+        let mut runner = self.runner.data.lock().unwrap();
 
         let bench_hashd = match runner.bench_hashd.as_mut() {
             Some(svc) => super::svc_refresh_and_report(&mut svc.unit)?,
@@ -515,10 +545,7 @@ impl ReportWorker {
             sideloads: runner.side_runner.report_sideloads()?,
             usages: BTreeMap::new(),
             iolat: self.iolat.clone(),
-            iocost: IoCostReport {
-                vrate: self.iocost_vrate,
-                busy: self.iocost_busy,
-            },
+            iocost,
         })
     }
 
@@ -549,23 +576,6 @@ impl ReportWorker {
         Ok(iolat_map)
     }
 
-    fn parse_iocost_mon_output(line: &str) -> Result<Option<(f64, f64)>> {
-        let parsed = json::parse(line)?;
-
-        if parsed["device"].is_null() {
-            return Ok(None);
-        }
-
-        let vrate_pct = parsed["vrate_pct"]
-            .as_f64()
-            .ok_or_else(|| anyhow!("failed to parse vrate_pct from {:?}", line))?;
-        let busy = parsed["busy_level"]
-            .as_f64()
-            .ok_or_else(|| anyhow!("failed to parse busy_level from {:?}", line))?;
-
-        Ok(Some((vrate_pct / 100.0, busy)))
-    }
-
     fn run_inner(mut self) {
         let mut next_at = unix_now() + 1;
 
@@ -591,23 +601,6 @@ impl ReportWorker {
             }));
         }
 
-        let (iocost_mon_tx, iocost_mon_rx) = channel::unbounded::<String>();
-        let (mut iocost_mon, mut iocost_mon_jh) = (None, None);
-        if cfg.iocost_monitor_bin.is_some() {
-            iocost_mon = Some(
-                Command::new(cfg.iocost_monitor_bin.as_ref().unwrap())
-                    .arg(&cfg.scr_dev)
-                    .arg("--json")
-                    .stdout(Stdio::piped())
-                    .spawn()
-                    .unwrap(),
-            );
-            let iocost_mon_stdout = iocost_mon.as_mut().unwrap().stdout.take().unwrap();
-            iocost_mon_jh = Some(spawn(move || {
-                child_reader_thread("iocost_mon".into(), iocost_mon_stdout, iocost_mon_tx)
-            }));
-        }
-
         drop(runner);
         let mut sleep_dur = Duration::from_secs(0);
 
@@ -627,24 +620,6 @@ impl ReportWorker {
                         }
                     }
                 },
-                recv(iocost_mon_rx) -> res => {
-                    match res {
-                        Ok(line) => {
-                            match Self::parse_iocost_mon_output(&line) {
-                                Ok(Some((vrate, busy))) => {
-                                    self.iocost_vrate = vrate;
-                                    self.iocost_busy = busy;
-                                }
-                                Ok(None) => (),
-                                Err(e) => warn!("report: failed to parse iocost_mon output ({:?})", &e),
-                            }
-                        }
-                        Err(e) => {
-                            warn!("report: iocost_mon reader thread failed ({:?})", &e);
-                            break;
-                        }
-                    }
-                }
                 recv(self.term_rx) -> term => {
                     if let Err(e) = term {
                         info!("report: Term ({})", &e);
@@ -681,18 +656,11 @@ impl ReportWorker {
         }
 
         drop(iolat_rx);
-        drop(iocost_mon_rx);
 
         if iolat.is_some() {
             let _ = iolat.as_mut().unwrap().kill();
             let _ = iolat.as_mut().unwrap().wait();
             iolat_jh.unwrap().join().unwrap();
-        }
-
-        if iocost_mon.is_some() {
-            let _ = iocost_mon.as_mut().unwrap().kill();
-            let _ = iocost_mon.as_mut().unwrap().wait();
-            iocost_mon_jh.unwrap().join().unwrap();
         }
     }
 

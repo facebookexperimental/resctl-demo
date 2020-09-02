@@ -231,13 +231,13 @@ impl Default for IoLatReport {
 #[derive(Clone, Default, Serialize, Deserialize)]
 pub struct IoCostReport {
     pub vrate: f64,
-    pub busy: f64,
+    pub usage: f64,
 }
 
 impl ops::AddAssign<&IoCostReport> for IoCostReport {
     fn add_assign(&mut self, rhs: &IoCostReport) {
         self.vrate += rhs.vrate;
-        self.busy += rhs.busy;
+        self.usage += rhs.usage;
     }
 }
 
@@ -245,7 +245,7 @@ impl<T: Into<f64>> ops::DivAssign<T> for IoCostReport {
     fn div_assign(&mut self, rhs: T) {
         let div = rhs.into();
         self.vrate /= div;
-        self.busy /= div;
+        self.usage /= div;
     }
 }
 

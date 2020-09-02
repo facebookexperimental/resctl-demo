@@ -32,7 +32,7 @@ mod slices;
 use bench::IOCOST_QOS_PATH;
 use rd_agent_intf::{
     Args, BenchKnobs, Cmd, Report, SideloadDefs, SliceKnobs, SvcReport, SvcStateReport, SysReq,
-    SysReqsReport,
+    SysReqsReport, OOMD_SVC_NAME,
 };
 
 const SWAPPINESS_PATH: &str = "/proc/sys/vm/swappiness";
@@ -149,7 +149,6 @@ pub struct Config {
     pub hashd_paths: [HashdPaths; 2],
     pub misc_bin_path: String,
     pub io_latencies_bin: Option<String>,
-    pub iocost_monitor_bin: Option<String>,
     pub iocost_paths: IOCostPaths,
     pub oomd_bin: String,
     pub oomd_sys_svc: String,
@@ -306,12 +305,6 @@ impl Config {
             Some(misc_bin_path.clone() + "/io_latencies_wrapper.sh")
         };
 
-        let iocost_monitor_bin = if args.iocost_mon {
-            Some(misc_bin_path.clone() + "/iocost_monitor.py")
-        } else {
-            None
-        };
-
         let side_bin_path = top_path.clone() + "/sideload-bin";
         let side_scr_path = scr_path.clone() + "/sideload";
         let sys_scr_path = scr_path.clone() + "/sysload";
@@ -378,7 +371,6 @@ impl Config {
             ],
             misc_bin_path: misc_bin_path.clone(),
             io_latencies_bin,
-            iocost_monitor_bin,
             iocost_paths: IOCostPaths {
                 bin: misc_bin_path.clone() + "/iocost_coef_gen.py",
                 working: Self::prep_dir(&(scr_path.clone() + "/iocost-coef")),
@@ -671,6 +663,10 @@ impl Config {
                 info!("cfg: Stopping {:?} while resctl-demo is running", &svc.name);
                 let _ = svc.stop();
             }
+        }
+
+        if let Ok(mut svc) = systemd::Unit::new_sys(OOMD_SVC_NAME.into()) {
+            let _ = svc.stop();
         }
 
         let procs = sys.get_process_list();

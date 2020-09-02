@@ -5,7 +5,7 @@ use anyhow::{bail, Result};
 use std::process::Command;
 use util::*;
 
-const MISC_BINS: [(&str, &[u8]); 5] = [
+const MISC_BINS: [(&str, &[u8]); 4] = [
     (
         "iocost_coef_gen.py",
         include_bytes!("misc/iocost_coef_gen.py"),
@@ -15,10 +15,6 @@ const MISC_BINS: [(&str, &[u8]); 5] = [
     (
         "io_latencies_wrapper.sh",
         include_bytes!("misc/io_latencies_wrapper.sh"),
-    ),
-    (
-        "iocost_monitor.py",
-        include_bytes!("misc/iocost_monitor.py"),
     ),
 ];
 
@@ -42,15 +38,6 @@ pub fn prepare_misc_bins(cfg: &Config) -> Result<()> {
             IOCOST_QOS_PATH,
             &e
         );
-    }
-
-    if cfg.iocost_monitor_bin.is_some() {
-        run_command(
-            Command::new(cfg.iocost_monitor_bin.as_ref().unwrap())
-                .arg(&cfg.scr_dev)
-                .args(&["-i", "0"]),
-            "is drgn working? https://github.com/osandov/drgn",
-        )?;
     }
 
     Ok(())

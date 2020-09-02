@@ -35,7 +35,6 @@ lazy_static! {
             &args.dir,
             &args.dev,
             &args.linux_tar,
-            args.iocost_mon,
             args.no_iolat,
             args.keep,
         ))
@@ -155,7 +154,6 @@ pub struct AgentMinder {
     scratch: String,
     dev: String,
     linux_tar: String,
-    iocost_mon: bool,
     no_iolat: bool,
     force: bool,
     keep: bool,
@@ -170,7 +168,6 @@ impl AgentMinder {
         dir: &str,
         dev: &str,
         linux_tar: &str,
-        iocost_mon: bool,
         no_iolat: bool,
         keep: bool,
     ) -> Self {
@@ -193,7 +190,6 @@ impl AgentMinder {
             scratch: agent_args.scratch.as_deref().unwrap_or("").into(),
             dev,
             linux_tar,
-            iocost_mon,
             no_iolat,
             force: false,
             keep,
@@ -225,9 +221,6 @@ impl AgentMinder {
         if self.linux_tar.len() > 0 {
             args.push("--linux-tar".into());
             args.push(self.linux_tar.clone());
-        }
-        if self.iocost_mon {
-            args.push("--iocost-mon".into());
         }
         if self.no_iolat {
             args.push("--no-iolat".into());
