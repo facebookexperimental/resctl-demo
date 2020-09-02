@@ -179,13 +179,16 @@ fn plot_graph(
         );
     }
     if let Some(g3) = &g3 {
-        cmd += &format!(
-            ", \"{data}\" using 1:{idx} with lines axis x1{y2} title \"{title}\"\n",
-            data = data,
-            idx = 4,
-            y2 = y2,
-            title = (g3.title)()
-        );
+        let title = (g3.title)();
+        if title.len() > 0 {
+            cmd += &format!(
+                ", \"{data}\" using 1:{idx} with lines axis x1{y2} title \"{title}\"\n",
+                data = data,
+                idx = 4,
+                y2 = y2,
+                title = title,
+            );
+        }
     }
 
     let output = Command::new(&bin).arg("-e").arg(cmd).output()?;
@@ -448,6 +451,7 @@ enum PlotId {
     WorkIo,
     SideIo,
     SysIo,
+    RootIo,
     WorkRead,
     SideRead,
     SysRead,
@@ -479,7 +483,6 @@ enum PlotId {
     WriteLatP90,
     WriteLatP99,
     IoCostVrate,
-    IoCostUsage,
     Dummy,
 }
 
@@ -536,11 +539,10 @@ fn plot_spec_factory(id: PlotId) -> PlotSpec {
     fn io_spec(slice: &'static str) -> PlotSpec {
         PlotSpec {
             sel: Box::new(move |rep: &Report| {
-                let usages = rep.usages.get(slice).unwrap();
-                (usages.io_rbps + usages.io_wbps) as f64 / (1024.0 * 1024.0)
+                (rep.usages.get(slice).unwrap().io_util * 100.0).min(200.0)
             }),
             aggr: PlotDataAggr::AVG,
-            title: Box::new(move || format!("{}-Mbps", slice.trim_end_matches(".slice"))),
+            title: Box::new(move || format!("{}-util", slice.trim_end_matches(".slice"))),
             min: Box::new(|| 0.0),
             max: Box::new(|| 0.0),
         }
@@ -639,6 +641,7 @@ fn plot_spec_factory(id: PlotId) -> PlotSpec {
         PlotId::WorkIo => io_spec("workload.slice"),
         PlotId::SideIo => io_spec("sideload.slice"),
         PlotId::SysIo => io_spec("system.slice"),
+        PlotId::RootIo => io_spec("-.slice"),
         PlotId::WorkSwap => swap_spec("workload.slice"),
         PlotId::SideSwap => swap_spec("sideload.slice"),
         PlotId::SysSwap => swap_spec("system.slice"),
@@ -673,13 +676,6 @@ fn plot_spec_factory(id: PlotId) -> PlotSpec {
             sel: Box::new(move |rep: &Report| rep.iocost.vrate * 100.0),
             aggr: PlotDataAggr::AVG,
             title: Box::new(move || "vrate%".into()),
-            min: Box::new(|| 0.0),
-            max: Box::new(|| 0.0),
-        },
-        PlotId::IoCostUsage => PlotSpec {
-            sel: Box::new(move |rep: &Report| rep.iocost.usage * 100.0),
-            aggr: PlotDataAggr::AVG,
-            title: Box::new(move || "usage%".into()),
             min: Box::new(|| 0.0),
             max: Box::new(|| 0.0),
         },
@@ -737,7 +733,7 @@ static ALL_GRAPHS: &[(GraphTag, &str, &[PlotId])] = &[
     ),
     (
         GraphTag::IoUtil,
-        "IO util (MBps) in top-level slices",
+        "IO util (%) in top-level slices",
         &[PlotId::WorkIo, PlotId::SideIo, PlotId::SysIo],
     ),
     (
@@ -817,7 +813,7 @@ static ALL_GRAPHS: &[(GraphTag, &str, &[PlotId])] = &[
     (
         GraphTag::IoCost,
         "iocost controller stats",
-        &[PlotId::IoCostVrate, PlotId::IoCostUsage, PlotId::Dummy],
+        &[PlotId::IoCostVrate, PlotId::RootIo, PlotId::Dummy],
     ),
     (
         GraphTag::RpsCpu,
@@ -875,7 +871,7 @@ pub fn layout_factory(id: GraphSetId) -> Box<dyn View> {
             " rps/psi ".into(),
             " utilization ".into(),
             " IO ".into(),
-            " misc/psi-some ".into(),
+            " iocost/psi-some ".into(),
         ];
         let mut styles: [Style; GRAPH_NR_TABS] = [COLOR_INACTIVE.into(); GRAPH_NR_TABS];
 

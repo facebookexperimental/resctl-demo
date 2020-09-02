@@ -33,6 +33,7 @@ struct Usage {
     swap_bytes: u64,
     io_rbytes: u64,
     io_wbytes: u64,
+    io_usage: u64,
     cpu_stalls: (f64, f64),
     mem_stalls: (f64, f64),
     io_stalls: (f64, f64),
@@ -59,49 +60,6 @@ fn read_stalls(path: &str) -> Result<(f64, f64)> {
     }
 
     Ok((some.unwrap_or(0.0), full.unwrap_or(0.0)))
-}
-
-fn read_system_usage(devnr: (u32, u32)) -> Result<(Usage, f64)> {
-    let kstat = procfs::KernelStats::new()?;
-    let cpu = &kstat.total;
-    let cpu_total = cpu.user as f64
-        + cpu.nice as f64
-        + cpu.system as f64
-        + cpu.idle as f64
-        + cpu.iowait.unwrap() as f64
-        + cpu.irq.unwrap() as f64
-        + cpu.softirq.unwrap() as f64
-        + cpu.steal.unwrap() as f64
-        + cpu.guest.unwrap() as f64
-        + cpu.guest_nice.unwrap() as f64;
-    let cpu_busy = cpu_total - cpu.idle as f64 - cpu.iowait.unwrap() as f64;
-
-    let mstat = procfs::Meminfo::new()?;
-    let mem_bytes = mstat.mem_total - mstat.mem_free;
-    let swap_bytes = mstat.swap_total - mstat.swap_free;
-
-    let mut io_rbytes = 0;
-    let mut io_wbytes = 0;
-    for dstat in linux_proc::diskstats::DiskStats::from_system()?.iter() {
-        if dstat.major == devnr.0 as u64 && dstat.minor == devnr.1 as u64 {
-            io_rbytes = dstat.sectors_read * 512;
-            io_wbytes = dstat.sectors_written * 512;
-        }
-    }
-
-    Ok((
-        Usage {
-            cpu_busy,
-            mem_bytes,
-            swap_bytes,
-            io_rbytes,
-            io_wbytes,
-            cpu_stalls: read_stalls("/proc/pressure/cpu")?,
-            mem_stalls: read_stalls("/proc/pressure/memory")?,
-            io_stalls: read_stalls("/proc/pressure/io")?,
-        },
-        cpu_total,
-    ))
 }
 
 fn read_cgroup_flat_keyed_file(path: &str) -> Result<HashMap<String, u64>> {
@@ -137,6 +95,59 @@ fn read_cgroup_nested_keyed_file(path: &str) -> Result<HashMap<String, HashMap<S
     Ok(top_map)
 }
 
+fn read_system_usage(devnr: (u32, u32)) -> Result<(Usage, f64)> {
+    let kstat = procfs::KernelStats::new()?;
+    let cpu = &kstat.total;
+    let cpu_total = cpu.user as f64
+        + cpu.nice as f64
+        + cpu.system as f64
+        + cpu.idle as f64
+        + cpu.iowait.unwrap() as f64
+        + cpu.irq.unwrap() as f64
+        + cpu.softirq.unwrap() as f64
+        + cpu.steal.unwrap() as f64
+        + cpu.guest.unwrap() as f64
+        + cpu.guest_nice.unwrap() as f64;
+    let cpu_busy = cpu_total - cpu.idle as f64 - cpu.iowait.unwrap() as f64;
+
+    let mstat = procfs::Meminfo::new()?;
+    let mem_bytes = mstat.mem_total - mstat.mem_free;
+    let swap_bytes = mstat.swap_total - mstat.swap_free;
+
+    let mut io_rbytes = 0;
+    let mut io_wbytes = 0;
+    for dstat in linux_proc::diskstats::DiskStats::from_system()?.iter() {
+        if dstat.major == devnr.0 as u64 && dstat.minor == devnr.1 as u64 {
+            io_rbytes = dstat.sectors_read * 512;
+            io_wbytes = dstat.sectors_written * 512;
+        }
+    }
+
+    let mut io_usage = 0;
+    if let Ok(is) = read_cgroup_nested_keyed_file("/sys/fs/cgroup/io.stat") {
+        if let Some(stat) = is.get(&format!("{}:{}", devnr.0, devnr.1)) {
+            if let Some(val) = stat.get("cost.usage") {
+                io_usage = scan_fmt!(&val, "{}", u64).unwrap_or(0);
+            }
+        }
+    }
+
+    Ok((
+        Usage {
+            cpu_busy,
+            mem_bytes,
+            swap_bytes,
+            io_rbytes,
+            io_wbytes,
+            io_usage,
+            cpu_stalls: read_stalls("/proc/pressure/cpu")?,
+            mem_stalls: read_stalls("/proc/pressure/memory")?,
+            io_stalls: read_stalls("/proc/pressure/io")?,
+        },
+        cpu_total,
+    ))
+}
+
 fn read_cgroup_usage(cgrp: &str, devnr: (u32, u32)) -> Usage {
     let mut usage: Usage = Default::default();
 
@@ -165,6 +176,9 @@ fn read_cgroup_usage(cgrp: &str, devnr: (u32, u32)) -> Usage {
             }
             if let Some(val) = stat.get("wbytes") {
                 usage.io_wbytes = scan_fmt!(&val, "{}", u64).unwrap_or(0);
+            }
+            if let Some(val) = stat.get("cost.usage") {
+                usage.io_usage = scan_fmt!(&val, "{}", u64).unwrap_or(0);
             }
         }
     }
@@ -259,6 +273,7 @@ impl UsageTracker {
                 if cur.io_wbytes >= last.io_wbytes {
                     rep.io_wbps = ((cur.io_wbytes - last.io_wbytes) as f64 / dur).round() as u64;
                 }
+                rep.io_util = (cur.io_usage - last.io_usage) as f64 / 1_000_000.0 / dur;
                 rep.cpu_pressures = (
                     ((cur.cpu_stalls.0 - last.cpu_stalls.0) / dur)
                         .min(1.0)
@@ -445,7 +460,6 @@ struct ReportWorker {
     report_file_1min: ReportFile,
     iolat: IoLatReport,
     iocost_devnr: (u32, u32),
-    iocost_last_usage: (u64, SystemTime),
 }
 
 impl ReportWorker {
@@ -472,7 +486,6 @@ impl ReportWorker {
 
             iolat: Default::default(),
             iocost_devnr: cfg.scr_devnr,
-            iocost_last_usage: (0, UNIX_EPOCH),
 
             runner: {
                 drop(rdata);
@@ -481,25 +494,15 @@ impl ReportWorker {
         })
     }
 
-    fn read_iocost(&mut self, now: SystemTime) -> Result<IoCostReport> {
+    fn read_iocost(&mut self) -> Result<IoCostReport> {
         let is = read_cgroup_nested_keyed_file("/sys/fs/cgroup/io.stat")?;
         let mut rep = IoCostReport {
             vrate: 0.0,
-            usage: 0.0,
         };
 
         if let Some(stat) = is.get(&format!("{}:{}", self.iocost_devnr.0, self.iocost_devnr.1)) {
             if let Some(val) = stat.get("cost.vrate") {
                 rep.vrate = scan_fmt!(&val, "{}", f64).unwrap_or(0.0) / 100.0;
-            }
-            if let Some(val) = stat.get("cost.usage") {
-                let usage = scan_fmt!(&val, "{}", u64).unwrap_or(0);
-                if usage > self.iocost_last_usage.0 {
-                    rep.usage = (usage - self.iocost_last_usage.0) as f64
-                        / 1000000.0 // usecs to secs
-                        / now.duration_since(self.iocost_last_usage.1)?.as_secs_f64();
-                }
-                self.iocost_last_usage = (usage, now);
             }
         }
 
@@ -510,7 +513,7 @@ impl ReportWorker {
         let now = SystemTime::now();
         let expiration = now - Duration::from_secs(3);
 
-        let iocost = self.read_iocost(now)?;
+        let iocost = self.read_iocost()?;
 
         let mut runner = self.runner.data.lock().unwrap();
 
