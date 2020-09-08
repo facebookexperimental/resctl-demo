@@ -309,7 +309,7 @@ fn update_agent_zoomed_view(siv: &mut Cursive) {
                 zv.pop();
                 AGENT_FILES.refresh();
                 if AGENT_FILES.sysreqs().missed.len() > 0 {
-                    doc::show_doc(siv, "intro.sysreqs", true);
+                    doc::show_doc(siv, "intro.sysreqs", true, false);
                 }
             }
             _ => return,
@@ -533,11 +533,18 @@ fn main() {
 
     // global key bindings
     siv.add_global_callback('~', |siv| siv.toggle_debug_console());
-    siv.add_global_callback('i', |siv| doc::show_doc(siv, "index", true));
-    siv.add_global_callback('!', |siv| doc::show_doc(siv, "doc-format", true));
+    siv.add_global_callback('i', |siv| doc::show_doc(siv, "index", true, false));
+    siv.add_global_callback('!', |siv| doc::show_doc(siv, "doc-format", true, false));
     siv.add_global_callback('r', |siv| {
         let id = doc::CUR_DOC.lock().unwrap().id.clone();
-        doc::show_doc(siv, &id, true);
+        doc::show_doc(siv, &id, true, false);
+    });
+    siv.add_global_callback('b', |siv| {
+        let mut doc_hist = doc::DOC_HIST.lock().unwrap();
+        if let Some(id) = doc_hist.pop() {
+            drop(doc_hist);
+            doc::show_doc(siv, &id, true, true);
+        }
     });
     siv.add_global_callback('q', |siv| {
         siv.add_layer(Dialog::around(TextView::new("Exiting...")));

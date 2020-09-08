@@ -24,9 +24,10 @@ use rd_agent_intf::{Cmd, HashdCmd, SliceConfig, SysReq};
 lazy_static! {
     pub static ref DOCS: BTreeMap<String, &'static str> = load_docs();
     pub static ref CUR_DOC: Mutex<RdDoc> = Mutex::new(RdDoc {
-        id: "__dummy__".into(),
+        id: "".into(),
         ..Default::default()
     });
+    pub static ref DOC_HIST: Mutex<Vec<String>> = Mutex::new(Vec::new());
     pub static ref SIDELOAD_NAMES: Mutex<BTreeSet<String>> = Mutex::new(BTreeSet::new());
     pub static ref SYSLOAD_NAMES: Mutex<BTreeSet<String>> = Mutex::new(BTreeSet::new());
 }
@@ -562,7 +563,7 @@ fn refresh_docs(siv: &mut Cursive) {
     refresh_knobs(siv, &cmd_state);
 }
 
-pub fn show_doc(siv: &mut Cursive, target: &str, jump: bool) {
+pub fn show_doc(siv: &mut Cursive, target: &str, jump: bool, back: bool) {
     let doc = RdDoc::parse(DOCS.get(target).unwrap().as_bytes()).unwrap();
     let mut cur_doc = CUR_DOC.lock().unwrap();
 
@@ -576,16 +577,20 @@ pub fn show_doc(siv: &mut Cursive, target: &str, jump: bool) {
         for cmd in &doc.pre_cmds {
             if let RdCmd::Jump(target) = cmd {
                 drop(cur_doc);
-                show_doc(siv, target, true);
+                show_doc(siv, target, true, false);
                 return;
             }
             exec_cmd(siv, cmd);
+        }
+
+        if !back && cur_doc.id.len() > 0 {
+            DOC_HIST.lock().unwrap().push(cur_doc.id.clone());
         }
     }
     *cur_doc = doc;
 
     siv.call_on_name("doc", |d: &mut Dialog| {
-        d.set_title(format!("[{}] {} - 'i': index", &cur_doc.id, &cur_doc.desc));
+        d.set_title(format!("[{}] {} - 'i': index, 'b': back", &cur_doc.id, &cur_doc.desc));
         d.set_content(render_doc(&cur_doc));
     });
     refresh_docs(siv);
@@ -660,7 +665,9 @@ fn render_cmd(prompt: &str, cmd: &RdCmd) -> impl View {
         }
         RdCmd::Jump(target) => {
             let t = target.clone();
-            view = view.child(create_button(prompt, move |siv| show_doc(siv, &t, true)));
+            view = view.child(create_button(prompt, move |siv| {
+                show_doc(siv, &t, true, false)
+            }));
         }
         _ => panic!("invalid cmd {:?} for prompt {:?}", cmd, prompt),
     }
@@ -711,10 +718,10 @@ pub fn layout_factory() -> impl View {
 
 pub fn post_layout(siv: &mut Cursive) {
     let cur_id = CUR_DOC.lock().unwrap().id.clone();
-    if cur_id == "__dummy__" {
-        show_doc(siv, "intro", true);
+    if cur_id.len() == 0 {
+        show_doc(siv, "intro", true, false);
     } else {
-        show_doc(siv, &cur_id, false);
+        show_doc(siv, &cur_id, false, false);
     }
     let _ = siv.focus_name("doc");
 }

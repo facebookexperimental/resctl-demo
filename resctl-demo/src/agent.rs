@@ -164,13 +164,7 @@ pub struct AgentMinder {
 }
 
 impl AgentMinder {
-    fn new(
-        dir: &str,
-        dev: &str,
-        linux_tar: &str,
-        no_iolat: bool,
-        keep: bool,
-    ) -> Self {
+    fn new(dir: &str, dev: &str, linux_tar: &str, no_iolat: bool, keep: bool) -> Self {
         let agent_args = &AGENT_FILES.files.lock().unwrap().args.data;
 
         let dev = if dev.len() > 0 {
@@ -256,7 +250,9 @@ impl AgentMinder {
                 self.seen_running = true;
                 AGENT_ZV_REQ.store(false, Ordering::Relaxed);
                 if AGENT_FILES.sysreqs().missed.len() == 0 {
-                    let _ = cb_sink.send(Box::new(move |siv| doc::show_doc(siv, "intro", true)));
+                    let _ = cb_sink.send(Box::new(move |siv| {
+                        doc::show_doc(siv, "intro", true, false)
+                    }));
                 };
             }
         } else if self.seen_running {
