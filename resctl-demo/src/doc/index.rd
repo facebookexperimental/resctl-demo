@@ -7,7 +7,7 @@
 *Introduction*
 
 %% jump intro.sysreqs            : * System Requirements
-%% jump intro.pre-bench          : * The Benchmarks
+%% jump intro.pre-bench          : * Welcome
 %% jump intro.iocost             :   * Iocost Parameters and Benchmark
 %% jump intro.hashd              :   * rd-hashd Workload Simulator
 %% jump intro.post-bench         : * Introduction to resctl-demo

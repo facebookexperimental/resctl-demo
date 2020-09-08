@@ -4,23 +4,31 @@
 *System Requirements*\n
 *===================*
 
-  ***(WARNING)*** *Failed to meet %MissedSysReqs% system requirements. The failed
-  requirements are marked* **red**. *rd-agent is force started but some demos
-  won't behave as expected.*
+ ***(WARNING)*** *Failed to meet %MissedSysReqs% system requirements. The failed
+ requirements are marked* **red**. *rd-agent is force started but some demos
+ won't behave as expected.*
 
-Dividing up resource usages for multiple workloads in a controlled manner
-requires comprehensive resource control strategies for all resources. Many of
-the required features are new and some of them have specific requirements. As
-resource control becomes more widely adopted, the need for specific
-configurations will go away. Some will be adopted as standard practices while
+Dividing resources among multiple workloads in a controlled manner requires
+comprehensive control strategies that cover all resources—CPU, IO, and memory.
+
+Many of the components and features required to implement these strategies are
+new, and there are currently a substantial number of specific requirements:
+These requirements are all listed on this page.
+
+resctl-demo checks for all needed requirements and configures the ones it can,
+but there are some requirements that can't be satisfied without system-level
+changes.
+
+As resource control becomes more widely adopted, the need for specific
+configurations will diminish: Some will be adopted as standard practices, while
 others become unnecessary as the underlying features grow more versatile.
 
-For now, we have a ton of requirements to meet to achieve comprehensive resource
-control. resctl-demo checks for all needed requirements and configures the ones
-that it can but there are requirements which can not be satisfied without
-system-level changes. Each requirement is listed below along with why it's
-there, what automatic configurations resctl-demo may apply and how to resolve if
-**unmet**.
+If any of the requirements are unmet, you’ll see an error message at the top of
+this page.
+
+Each requirement is described below, along with its purpose, the automatic
+configurations resctl-demo may apply, and info on meeting the requirement if
+it's currently unmet:
 
 * %SysReq::Controllers%: cgroup2 provides the foundation for resource control.
   resctl-demo requires the system to be managed by systemd using cgroup2 with
@@ -61,16 +69,16 @@ there, what automatic configurations resctl-demo may apply and how to resolve if
   The OS must be installed with btrfs as the root filesystem.
 
 * %SysReq::BtrfsAsyncDiscard%: Many SSDs show significant latency spikes when
-  discards are issued in bulk which can lead to severe priority inversions.
-  Async discard is a btrfs feature which reduces the total amount of and paces
+  discards are issued in bulk, which can lead to severe priority inversions.
+  Async discard is a btrfs feature that paces and reduces the total amount of
   discards.
 
   It can be enabled with "discard=async" mount option on kernels >= v5.6. If
-  available, resctl-demo will automatically remount the filesystem w/ the mount
+  available, resctl-demo will automatically remount the filesystem with the mount
   option. For details: https://lwn.net/Articles/805300/
 
 * %SysReq::NoCompositeStorage%: Currently, composite block devices such as dm
-  and md break the chain of custody for IOs allowing cgroups to escape IO
+  and md break the chain of custody for IOs, allowing cgroups to escape IO
   control and cause severe priority inversions.
 
   The filesystem must be on a physical device.
@@ -89,7 +97,7 @@ there, what automatic configurations resctl-demo may apply and how to resolve if
   resctl-demo automatically disables wbt.
 
 * %SysReq::Swap%: Swap must be enabled with the default swappiness and at least
-  as large as the smaller of half of the system memory or 32G.
+  as large as the smaller of half of the system memory, or 32G.
 
   See %SysReq::SwapOnScratch%.
 
@@ -119,4 +127,5 @@ there, what automatic configurations resctl-demo may apply and how to resolve if
 
   Install the needed packages.
 
-%% jump intro                    : [ Go to intro ]
+%% jump intro                    : [ Back: Go to intro ]
+%% jump index                    : [ Exit: Index ]

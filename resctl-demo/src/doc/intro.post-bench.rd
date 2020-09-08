@@ -8,66 +8,73 @@
 
 %WarnBench%
 
-The idea behind resource control is to distribute resources between
-workloads so that machines can be shared among different tasks without
-them interfering with each other.
+The idea behind resource control is to distribute resources between workloads so
+that machines can be shared among different tasks without them interfering with
+each other.
 
-## insert examples: use web browser while compiling, run a webserver
-## safely while the machine does rpm upgrades etc.
+The sharing workloads can be the web browser and kernel compilation job on your
+laptop, or a web server and maintenance workloads such as package upgrades and
+cron jobs. Maybe we want to transcode videos to utilize the unused capacities of
+the web server.
 
-for this purpose, let's introduce a test workload we're going to use
-for this demonstration, called hashd. hashd sets up test files from
-which it serves data requests and measures the end-to-end latency of
-each request. it tries to serve as many requests as it can without
-sacrificing response time. this is similar to how webservers or
-workloads like memcache operate in load-balanced compute pools. but
-because it's highly sensitive to latencies, it can also stand in for
-other applications, such as browsers or similar interactive desktop or
-mobile applications: their requests per seconds might be fewer, but
-the user cares very much about the latency behind each one.
+For this demo, we're going to use the test workload called hashd. hashd sets up
+test files from which it serves data requests, and measures the end-to-end
+latency of each request. It tries to serve as many requests as it can without
+sacrificing response time, similar to how web servers or workloads like memcache
+operate in load-balanced compute pools. Because it's highly sensitive to
+latencies, it can also stand in for other applications, such as browsers or
+similar interactive desktop or mobile applications: While their
+requests-per-second might be fewer, low latency and fast response time are top
+priorities for users.
 
-hashd is sensitive to the steady availability of cpu, memory and io,
-and so it'll be an honest indicator of how well resource isolation is
-working on all fronts on this host.
+hashd's sensitivity to the steady availability of CPU, memory, and IO, makes it
+an honest indicator of how well resource isolation is working on all fronts on
+the host.
 
-let's fire up hashd to get rolling
+Let's fire up hashd to get rolling:
 
-%% on hashd : [ Start hashd ]
+%% on hashd                      : [ Start hashd ]
 
-watch the panel to your left to see the rps ramping up. you can check
-the logs for warnings on errors as well. (explain more of the panels
-as they become relevant.)
+Watch the panel to your left to see the RPS ramping up. You can check the logs
+for warnings and errors as well.
 
-okay, now that our main workload is running, let's see how it responds
-to competition. for this purpose, we're going to launch a compile job.
-because it's not interactive, and thereby not bound by user input, it
-will eat up as many cpu cycles, as much io bandwidth, and as much
-memory for caches that it can get its hands on. it's doing useful
-work, but it's the perfect antagonist to our interactive hashd.
+OK, now that our main workload's running, let's see how it responds to
+competition. For this purpose, we're going to turn off resource control and
+launch a compile job. Because it's not interactive, and therefore not bound by
+user input, it will eat up as many CPU cycles, as much IO bandwidth, and as much
+memory for caches as it can get its hands on. It's doing useful work, but it's
+the perfect antagonist to our interactive hashd.
 
-%% on sideload test-build build-linux-4x : [ Start a linux build sideload ]
+%% (                             : [ Disable resource control and start linux build job ]
+%% off cpu-resctl
+%% off mem-resctl
+%% off io-resctl
+%% on sysload build-linux-2x build-linux-2x
+%% )
 
-ok, see the graph for how hashd rps take a shit. that's the compile
-job taking away its resources. not good.
+See the graph for the steep drop in RPS for hashd: That's the compile job taking
+away its resources: Not good.
 
-%% reset all : [ Enable Resource Control ]
+Now let's stop the build job and restore resource control:
 
-watch the rps stabilize.
+%% (                             : [ Stop linux build job and restore resource control ]
+%% off sysload build-linux-2x
+%% reset resctl
+%% )
 
-see how the compile job still makes forward progress.
+Once RPS climbs back up and stabilizes, let's start the same build job with
+resource control enabled and under the supervision of the sideloader:
 
-these two workloads are now sharing the machine safely, something that
-wouldn't have been possible before.
+%% (                             : [ Start linux build job as a sideload ]
+%% on sideload build-linux-2x build-linux-2x
+%% )
 
-## continue to more severe disturbances, introduce freezing &
-## oomkilling
+Watch the stable RPS while the compile job still makes forward progress: These
+two workloads are now sharing the machine safely, something that wasn't possible
+before.
 
-## continue to disable all sideloads and show how the workload's
-## memory footprint grows without the rps actually going up. introduce
-## senpai as a means to provide an accurate measure of memory headroom
+Continue reading to learn more about the various components which make this
+possible.
 
-## continue to the advanced page that breaks down the components of
-## resource control, allow the user to disable some aspects and
-## explain what fails and how, mention prio inversions etc.
-
+%% jump comp.cgroup              : [ Next: Cgroup and Resource Protection ]
 %% jump index                    : [ Exit: Index ]
