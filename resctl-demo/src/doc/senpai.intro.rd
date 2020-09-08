@@ -78,5 +78,4 @@ Now that we understand what the problem is, let's read on to find out how it
 can be solved.
 
 %% jump senpai.senpai            : [ Next: Senpai ]
-%% jump side.exp                 : [ Prev: Experiment with Sideloading ]
 %% jump index                    : [ Exit: Index ]

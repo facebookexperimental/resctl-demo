@@ -122,6 +122,4 @@ utilization information. PSI provides the critical insight into resource
 contention both at system and per-cgroup level.
 
 %% jump comp.psi                 : [ Next: Monitoring Resource Contention with PSI ]
-%% jump comp.cgroup.io           : [ Back: IO Control ]
-%% jump comp.cgroup              : [ Up: Cgroup and Resource Protection ]
 %% jump index                    : [ Exit: Index ]

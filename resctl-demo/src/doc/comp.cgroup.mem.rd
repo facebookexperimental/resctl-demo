@@ -168,5 +168,4 @@ challenging part in understanding and debugging resource related issues,
 we'll delve into more details in the next page.
 
 %% jump comp.cgroup.mem.thrash   : [ Next: The Anatomy of Thrashing ]
-%% jump comp.cgroup              : [ Up: Cgroup and Resource Protection ]
 %% jump index                    : [ Exit: Index ]

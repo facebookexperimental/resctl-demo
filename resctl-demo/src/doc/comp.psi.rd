@@ -141,5 +141,4 @@ Now that we have basic understanding of resoure presusre, let's check out
 one of its important use cases - oomd.
 
 %% jump comp.oomd                : [ Next: oomd - The Out-Of-Memory Daemon ]
-%% jump comp.cgroup.cpu          : [ Back: CPU Control ]
 %% jump index                    : [ Exit: Index ]

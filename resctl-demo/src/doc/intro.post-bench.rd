@@ -1,5 +1,5 @@
 ## Copyright (c) Facebook, Inc. and its affiliates.
-%% id intro.post-bench : Welcome to resouce control demo
+%% id intro.post-bench : Introduction to resouce control demo
 %% reset all-workloads
 %% reset protections
 

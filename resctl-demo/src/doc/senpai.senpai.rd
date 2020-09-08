@@ -107,5 +107,4 @@ ___*Read on*___
 On the next page, you can experiment with senpai on different situations.
 
 %% jump senpai.exp               : [ Next: Senpai Playground ]
-%% jump senpai.intro             : [ Prev: The Problem of Memory Sizing ]
 %% jump index                    : [ Exit: Index ]

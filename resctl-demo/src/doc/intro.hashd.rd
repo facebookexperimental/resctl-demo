@@ -231,6 +231,5 @@ You can re-run and cancel hashd benchmark with the following.
 
 ___*Read on*___
 
-%% jump intro.post-bench         : [ Next: Introduction ]
-%% jump intro.iocost             : [ Back: io.cost Controller ]
+%% jump intro.post-bench         : [ Next: Introduction to resctl-demo ]
 %% jump index                    : [ Exit: Index ]

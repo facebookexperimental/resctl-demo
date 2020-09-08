@@ -67,5 +67,5 @@ benchmarks again and tune and verify their results, on the following pages.
 Otherwise, sit back, wait for the benchmarks to finish, and then continue to the
 next page.
 
-%% jump intro.post-bench         : [ Next: Introduction ]
+%% jump intro.post-bench         : [ Next: Introduction to resctl-demo ]
 %% jump index                    : [ Exit: Index ]

@@ -29,5 +29,4 @@ Sysload toggles:
 
 ___*Read on*___
 
-%% jump senpai.senpai            : [ Prev: Senpai ]
 %% jump index                    : [ Exit: Index ]

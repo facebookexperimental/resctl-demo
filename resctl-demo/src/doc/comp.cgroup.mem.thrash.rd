@@ -128,6 +128,4 @@ reproduced the behaviors with rd-hashd. Now that we understand how memory
 management and IO are intertwined, let's take a look at IO control.
 
 %% jump comp.cgroup.io           : [ Next: IO Control ]
-%% jump comp.cgroup.mem          : [ Prev: Memory Control ]
-%% jump comp.cgroup              : [ Up: Cgroup and Resource Protection ]
 %% jump index                    : [ Exit: Index ]

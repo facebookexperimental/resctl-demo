@@ -127,5 +127,5 @@ it's currently unmet:
 
   Install the needed packages.
 
-%% jump intro                    : [ Back: Go to intro ]
+%% jump intro                    : [ Next: Welcome ]
 %% jump index                    : [ Exit: Index ]

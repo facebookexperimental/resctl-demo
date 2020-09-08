@@ -229,5 +229,4 @@ We've examined each component of resource protection. On the next page, put
 them into action by experimenting with all the switches and sliders.
 
 %% jump prot.demo                : [ Next: Throwing Everything At It ]
-%% jump comp.psi                 : [ Back: Monitoring Resource Contention with PSI ]
 %% jump index                    : [ Exit: Index ]

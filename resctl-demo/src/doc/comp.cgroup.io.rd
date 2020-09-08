@@ -157,6 +157,4 @@ benchmark page and want to go back, please follow the next link.
 %% jump intro.iocost             : [ Iocost Parameters and Benchmark ]
 %%
 %% jump comp.cgroup.cpu          : [ Next: CPU Control ]
-%% jump comp.cgroup.mem.thrash   : [ Next: The Anatomy of Thrashing ]
-%% jump comp.cgroup              : [ Up: Cgroup and Resource Protection ]
 %% jump index                    : [ Exit: Index ]
