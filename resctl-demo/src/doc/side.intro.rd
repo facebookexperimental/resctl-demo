@@ -13,59 +13,60 @@ $$ reset resctl-params
 
 ___*DR-buffer*___
 
-When you buy machines, you wanna use them to their maximum potentials all
-the time. Nobody *wants* to pay for capacity that they don't actually use.
-However, server fleet utilization often falls far short. CPU utilization
-average staying below half is common for many workloads.
+Given the high cost of buying and running machines, you want to use them to
+their maximum potential all the time: Nobody wants to pay for capacity they
+don't actually use. But the reality is that server fleet utilization often
+falls far short of the ideal, with workloads commonly averaging below 50%
+CPU utilization.
 
-One cause is that sizing the machine capacity for a set of workloads can be
-a challenging task even when the workloads are fairly stable. In addition,
-for many use cases, the loads that the workloads have to handle often keep
-changing in both predictable and unpredictable ways - people go to sleep and
-wake up, local events triggering hot spots, a power or network outage taking
-out a data center shifting loads elsewhere and so on.
+One reason for this is that sizing machine capacity for a set of workloads
+is challenging, even when the workloads are fairly stable. Moreover, the
+loads the workloads handle change often, in both predictable and
+unpredictable ways - people go to sleep and wake up, local events can
+trigger hot spots, a power or network outage can take out a data center,
+shifting loads elsewhere - and so on.
 
-The difficulty in sizing combined with inherent variability and
-unpredictability mean that average utilization can be pushed up only so high
-even with careful bin-packing of workloads. There just has to be a
-significant level of buffer to weather inaccuracies in capacity sizing and
-unforeseaable spikes to protect against service degradations including
-outages.
+The difficulty in sizing, combined with the inherent variability and
+unpredictability, means average utilization can be pushed only so high, even
+with careful bin-packing of workloads: There simply must be a significant
+level of buffer to prevent service degradation, or even outages, caused by
+inaccuracies in capacity sizing or unforeseeable spikes.
 
-Disaster readiness isn't the only reason why such extra capacity is needed
-but, for the sake of brevity, let's call it disaster readiness buffer, or
-DR-buffer. One requirement for DR-buffer is that it must stay available for
-unexpected surges. When a data center suddenly goes offline, the remaining
-data centers must be able to pick up the extra load as quickly as possible
-to avoid service disruption.
+While disaster readiness isn't the only reason you need extra capacity, for
+the sake of brevity, let's call it the disaster readiness buffer, or
+DR-buffer. One requirement for a DR-buffer is that it must stay available
+for unexpected surges. When a data center suddenly goes offline, the
+remaining data centers must be able to pick up the extra load as quickly as
+possible to avoid service disruption.
 
-One important artifact of DR-buffer is that the idleness often leads to
-better latency profile which is much desired for latency-sensitive
+An important artifact of DR-buffer is that the idleness often leads to a
+better latency profile, which is much desired for latency-sensitive
 workloads.
 
 
 ___*Sideloading*___
 
-Let's say your machines are loaded 60% on average for DR-buffer and other
-reasons, which isn't great but not horrible either. Note that while the CPUs
-are doing 60% of total work it can do, it might be reporting a number
-noticeably lower than 60% for CPU utilizaion. This is a measuring artifact
-that we'll get back to later.
+Let's say your machines are loaded 60% on average, leaving 40% for the
+DR-buffer and various other things: This isn't great, but not horrible
+either. Note that while the CPUs are doing 60% of the total work they can
+do, they might be reporting noticeably less than 60% CPU utilization: This
+is a measurement artifact that we'll get back to later.
 
-We have about 40% of compute capacity sitting idle and it'd be great if we
-can put something else on the system which can consume the idle resources.
-The extra workload would have to be opportunistic as it doesn't have any
-persistent claim on resources - it's just using whatever is left over in the
-system. Let's call the existing latency sensitive workload the main workload
-and the extra opportunistic one sideload.
+We have about 40% of compute capacity sitting idle and it would be great if
+we could put something else on the system that could consume the idle
+resources. The extra workload would have to be opportunistic, since it
+doesn't have any persistent claim on resources - it would just use
+whatever's left over in the system. Let's call the existing
+latency-sensitive workload the main workload, and the extra opportunistic
+one the sideload.
 
-For sideloading to work, the followings should hold.
+For sideloading to work, the following conditions should hold:
 
 1. The DR-buffer should be available to the main workload on the system so
-   that it can ramp up unimpeded when needed.
+   it can ramp up unimpeded when needed.
 
-2. The impact on the latency improvements from DR-buffer should be limited
-   and controlled.
+2. Any impact the sideload might have on the latency that the DR-buffer
+   provides to the main workload should be limited and controlled.
 
 
 ___*A naive approach*___
@@ -73,49 +74,50 @@ ___*A naive approach*___
 In the previous chapter, we demonstrated that resource control can protect
 the main workload from the rest of the system. While rd-hashd was running at
 full load, we could throw all sorts of misbehaving workloads at the system
-with limited impact on the main workload. If we replace misbehaving
-workloads with a sideload, maybe that's just gonna work?
+with only limited impact on the main workload. So what happens if we throw a
+sideload at it? Can the same setup that worked against random misbehaving
+workloads give the same protection against a sideload?
 
 We already know that rd-hashd can be protected pretty well at full load.
-Let's see how latency at and ramping up from 60% load level is impacted.
+Let's see how latency is impacted starting at 60% and ramping up from there.
 
-rd-hashd should already be running at 60% load. Once it's warmed up, let's
-start a linux build job with 2x CPU count concurrency. Pay attention to how
-the latency in the left graph pane changes.
+rd-hashd should already be running at 60% load. Once it's warmed up, start a
+Linux build job with 2x CPU count concurrency. Pay attention to how the
+latency in the left graph pane changes:
 
 %% (                             : [ Start linux build job ]
 %% on sysload build-linux build-linux-2x
 %% )
 
-Look at how RPS is holding but latency deteriorates sharply. Press 'g' and
-check out resource pressure graphs. Even though CPU weight of the build job
-is only at a hundredth of rd-hashd, CPU pressure is noticeable. We'll get
-back to this later.
+Note how RPS is holding but latency deteriorates sharply. Press 'g' and
+check out the resource pressure graphs. Even though the CPU weight of the
+build job is only at a hundredth of rd-hashd, CPU pressure is noticeable.
+We'll get back to this later.
 
 Now let's push the load up to 100% and see whether its ability to ramp up is
-impacted too.
+impacted too:
 
 %% knob hashd-load 1.0           : [ Set full load ]
 
-It does climb but seems kinda sluggish. Let's compare it with load rising
-without the build job.
+It climbs, but seems kind of sluggish. Let's compare it with a load rising
+but without the build job:
 
 %% (                             : [ Stop linux build and set 60% load ]
 %% off sysload build-linux
 %% knob hashd-load 0.6
 %% )
 
-Wait until it stabilizes and ramp it upto 100%.
+Wait until it stabilizes, then ramp it up to 100%:
 
 %% knob hashd-load 1.0           : [ Set full load ]
 
 Compare the slopes of RPS going up. The difference will depend on system
 characteristics but there will be some.
 
-That didn't work that well. We want to utilize our machines efficiently but
-the noticeable increase in baseline latency is a high cost to pay and can be
-prohibitive for many use cases. The difference in ramp up is more subtle but
-still may not be acceptable.
+So that didn't work very well. We want to utilize our machines efficiently,
+but the noticeable increase in baseline latency is a high cost to pay, and
+can be prohibitive for many use cases. The difference in ramp up is more
+subtle, but still might be unacceptable.
 
 
 ___*Read on*___
