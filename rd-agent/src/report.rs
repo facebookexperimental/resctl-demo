@@ -254,7 +254,10 @@ impl UsageTracker {
 
         for (slice, cur) in usages.iter() {
             let mut rep: UsageReport = Default::default();
-            let last = self.usages.get(slice).unwrap();
+            let last = match self.usages.get(slice) {
+                Some(v) => v,
+                None => return Err(anyhow!("last usage for {} missing", slice)),
+            };
 
             let cpu_total = cpu_total - self.cpu_total;
             if cpu_total > 0.0 {
@@ -495,14 +498,14 @@ impl ReportWorker {
     }
 
     fn read_iocost(&mut self) -> Result<IoCostReport> {
-        let is = read_cgroup_nested_keyed_file("/sys/fs/cgroup/io.stat")?;
-        let mut rep = IoCostReport {
-            vrate: 0.0,
-        };
+        let mut rep = IoCostReport { vrate: 0.0 };
 
-        if let Some(stat) = is.get(&format!("{}:{}", self.iocost_devnr.0, self.iocost_devnr.1)) {
-            if let Some(val) = stat.get("cost.vrate") {
-                rep.vrate = scan_fmt!(&val, "{}", f64).unwrap_or(0.0) / 100.0;
+        if let Ok(is) = read_cgroup_nested_keyed_file("/sys/fs/cgroup/io.stat") {
+            if let Some(stat) = is.get(&format!("{}:{}", self.iocost_devnr.0, self.iocost_devnr.1))
+            {
+                if let Some(val) = stat.get("cost.vrate") {
+                    rep.vrate = scan_fmt!(&val, "{}", f64).unwrap_or(0.0) / 100.0;
+                }
             }
         }
 
