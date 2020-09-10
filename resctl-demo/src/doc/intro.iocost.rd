@@ -119,5 +119,5 @@ see the following pages.
 
 %% jump comp.cgroup.io           : [ IO Control ]
 %%
-%% jump intro.hashd              : [ Next: rd-hashd Workload Simulator ]
+%% jump intro.pre-bench          : [ Next: Welcome ]
 %% jump index                    : [ Exit: Index ]

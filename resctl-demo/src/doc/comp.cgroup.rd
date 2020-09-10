@@ -45,7 +45,7 @@ program will start as rd-sysload-memory-bomb.service under system.slice:
 %% on sysload memory-bomb memory-growth-50pct
 %% )
 
-**WARNING**: Because the system is running without any protection, nothing
+***WARNING***: Because the system is running without any protection, nothing
 can guarantee the system's responsiveness. Everything, including this demo
 program, will get sluggish, and might completely stall. Depending on how the
 kernel OOM killer reacts, the system may or may not recover in a reasonable

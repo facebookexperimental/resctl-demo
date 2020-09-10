@@ -6,7 +6,7 @@
 *Senpai Playground*\n
 *=================*
 
-***WARNING: Senpai does not work on rotating hard disks.***
+***WARNING***: Senpai does not work on rotating hard disks.
 
 Senpai toggles:
 

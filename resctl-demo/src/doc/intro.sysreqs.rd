@@ -4,9 +4,9 @@
 *System Requirements*\n
 *===================*
 
- ***(WARNING)*** *Failed to meet %MissedSysReqs% system requirements. The failed
- requirements are marked* **red**. *rd-agent is force started but some demos
- won't behave as expected.*
+ ***WARNING***: *Failed to meet %MissedSysReqs% system requirements. The
+ failed requirements are marked* **red**. *rd-agent is force started but
+ some demos won't behave as expected.*
 
 Dividing resources among multiple workloads in a controlled manner requires
 comprehensive control strategies that cover all resources—CPU, IO, and memory.
