@@ -131,4 +131,3 @@ reproduced those behaviors with rd-hashd. Now that we see how memory
 management and IO are intertwined, let's take a look at IO control.
 
 %% jump comp.cgroup.io           : [ Next: IO Control ]
-%% jump index                    : [ Exit: Index ]

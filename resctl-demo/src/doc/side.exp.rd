@@ -37,4 +37,3 @@ Sysload toggles:
 ___*Read on*___
 
 %% jump senpai.intro             : [ Next: The Problem of Sizing Memory ]
-%% jump index                    : [ Exit: Index ]

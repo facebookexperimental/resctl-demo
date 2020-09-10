@@ -28,5 +28,3 @@ Sysload toggles:
 
 
 ___*Read on*___
-
-%% jump index                    : [ Exit: Index ]

@@ -103,4 +103,3 @@ Otherwise, sit back, wait for the benchmarks to finish and the status change
 to "Running", and then continue to the next page.
 
 %% jump intro.post-bench         : [ Next: Introduction to resctl-demo ]
-%% jump index                    : [ Exit: Index ]

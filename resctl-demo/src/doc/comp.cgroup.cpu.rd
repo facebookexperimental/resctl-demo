@@ -117,4 +117,3 @@ PSI provides critical insight into resource contention, at both the system
 level, and per-cgroup.
 
 %% jump comp.psi                 : [ Next: Monitoring Resource Contention with PSI ]
-%% jump index                    : [ Exit: Index ]

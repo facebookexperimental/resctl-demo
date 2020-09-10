@@ -172,4 +172,3 @@ understanding and debugging resource issues, we'll delve into more details
 on the next page.
 
 %% jump comp.cgroup.mem.thrash   : [ Next: The Anatomy of Thrashing ]
-%% jump index                    : [ Exit: Index ]

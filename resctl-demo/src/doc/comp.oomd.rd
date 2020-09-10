@@ -227,4 +227,3 @@ we'll put them into action by experimenting with all the switches and
 sliders.
 
 %% jump prot.demo                : [ Next: Throwing Everything At It ]
-%% jump index                    : [ Exit: Index ]

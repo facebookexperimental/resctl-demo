@@ -147,4 +147,3 @@ Now that we saw the basics of sideloading, let's exmaine some of the
 details.
 
 %% jump side.details             : [ Next: Some Details on Sideloading ]
-%% jump index                    : [ Exit: Index ]

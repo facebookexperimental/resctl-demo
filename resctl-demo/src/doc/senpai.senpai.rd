@@ -98,4 +98,3 @@ ___*Read on*___
 On the next page, you can experiment with Senpai in different situations.
 
 %% jump senpai.exp               : [ Next: Senpai Playground ]
-%% jump index                    : [ Exit: Index ]

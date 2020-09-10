@@ -80,4 +80,3 @@ Now that we understand the problem of memory sizing, read on for the
 solution.
 
 %% jump senpai.senpai            : [ Next: Senpai ]
-%% jump index                    : [ Exit: Index ]

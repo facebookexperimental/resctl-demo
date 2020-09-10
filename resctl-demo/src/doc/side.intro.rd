@@ -125,4 +125,3 @@ ___*Read on*___
 Let's see how we can make this work in the next chapter.
 
 %% jump side.sideloader          : [ Next: Sideloader ]
-%% jump index                    : [ Exit: Index ]

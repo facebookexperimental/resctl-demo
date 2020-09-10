@@ -136,4 +136,3 @@ Now that you have a basic understanding of resource pressure, let's check out
 one of its important use cases - oomd.
 
 %% jump comp.oomd                : [ Next: oomd - The Out-Of-Memory Daemon ]
-%% jump index                    : [ Exit: Index ]

@@ -260,4 +260,3 @@ let's delve into details of how different parts of cgroup work.
 %% jump comp.cgroup.cpu          : * CPU Control
 %%
 %% jump comp.cgroup.mem          : [ Next: Memory Control ]
-%% jump index                    : [ Exit: Index ]

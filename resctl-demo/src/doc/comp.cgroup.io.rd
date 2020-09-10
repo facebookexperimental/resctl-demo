@@ -154,4 +154,3 @@ benchmark page and want to go back, follow the next link.
 %% jump intro.iocost             : [ Iocost Parameters and Benchmark ]
 %%
 %% jump comp.cgroup.cpu          : [ Next: CPU Control ]
-%% jump index                    : [ Exit: Index ]
