@@ -35,7 +35,7 @@ const SIDELOADER_CONFIG: &str = r#"{
         "cpu_throttle_period": 0.01,
 
         "overload_cpu_duration": 10,
-        "overload_mempressure_threshold": 25,
+        "overload_mempressure_threshold": 50,
         "overload_hold": 10,
         "overload_hold_max": 30,
         "overload_hold_decay_rate": 0.5,

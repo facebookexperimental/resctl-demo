@@ -78,7 +78,7 @@ impl Default for OomdKnobs {
                 mem_pressure: OomdSliceMemPressureKnobs {
                     disable_seq: 0,
                     threshold: 70,
-                    duration: 60,
+                    duration: 30,
                 },
                 senpai: OomdSliceSenpaiKnobs {
                     min_bytes_frac: 0.25,
@@ -89,7 +89,7 @@ impl Default for OomdKnobs {
                 mem_pressure: OomdSliceMemPressureKnobs {
                     disable_seq: 0,
                     threshold: 70,
-                    duration: 60,
+                    duration: 30,
                 },
                 senpai: OomdSliceSenpaiKnobs {
                     ..Default::default()
