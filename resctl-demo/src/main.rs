@@ -39,6 +39,7 @@ use rd_agent_intf::{
 };
 
 static AGENT_ZV_REQ: AtomicBool = AtomicBool::new(true);
+static SHOWED_SYSREQS: AtomicBool = AtomicBool::new(false);
 
 pub const UNIT_WIDTH: usize = 76;
 pub const STATUS_HEIGHT: usize = 9;
@@ -308,7 +309,9 @@ fn update_agent_zoomed_view(siv: &mut Cursive) {
                 siv.pop_layer();
                 zv.pop();
                 AGENT_FILES.refresh();
-                if AGENT_FILES.sysreqs().missed.len() > 0 {
+                if !SHOWED_SYSREQS.load(Ordering::Relaxed) && AGENT_FILES.sysreqs().missed.len() > 0
+                {
+                    SHOWED_SYSREQS.store(true, Ordering::Relaxed);
                     doc::show_doc(siv, "intro.sysreqs", true, false);
                 }
             }

@@ -1,7 +1,7 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
 use cursive::direction::Orientation;
 use cursive::utils::markup::StyledString;
-use cursive::view::{Nameable, Resizable, ScrollStrategy, Scrollable, SizeConstraint, View};
+use cursive::view::{Nameable, Resizable, Scrollable, SizeConstraint, View};
 use cursive::views::{Button, Checkbox, Dialog, DummyView, LinearLayout, SliderView, TextView};
 use cursive::Cursive;
 use enum_iterator::IntoEnumIterator;
@@ -590,7 +590,10 @@ pub fn show_doc(siv: &mut Cursive, target: &str, jump: bool, back: bool) {
     *cur_doc = doc;
 
     siv.call_on_name("doc", |d: &mut Dialog| {
-        d.set_title(format!("[{}] {} - 'i': index, 'b': back", &cur_doc.id, &cur_doc.desc));
+        d.set_title(format!(
+            "[{}] {} - 'i': index, 'b': back",
+            &cur_doc.id, &cur_doc.desc
+        ));
         d.set_content(render_doc(&cur_doc));
     });
     refresh_docs(siv);
@@ -677,6 +680,9 @@ fn render_cmd(prompt: &str, cmd: &RdCmd) -> impl View {
 fn render_doc(doc: &RdDoc) -> impl View {
     let mut view = LinearLayout::vertical();
     let mut prev_was_text = true;
+
+    view = view.child(Button::new_raw("", |_| {}));
+
     for para in &doc.body {
         match para {
             RdPara::Text(indent_opt, text) => {
@@ -702,7 +708,7 @@ fn render_doc(doc: &RdDoc) -> impl View {
     }
     view.scrollable()
         .show_scrollbars(true)
-        .scroll_strategy(ScrollStrategy::StickToTop)
+        .with_name("doc-scroll")
 }
 
 pub fn layout_factory() -> impl View {

@@ -16,7 +16,6 @@ use util::*;
 
 use rd_agent_intf::{Slice, AGENT_SVC_NAME, DFL_TOP};
 
-use super::doc;
 use super::journal::JournalViewId;
 use super::{
     get_layout, journal, update_agent_zoomed_view, AGENT_ZV_REQ, ARGS, COLOR_ALERT, STYLE_ALERT,
@@ -249,11 +248,6 @@ impl AgentMinder {
             if !self.seen_running {
                 self.seen_running = true;
                 AGENT_ZV_REQ.store(false, Ordering::Relaxed);
-                if AGENT_FILES.sysreqs().missed.len() == 0 {
-                    let _ = cb_sink.send(Box::new(move |siv| {
-                        doc::show_doc(siv, "intro", true, false)
-                    }));
-                };
             }
         } else if self.seen_running {
             self.seen_running = false;
