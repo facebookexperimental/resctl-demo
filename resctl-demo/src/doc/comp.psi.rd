@@ -2,7 +2,8 @@
 %% id comp.psi: PSI - Monitoring Resource Contention with PSI
 %% reset secondaries
 %% reset protections
-%% off hashd
+%% knob hashd-load 1.0
+%% on hashd
 $$ reset hashd-params
 $$ reset resctl-params
 $$ reset secondaries
@@ -74,7 +75,7 @@ roughly add up to 100%.
 
 Note that IO pressure moves together with memory pressure in general, but
 sometimes registers lower than memory. When a system is short on memory, the
-kernel needs to keep scanning memory-evicting cold pages, and bringing back
+kernel needs to keep scanning memory evicting cold pages, and bringing back
 pages needed to make forward progress from the filesystems and swap. Waiting
 for the pages to be read back from the IO device takes up the lion's share
 of lost time, so the two pressure numbers move in tandem if the only source
@@ -87,8 +88,12 @@ memory in the system is idle and available, but rd-hashd needs to load files
 to build the hot working-set. Giving it more memory wouldn't speed it up one
 bit. It still needs to load what it needs. Let's see how this behaves.
 
-Start rd-hashd, targeting full load with page cache proportion increased, so
-that it needs to load more from files:
+First, stop rd-hashd.
+
+%% off hashd                     : [ Stop rd-hashd ]
+
+Then, start rd-hashd, targeting full load with page cache proportion
+increased, so that it needs to load more from files:
 
 %% (                             : [ Start rd-hashd w/ higher page cache portion ]
 %% reset hashd-params
@@ -105,29 +110,27 @@ no longer held back by IO, and IO pressure dissipates.
 
 ___*Full and Some*___
 
-Let's restore the default rd-hashd parameters, and let it stabilize at full
+Let's restore the default rd-hashd parameters, and let it stabilize at 90%
 load:
 
-%% (                             : [ Reset rd-hashd parameters ]
+%% (                             : [ Reset rd-hashd parameters and load to 90% ]
 %% reset hashd-params
-%% knob hashd-load 1.0
+%% knob hashd-load 0.9
 %% on hashd
 %% )
 
-There's some variance in benchmark results. If rd-hashd stays at 100% load
-in the workload row of the top-left pane, without any reads reported on the
-workload in the top-right pane, slowly push up the following knob to take
-memory away from it, until load level falls to around 90%:
+Watch the "workload" row in the top-left panel, rd-hashd should be staying
+close to 90% load level. Slowly push up the following knob to grow the
+memory requirement, until load level falls to around 80%:
 
-%% knob   balloon                : Memory balloon :
+%% knob hashd-mem                : Memory footprint :
 
 Once it stabilizes, open graph view ('g') and look at the some stat for CPU
 pressure, and the full and some stats for memory and IO, in their respective
-pressure graphs. Full memory and IO pressure should be very close to zero,
-while some pressures are raised. The workload is functioning close to its
-full capacity, but with raised latency - from ~60ms to ~100ms. Most of the
-latency increase is from CPU competition, but memory competition also
-accounts for part, as indicated by the three pressure graphs for some.
+pressure graphs. Full memory and IO pressure should be around 10% reflecting
+the bandwidth loss, while some pressures chart further raised lines. The
+workload is functioning at a lowered bandwidth with raised latency - from
+~60ms to ~100ms. The former is captured by full pressures, the latter some.
 
 
 ___*Read on*___
