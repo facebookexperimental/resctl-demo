@@ -422,7 +422,7 @@ impl ReportFile {
             Ok(v) => v,
             Err(e) => {
                 warn!("report: Failed to update {}s usages ({:?})", self.intv, &e);
-                Default::default()
+                return;
             }
         };
 
