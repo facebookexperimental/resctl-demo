@@ -79,33 +79,34 @@ focus in this demo.
 
 ___*Let's see it working*___
 
-If hashd isn't running yet, start it up and wait for it to ramp up:
-
-%% (                         	: [ Start hashd at full load ]
-%% knob hashd-load 1.0
-%% on hashd
-%% )
-
-Once hashd is warmed up, let's disable CPU control, and start a Linux build
-job with concurrency of twice the CPU thread count - which is high but not
-outrageous:
+rd-hashd should already be running at full load. Once hashd is warmed up,
+let's disable CPU control, and start a Linux build job with concurrency of
+twice the CPU thread count - which is high but not outrageous:
 
 %% (                         	: [ Disable CPU control and start building kernel ]
 %% off cpu-resctl
-%% on sysload build-linux build-linux-2x
+%% on sysload compile-job build-linux-2x
 %% )
 
-As the compile jobs ramp up, RPS declines. It won't crater, but the
-situation is still far from acceptable. Let's re-enable CPU control:
+As the compile jobs ramp up, RPS gets snuffed to zero. Let's stop the
+compile job and turn CPU protection back on:
 
-%% (                         	: [ Restore CPU control ]
+%% (                         	: [ Stop the compile job and restore CPU control ]
+%% reset secondaries
 %% reset protections
 %% )
 
+Wait for the sysload count to drop to zero and rd-hashd to stabilize, then
+launch the same compile job again:
+
+%% (                         	: [ Start the compile job ]
+%% on sysload compile-job build-linux-2x
+%% )
+
 Note that RPS recovers but is still noticeably lower than ~90%, which is
-where it should be given the 10:1 cpu weight ratio. This is partially caused
-by the muddiness described above around CPU time. We'll revisit this later
-when discussing sideloading.
+where it should be given the 10:1 cpu weight ratio. This is caused by
+scheduler latencies and the muddiness described above around CPU time. We'll
+revisit this later when discussing sideloading.
 
 
 ___*Read on*___

@@ -2,6 +2,8 @@
 %% id comp.cgroup: Cgroup and Resource Protection
 %% reset secondaries
 %% reset protections
+%% knob hashd-load 1.0
+%% on hashd
 
 *Cgroup and Resource Protection*\n
 *==============================*
@@ -21,28 +23,22 @@ same time in production. What would happen to the system and fleet without
 resource control enabled?
 
 We can simulate this scenario with the rd-hashd workload simulator, and a
-test program intentionally designed to leak memory. Let's first start hashd
-at full load:
-
-%% (                             : [ Start hashd at full load ]
-%% knob hashd-load 1.0
-%% on hashd
-%% )
-
-Give it some time to ramp up, and let its memory footprint grow to closely
-fill up the machine. Check out the memory utilization graph by pressing 'g'.
+test program intentionally designed to leak memory. rd-hashd is already
+started targeting the full load. Give it some time to ramp up, and let its
+memory footprint grow to closely fill up the machine. Check out the memory
+utilization graph by pressing 'g'.
 
 Once the workload sufficiently ramps up, you can see how the system behaves
 without any protection, by selecting the button below to disable all
-resource control mechanisms and start a memory-bomb program. The problematic
-program will start as rd-sysload-memory-bomb.service under system.slice:
+resource control mechanisms and start a memory-hog program. The problematic
+program will start as rd-sysload-memory-hog.service under system.slice:
 
-%% (                             : [ Disable all resource control features and start memory bomb ]
+%% (                             : [ Disable all resource control features and start memory hog ]
 %% off cpu-resctl
 %% off mem-resctl
 %% off io-resctl
 %% off oomd
-%% on sysload memory-bomb memory-growth-50pct
+%% on sysload memory-hog memory-growth-1x
 %% )
 
 ***WARNING***: Because the system is running without any protection, nothing
@@ -52,10 +48,9 @@ kernel OOM killer reacts, the system may or may not recover in a reasonable
 amount of time. To avoid the need for a reboot, stop the experiment once the
 system becomes sluggish:
 
-%% (                             : [ Stop the experiment and restart rd-hashd ]
-%% reset all-workloads
+%% (                             : [ Stop the memory hog and restore resource control ]
+%% reset secondaries
 %% reset protections
-%% on hashd
 %% )
 
 That wasn't ideal, was it? If this were a production environment and the
@@ -69,7 +64,7 @@ devices, the margin is narrower and the deterioration more abrupt.
 
 This isn't because rd-hashd is particularly IO heavy: The only "file" IO it
 does are log writes, calibrated to ~5% of maximum write bandwidth. The
-memory bomb doesn't do any file IOs either. The IOs, and the resulting
+memory hog doesn't do any file IOs either. The IOs, and the resulting
 dependence on storage performance, are due to the fact that memory
 management and IO are intertwined. Your IO device is a critical component in
 deciding how big your workload's memory footprint can be and how gracefully
@@ -85,8 +80,8 @@ should have been throttled as the situation deteriorated.
 But the system doesn't know that. To the kernel, they're all just processes:
 Without resource control enabled, it has no mechanism to distinguish between
 a primary workload, like rd-hashd in this case, and a malfunction like the
-memory bomb. They're equal in terms of memory and IO, and the kernel tries
-to balance the two as best it can, as the system descends into a thrashing
+memory hog. They're equal in terms of memory and IO, and the kernel tries to
+balance the two as best it can, as the system descends into a thrashing
 live-lock.
 
 cgroup (control group) is the Linux kernel feature that enables you to tell
@@ -160,8 +155,8 @@ cgroup. The last line tagged with "-" is the system total. Other graphs in
 the graph view ('g'), plot the same metric for workload, sideload, and
 system slices.
 
-You can check out what cgroups are on your system by running `cgls`. The
-kernel interface is a pseudo filesystem mounted under /sys/fs/cgroup.
+You can check out what cgroups are on your system by running `systemd-cgls`.
+The kernel interface is a pseudo filesystem mounted under /sys/fs/cgroup.
 
 
 ___*Turning on resource protection*___
@@ -174,18 +169,18 @@ We'll repeat the same test run we did above, but leaving all the resource
 protection configurations turned on.
 
 rd-hashd should already be running at full tilt and all warmed up now, so
-let's start the same memory bomb, but without touch anything else:
+let's start the same memory hog, but without touch anything else:
 
-%% on sysload memory-bomb memory-growth-50pct : [ Start memory bomb ]
+%% on sysload memory-hog memory-growth-1x : [ Start memory hog ]
 
 Monitor the RPS and other resource consumption in the graph view ('g'). The
 RPS may go down a little and dip occasionally, but it'll stay close to full
-capacity no matter how long you let the memory bomb go on. Eventually the
-memory bomb will be killed off by oomd. Try it multiple times by clearing
-the memory bomb with the following button, and restarting it with the start
+capacity no matter how long you let the memory hog go on. Eventually the
+memory hog will be killed off by oomd. Try it multiple times by clearing the
+memory hog with the following button, and restarting it with the start
 button above:
 
-%% off sysload memory-bomb       : [ Stop memory bomb ]
+%% off sysload memory-hog       : [ Stop memory hog ]
 
 In this scenario, with resource control on, our site's not going down, and
 users probably aren't even noticing. If we have a working monitoring
@@ -194,9 +189,9 @@ which program was malfunctioning, and hunt down the bug. What could have
 been a site-wide outage got de-escalated into an internal oops.
 
 This is cgroup resource protection at work. The kernel understood which part
-was important and protected its resources at the expense of the memory bomb
+was important and protected its resources at the expense of the memory hog
 running in the low-priority portion of the system. Eventually, the situation
-for the memory bomb became unsustainable and oomd terminated it.
+for the memory hog became unsustainable and oomd terminated it.
 
 We'll go into details in the following pages but here's a brief summary of
 how resource protection is configured in this demo.
@@ -246,11 +241,11 @@ ___*Read on*___
 
 For more details on cgroup:
 
- * Maximizing Resource Utilization with cgroup2
+ * Maximizing Resource Utilization with cgroup2\n
    https://facebookmicrosites.github.io/cgroup2/docs/overview
 
- * Control Cgroup v2
-   https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tree/Documentation/admin-guide/cgroup-v2.rst
+ * Control Group v2\n
+   https://www.kernel.org/doc/Documentation/admin-guide/cgroup-v2.rst
 
 Now that we have the basic understanding of cgroup and resource protection,
 let's delve into details of how different parts of cgroup work.

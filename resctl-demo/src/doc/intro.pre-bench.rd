@@ -85,8 +85,8 @@ following two setups:
 2. AWS c5d.9xlarge - 36 vCPUs, 72G memory, local 900G SSD
 
 On setups which are significantly weaker than #1, the demo scenarios may not
-behave as expected. Especially with very low quality SSDs, most protection
-scenarios may fall apart.
+behave as expected, especially on SSDs with wildy incosistent latency
+profiles.
 
 The "Other logs" pane on the left shows what's going on. If the view is too
 cramped, check out the fullscreen log view with the 'l' key. You can also

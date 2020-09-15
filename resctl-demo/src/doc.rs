@@ -188,7 +188,9 @@ fn format_markup_tags(tag: &str) -> Option<StyledString> {
                 )));
             }
             "HashdMemSize" => {
-                return Some(StyledString::plain(format_size(bench.hashd.mem_size)));
+                return Some(StyledString::plain(format_size(
+                    bench.hashd.mem_size as f64 * bench.hashd.mem_frac,
+                )));
             }
             _ => (),
         }

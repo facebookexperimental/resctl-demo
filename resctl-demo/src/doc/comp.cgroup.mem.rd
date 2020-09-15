@@ -104,11 +104,11 @@ ___*Memory control configuration in this demo*___
 
 This demo uses the following static memory control configuration:
 
- init.scope     	: 16M  min  - systemd\n
+ init.scope             : 16M  min  - systemd\n
  hostcritical.slice     : 768M min  - dbus, journald, sshd, resctl-demo\n
- workload.slice 	: 75%  low  - hashd\n
- sideload.slice 	: No configuration\n
- system.slice   	: No configuration\n
+ workload.slice         : 75%  low  - hashd\n
+ sideload.slice         : No configuration\n
+ system.slice           : No configuration\n
 
 All we're doing is setting up overall protections for the important parts of
 the system in top-level slices. The numbers just need to be reasonable
@@ -126,42 +126,39 @@ setups, hostcritical is set multiple times lower.
 
 ___*Memory protection in action*___
 
-rd-hashd should already be running at full load. Once it warms up, let's
-disable memory control and start the memory bomb:
+Let's repeat a similar experiment as in the previous "Cgroup and Resource
+Protection" section to demonstrate memory protection. rd-hashd should
+already be running at full load. Once it warms up, disable memory control
+and start a linux compile job with a ludicrous level of concurrency which
+will viciously compete for memory:
 
-%% (                         	: [ Disable memory control and start memory bomb ]
-%% off io-resctl
-%% on sysload memory-bomb memory-growth-1x
+%% (                         	: [ Disable memory control and start a compile job ]
+%% off mem-resctl
+%% on sysload compile-job build-linux-32x
 %% )
 
-It goes south real fast. If something like this happens across many machines
-in the fleet at the same time, it'll easily lead to a site outage. Let's
-reset the experiment and restore memory control:
+Once the source tree is untarred and the compile commands start getting
+spawned, system.slice's memory pressure will shoot up. Soon after,
+workload.slice's pressure will start climbing and rd-hashd's RPS slumping.
 
-%% (                         	: [ Stop memory bomb and restore memory control ]
+Let's stop the compile job and restore memory control:
+
+%% (                         	: [ Stop the compile job and restore memory control ]
 %% reset secondaries
 %% reset protections
 %% )
 
 Wait for the sysload count to drop to zero and rd-hashd to stabilize, then
-launch the same memory bomb again:
+launch the same compile job again:
 
-%% (                         	: [ Start memory bomb ]
-%% on sysload memory-bomb memory-growth-1x
+%% (                         	: [ Start the compile job ]
+%% on sysload compile-job build-linux-32x
 %% )
 
 RPS drops a bit, which is expected - we want the management portion to be
 able to use a small fraction of the system, but rd-hashd will stay close to
 its full load while the malfunctioning system.slice is throttled so it can't
-overwhelm the system. Reset with the following button and repeat the
-experiment:
-
-%% reset secondaries         	: [ Reset memory bomb ]
-
-The system is hardly fazed by the memory bomb. Even if this happens on many
-machines at the same time, the site's going to be just fine. If we have
-appropriate monitoring in place, we'd notice and investigate the problem and
-follow up with fixes.
+overwhelm the system.
 
 
 ___*Read on*___
