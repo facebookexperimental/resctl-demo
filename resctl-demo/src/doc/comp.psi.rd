@@ -117,7 +117,8 @@ load:
 
 Watch the "workload" row in the top-left panel, rd-hashd should be staying
 close to 90% load level. Slowly push up the following knob to grow the
-memory requirement, until load level falls to around 80%:
+memory requirement, until load level falls to around 80%. Notice how latency
+starts going up before RPS starts falling:
 
 %% knob hashd-mem                : Memory footprint :
 

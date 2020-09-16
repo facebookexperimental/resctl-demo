@@ -128,14 +128,14 @@ effective way of detecting the culprit and resolving the issue.
 ___*OOMD in action - Swap depletion kill*___
 
 This scenario might already seem familiar - rd-hashd running and a memory
-bomb going off in system.slice. We've used this to demonstrate memory and
+hog going off in system.slice. We've used this to demonstrate memory and
 other protection scenarios and didn't worry about system stability. Let's do
 it again, but let's see what happens with rd-hashd's load reduced to 60% so
 that filling-up swap doesn't take too long.
 
-Once rd-hashd warms up, let's start a memory bomb:
+Once rd-hashd warms up, let's start a memory hog:
 
-%% (                             : [ Start memory bomb ]
+%% (                             : [ Start memory hog ]
 %% reset secondaries
 %% on sysload memory-hog memory-growth-1x
 %% )
@@ -147,18 +147,18 @@ available swap and you'll see something like the following in the
 
   [15:33:24 rd-oomd] [../src/oomd/Log.cpp:114] 50.85 49.35 30.53 system.slice/rd-sysload-test-mem-1x.service 6905962496 ruleset:[protection against low swap] detectorgroup:[free swap goes below 10 percent] killer:kill_by_swap_usage v2
 
-This is OOMD killing the memory bomb due to swap depletion. The system
+This is OOMD killing the memory hog due to swap depletion. The system
 weathered it just fine and it didn't seem like much. Let's see what happens
 if we repeat the same thing, but without OOMD:
 
-%% (                             : [ Disable OOMD and start memory bomb ]
+%% (                             : [ Disable OOMD and start memory hog ]
 %% reset secondaries
 %% off oomd
 %% on sysload memory-hog-1 memory-growth-1x
 %% )
 
 Observe how system.slice's memory usage keeps creeping up once swap is
-depleted. Although workload.slice is protected, the memory bomb's memory is
+depleted. Although workload.slice is protected, the memory hog's memory is
 all mlocked and every page it gets, it gets to keep. This eventually
 suffocates rd-hashd and pushes RPS down to 0. After that, depending on the
 IO device performance and your luck, the kernel OOM killer might kick in and
@@ -199,7 +199,7 @@ now, and a crawling malfunction is often more difficult to detect.
 
 This is what pressure-triggered kills are for. OOMD can monitor application
 health through pressure metrics, and take action when they're clearly out of
-an acceptable range. The following button starts the same memory bomb, but
+an acceptable range. The following button starts the same memory hog, but
 makes it access its memory pages frequently, so that they can't be simply
 swapped out. This is a crude but effective stand-in for the above scenario:
 
