@@ -539,7 +539,7 @@ fn main() {
     siv.add_global_callback('i', |siv| doc::show_doc(siv, "index", true, false));
     siv.add_global_callback('!', |siv| doc::show_doc(siv, "doc-format", true, false));
     siv.add_global_callback('r', |siv| {
-        let id = doc::CUR_DOC.lock().unwrap().id.clone();
+        let id = doc::CUR_DOC.read().unwrap().id.clone();
         doc::show_doc(siv, &id, true, false);
     });
     siv.add_global_callback('b', |siv| {

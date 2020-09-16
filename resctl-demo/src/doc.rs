@@ -8,7 +8,7 @@ use enum_iterator::IntoEnumIterator;
 use lazy_static::lazy_static;
 use log::{error, info};
 use std::collections::{BTreeMap, BTreeSet, HashSet};
-use std::sync::Mutex;
+use std::sync::{Mutex, RwLock};
 use util::*;
 
 mod index;
@@ -23,7 +23,7 @@ use rd_agent_intf::{Cmd, HashdCmd, SliceConfig, SysReq};
 
 lazy_static! {
     pub static ref DOCS: BTreeMap<String, &'static str> = load_docs();
-    pub static ref CUR_DOC: Mutex<RdDoc> = Mutex::new(RdDoc {
+    pub static ref CUR_DOC: RwLock<RdDoc> = RwLock::new(RdDoc {
         id: "".into(),
         ..Default::default()
     });
@@ -70,7 +70,7 @@ fn load_docs() -> BTreeMap<String, &'static str> {
             .pre_cmds
             .iter()
             .chain(doc.body.iter().filter_map(|para| {
-                if let RdPara::Prompt(_, cmd) = para {
+                if let RdPara::Prompt(_, cmd, _) = para {
                     Some(cmd)
                 } else {
                     None
@@ -397,7 +397,7 @@ fn exec_one_cmd(siv: &mut Cursive, cmd: &RdCmd) {
     }
 
     drop(cs);
-    refresh_docs(siv);
+    refresh_cur_doc(siv);
 }
 
 fn exec_cmd(siv: &mut Cursive, cmd: &RdCmd) {
@@ -451,82 +451,59 @@ fn exec_knob(siv: &mut Cursive, cmd: &RdCmd, val: usize, range: usize) {
     }
 }
 
-fn refresh_toggles(siv: &mut Cursive, cs: &CmdState) {
-    siv.call_on_name(
-        &format!("{:?}", RdSwitch::BenchHashd),
-        |c: &mut Checkbox| c.set_checked(cs.bench_hashd_next > cs.bench_hashd_cur),
-    );
-    siv.call_on_name(
-        &format!("{:?}", RdSwitch::BenchHashdLoop),
-        |c: &mut Checkbox| c.set_checked(cs.bench_hashd_next == std::u64::MAX),
-    );
-    siv.call_on_name(
-        &format!("{:?}", RdSwitch::BenchIoCost),
-        |c: &mut Checkbox| c.set_checked(cs.bench_iocost_next > cs.bench_iocost_cur),
-    );
-    siv.call_on_name(&format!("{:?}", RdSwitch::HashdA), |c: &mut Checkbox| {
-        c.set_checked(cs.hashd[0].active)
-    });
-    siv.call_on_name(&format!("{:?}", RdSwitch::HashdB), |c: &mut Checkbox| {
-        c.set_checked(cs.hashd[1].active)
-    });
+fn refresh_toggles(siv: &mut Cursive, doc: &RdDoc, cs: &CmdState) {
+    for (sw, cnt) in doc.toggle_cnt.iter() {
+        let val = match sw {
+            RdSwitch::BenchHashd => cs.bench_hashd_next > cs.bench_hashd_cur,
+            RdSwitch::BenchHashdLoop => cs.bench_hashd_next == std::u64::MAX,
+            RdSwitch::BenchIoCost => cs.bench_iocost_next > cs.bench_iocost_cur,
+            RdSwitch::BenchNeeded => cs.bench_hashd_cur == 0 || cs.bench_iocost_cur == 0,
+            RdSwitch::HashdA => cs.hashd[0].active,
+            RdSwitch::HashdB => cs.hashd[1].active,
+            RdSwitch::Sideload(tag, _) => cs.sideloads.contains_key(tag),
+            RdSwitch::Sysload(tag, _) => cs.sysloads.contains_key(tag),
+            RdSwitch::CpuResCtl => cs.cpu,
+            RdSwitch::MemResCtl => cs.mem,
+            RdSwitch::IoResCtl => cs.io,
+            RdSwitch::Oomd => cs.oomd,
+            RdSwitch::OomdWorkMemPressure => cs.oomd_work_mempress,
+            RdSwitch::OomdWorkSenpai => cs.oomd_work_senpai,
+            RdSwitch::OomdSysMemPressure => cs.oomd_sys_mempress,
+            RdSwitch::OomdSysSenpai => cs.oomd_sys_senpai,
+        };
 
-    for tag in SIDELOAD_NAMES.lock().unwrap().iter() {
-        let active = cs.sideloads.contains_key(tag);
-        siv.call_on_name(
-            &format!("{:?}", RdSwitch::Sideload(tag.into(), "ID".into())),
-            |c: &mut Checkbox| c.set_checked(active),
-        );
+        for idx in 0..*cnt {
+            let name = match sw {
+                RdSwitch::Sideload(tag, _) => {
+                    format!("{:?}[{}]", RdSwitch::Sideload(tag.into(), "ID".into()), idx)
+                }
+                RdSwitch::Sysload(tag, _) => {
+                    format!("{:?}[{}]", RdSwitch::Sysload(tag.into(), "ID".into()), idx)
+                }
+                _ => format!("{:?}[{}]", sw, idx),
+            };
+
+            siv.call_on_name(&name, |c: &mut Checkbox| c.set_checked(val));
+        }
     }
-    for tag in SYSLOAD_NAMES.lock().unwrap().iter() {
-        let active = cs.sysloads.contains_key(tag);
-        siv.call_on_name(
-            &format!("{:?}", RdSwitch::Sysload(tag.into(), "ID".into())),
-            |c: &mut Checkbox| c.set_checked(active),
-        );
-    }
-
-    siv.call_on_name(&format!("{:?}", RdSwitch::CpuResCtl), |c: &mut Checkbox| {
-        c.set_checked(cs.cpu)
-    });
-    siv.call_on_name(&format!("{:?}", RdSwitch::MemResCtl), |c: &mut Checkbox| {
-        c.set_checked(cs.mem)
-    });
-    siv.call_on_name(&format!("{:?}", RdSwitch::IoResCtl), |c: &mut Checkbox| {
-        c.set_checked(cs.io)
-    });
-
-    siv.call_on_name(&format!("{:?}", RdSwitch::Oomd), |c: &mut Checkbox| {
-        c.set_checked(cs.oomd)
-    });
-    siv.call_on_name(
-        &format!("{:?}", RdSwitch::OomdWorkMemPressure),
-        |c: &mut Checkbox| c.set_checked(cs.oomd_work_mempress),
-    );
-    siv.call_on_name(
-        &format!("{:?}", RdSwitch::OomdWorkSenpai),
-        |c: &mut Checkbox| c.set_checked(cs.oomd_work_senpai),
-    );
-    siv.call_on_name(
-        &format!("{:?}", RdSwitch::OomdSysMemPressure),
-        |c: &mut Checkbox| c.set_checked(cs.oomd_sys_mempress),
-    );
-    siv.call_on_name(
-        &format!("{:?}", RdSwitch::OomdSysSenpai),
-        |c: &mut Checkbox| c.set_checked(cs.oomd_sys_senpai),
-    );
 }
 
-fn refresh_one_knob(siv: &mut Cursive, knob: RdKnob, mut val: f64) {
+fn refresh_one_knob(siv: &mut Cursive, knob: &RdKnob, cnt: u32, mut val: f64) {
     val = val.max(0.0).min(1.0);
-    siv.call_on_name(&format!("{:?}-digit", &knob), |t: &mut TextView| {
-        t.set_content(format_knob_val(&knob, val))
-    });
-    siv.call_on_name(&format!("{:?}-slider", &knob), |s: &mut SliderView| {
-        let range = s.get_max_value();
-        let slot = (val * (range - 1) as f64).round() as usize;
-        s.set_value(slot);
-    });
+    for idx in 0..cnt {
+        siv.call_on_name(
+            &format!("{:?}[{}]-digit", &knob, idx),
+            |t: &mut TextView| t.set_content(format_knob_val(&knob, val)),
+        );
+        siv.call_on_name(
+            &format!("{:?}[{}]-slider", &knob, idx),
+            |s: &mut SliderView| {
+                let range = s.get_max_value();
+                let slot = (val * (range - 1) as f64).round() as usize;
+                s.set_value(slot);
+            },
+        );
+    }
 }
 
 fn hmem_ratio(knob: Option<f64>) -> f64 {
@@ -536,38 +513,56 @@ fn hmem_ratio(knob: Option<f64>) -> f64 {
     }
 }
 
-fn refresh_knobs(siv: &mut Cursive, cs: &CmdState) {
-    let wbps = AGENT_FILES.bench().iocost.model.wbps as f64;
-
-    refresh_one_knob(siv, RdKnob::HashdALoad, cs.hashd[0].rps_target_ratio);
-    refresh_one_knob(siv, RdKnob::HashdBLoad, cs.hashd[1].rps_target_ratio);
-    refresh_one_knob(siv, RdKnob::HashdAMem, hmem_ratio(cs.hashd[0].mem_ratio));
-    refresh_one_knob(siv, RdKnob::HashdBMem, hmem_ratio(cs.hashd[1].mem_ratio));
-    refresh_one_knob(siv, RdKnob::HashdAFile, cs.hashd[0].file_ratio);
-    refresh_one_knob(siv, RdKnob::HashdBFile, cs.hashd[1].file_ratio);
-    refresh_one_knob(siv, RdKnob::HashdAFileMax, cs.hashd[0].file_max_ratio);
-    refresh_one_knob(siv, RdKnob::HashdBFileMax, cs.hashd[1].file_max_ratio);
-    refresh_one_knob(siv, RdKnob::HashdALogBps, cs.hashd[0].log_bps as f64 / wbps);
-    refresh_one_knob(siv, RdKnob::HashdBLogBps, cs.hashd[1].log_bps as f64 / wbps);
-    refresh_one_knob(siv, RdKnob::HashdAWeight, cs.hashd[0].weight);
-    refresh_one_knob(siv, RdKnob::HashdBWeight, cs.hashd[1].weight);
-    refresh_one_knob(siv, RdKnob::SysCpuRatio, cs.sys_cpu_ratio);
-    refresh_one_knob(siv, RdKnob::SysIoRatio, cs.sys_io_ratio);
-    refresh_one_knob(siv, RdKnob::MemMargin, cs.mem_margin);
-    refresh_one_knob(siv, RdKnob::Balloon, cs.balloon_ratio);
-    refresh_one_knob(siv, RdKnob::CpuHeadroom, cs.cpu_headroom);
+fn hashd_cmd_addr_stdev(hashd: &HashdCmd) -> f64 {
+    if let Some(v) = hashd.addr_stdev {
+        v.min(1.0)
+    } else {
+        rd_hashd_intf::Params::DFL_ADDR_STDEV
+    }
 }
 
-fn refresh_docs(siv: &mut Cursive) {
+fn refresh_knobs(siv: &mut Cursive, doc: &RdDoc, cs: &CmdState) {
+    let wbps = AGENT_FILES.bench().iocost.model.wbps as f64;
+
+    for (knob, cnt) in doc.knob_cnt.iter() {
+        let val = match knob {
+            RdKnob::HashdALoad => cs.hashd[0].rps_target_ratio,
+            RdKnob::HashdBLoad => cs.hashd[1].rps_target_ratio,
+            RdKnob::HashdAMem => hmem_ratio(cs.hashd[0].mem_ratio),
+            RdKnob::HashdBMem => hmem_ratio(cs.hashd[1].mem_ratio),
+            RdKnob::HashdAAddrStdev => hashd_cmd_addr_stdev(&cs.hashd[0]),
+            RdKnob::HashdBAddrStdev => hashd_cmd_addr_stdev(&cs.hashd[1]),
+            RdKnob::HashdAFile => cs.hashd[0].file_ratio,
+            RdKnob::HashdBFile => cs.hashd[1].file_ratio,
+            RdKnob::HashdAFileMax => cs.hashd[0].file_max_ratio,
+            RdKnob::HashdBFileMax => cs.hashd[1].file_max_ratio,
+            RdKnob::HashdALogBps => cs.hashd[0].log_bps as f64 / wbps,
+            RdKnob::HashdBLogBps => cs.hashd[1].log_bps as f64 / wbps,
+            RdKnob::HashdAWeight => cs.hashd[0].weight,
+            RdKnob::HashdBWeight => cs.hashd[1].weight,
+            RdKnob::SysCpuRatio => cs.sys_cpu_ratio,
+            RdKnob::SysIoRatio => cs.sys_io_ratio,
+            RdKnob::MemMargin => cs.mem_margin,
+            RdKnob::Balloon => cs.balloon_ratio,
+            RdKnob::CpuHeadroom => cs.cpu_headroom,
+        };
+
+        refresh_one_knob(siv, knob, *cnt, val);
+    }
+}
+
+fn refresh_cur_doc(siv: &mut Cursive) {
     let mut cmd_state = CMD_STATE.lock().unwrap();
+    let cur_doc = CUR_DOC.read().unwrap();
+
     cmd_state.refresh();
-    refresh_toggles(siv, &cmd_state);
-    refresh_knobs(siv, &cmd_state);
+    refresh_toggles(siv, &cur_doc, &cmd_state);
+    refresh_knobs(siv, &cur_doc, &cmd_state);
 }
 
 pub fn show_doc(siv: &mut Cursive, target: &str, jump: bool, back: bool) {
     let doc = RdDoc::parse(DOCS.get(target).unwrap().as_bytes()).unwrap();
-    let mut cur_doc = CUR_DOC.lock().unwrap();
+    let cur_doc = CUR_DOC.read().unwrap();
 
     if jump {
         for cmd in &cur_doc.post_cmds {
@@ -589,6 +584,9 @@ pub fn show_doc(siv: &mut Cursive, target: &str, jump: bool, back: bool) {
             DOC_HIST.lock().unwrap().push(cur_doc.id.clone());
         }
     }
+
+    drop(cur_doc);
+    let mut cur_doc = CUR_DOC.write().unwrap();
     *cur_doc = doc;
 
     siv.call_on_name("doc", |d: &mut Dialog| {
@@ -598,7 +596,9 @@ pub fn show_doc(siv: &mut Cursive, target: &str, jump: bool, back: bool) {
         ));
         d.set_content(render_doc(&cur_doc));
     });
-    refresh_docs(siv);
+
+    drop(cur_doc);
+    refresh_cur_doc(siv);
 }
 
 fn create_button<F>(prompt: &str, cb: F) -> impl View
@@ -612,7 +612,7 @@ where
         .child(Button::new_raw(trimmed, cb))
 }
 
-fn render_cmd(prompt: &str, cmd: &RdCmd) -> impl View {
+fn render_cmd(prompt: &str, cmd: &RdCmd, idx: u32) -> impl View {
     let width = get_layout().doc.x - 2;
     let mut view = LinearLayout::horizontal();
     let cmdc = cmd.clone();
@@ -624,12 +624,12 @@ fn render_cmd(prompt: &str, cmd: &RdCmd) -> impl View {
         RdCmd::Toggle(sw) => {
             let name = match sw {
                 RdSwitch::Sideload(tag, _id) => {
-                    format!("{:?}", RdSwitch::Sideload(tag.into(), "ID".into()))
+                    format!("{:?}[{}]", RdSwitch::Sideload(tag.into(), "ID".into()), idx)
                 }
                 RdSwitch::Sysload(tag, _id) => {
-                    format!("{:?}", RdSwitch::Sysload(tag.into(), "ID".into()))
+                    format!("{:?}[{}]", RdSwitch::Sysload(tag.into(), "ID".into()), idx)
                 }
-                _ => format!("{:?}", sw),
+                _ => format!("{:?}[{}]", sw, idx),
             };
 
             view = view.child(
@@ -645,8 +645,8 @@ fn render_cmd(prompt: &str, cmd: &RdCmd) -> impl View {
         }
         RdCmd::Knob(knob, val) => {
             if *val < 0.0 {
-                let digit_name = format!("{:?}-digit", knob);
-                let slider_name = format!("{:?}-slider", knob);
+                let digit_name = format!("{:?}[{}]-digit", knob, idx);
+                let slider_name = format!("{:?}[{}]-slider", knob, idx);
                 let range = (width as i32 - prompt.len() as i32 - 13).max(5) as usize;
                 view = view.child(
                     LinearLayout::horizontal()
@@ -702,8 +702,8 @@ fn render_doc(doc: &RdDoc) -> impl View {
                 view = view.child(DummyView);
                 prev_was_text = true;
             }
-            RdPara::Prompt(prompt, cmd) => {
-                view = view.child(render_cmd(prompt, cmd));
+            RdPara::Prompt(prompt, cmd, idx) => {
+                view = view.child(render_cmd(prompt, cmd, *idx));
                 prev_was_text = false;
             }
         }
@@ -725,7 +725,7 @@ pub fn layout_factory() -> impl View {
 }
 
 pub fn post_layout(siv: &mut Cursive) {
-    let cur_id = CUR_DOC.lock().unwrap().id.clone();
+    let cur_id = CUR_DOC.read().unwrap().id.clone();
     if cur_id.len() == 0 {
         show_doc(siv, "intro", true, false);
     } else {
