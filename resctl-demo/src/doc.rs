@@ -683,14 +683,14 @@ fn render_doc(doc: &RdDoc) -> impl View {
     let mut view = LinearLayout::vertical();
     let mut prev_was_text = true;
 
-    view = view.child(Button::new_raw("", |_| {}));
-
     for para in &doc.body {
         match para {
             RdPara::Text(indent_opt, text) => {
-                if !prev_was_text && !text.is_empty() {
-                    view = view.child(DummyView);
-                }
+                view = if prev_was_text {
+                    view.child(LinearLayout::horizontal().child(Button::new_raw(" ", |_| {})))
+                } else {
+                    view.child(DummyView)
+                };
                 view = match indent_opt {
                     Some(indent) => view.child(
                         LinearLayout::horizontal()
@@ -699,10 +699,12 @@ fn render_doc(doc: &RdDoc) -> impl View {
                     ),
                     None => view.child(TextView::new(text.clone())),
                 };
-                view = view.child(DummyView);
-                prev_was_text = true;
+                prev_was_text = !text.is_empty();
             }
             RdPara::Prompt(prompt, cmd, idx) => {
+                if prev_was_text {
+                    view = view.child(DummyView);
+                }
                 view = view.child(render_cmd(prompt, cmd, *idx));
                 prev_was_text = false;
             }
