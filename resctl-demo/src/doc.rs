@@ -355,6 +355,14 @@ fn exec_one_cmd(siv: &mut Cursive, cmd: &RdCmd) {
                 reset_oomd(cs);
                 reset_graph(siv);
             };
+            let reset_prep = |cs: &mut CmdState, siv: &mut Cursive| {
+                reset_secondaries(cs);
+                reset_resctl(cs);
+                reset_oomd(cs);
+                reset_hashd_params(cs);
+                reset_resctl_params(cs);
+                reset_graph(siv);
+            };
 
             match reset {
                 RdReset::Benches => reset_benches(&mut cs),
@@ -386,6 +394,9 @@ fn exec_one_cmd(siv: &mut Cursive, cmd: &RdCmd) {
                     reset_all(&mut cs, siv);
                     reset_hashd_params(&mut cs);
                     reset_resctl_params(&mut cs);
+                }
+                RdReset::Prep => {
+                    reset_prep(&mut cs, siv);
                 }
             }
         }

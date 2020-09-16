@@ -1,12 +1,8 @@
 ## Copyright (c) Facebook, Inc. and its affiliates.
 %% id comp.psi: PSI - Monitoring Resource Contention with PSI
-%% reset secondaries
-%% reset protections
+%% reset prep
 %% knob hashd-load 1.0
 %% on hashd
-$$ reset hashd-params
-$$ reset resctl-params
-$$ reset secondaries
 
 *PSI - Monitoring Resource Contention with PSI*\n
 *=============================================*

@@ -1,7 +1,6 @@
 ## Copyright (c) Facebook, Inc. and its affiliates.
 %% id senpai.exp: Senpai Playground
-%% reset secondaries
-%% reset protections
+%% reset prep
 
 *Senpai Playground*\n
 *=================*
@@ -20,11 +19,11 @@ Play with the parameters and workloads, and see what happens.
 
 Sysload toggles:
 
-%% toggle sysload build-linux build-linux-2x : allmodconfig linux build
-%% toggle sysload build-linux-min build-linux-allnoconfig-2x : allnoconfig linux build
-%% toggle sysload build-linux-def build-linux-defconfig-2x : allmodconfig linux build
-%% toggle sysload memory-bomb memory-growth-25pct : Memory bomb
-%% toggle sysload io-bomb read-bomb : IO bomb
+%% toggle sysload compile-job build-linux-2x : allmodconfig linux build
+%% toggle sysload compile-job-1 build-linux-allnoconfig-2x : allnoconfig linux build
+%% toggle sysload compile-job-2 build-linux-defconfig-2x : allmodconfig linux build
+%% toggle sysload memory-hog memory-growth-50pct : Memory hog
+%% toggle sysload io-hog read-bomb : IO hog
 
 
 ___*Read on*___

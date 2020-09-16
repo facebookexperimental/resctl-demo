@@ -1,13 +1,10 @@
 ## Copyright (c) Facebook, Inc. and its affiliates.
 %% id side.details: Some Details on Sideloading
-%% reset secondaries
-%% reset protections
+%% reset prep
 %% knob sys-cpu-ratio 0.01
 %% knob sys-io-ratio 0.01
 %% knob hashd-load 0.6
 %% on hashd
-$$ reset resctl-params
-$$ reset graph
 
 *Some Details on Sideloading*\n
 *===========================*
@@ -69,7 +66,7 @@ that changes:
 
 %% (                             : [ Start linux build sysload ]
 %% reset secondaries
-%% on sysload build-linux build-linux-2x
+%% on sysload compile-job build-linux-2x
 %% )
 
 Wait until the compile phase starts and system.slice's CPU utilization rises
@@ -83,7 +80,7 @@ any difference:
 
 %% (                             : [ Stop linux build sysload and start it as sideload ]
 %% reset secondaries
-%% on sideload build-linux build-linux-2x
+%% on sideload compile-job build-linux-2x
 %% )
 
 Once the compile phase starts, workload.slice's CPU utilization rises, but
@@ -111,7 +108,7 @@ sideload:
 %% (                             : [ Stop hashd and start allnoconfig linux build sysload ]
 %% off hashd
 %% reset secondaries
-%% on sysload build-linux-min build-linux-allnoconfig-2x
+%% on sysload compile-job-1 build-linux-allnoconfig-2x
 %% )
 
 Monitor the progress in the "other logs" pane on the left. Depending on the
@@ -135,7 +132,7 @@ build job again:
 
 %% (                             : [ Start allnoconfig linux build sideload ]
 %% reset secondaries
-%% on sideload build-linux-min build-linux-allnoconfig-2x
+%% on sideload compile-job-1 build-linux-allnoconfig-2x
 %% )
 
 Wait for it to finish and note the time as before. The log for this run is
@@ -156,7 +153,7 @@ test machine:
 %% (                             : [ Stop hashd and start defconfig linux build sysload ]
 %% off hashd
 %% reset secondaries
-%% on sysload build-linux-def build-linux-defconfig-2x
+%% on sysload compile-job-2 build-linux-defconfig-2x
 %% )
 
 Wait for completion and take note of how long compilation took and then
@@ -171,7 +168,7 @@ Once it warms up, start the same build job as a sideload:
 
 %% (                             : [ Start defconfig linux build sideload ]
 %% reset secondaries
-%% on sideload build-linux-def build-linux-defconfig-2x
+%% on sideload compile-job-2 build-linux-defconfig-2x
 %% )
 
 On a test machine, the full machine run took 81 seconds; the sideload run

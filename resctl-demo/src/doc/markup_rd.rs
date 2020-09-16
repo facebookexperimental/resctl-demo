@@ -77,6 +77,7 @@ pub enum RdReset {
     All,           // Everything except for Params
     Params,        // HashdParams, ResCtlParams
     AllWithParams, // Everything
+    Prep,          // Secondaries, Protections, Params, Graph
 }
 
 #[derive(Debug, Clone)]
@@ -345,6 +346,7 @@ impl RdCmd {
                     "all" => RdReset::All,
                     "params" => RdReset::Params,
                     "all-with-params" => RdReset::AllWithParams,
+                    "prep" => RdReset::Prep,
                     _ => bail!("invalid reset target"),
                 };
                 RdCmd::Reset(reset)

@@ -1,7 +1,6 @@
 ## Copyright (c) Facebook, Inc. and its affiliates.
 %% id senpai.senpai: Senpai
-%% reset secondaries
-%% reset protections
+%% reset prep
 %% knob hashd-load 0.25
 %% on hashd
 

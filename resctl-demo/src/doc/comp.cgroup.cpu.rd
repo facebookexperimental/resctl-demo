@@ -1,7 +1,6 @@
 ## Copyright (c) Facebook, Inc. and its affiliates.
 %% id comp.cgroup.cpu: CPU Control
-%% reset secondaries
-%% reset protections
+%% reset prep
 %% knob hashd-load 1.0
 %% on hashd
 

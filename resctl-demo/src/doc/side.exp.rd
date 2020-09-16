@@ -1,12 +1,10 @@
 ## Copyright (c) Facebook, Inc. and its affiliates.
 %% id side.exp: Experiment with Sideloading
-%% reset secondaries
-%% reset protections
+%% reset prep
 %% knob sys-cpu-ratio 0.01
 %% knob sys-io-ratio 0.01
 %% knob hashd-load 0.6
 %% on hashd
-$$ reset resctl-params
 
 *Experiment with Sideloading*\n
 *===========================*
@@ -19,19 +17,19 @@ Play with the parameters and workloads, and see what happens.
 
 Sideload toggles:
 
-%% toggle sideload build-linux build-linux-2x : allmodconfig linux build
-%% toggle sideload build-linux-min build-linux-allnoconfig-2x : allnoconfig linux build
-%% toggle sideload build-linux-def build-linux-defconfig-2x : allmodconfig linux build
-%% toggle sideload memory-bomb memory-growth-25pct : Memory bomb
-%% toggle sideload io-bomb read-bomb : IO bomb
+%% toggle sideload compile-job build-linux-2x : allmodconfig linux build
+%% toggle sideload compile-job-1 build-linux-allnoconfig-2x : allnoconfig linux build
+%% toggle sideload compile-job-2 build-linux-defconfig-2x : allmodconfig linux build
+%% toggle sideload memory-hog memory-growth-50pct : Memory hog
+%% toggle sideload io-hog read-bomb : IO hog
 
 Sysload toggles:
 
-%% toggle sysload build-linux build-linux-2x : allmodconfig linux build
-%% toggle sysload build-linux-min build-linux-allnoconfig-2x : allnoconfig linux build
-%% toggle sysload build-linux-def build-linux-defconfig-2x : allmodconfig linux build
-%% toggle sysload memory-bomb memory-growth-25pct : Memory bomb
-%% toggle sysload io-bomb read-bomb : IO bomb
+%% toggle sysload compile-job build-linux-2x : allmodconfig linux build
+%% toggle sysload compile-job-1 build-linux-allnoconfig-2x : allnoconfig linux build
+%% toggle sysload compile-job-2 build-linux-defconfig-2x : allmodconfig linux build
+%% toggle sysload memory-hog memory-growth-50pct : Memory hog
+%% toggle sysload io-hog read-bomb : IO hog
 
 
 ___*Read on*___

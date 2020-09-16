@@ -1,7 +1,6 @@
 ## Copyright (c) Facebook, Inc. and its affiliates.
 %% id comp.oomd: OOMD - The Out-Of-Memory Daemon
-%% reset secondaries
-%% reset protections
+%% reset prep
 %% knob hashd-load 0.6
 %% on hashd
 
@@ -138,7 +137,7 @@ Once rd-hashd warms up, let's start a memory bomb:
 
 %% (                             : [ Start memory bomb ]
 %% reset secondaries
-%% on sysload memory-bomb memory-growth-1x
+%% on sysload memory-hog memory-growth-1x
 %% )
 
 Watch the system.slice swap usage climbing. How quickly will depend on the
@@ -155,7 +154,7 @@ if we repeat the same thing, but without OOMD:
 %% (                             : [ Disable OOMD and start memory bomb ]
 %% reset secondaries
 %% off oomd
-%% on sysload memory-bomb-1 memory-growth-1x
+%% on sysload memory-hog-1 memory-growth-1x
 %% )
 
 Observe how system.slice's memory usage keeps creeping up once swap is
@@ -204,7 +203,7 @@ an acceptable range. The following button starts the same memory bomb, but
 makes it access its memory pages frequently, so that they can't be simply
 swapped out. This is a crude but effective stand-in for the above scenario:
 
-%% on sysload memory-bloat memory-bloat-1x : [ Start memory bloat ]
+%% on sysload memory-hog-hot memory-bloat-1x : [ Start hot memory hog ]
 
 It'll take a while to bloat, and system.slice's memory pressure will
 gradually build up. Soon, it'll start running out of memory and experience

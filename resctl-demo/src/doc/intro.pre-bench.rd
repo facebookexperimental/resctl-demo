@@ -1,7 +1,5 @@
 ## Copyright (c) Facebook, Inc. and its affiliates.
 %% id intro.pre-bench: Welcome
-%% reset all-workloads
-%% reset protections
 
 *Welcome*\n
 *=======*

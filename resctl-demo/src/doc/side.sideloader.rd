@@ -1,12 +1,10 @@
 ## Copyright (c) Facebook, Inc. and its affiliates.
 %% id side.sideloader: The Sideloader
-%% reset secondaries
-%% reset protections
+%% reset prep
 %% knob sys-cpu-ratio 0.01
 %% knob sys-io-ratio 0.01
 %% knob hashd-load 0.6
 %% on hashd
-$$ reset resctl-params
 
 *The Sideloader*\n
 *==============*
@@ -107,7 +105,7 @@ the same resource weights as before; the only difference is that it's now
 running under the supervision of sideloader:
 
 %% (                             : [ Start linux build job as a sideload ]
-%% on sideload build-linux build-linux-2x
+%% on sideload compile-job build-linux-2x
 %% )
 
 While the Linux source tree is being untarred, depending on the memory

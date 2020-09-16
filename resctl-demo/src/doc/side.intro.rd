@@ -1,12 +1,10 @@
 ## Copyright (c) Facebook, Inc. and its affiliates.
 %% id side.intro: What is Sideloading?
-%% reset secondaries
-%% reset protections
+%% reset prep
 %% knob sys-cpu-ratio 0.01
 %% knob sys-io-ratio 0.01
 %% knob hashd-load 0.6
 %% on hashd
-$$ reset resctl-params
 
 *What is Sideloading?*\n
 *====================*
@@ -86,7 +84,7 @@ Linux build job with 2x CPU count concurrency. Pay attention to how the
 latency in the left graph pane changes:
 
 %% (                             : [ Start linux build job ]
-%% on sysload build-linux build-linux-2x
+%% on sysload compile-job build-linux-2x
 %% )
 
 Note how RPS is holding but latency deteriorates sharply. Press 'g' and
@@ -103,7 +101,7 @@ It climbs, but seems kind of sluggish. Let's compare it with a load rising
 but without the build job:
 
 %% (                             : [ Stop linux build and set 60% load ]
-%% off sysload build-linux
+%% off sysload compile-job
 %% knob hashd-load 0.6
 %% )
 

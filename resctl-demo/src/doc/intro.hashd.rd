@@ -1,11 +1,7 @@
 ## Copyright (c) Facebook, Inc. and its affiliates.
 %% id intro.hashd: rd-hashd Workload Simulator
+%% reset prep
 %% graph HashdA
-%% reset all-workloads
-$$ reset graph
-$$ reset hashds
-$$ knob balloon 0
-$$ reset all-workloads
 
 *The rd-hashd Workload Simulator*\n
 *===============================*

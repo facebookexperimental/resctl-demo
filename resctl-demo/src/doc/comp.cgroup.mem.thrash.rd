@@ -1,10 +1,8 @@
 ## Copyright (c) Facebook, Inc. and its affiliates.
 %% id comp.cgroup.mem.thrash: The Anatomy of Thrashing
-%% reset all-workloads
-%% reset protections
+%% reset prep
 %% knob hashd-load 1.0
 %% on hashd
-$$ reset hashd-params
 
 *The Anatomy of Thrashing*\n
 *========================*

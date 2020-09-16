@@ -1,7 +1,6 @@
 ## Copyright (c) Facebook, Inc. and its affiliates.
 %% id intro.iocost: Iocost Parameters and Benchmark
 %% graph IoUtil
-$$ reset graph
 
 *The cgroup2 IO cost model based controller*\n
 *==========================================*

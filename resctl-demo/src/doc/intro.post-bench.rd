@@ -1,7 +1,7 @@
 ## Copyright (c) Facebook, Inc. and its affiliates.
 %% id intro.post-bench : Introduction to resouce control demo
+%% reset prep
 %% reset all-workloads
-%% reset protections
 
 *Introduction*\n
 *============*
