@@ -740,6 +740,7 @@ pub fn layout_factory() -> impl View {
 pub fn post_layout(siv: &mut Cursive) {
     let cur_id = CUR_DOC.read().unwrap().id.clone();
     if cur_id.len() == 0 {
+        exec_one_cmd(siv, &RdCmd::Reset(RdReset::AllWithParams));
         show_doc(siv, "intro", true, false);
     } else {
         show_doc(siv, &cur_id, false, false);
