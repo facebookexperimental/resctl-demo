@@ -123,32 +123,33 @@ will vary depending on how much of a bottleneck IO is on your system.
 ___*Let's put it through the paces*___
 
 rd-hashd should already be running at full load. Once it warms up, let's
-disable IO control and start the same linux compile job with a very high
-concurrency level which will cause a lot of filesystem operations and IOs
-from memory shortage.
+disable IO control and start a memory hog. Memory hog is an effective
+stressor for IO isolation tests because it creates a lot of bursty swap
+writes and forces the rest of the system to compete for memory forcing them
+to depend on reclaim IOs.
 
-%% (                             : [ Disable IO control and start a compile job ]
+%% (                             : [ Disable IO control and start a memory hog ]
 %% off io-resctl
-%% on sysload compile-job build-linux-32x
+%% on sysload memory-hog memory-growth-1x
 %% )
 
-Once rd-hashd is struggling, stop the compile job and turn IO protection
-back on:
+Once rd-hashd is struggling, stop the memory hog and turn IO protection back
+on:
 
-%% (                         	: [ Stop the compile job and restore IO control ]
+%% (                         	: [ Stop the memory hog and restore IO control ]
 %% reset secondaries
 %% reset protections
 %% )
 
 Wait for the sysload count to drop to zero and rd-hashd to stabilize, then
-launch the same compile job again:
+launch the same memory hog again:
 
-%% (                         	: [ Start the compile job ]
-%% on sysload compile-job build-linux-32x
+%% (                         	: [ Start the memory hog ]
+%% on sysload memory-hog memory-growth-1x
 %% )
 
-The kernel is able to protect hashd indefinitely. oomd's system.slice
-thrashing policy will trigger and kill the compile job though.
+The kernel is able to protect hashd indefinitely. oomd will eventually kill
+the memory hog.
 
 
 ___*Read on*___

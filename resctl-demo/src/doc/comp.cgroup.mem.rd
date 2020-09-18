@@ -147,8 +147,9 @@ Let's stop the compile job and restore memory control:
 %% reset protections
 %% )
 
-Wait for the sysload count to drop to zero and rd-hashd to stabilize, then
-launch the same compile job again:
+Wait for the sysload count to drop to zero and rd-hashd to stabilize. Once
+rd-hashd's RPS is stable and memory footprint stops increasing, launch the
+same compile job again:
 
 %% (                         	: [ Start the compile job ]
 %% on sysload compile-job build-linux-32x
@@ -156,8 +157,8 @@ launch the same compile job again:
 
 RPS drops a bit, which is expected - we want the management portion to be
 able to use a small fraction of the system, but rd-hashd will stay close to
-its full load while the malfunctioning system.slice is throttled so it can't
-overwhelm the system.
+its full load while the malfunctioning system.slice is throttled so that it
+can't overwhelm the system.
 
 
 ___*Read on*___

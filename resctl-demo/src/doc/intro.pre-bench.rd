@@ -83,8 +83,13 @@ following two setups:
 2. AWS c5d.9xlarge - 36 vCPUs, 72G memory, local 900G SSD
 
 On setups which are significantly weaker than #1, the demo scenarios may not
-behave as expected, especially on SSDs with wildy incosistent latency
-profiles.
+behave as expected, especially on SSDs with high and incosistent latency
+profiles. When RPS suddenly dips or stays low, open the graph view with 'g'
+and check out the IO utilization and read latency graphs. Read latencies on
+some SSDs occasionally spike up to tens of milliseconds even when the host
+isn't issuing overwhelming amount of IOs. There is only so much the kernel
+can do for latency sensitive workloads when a single IO takes tens of
+milliseconds.
 
 The "Other logs" pane on the left shows what's going on. If the view is too
 cramped, check out the fullscreen log view with the 'l' key. You can also

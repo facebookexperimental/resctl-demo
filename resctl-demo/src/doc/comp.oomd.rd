@@ -1,7 +1,7 @@
 ## Copyright (c) Facebook, Inc. and its affiliates.
 %% id comp.oomd: OOMD - The Out-Of-Memory Daemon
 %% reset prep
-%% knob hashd-load 0.6
+%% knob hashd-load 0.9
 %% on hashd
 
 *OOMD - The Out-Of-Memory Daemon*\n
@@ -130,10 +130,11 @@ ___*OOMD in action - Swap depletion kill*___
 This scenario might already seem familiar - rd-hashd running and a memory
 hog going off in system.slice. We've used this to demonstrate memory and
 other protection scenarios and didn't worry about system stability. Let's do
-it again, but let's see what happens with rd-hashd's load reduced to 60% so
+it again, but let's see what happens with rd-hashd's load reduced to 90% so
 that filling-up swap doesn't take too long.
 
-Once rd-hashd warms up, let's start a memory hog:
+Once rd-hashd warms up and the memory usage stops expanding, let's start a
+memory hog:
 
 %% (                             : [ Start memory hog ]
 %% reset secondaries
@@ -147,9 +148,10 @@ available swap and you'll see something like the following in the
 
   [15:33:24 rd-oomd] [../src/oomd/Log.cpp:114] 50.85 49.35 30.53 system.slice/rd-sysload-test-mem-1x.service 6905962496 ruleset:[protection against low swap] detectorgroup:[free swap goes below 10 percent] killer:kill_by_swap_usage v2
 
-This is OOMD killing the memory hog due to swap depletion. The system
-weathered it just fine and it didn't seem like much. Let's see what happens
-if we repeat the same thing, but without OOMD:
+To view the full log, press 'l' and select "rd-oomd". This is OOMD killing
+the memory hog due to swap depletion. The system weathered it just fine and
+it didn't seem like much. Let's see what happens if we repeat the same
+thing, but without OOMD:
 
 %% (                             : [ Disable OOMD and start memory hog ]
 %% reset secondaries
@@ -166,14 +168,16 @@ resolve the situation, leaving something like the following in `dmesg`:
 
   [ 2808.411512] Out of memory: Killed process 45724 (memory-growth.p) total-vm:28805140kB, anon-rss:11815160kB, file-rss:4772kB, shmem-rss:0kB, UID:0 pgtables:55768kB oom_score_adj:0
 
-There's also some chance your system might completely lock up, requiring a
-hard power cycle. If you want to try it again, reset the experiment with the
-following button, wait for rd-hashd to recover, and then retry:
+Or the kernel might kill rd-hashd instead of the memory hog. There's also
+some chance your system might completely lock up, requiring a hard power
+cycle. If you want to try it again, reset the experiment with the following
+button, wait for rd-hashd to recover, and then retry:
 
 %% (                             : [ Prepare for swap depletion kill test ]
 %% reset secondaries
 %% reset protections
-%% knob hashd-load 0.6
+%% knob hashd-load 0.9
+%% on hashd
 %% )
 
 
@@ -185,6 +189,7 @@ Let's first reset experiments and ramp up hashd to 100%:
 %% reset secondaries
 %% reset protections
 %% knob hashd-load 1.0
+%% on hashd
 %% )
 
 Imagine a management application malfunctioning occasionally and bloating up
@@ -199,20 +204,20 @@ now, and a crawling malfunction is often more difficult to detect.
 
 This is what pressure-triggered kills are for. OOMD can monitor application
 health through pressure metrics, and take action when they're clearly out of
-an acceptable range. The following button starts the same memory hog, but
-makes it access its memory pages frequently, so that they can't be simply
-swapped out. This is a crude but effective stand-in for the above scenario:
+an acceptable range. The following button starts a kernel compile job with
+very high concurrency. The combination is a crude but effective stand-in for
+the above scenario:
 
-%% on sysload memory-hog-hot memory-bloat-1x : [ Start hot memory hog ]
+%% (                             : [ Start a compile job ]
+%% on sysload compile-job build-linux-32x
+%% )
 
 It'll take a while to bloat, and system.slice's memory pressure will
 gradually build up. Soon, it'll start running out of memory and experience
 gradually increasing memory pressure. It eventually ends up waiting for IOs
 most of the time, sustaining memory pressure close to 100%. As the OOMD
-configuration is pretty conservative and acts on 1-min average pressure,
-it'll take some time, but OOMD will kick in and terminate the offending
-process. Note that depending on the configuration, swap space may run out
-and trigger swap depletion kill before pressure kill is triggered.
+configuration is pretty conservative, it'll take some time, but OOMD will
+kick in and terminate the offending process.
 
 If the configuration and monitoring are set up correctly, the offending
 application will be restarted as necessary, and alarms will be raised if
