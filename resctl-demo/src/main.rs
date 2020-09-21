@@ -1,7 +1,7 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
 use anyhow::{bail, Result};
 use clap;
-use cursive::theme::{BaseColor, Color, Effect, PaletteColor, Style};
+use cursive::theme::{Color, Effect, PaletteColor, Style};
 use cursive::utils::markup::StyledString;
 use cursive::view::{Resizable, ScrollStrategy, Scrollable, SizeConstraint, View};
 use cursive::views::{BoxedView, Dialog, LinearLayout, TextView};
@@ -46,17 +46,24 @@ pub const STATUS_HEIGHT: usize = 9;
 const MAIN_HORIZ_MIN_HEIGHT: usize = 40;
 const MAIN_VERT_MIN_HEIGHT: usize = 80;
 
-pub const COLOR_BACKGROUND: Color = Color::Dark(BaseColor::Black);
-pub const COLOR_DFL: Color = Color::Dark(BaseColor::White);
-pub const COLOR_HIGHLIGHT: Color = Color::Light(BaseColor::Green);
-pub const COLOR_HIGHLIGHT_INACTIVE: Color = Color::Light(BaseColor::Blue);
+const COLOR_BLACK: Color = Color::Rgb(0, 0, 0);
+const COLOR_WHITE: Color = Color::Rgb(255, 255, 255);
+const COLOR_RED: Color = Color::Rgb(182, 0, 0);
+const COLOR_GREEN: Color = Color::Rgb(78, 154, 6);
+const COLOR_BLUE: Color = Color::Rgb(52, 101, 164);
+const COLOR_MAGENTA: Color = Color::Rgb(173, 127, 168);
 
-pub const COLOR_INACTIVE: Color = Color::Light(BaseColor::Blue);
-pub const COLOR_ACTIVE: Color = Color::Light(BaseColor::Green);
-pub const COLOR_ALERT: Color = Color::Light(BaseColor::Red);
-pub const COLOR_GRAPH_1: Color = Color::Light(BaseColor::Green);
-pub const COLOR_GRAPH_2: Color = Color::Light(BaseColor::Blue);
-pub const COLOR_GRAPH_3: Color = Color::Light(BaseColor::Magenta);
+pub const COLOR_BACKGROUND: Color = COLOR_BLACK;
+pub const COLOR_DFL: Color = COLOR_WHITE;
+pub const COLOR_HIGHLIGHT: Color = COLOR_GREEN;
+pub const COLOR_HIGHLIGHT_INACTIVE: Color = COLOR_BLUE;
+
+pub const COLOR_INACTIVE: Color = COLOR_BLUE;
+pub const COLOR_ACTIVE: Color = COLOR_GREEN;
+pub const COLOR_ALERT: Color = COLOR_RED;
+pub const COLOR_GRAPH_1: Color = COLOR_GREEN;
+pub const COLOR_GRAPH_2: Color = COLOR_BLUE;
+pub const COLOR_GRAPH_3: Color = COLOR_MAGENTA;
 
 lazy_static! {
     static ref ARGS_STR: String = format!(
