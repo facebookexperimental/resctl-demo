@@ -63,8 +63,8 @@ For sideloading to work, the following conditions should hold:
 1. The DR-buffer should be available to the main workload on the system so
    it can ramp up unimpeded when needed.
 
-2. Any impact the sideload might have on the latency that the DR-buffer
-   provides to the main workload should be limited and controlled.
+2. Any impact the sideload might have on the latency benefit that the
+   DR-buffer provides to the main workload should be limited and controlled.
 
 
 ___*A naive approach*___
@@ -77,7 +77,7 @@ sideload at it? Can the same setup that worked against random misbehaving
 workloads give the same protection against a sideload?
 
 We already know that rd-hashd can be protected pretty well at full load.
-Let's see how latency is impacted starting at 60% and ramping up from there.
+Let's see how latency at 60% load and ramping up from there are impacted.
 
 rd-hashd should already be running at 60% load. Once it's warmed up, start a
 Linux build job with 2x CPU count concurrency. Pay attention to how the
@@ -88,9 +88,9 @@ latency in the left graph pane changes:
 %% )
 
 Note how RPS is holding but latency deteriorates sharply. Press 'g' and
-check out the resource pressure graphs. Even though the CPU weight of the
-build job is only at a hundredth of rd-hashd, CPU pressure is noticeable.
-We'll get back to this later.
+check out the resource pressure graphs. Even though this page set the CPU
+weight of the build job only at a hundredth of rd-hashd, CPU pressure is
+noticeable. We'll get back to this later.
 
 Now let's push the load up to 100% and see whether its ability to ramp up is
 impacted too:

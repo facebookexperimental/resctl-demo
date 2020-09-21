@@ -65,9 +65,9 @@ implements the following:
   access pattern of the main workload, even a low level of memory activity
   from sideload can have an oversized impact on the main workload operating
   at full capacity. To guarantee that sideloads don't get in the way when
-  the main workload needs toeh whole machine, the sideloader can activate
-  the cgroup2 freezer to make sideloads completely inert and later kill them
-  if end up staying frozen for too long.
+  the main workload needs the whole machine, the sideloader can activate the
+  cgroup2 freezer to make sideloads completely inert and later kill them if
+  end up staying frozen for too long.
 
 Sideloader is already running as part of this demo, as rd-sideloader
 service. the "sideload" line in the upper left pane, reports its status:
@@ -97,14 +97,14 @@ service. the "sideload" line in the upper left pane, reports its status:
   killed.
 
 Now, let's repeat the experiment from the last section, but launch the Linux
-build job as a sideload that's supervised by the sideloader.
+compile job as a sideload that's supervised by the sideloader.
 
 rd-hashd should already be running at 60% load. Once it warms up, let's
-start a Linux build job with 2x CPU count concurrency as before. It'll have
-the same resource weights as before; the only difference is that it's now
-running under the supervision of sideloader:
+start a Linux compile job with 2x CPU count concurrency as before. It'll
+have the same resource weights as before; the only difference is that it's
+now running under the supervision of sideloader:
 
-%% (                             : [ Start linux build job as a sideload ]
+%% (                             : [ Start linux compile job as a sideload ]
 %% on sideload compile-job build-linux-2x
 %% )
 
@@ -130,7 +130,7 @@ sustained indefinitely. Let's see how ramping up to full load behaves:
 
 The difference from the no sideload case should be significantly less
 pronounced. Look at how the sideloader state transitions to overload,
-freezing the Linux build job. The build job is configured to expire after
+freezing the Linux compile job. The build job is configured to expire after
 being frozen for 30s. Let's wait and see what happens.
 
 We just demonstrated that, with the help of sideloader, sideloads can

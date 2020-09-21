@@ -5,6 +5,7 @@
 %% knob sys-io-ratio 0.01
 %% knob hashd-load 0.6
 %% on hashd
+%% graph RpsCpu
 
 *Some Details on Sideloading*\n
 *===========================*
@@ -26,10 +27,10 @@ measured in wallclock time, doesn't scale linearly with the total amount of
 work the CPUs can do. We can observe this relationship by varying the load
 level of hashd.
 
-hashd is already running at 60% load. Let's switch to the RPS / CPU util
-graph for direct comparison:
-
-%% graph RpsCpu                  : [ Switch to RPS / CPU graph ]
+hashd is already running at 60% load and the left graph panel is showing the
+RPS / CPU util graph instead of the usual RPS / latency. The plots for the
+two values are directly comparable - the y-axes for both are on the same
+percentage scale.
 
 Look at the CPU utilization: It's likely significantly lower, though it will
 vary by CPU. Now, increase the load level gradually with the knob below and
@@ -43,9 +44,8 @@ up. How they exactly map will depend on the specific hardware and workload.
 
 Let's reset and continue on to the next section:
 
-%% (                             : [ Reset graph and load level ]
+%% (                             : [ Reset load level to 60% ]
 %% knob hashd-load 0.6
-%% reset graph
 %% )
 
 
@@ -60,7 +60,7 @@ unless the system is under heavy memory pressure. So, we can use RPS as the
 measure for the total amount of work the CPUs are doing.
 
 rd-hashd should already be running at 60% load. Once it warms up, note the
-CPU utilization level of workload.slice: It should be fairly stable. Now,
+CPU utilization level of ___workload___: It should be fairly stable. Now,
 let's start the Linux build job as sysload - no CPU headroom - and see how
 that changes:
 
@@ -69,8 +69,8 @@ that changes:
 %% on sysload compile-job build-linux-2x
 %% )
 
-Wait until the compile phase starts and system.slice's CPU utilization rises
-and stabilizes. Compare workload.slice's current CPU utilization to before:
+Wait until the compile phase starts and ___system___'s CPU utilization rises
+and stabilizes. Compare ___workload___'s current CPU utilization to before:
 The RPS didn't change but its CPU utilization rose. The CPUs are taking
 significantly more time doing the same amount of work. This is one of the
 major contributing factors for the increased latency.
@@ -83,10 +83,10 @@ any difference:
 %% on sideload compile-job build-linux-2x
 %% )
 
-Once the compile phase starts, workload.slice's CPU utilization rises, but
+Once the compile phase starts, ___workload___'s CPU utilization rises, but
 noticeably less compared to the prior attempt without CPU headroom. You can
 tune the headroom amount with the following slide. Nudge it up and down, and
-observe how workload.slice's CPU utilization responds:
+observe how ___workload___'s CPU utilization responds:
 
 %% knob cpu-headroom             : CPU headroom :
 
@@ -115,7 +115,7 @@ Monitor the progress in the "other logs" pane on the left. Depending on the
 machine, the build will take some tens of seconds. When the job finishes, it
 prints out how long the compilation part took, in a line similar to
 "Compilation took 10 seconds". If it's difficult to find in the left pane,
-open log view with 'l' and select rd-sysload-build-linux-min, and record the
+open log view with 'l' and select rd-sysload-compile-job-1, and record the
 duration. This is our baseline - the time it takes to build allnoconfig
 kernel, when it can take up the whole machine.
 
@@ -136,7 +136,7 @@ build job again:
 %% )
 
 Wait for it to finish and note the time as before. The log for this run is
-in rd-sideload-build-linux-min.
+in rd-sideload-compile-job-1.
 
 On a test machine with AMD Ryzen 7 3800X (8 cores and 16 threads), the full
 machine run took 10s, while the sideloaded one took 30s. The number is
@@ -171,7 +171,7 @@ Once it warms up, start the same build job as a sideload:
 %% on sideload compile-job-2 build-linux-defconfig-2x
 %% )
 
-On a test machine, the full machine run took 81 seconds; the sideload run
+On the test machine, the full machine run took 81 seconds; the sideload run
 305 seconds. That's ~27%. 60% for hashd + 27% for the sideload adds up to
 87% - still higher than expected given the 20% headroom. While experiment
 errors could contribute some, the total amount of work done being higher
