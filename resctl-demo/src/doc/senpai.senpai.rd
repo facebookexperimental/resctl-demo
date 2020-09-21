@@ -24,7 +24,7 @@ the memory, and then reduce it back to 25% using the following buttons:
 %% knob hashd-load 0.25          : [ Set rd-hashd load level to 25% ]
 
 Once rd-hashd is running at 25% load with high memory usage, enable Senpai
-on workload.slice:
+on ___workload___:
 
 %% on oomd-work-senpai           : [ Enable Senpai on workload.slice ]
 
