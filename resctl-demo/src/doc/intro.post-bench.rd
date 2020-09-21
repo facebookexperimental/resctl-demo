@@ -82,8 +82,8 @@ Watch the stable RPS. rd-hashd is now fully protected against the
 competitions. The compile job and memory hog are throttled. The compile job
 doesn't seem to be making much progress. This is because sideloads
 (workloads under the siderloader supersivision) are configured to have lower
-priority than sysloads (workloads under systems.slice). Don't worry about
-the distinction between sideloads and sysloads for now. We'll revisit them
+priority than sysloads (workloads under ___system___). Don't worry about the
+distinction between sideloads and sysloads for now. We'll revisit them
 later.
 
 Let's stop the memory hog and see what happens.

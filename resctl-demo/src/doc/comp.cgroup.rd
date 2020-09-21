@@ -30,7 +30,7 @@ utilization graph by pressing 'g'.
 Once the workload sufficiently ramps up, you can see how the system behaves
 without any protection, by selecting the button below to disable all
 resource control mechanisms and start a memory-hog program. The problematic
-program will start as rd-sysload-memory-hog.service under system.slice:
+program will start as rd-sysload-memory-hog.service under ___system___:
 
 %% (                             : [ Disable all resource control features and start memory hog ]
 %% off cpu-resctl
@@ -101,15 +101,15 @@ each top-level cgroup, and how the applications below them are organized,
 allows us to control resource distribution across the system. The demo uses
 the following top-level slices:
 
-* workload.slice: This is where the system's primary workloads run. Our
-  latency-sensitive primary workload - rd-hashd - runs here too as
+* ___workload.slice___: This is where the system's primary workloads run.
+  Our latency-sensitive primary workload - rd-hashd - runs here too as
   workload.slice/rd-hashd-A.service.
 
-* sideload.slice: This is where secondary opportunistic side workloads run.
-  We'll revisit sideloads later.
+* ___sideload.slice___: This is where secondary opportunistic side workloads
+  run. We'll revisit sideloads later.
 
-* hostcritical.slice: Some applications are critical for the basic health of
-  the system. Here are some examples:
+* ___hostcritical.slice___: Some applications are critical for the basic
+  health of the system. Here are some examples:
 
     * dbus: If dbus isn't responding, a systemd-based system might as well
       be off.
@@ -131,21 +131,21 @@ the following top-level slices:
       control protections are enabled, as we'll do in the next section
       below.
 
-* system.slice: This contains everything else: All the management,
+* ___system.slice___: This contains everything else: All the management,
   non-critical monitoring, plus the kitchen sink. We want these to run but
   it's not the end of the world if they slow down, or even get killed and
   restart if the situation gets really dire.
 
-* init.scope: systemd lives here, which is critical for the whole system. We
-  set up resource protection for this cgroup similar to hostcritical.slice.
-  We won't get into details on this cgroup for now, but all the key points
-  that apply to hostcritical.slice apply to this cgroup.
+* ___init.scope___: systemd lives here, which is critical for the whole
+  system. We set up resource protection for this cgroup similar to
+  ___hostcritical___. We won't get into details on this cgroup for now, but
+  all the key points that apply to ___hostcritical___ apply to this cgroup.
 
-* user.slice: This is where the user's login sessions live. In some server
-  deployments, this isn't used at all. In desktop setups, it's useful to
-  configure it so that each session has some protection, and no single
+* ___user.slice___: This is where the user's login sessions live. In some
+  server deployments, this isn't used at all. In desktop setups, it's useful
+  to configure it so that each session has some protection, and no single
   application suffocates the others. This demo sets up some basic
-  protections for user.slice in case the demo is accessed from a local
+  protections for ___user___ in case the demo is accessed from a local
   session, but detailed discussion of a desktop use case is out of scope for
   this demo.
 
@@ -197,15 +197,15 @@ how resource protection is configured in this demo.
 
 * Memory:
 
-  * workload.slice: memory.low is the best-effort memory protection⁠. It's
-    set up so that most of the system's memory is available to the primary
-    workloads if they want it.
+  * ___workload.slice___: memory.low is the best-effort memory protection⁠.
+    It's set up so that most of the system's memory is available to the
+    primary workloads if they want it.
 
-  * hostcritical.slice: memory.min - the more strict version of memory.low -
-    is set up so that 768MB is always available to hostcritical
+  * ___hostcritical.slice___: memory.min - the more strict version of
+    memory.low - is set up so that 768MB is always available to hostcritical
     applications.
 
-  * sideload.slice: memory.high is configured so that sideload doesn't
+  * ___sideload.slice___: memory.high is configured so that sideload doesn't
     expand to more than half of all memory. This isn't strictly necessary.
     Its only role is limiting the maximum size to which sideloads can expand
     when the system is otherwise idle, so that the primary workload doesn't

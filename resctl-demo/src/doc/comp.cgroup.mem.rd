@@ -103,11 +103,11 @@ ___*Memory control configuration in this demo*___
 
 This demo uses the following static memory control configuration:
 
- init.scope             : 16M  min  - systemd\n
- hostcritical.slice     : 768M min  - dbus, journald, sshd, resctl-demo\n
- workload.slice         : 75%  low  - hashd\n
- sideload.slice         : No configuration\n
- system.slice           : No configuration\n
+ ___init.scope___             : 16M  min  - systemd\n
+ ___hostcritical.slice___     : 768M min  - dbus, journald, sshd, resctl-demo\n
+ ___workload.slice___         : 75%  low  - hashd\n
+ ___sideload.slice___         : No configuration\n
+ ___system.slice___           : No configuration\n
 
 All we're doing is setting up overall protections for the important parts of
 the system in top-level slices. The numbers just need to be reasonable
@@ -117,10 +117,10 @@ to run the main workloads. As such, the same configuration can serve a wide
 variety of use cases, as long as the system's usage requirements are
 similar.
 
-In the above configuration, hostcritical is rather large at 512M. This is
-because the management agent and UI for this demo live under
-hostcritical.slice and need to stay responsive at all times. In more typical
-setups, hostcritical is set multiple times lower.
+In the above configuration, ___hostcritical___ is rather large at 512M. This
+is because the management agent and UI for this demo live under
+___hostcritical___ and need to stay responsive at all times. In more typical
+setups, ___hostcritical___ is set multiple times lower.
 
 
 ___*Memory protection in action*___
@@ -137,8 +137,8 @@ will viciously compete for memory:
 %% )
 
 Once the source tree is untarred and the compile commands start getting
-spawned, system.slice's memory pressure will shoot up. Soon after,
-workload.slice's pressure will start climbing and rd-hashd's RPS slumping.
+spawned, ___system___'s memory pressure will shoot up. Soon after,
+___workload___'s pressure will start climbing and rd-hashd's RPS slumping.
 
 Let's stop the compile job and restore memory control:
 
@@ -157,7 +157,7 @@ same compile job again:
 
 RPS drops a bit, which is expected - we want the management portion to be
 able to use a small fraction of the system, but rd-hashd will stay close to
-its full load while the malfunctioning system.slice is throttled so that it
+its full load while the malfunctioning ___system___ is throttled so that it
 can't overwhelm the system.
 
 

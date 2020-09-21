@@ -19,8 +19,8 @@ In the previous chapter's experiments, the resource pressure graphs showed
 CPU was the only resource for which rd-hashd experienced contention,
 suggesting that most of latency increase is coming from CPU side.
 
-Why is that though? system.slice's CPU weight was set at 1/100 of
-workload.slice. Why did 1% weight have such pronounced impact on baseline
+Why is that though? ___system___'s CPU weight was set at 1/100 of
+___workload___. Why did 1% weight have such pronounced impact on baseline
 latency? Here are two reasons:
 
 1. The kernel scheduler may take some time to start running a newly runnable
@@ -111,8 +111,8 @@ now running under the supervision of sideloader:
 While the Linux source tree is being untarred, depending on the memory
 situation and IO performance, you may see a brief spike in latency as the
 kernel tries to figure out the hot working set of the primary workload. Once
-the compile jobs start running, `sideload.slice` starts consuming CPU time
-and pushing up CPU utilization. Look in the upper right pane, and at the
+the compile jobs start running, ___sideload___ starts consuming CPU time and
+pushing up CPU utilization. Look in the upper right pane, and at the
 utilization graphs in the graph view ('g'). CPU utilization will go up but
 won't reach 100%.
 

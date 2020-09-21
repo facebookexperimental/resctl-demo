@@ -23,7 +23,7 @@ Protection settings:
 %% knob   sys-io-ratio           : System IO weight compared to rd-hashd  :
 %% reset  resctl-params          : [ Restore default parameters ]
 
-Workloads for system.slice:
+Workloads for ___system___:
 
 %% toggle sysload compile-job    build-linux-2x      : Compile Linux (2x CPUs)
 %% toggle sysload compile-job-1  build-linux-4x      : Compile Linux (4x CPUs)

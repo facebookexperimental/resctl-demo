@@ -116,7 +116,7 @@ it's currently unmet:
   stops and restarts system-level oomd instance.
 
 * %SysReq::HostCriticalServices%: sshd.service, systemd-journald.service,
-  dbus.service, dbus-broker.service must be in hostcritical.slice.
+  dbus.service, dbus-broker.service must be in ___hostcritical___.
 
   resctl-demo automatically creates the needed configurations but for the
   changes to take effect either the machine or services need to be restarted.

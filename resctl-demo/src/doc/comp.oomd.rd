@@ -66,7 +66,7 @@ application health, and taking action when app health deteriorates.
 OOMD can be configured so it understands the topology of the system - which
 parts are critical, and which can be killed and retried later - and applies
 the matching application health criteria. For example, we can decide to
-relieve contention by killing something if workload.slice is running at less
+relieve contention by killing something if ___workload___ is running at less
 than a third of its maximum capacity for longer than a minute, even though
 the condition is not even close to triggering the kernel OOM killer.
 
@@ -76,7 +76,7 @@ based on the triggering condition.
 
 resctl-demo has a very simple OOMD configuration:
 
-* If workload.slice or system.slice thrashes for too long, kill the heaviest
+* If ___workload___ or ___system___ thrashes for too long, kill the heaviest
   memory consumer in the respective slice.
 
 * If swap is about to get depleted, kill the largest swap user.
@@ -128,7 +128,7 @@ effective way of detecting the culprit and resolving the issue.
 ___*OOMD in action - Swap depletion kill*___
 
 This scenario might already seem familiar - rd-hashd running and a memory
-hog going off in system.slice. We've used this to demonstrate memory and
+hog going off in ___system___. We've used this to demonstrate memory and
 other protection scenarios and didn't worry about system stability. Let's do
 it again, but let's see what happens with rd-hashd's load reduced to 90% so
 that filling-up swap doesn't take too long.
@@ -141,7 +141,7 @@ memory hog:
 %% on sysload memory-hog memory-growth-1x
 %% )
 
-Watch the system.slice swap usage climbing. How quickly will depend on the
+Watch the ___system___ swap usage climbing. How quickly will depend on the
 storage device performance. Eventually, it'll nearly fill up all the
 available swap and you'll see something like the following in the
 "Management logs" pane on the left:
@@ -159,8 +159,8 @@ thing, but without OOMD:
 %% on sysload memory-hog-1 memory-growth-1x
 %% )
 
-Observe how system.slice's memory usage keeps creeping up once swap is
-depleted. Although workload.slice is protected, the memory hog's memory is
+Observe how ___system___'s memory usage keeps creeping up once swap is
+depleted. Although ___workload___ is protected, the memory hog's memory is
 all mlocked and every page it gets, it gets to keep. This eventually
 suffocates rd-hashd and pushes RPS down to 0. After that, depending on the
 IO device performance and your luck, the kernel OOM killer might kick in and
@@ -212,7 +212,7 @@ the above scenario:
 %% on sysload compile-job build-linux-32x
 %% )
 
-It'll take a while to bloat, and system.slice's memory pressure will
+It'll take a while to bloat, and ___system___'s memory pressure will
 gradually build up. Soon, it'll start running out of memory and experience
 gradually increasing memory pressure. It eventually ends up waiting for IOs
 most of the time, sustaining memory pressure close to 100%. As the OOMD
