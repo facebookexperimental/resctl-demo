@@ -118,4 +118,4 @@ see the following pages.
 
 %% jump comp.cgroup.io           : [ IO Control ]
 %%
-%% jump intro.pre-bench          : [ Next: Welcome ]
+%% jump intro.hashd              : [ Next: The rd-hashd Workload Simulator ]

@@ -163,11 +163,12 @@ complete. Please wait for them to finish and refresh this page by pressing
 
 The only parameter which may need manually tuning is `mem_frac`.
 
-resctl-demo reserves some memory for the rest of the system, %DflMemMargin%
-by default, while running the benchmarks, as the system should be able to
-service managerial workloads even while rd-hashd is fully loaded. Note that
-the amount is reserved only during the benchmark. The memory is available to
-rd-hashd and other applications once the benchmarks are complete.
+resctl-demo reserves some memory for the rest of the system,
+%BenchBalloonSize% by default, while running the benchmarks, as the system
+should be able to service managerial workloads even while rd-hashd is fully
+loaded. Note that the amount is reserved only during the benchmark. The
+memory is available to rd-hashd and other applications once the benchmarks
+are complete.
 
 The goal here is finding the `mem_frac` value where:
 
@@ -187,8 +188,8 @@ and set the load level to maximum.
 
 %% knob hashd-load               : hashd load   :
 
-Use the following slider to set the reserve amount close to %DflMemMargin%.
-It doesn't have to be exact.
+Use the following slider to set the reserve amount close to
+%BenchBalloonSize%. It doesn't have to be exact.
 
 %% knob balloon                  : Reserve size :
 
@@ -209,13 +210,13 @@ a stable state.
 
 Once verified, go back and push the reserve size to twice. The system should
 show signs of distress soon. Keep adjusting until you're happy with the
-behavior difference between the two reserve sizes.
+behavior difference between the two reserve sizes. The level of distress
+depends on the IO device and you may need to push the reserve size further
+to see a drastic difference on high performance SSDs.
 
-The level of distress depends on the IO device and you may need to push the
-reserve size further to see a drastic difference on high performance SSDs.
-This can be offset by making the memory access pattern flatter by increasing
-`file_addr_stdev_ratio` and `anon_addr_stdev_ratio` in the `params.json`
-file.
+Once you're happy with the behavior, the configuration can be persisted by
+updating `/var/lib/resctl-demo/bench.json::hashd.mem_frac` to
+`/var/lib/resctl-demo/cmd.json::hashd.mem_ratio`.
 
 You can reset the memory footprint to the size determined by benchmark with
 the following button.

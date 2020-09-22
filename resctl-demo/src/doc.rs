@@ -170,9 +170,9 @@ fn format_markup_tags(tag: &str) -> Option<StyledString> {
                     return None;
                 }
             }
-            "DflMemMargin" => {
+            "BenchBalloonSize" => {
                 return Some(StyledString::plain(format_size(
-                    SliceConfig::dfl_mem_margin(),
+                    SliceConfig::bench_balloon_size(),
                 )));
             }
             "HashdMemSize" => {
