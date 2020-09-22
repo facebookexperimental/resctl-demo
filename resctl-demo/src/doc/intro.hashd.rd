@@ -157,7 +157,9 @@ modified through the demo interface:
 
 ___*Tuning the parameters*___
 
-%WarnBench%
+%NeedBench%***WARNING***: This section requires the benchmarks to be
+complete. Please wait for them to finish and refresh this page by pressing
+'r' before proceeding.
 
 The only parameter which may need manually tuning is `mem_frac`.
 

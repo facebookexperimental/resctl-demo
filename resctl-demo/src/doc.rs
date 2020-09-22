@@ -163,18 +163,6 @@ fn format_markup_tags(tag: &str) -> Option<StyledString> {
                     return empty_some;
                 }
             }
-            "WarnBench" => {
-                if bench.hashd_seq > 0 && bench.iocost_seq > 0 {
-                    return None;
-                } else {
-                    return Some(StyledString::styled(
-                        "NOTE: This section requires the benchmarks to be complete. \
-                         Please wait for them to finish and refresh this page by \
-                         pressing 'r' before proceeding.",
-                        COLOR_ALERT,
-                    ));
-                }
-            }
             "HaveBench" => {
                 if bench.hashd_seq > 0 && bench.iocost_seq > 0 {
                     return empty_some;
@@ -741,7 +729,7 @@ pub fn post_layout(siv: &mut Cursive) {
     let cur_id = CUR_DOC.read().unwrap().id.clone();
     if cur_id.len() == 0 {
         exec_one_cmd(siv, &RdCmd::Reset(RdReset::AllWithParams));
-        show_doc(siv, "intro", true, false);
+        show_doc(siv, "index", true, false);
     } else {
         show_doc(siv, &cur_id, false, false);
     }

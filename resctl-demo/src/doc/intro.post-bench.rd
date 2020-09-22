@@ -6,8 +6,6 @@
 *Introduction*\n
 *============*
 
-%WarnBench%
-
 The idea behind resource control is to distribute resources between
 workloads so that machines can be shared among different tasks without them
 interfering with each other.

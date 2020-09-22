@@ -127,4 +127,4 @@ it's currently unmet:
 
   Install the needed packages.
 
-%% jump intro                    : [ Next: Welcome ]
+%% jump intro.iocost             : [ Next: Iocost Parameters and Benchmark ]
