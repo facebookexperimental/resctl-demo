@@ -151,8 +151,8 @@ the following top-level slices:
 
 The upper right pane in the demo shows various statistics for each top-level
 cgroup. The last line tagged with "-" is the system total. Other graphs in
-the graph view ('g'), plot the same metric for workload, sideload, and
-system slices.
+the graph view ('g'), plot the same metric for ___workload___,
+___sideload___, and ___system___ slices.
 
 You can check out what cgroups are on your system by running `systemd-cgls`.
 The kernel interface is a pseudo filesystem mounted under /sys/fs/cgroup.
@@ -167,8 +167,9 @@ distribution along that hierarchy.
 We'll repeat the same test run we did above, but leaving all the resource
 protection configurations turned on.
 
-rd-hashd should already be running at full tilt and all warmed up now, so
-let's start the same memory hog, but without touch anything else:
+rd-hashd should already be running at full tilt. Once ___workload___'s
+memory usage stops growing, let's start the same memory hog, but without
+touching anything else:
 
 %% on sysload memory-hog memory-growth-1x : [ Start memory hog ]
 

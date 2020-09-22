@@ -66,9 +66,9 @@ severely. Let's stop them.
 %% reset secondaries
 %% )
 
-Once RPS climbs back up and stabilizes, start the same competitions but with
-resource control enabled and the compile job under the supervision of the
-sideloader:
+Once RPS climbs back up and the memory usage of ___workload___ in the top
+right panel stops growing, start the same competitions but with resource
+control enabled and the compile job under the supervision of the sideloader:
 
 %% (                             : [ Start the competitions under full resource control ]
 %% reset resctl

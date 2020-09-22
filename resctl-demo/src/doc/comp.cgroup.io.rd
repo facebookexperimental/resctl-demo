@@ -141,8 +141,8 @@ on:
 %% reset protections
 %% )
 
-Wait for the sysload count to drop to zero and rd-hashd to stabilize, then
-launch the same memory hog again:
+Wait for the sysload count to drop to zero and rd-hashd's RPS and memory
+usage to stabilize, then launch the same memory hog again:
 
 %% (                         	: [ Start the memory hog ]
 %% on sysload memory-hog memory-growth-1x
