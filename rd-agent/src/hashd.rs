@@ -73,7 +73,16 @@ impl Hashd {
             None => rd_hashd_intf::Params::DFL_ADDR_STDEV,
         };
 
-        let mut params = rd_hashd_intf::Params::load(&self.params_path)?;
+        let mut params = match rd_hashd_intf::Params::load(&self.params_path) {
+            Ok(v) => v,
+            Err(e) => {
+                info!(
+                    "hashd: Failed to load {:?} ({:?}), using default",
+                    &self.params_path, &e
+                );
+                rd_hashd_intf::Params::default()
+            }
+        };
         let mut changed = false;
 
         if params.file_size_mean != knobs.hash_size {

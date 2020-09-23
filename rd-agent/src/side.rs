@@ -31,7 +31,7 @@ lazy_static! {
 }
 
 const LINUX_TAR_XZ_URL: &str =
-    "https://mirrors.edge.kernel.org/pub/linux/kernel/v5.x/linux-5.5.4.tar.xz";
+    "https://cdn.kernel.org/pub/linux/kernel/v5.x/linux-5.8.11.tar.xz";
 
 const SIDE_BINS: [(&str, &[u8]); 4] = [
     ("build-linux.sh", include_bytes!("side/build-linux.sh")),
