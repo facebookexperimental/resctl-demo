@@ -146,7 +146,7 @@ storage device performance. Eventually, it'll nearly fill up all the
 available swap and you'll see something like the following in the
 "Management logs" pane on the left:
 
-  [15:33:24 rd-oomd] [../src/oomd/Log.cpp:114] 50.85 49.35 30.53 system.slice/rd-sysload-test-mem-1x.service 6905962496 ruleset:[protection against low swap] detectorgroup:[free swap goes below 10 percent] killer:kill_by_swap_usage v2
+  [15:33:24 rd-oomd] [../src/oomd/Log.cpp:114] 50.85 49.35 30.53 system.slice/rd-sysload-memory-hog.service 6905962496 ruleset:[protection against low swap] detectorgroup:[free swap goes below 10 percent] killer:kill_by_swap_usage v2
 
 To view the full log, press 'l' and select "rd-oomd". This is OOMD killing
 the memory hog due to swap depletion. The system weathered it just fine and
@@ -156,7 +156,7 @@ thing, but without OOMD:
 %% (                             : [ Disable OOMD and start memory hog ]
 %% reset secondaries
 %% off oomd
-%% on sysload memory-hog-1 memory-growth-1x
+%% on sysload memory-hog memory-growth-1x
 %% )
 
 Observe how ___system___'s memory usage keeps creeping up once swap is

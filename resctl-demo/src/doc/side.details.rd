@@ -108,14 +108,14 @@ sideload:
 %% (                             : [ Stop hashd and start allnoconfig linux build sysload ]
 %% off hashd
 %% reset secondaries
-%% on sysload compile-job-1 build-linux-allnoconfig-2x
+%% on sysload compile-job build-linux-allnoconfig-2x
 %% )
 
 Monitor the progress in the "other logs" pane on the left. Depending on the
 machine, the build will take some tens of seconds. When the job finishes, it
 prints out how long the compilation part took, in a line similar to
 "Compilation took 10 seconds". If it's difficult to find in the left pane,
-open log view with 'l' and select rd-sysload-compile-job-1, and record the
+open log view with 'l' and select rd-sysload-compile-job, and record the
 duration. This is our baseline - the time it takes to build allnoconfig
 kernel, when it can take up the whole machine.
 
@@ -132,11 +132,11 @@ build job again:
 
 %% (                             : [ Start allnoconfig linux build sideload ]
 %% reset secondaries
-%% on sideload compile-job-1 build-linux-allnoconfig-2x
+%% on sideload compile-job build-linux-allnoconfig-2x
 %% )
 
 Wait for it to finish and note the time as before. The log for this run is
-in rd-sideload-compile-job-1.
+in rd-sideload-compile-job.
 
 On a test machine with AMD Ryzen 7 3800X (8 cores and 16 threads), the full
 machine run took 10s, while the sideloaded one took 30s. The number is
@@ -153,7 +153,7 @@ test machine:
 %% (                             : [ Stop hashd and start defconfig linux build sysload ]
 %% off hashd
 %% reset secondaries
-%% on sysload compile-job-2 build-linux-defconfig-2x
+%% on sysload compile-job build-linux-defconfig-2x
 %% )
 
 Wait for completion and take note of how long compilation took and then
@@ -168,7 +168,7 @@ Once it warms up, start the same build job as a sideload:
 
 %% (                             : [ Start defconfig linux build sideload ]
 %% reset secondaries
-%% on sideload compile-job-2 build-linux-defconfig-2x
+%% on sideload compile-job build-linux-defconfig-2x
 %% )
 
 On the test machine, the full machine run took 81 seconds; the sideload run
