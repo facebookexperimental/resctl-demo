@@ -3,6 +3,7 @@
 %% reset prep
 %% knob hashd-load 1.0
 %% on hashd
+$$ reset all-with-params
 
 *The Anatomy of Thrashing*\n
 *========================*

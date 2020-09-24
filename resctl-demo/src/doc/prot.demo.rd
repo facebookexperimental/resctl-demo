@@ -1,6 +1,7 @@
 ## Copyright (c) Facebook, Inc. and its affiliates.
 %% id prot.demo: Comprehensive Protection Demo
 %% reset prep
+$$ reset all-with-params
 
 *Throwing Everything At It*\n
 *=========================*

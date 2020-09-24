@@ -2,6 +2,7 @@
 %% id intro.hashd: rd-hashd Workload Simulator
 %% reset prep
 %% graph HashdA
+$$ reset all-with-params
 
 *The rd-hashd Workload Simulator*\n
 *===============================*

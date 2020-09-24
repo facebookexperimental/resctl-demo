@@ -1,5 +1,6 @@
 ## Copyright (c) Facebook, Inc. and its affiliates.
 %% id index                      : Index
+%% reset all-with-params
 
 *Table of contents*\n
 *=================*
