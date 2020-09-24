@@ -9,7 +9,7 @@ use cursive::views::{
 use cursive::Cursive;
 use lazy_static::lazy_static;
 use log::{debug, error, info};
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use util::*;
@@ -23,6 +23,8 @@ use super::{
 };
 
 const AGENT_START_TIMEOUT: Duration = Duration::from_secs(10);
+
+pub static AGENT_RUNNING: AtomicBool = AtomicBool::new(false);
 
 lazy_static! {
     pub static ref AGENT_FILES: AgentFilesWrapper =
@@ -47,6 +49,7 @@ pub struct AgentFiles {
     pub args: JsonConfigFile<rd_agent_intf::Args>,
     pub index: JsonConfigFile<rd_agent_intf::Index>,
     pub cmd: JsonConfigFile<rd_agent_intf::Cmd>,
+    pub cmd_ack: JsonConfigFile<rd_agent_intf::CmdAck>,
     pub sysreqs: JsonConfigFile<rd_agent_intf::SysReqsReport>,
     pub report: JsonConfigFile<rd_agent_intf::Report>,
     pub bench: JsonConfigFile<rd_agent_intf::BenchKnobs>,
@@ -93,6 +96,7 @@ impl AgentFiles {
 
         if Self::refresh_one(&mut self.index, &self.index_path) {
             self.cmd = Default::default();
+            self.cmd_ack = Default::default();
             self.sysreqs = Default::default();
             self.report = Default::default();
             self.bench = Default::default();
@@ -106,6 +110,7 @@ impl AgentFiles {
         let index = &self.index.data;
 
         Self::refresh_one(&mut self.cmd, &index.cmd);
+        Self::refresh_one(&mut self.cmd_ack, &index.cmd_ack);
         Self::refresh_one(&mut self.sysreqs, &index.sysreqs);
         Self::refresh_one(&mut self.report, &index.report);
         Self::refresh_one(&mut self.bench, &index.bench);
@@ -244,6 +249,8 @@ impl AgentMinder {
     }
 
     fn update_state(&mut self, running: bool, cb_sink: &cursive::CbSink) {
+        AGENT_RUNNING.store(running, Ordering::Relaxed);
+
         if running {
             if !self.seen_running {
                 self.seen_running = true;

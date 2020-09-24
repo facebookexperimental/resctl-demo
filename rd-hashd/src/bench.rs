@@ -524,7 +524,7 @@ impl Bench {
             self.args_file.data.testfiles.as_ref().unwrap(),
             TESTFILE_UNIT_SIZE,
             size,
-            self.args_file.data.compressibility
+            self.args_file.data.compressibility,
         );
         let mut tfbar = TestFilesProgressBar::new(size, self.bar_hidden);
         let mut report_file = self.report_file.lock().unwrap();

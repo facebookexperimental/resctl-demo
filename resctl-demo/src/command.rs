@@ -1,11 +1,15 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use lazy_static::lazy_static;
+use log::info;
 use std::collections::BTreeMap;
+use std::sync::atomic::Ordering;
 use std::sync::Mutex;
+use std::thread::sleep;
+use std::time::{Duration, SystemTime};
 use util::*;
 
-use super::AGENT_FILES;
+use super::{agent, AGENT_FILES};
 use rd_agent_intf::{HashdCmd, MemoryKnob, Slice};
 
 lazy_static! {
@@ -101,6 +105,7 @@ impl CmdState {
         );
         let report = &af.report.data;
 
+        cmd.cmd_seq += 1;
         cmd.bench_hashd_seq = self.bench_hashd_next;
         cmd.bench_iocost_seq = self.bench_iocost_next;
 
@@ -164,5 +169,40 @@ impl CmdState {
         }
 
         Ok(())
+    }
+
+    pub fn sync(&self) -> Result<()> {
+        const TIMEOUT: Duration = Duration::from_secs(5);
+        let started_at = SystemTime::now();
+        let mut loop_cnt: u32 = 0;
+
+        loop {
+            if !agent::AGENT_RUNNING.load(Ordering::Relaxed) {
+                return Err(anyhow!("agent not running"));
+            }
+
+            AGENT_FILES.refresh();
+            let af = AGENT_FILES.files.lock().unwrap();
+            if af.cmd.data.cmd_seq == af.cmd_ack.data.cmd_seq {
+                if loop_cnt > 0 {
+                    info!(
+                        "command: sync took {} loops, {}ms",
+                        loop_cnt,
+                        SystemTime::now()
+                            .duration_since(started_at)
+                            .unwrap_or_default()
+                            .as_millis()
+                    );
+                }
+                return Ok(());
+            }
+
+            if SystemTime::now().duration_since(started_at)? >= TIMEOUT {
+                return Err(anyhow!("timeout"));
+            }
+
+            sleep(Duration::from_millis(10));
+            loop_cnt += 1;
+        }
     }
 }

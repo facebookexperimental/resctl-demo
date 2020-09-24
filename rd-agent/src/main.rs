@@ -31,8 +31,8 @@ mod slices;
 
 use bench::IOCOST_QOS_PATH;
 use rd_agent_intf::{
-    Args, BenchKnobs, Cmd, Report, SideloadDefs, SliceKnobs, SvcReport, SvcStateReport, SysReq,
-    SysReqsReport, OOMD_SVC_NAME,
+    Args, BenchKnobs, Cmd, CmdAck, Report, SideloadDefs, SliceKnobs, SvcReport, SvcStateReport,
+    SysReq, SysReqsReport, OOMD_SVC_NAME,
 };
 
 const SWAPPINESS_PATH: &str = "/proc/sys/vm/swappiness";
@@ -140,6 +140,7 @@ pub struct Config {
     pub index_path: String,
     pub sysreqs_path: String,
     pub cmd_path: String,
+    pub cmd_ack_path: String,
     pub report_path: String,
     pub report_1min_path: String,
     pub report_d_path: String,
@@ -345,6 +346,7 @@ impl Config {
             index_path: top_path.clone() + "/index.json",
             sysreqs_path: top_path.clone() + "/sysreqs.json",
             cmd_path: top_path.clone() + "/cmd.json",
+            cmd_ack_path: top_path.clone() + "/cmd-ack.json",
             report_path: top_path.clone() + "/report.json",
             report_1min_path: top_path.clone() + "/report-1min.json",
             report_d_path,
@@ -842,6 +844,7 @@ pub struct SysObjs {
     pub oomd: oomd::Oomd,
     pub sideloader: sideloader::Sideloader,
     pub cmd_file: JsonConfigFile<Cmd>,
+    pub cmd_ack_file: JsonReportFile<CmdAck>,
 }
 
 impl SysObjs {
@@ -853,6 +856,9 @@ impl SysObjs {
         let side_def_file = JsonConfigFile::load_or_create(Some(&cfg.side_defs_path)).unwrap();
 
         let cmd_file = JsonConfigFile::load_or_create(Some(&cfg.cmd_path)).unwrap();
+
+        let cmd_ack_file = JsonReportFile::new(Some(&cfg.cmd_ack_path));
+        cmd_ack_file.commit().unwrap();
 
         let rep_seq = match Report::load(&cfg.report_path) {
             Ok(rep) => rep.seq + 1,
@@ -867,6 +873,7 @@ impl SysObjs {
             oomd: oomd::Oomd::new(&cfg).unwrap(),
             sideloader: sideloader::Sideloader::new(&cfg).unwrap(),
             cmd_file,
+            cmd_ack_file,
         }
     }
 }
@@ -884,6 +891,7 @@ fn update_index(cfg: &Config) -> Result<()> {
     let index = rd_agent_intf::index::Index {
         sysreqs: cfg.sysreqs_path.clone(),
         cmd: cfg.cmd_path.clone(),
+        cmd_ack: cfg.cmd_ack_path.clone(),
         report: cfg.report_path.clone(),
         report_d: cfg.report_d_path.clone(),
         report_1min: cfg.report_1min_path.clone(),

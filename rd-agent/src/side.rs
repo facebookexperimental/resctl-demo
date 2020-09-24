@@ -30,8 +30,7 @@ lazy_static! {
     static ref SIDE_NAME_RE: regex::Regex = regex::Regex::new("^[a-zA-Z0-9_-]+$").unwrap();
 }
 
-const LINUX_TAR_XZ_URL: &str =
-    "https://cdn.kernel.org/pub/linux/kernel/v5.x/linux-5.8.11.tar.xz";
+const LINUX_TAR_XZ_URL: &str = "https://cdn.kernel.org/pub/linux/kernel/v5.x/linux-5.8.11.tar.xz";
 
 const SIDE_BINS: [(&str, &[u8]); 4] = [
     ("build-linux.sh", include_bytes!("side/build-linux.sh")),

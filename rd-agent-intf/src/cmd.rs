@@ -31,6 +31,7 @@ lazy_static! {
 // by DEF_ID which points to an entry in sideload-defs.json file. Creating an
 // entry starts the workload. Removing stops it.
 //
+//  cmd_seq: Written to cmd-ack.json once the commands are accepted
 //  bench_hashd_seq: If > bench::hashd_seq, start benchmark; otherwise, cancel
 //  bench_iocost_seq: If > bench::iocost_seq, start benchmark; otherwise, cancel
 //  sideloader.cpu_headroom: Sideload CPU headroom ratio [0.0, 1.0]
@@ -99,6 +100,7 @@ impl Default for HashdCmd {
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Cmd {
+    pub cmd_seq: u64,
     pub bench_hashd_seq: u64,
     pub bench_iocost_seq: u64,
     pub sideloader: SideloaderCmd,
@@ -111,6 +113,7 @@ pub struct Cmd {
 impl Default for Cmd {
     fn default() -> Self {
         Self {
+            cmd_seq: 0,
             bench_hashd_seq: 0,
             bench_iocost_seq: 0,
             sideloader: SideloaderCmd { cpu_headroom: 0.2 },

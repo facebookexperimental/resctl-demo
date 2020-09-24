@@ -180,6 +180,14 @@ impl RunnerData {
         let bench = &self.sobjs.bench_file.data;
         let mut repeat = false;
 
+        self.sobjs.cmd_ack_file.data.cmd_seq = cmd.cmd_seq;
+        if let Err(e) = self.sobjs.cmd_ack_file.commit() {
+            warn!(
+                "cmd: Failed to update {:?} ({:?})",
+                &self.cfg.cmd_ack_path, &e
+            );
+        }
+
         match self.state {
             Idle => {
                 if cmd.bench_iocost_seq > bench.iocost_seq {

@@ -7,6 +7,7 @@ const INDEX_DOC: &str = "\
 // rd-agent interface file path index
 //
 //  cmd: Launch and stop workloads and benchmarks
+//  cmd_ack: Command sequence ack
 //  sysreqs: Satisfied and missed system requirements
 //  report: Summary report of the current state (per-second)
 //  report_d: Per-second report directory
@@ -33,6 +34,7 @@ pub struct HashdIndex {
 #[derive(Serialize, Deserialize, Clone, Default)]
 pub struct Index {
     pub cmd: String,
+    pub cmd_ack: String,
     pub sysreqs: String,
     pub report: String,
     pub report_d: String,

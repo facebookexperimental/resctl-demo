@@ -6,7 +6,7 @@ use cursive::views::{Button, Checkbox, Dialog, DummyView, LinearLayout, SliderVi
 use cursive::Cursive;
 use enum_iterator::IntoEnumIterator;
 use lazy_static::lazy_static;
-use log::{error, info};
+use log::{error, info, warn};
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::sync::{Mutex, RwLock};
 use util::*;
@@ -196,6 +196,14 @@ fn exec_one_cmd(siv: &mut Cursive, cmd: &RdCmd) {
     match cmd {
         RdCmd::On(sw) | RdCmd::Off(sw) => {
             let is_on = if let RdCmd::On(_) = cmd { true } else { false };
+
+            if is_on {
+                // sync so that we don't clobber a preceding off command
+                if let Err(e) = cs.sync() {
+                    warn!("failed to wait for command ack ({:?})", &e);
+                }
+            }
+
             match sw {
                 RdSwitch::BenchHashd => {
                     cs.bench_hashd_next = cs.bench_hashd_cur + if is_on { 1 } else { 0 };
