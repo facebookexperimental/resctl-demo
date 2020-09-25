@@ -17,7 +17,7 @@ and alarm frameworks need to run - and so on.
 
 Let's say a maintenance program started by cron is malfunctioning and keeps
 leaking memory, and that the malfunction is wall-clock dependent: This is a
-bad scenario, that would stay hidden during testing, and then trigger at the
+bad scenario that would stay hidden during testing, and then trigger at the
 same time in production. What would happen to the system and fleet without
 resource control enabled?
 
@@ -117,8 +117,8 @@ the following top-level slices:
     * Fleet management software: Failures here can mean the machine isn't
       considered online at all.
 
-    * System protection software like oomd: If these apps can't run, they
-      can't protect the system.
+    * System protection software like out-of-memory daemon (oomd): If these
+      apps can't run, they can't protect the system.
 
     * Logging and logging in: If we can't log into the machine to read logs
       and debug, we can't fix problems. Some monitoring apps fall into this
@@ -218,12 +218,12 @@ how resource protection is configured in this demo.
     workload : hostcritical : system : sideload = 500 : 100 : 50 : 1
 
   We want the majority to go to the workload. hostcritical shouldn't need a
-  lot of IO bandwidth, but can still get a fair bit when needed. system can
+  lot of IO bandwidth, but can still get a fair bit when needed. The system can
   get one tenth of workload at maximum, which isn't huge, but is still
   enough to make non-glacial forward progress. sideload only gets what's
   left over.
 
-  Note that the weight-based controllers such as io.cost are
+  Note that the weight-based controllers, such as io.cost, are
   work-conserving. The ratio is enforced only when the underlying resource
   is contended. If the main workload is hitting the disk hard and a system
   service wants to use it at the same time, the system services would only

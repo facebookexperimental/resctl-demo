@@ -77,14 +77,15 @@ it's currently unmet:
   available, resctl-demo will automatically remount the filesystem with the mount
   option. For details: https://lwn.net/Articles/805300/
 
-* %SysReq::NoCompositeStorage%: Currently, composite block devices such as dm
-  and md break the chain of custody for IOs, allowing cgroups to escape IO
-  control and cause severe priority inversions.
+* %SysReq::NoCompositeStorage%: Currently, composite block devices, such as
+  dm and md, break the chain of custody for IOs, allowing cgroups to escape
+  IO control and cause severe priority inversions.
 
   The filesystem must be on a physical device.
 
-* %SysReq::IoSched%: bfq's implementation of proportional IO control conflicts
-  with blk-iocost and breaks IO isolation. Use mq-deadline.
+* %SysReq::IoSched%: bfq IO scheduler's implementation of proportional IO
+  control conflicts with blk-iocost and breaks IO isolation. Use
+  mq-deadline.
 
   IO scheduler can be selected by writing to /sys/block/$DEV/queue/scheduler.
   resctl-demo automatically switches to mq-deadline if available.
@@ -102,7 +103,7 @@ it's currently unmet:
   See %SysReq::SwapOnScratch%.
 
 * %SysReq::SwapOnScratch%: Swap must be on the same device as the root
-  filesystem. The recommended configuration is btrfs root filesystem which
+  filesystem. The recommended configuration is btrfs root filesystem, which
   serves both the scratch directory and swap file. This isn't an inherent
   requirement of resource control but exists to simplify experiments.
 
@@ -110,7 +111,8 @@ it's currently unmet:
   https://wiki.archlinux.org/index.php/Btrfs#Swap_file
 
 * %SysReq::NoSysOomd%: Instances of oomd or earlyoom at the system-level may
-  interfere and should be disabled.
+  interfere and should be disabled. They usually run as a systemd service of
+  the same name. You can use `systemctl` to locate and stop the services.
 
   Disable system-level oomd and earlyoom services. resctl-demo automatically
   stops and restarts system-level oomd instance.
@@ -119,7 +121,8 @@ it's currently unmet:
   dbus.service, dbus-broker.service must be in ___hostcritical___.
 
   resctl-demo automatically creates the needed configurations but for the
-  changes to take effect either the machine or services need to be restarted.
+  changes to take effect, either the machine or services need to be
+  restarted.
 
 * %SysReq::Dependencies%: 'python3', 'findmnt', 'dd', 'fio', 'stdbuf', 'gcc',
   'ld', 'make', 'bison', 'flex', 'pkg-config', 'libssl' and 'libelf' must be

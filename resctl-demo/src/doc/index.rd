@@ -7,7 +7,7 @@
 
 Use up and down arrows to navigate, enter to select the page.
 
-%NeedBench%***WARNING***: Bechmark results not available. Visit the
+%NeedBench%***WARNING***: Benchmark results not available. Visit the
 ___Welcome___ page and run the benchmarks.
 
 ***WARNING***: Failed to meet %MissedSysReqs% system requirements. Visit the
@@ -17,7 +17,7 @@ ___System Requirements___ page for details.
 
 %% jump intro.pre-bench          : * Welcome
 %% jump intro.sysreqs            :   * System Requirements
-%% jump intro.iocost             :   * Iocost Parameters and Benchmark
+%% jump intro.iocost             :   * iocost Parameters and Benchmark
 %% jump intro.hashd              :   * rd-hashd Workload Simulator
 %% jump intro.post-bench         : * Introduction to resctl-demo
 

@@ -1,5 +1,5 @@
 ## Copyright (c) Facebook, Inc. and its affiliates.
-%% id intro.post-bench : Introduction to resouce control demo
+%% id intro.post-bench : Introduction to resource control demo
 %% reset prep
 %% reset all-workloads
 
@@ -11,7 +11,7 @@ workloads so that machines can be shared among different tasks without them
 interfering with each other.
 
 The sharing workloads can be the web browser and kernel compilation job on
-your laptop, or a web server and maintenance workloads such as package
+your laptop, or a web server and maintenance workloads, such as package
 upgrades and cron jobs. Maybe we want to transcode videos to utilize the
 unused capacities of the web server.
 
@@ -36,7 +36,7 @@ Let's fire up rd-hashd to get rolling:
 %% on hashd
 %% )
 
-Watch the panel to your left to see the RPS ramping up. You can check the logs
+Watch the panel on the left to see the RPS ramping up. You can check the logs
 for warnings and errors as well.
 
 OK, now that our main workload's running, let's see how it responds to

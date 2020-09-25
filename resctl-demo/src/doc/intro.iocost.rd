@@ -1,5 +1,5 @@
 ## Copyright (c) Facebook, Inc. and its affiliates.
-%% id intro.iocost: Iocost Parameters and Benchmark
+%% id intro.iocost: iocost Parameters and Benchmark
 %% graph IoUtil
 
 *The cgroup2 IO cost model based controller*\n
@@ -73,8 +73,8 @@ the underlying device. For example, some SSDs can complete a lot of writes
 at a very high speed for a short time and then go into a semi-comatose
 state, failing to complete other commands for hundreds or even thousands of
 milliseconds. While such bursts might look good on simple short benchmarks,
-they don't bring a lot of practical benefits and are deterimental to any
-latency-sensitive workloads which may end getting hit by the following
+they don't bring a lot of practical benefits and are detrimental to any
+latency-sensitive workloads, which may end getting hit by the following
 stalls. iocost can avoid such irregularities by limiting vrate max close to
 100% so that no matter how quickly the device signals write completion, the
 system never issues more than it can sustain.

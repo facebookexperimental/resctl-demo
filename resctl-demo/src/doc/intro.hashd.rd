@@ -29,7 +29,7 @@ server fleet. Here are some common characteristics:
 
 * Should be load-balanced and respond to load-level changes.
 
-* Should be able to ride out temporary system-level disruptions such as
+* Should be able to ride out temporary system-level disruptions, such as
   brief resource contention.
 
 * Should have a combination of page cache and anonymous memory access patterns
@@ -52,13 +52,6 @@ log file.
 
 
 ___*Sizing and benchmark*___
-
-We all want our workloads to utilize the machines as much as possible.
-Toward that end, we spend considerable time and effort to tune the workload
-so that, under full load, it saturates the machine just enough so that all
-available resources are utilized while leaving a sufficient buffer to keep
-the machine from falling apart when the maintenance cron job kicks in at
-midnight.
 
 To ease testing, rd-hashd can benchmark and size itself to automatically
 determine the following, so that it can saturate all local resources:
@@ -117,14 +110,14 @@ and page cache fraction higher than the defaults:
   `mem_frac` parameter. Defaults to 3 times the amount of system memory.
 
 * file_max_frac: Maximum fraction of page cache out of memory footprint. 0.0
-  means all of memory footprint is anonymous memory, 1.0 all page cache. The
-  actual page cache fraction is determined by the `file_frac` parameter
+  means all memory footprint is anonymous memory, 1.0 all page cache. The
+  actual page cache fraction is determined by the `file_frac` parameter,
   which is capped by this argument. Defaults to 0.25.
 
 For a full explanation, see `rd-hashd --help`.
 
 The runtime tunable parameters are in
-/var/lib/resctl-demo/hashd-A/params.json which has full documentation at the
+/var/lib/resctl-demo/hashd-A/params.json, which has full documentation at the
 top. Editing the file changes rd-hashd's behavior immediately. However, some
 parameters are overridden by bench and other resctl-demo operations.
 
@@ -162,7 +155,7 @@ ___*Tuning the parameters*___
 complete. Please wait for them to finish and refresh this page by pressing
 'r' before proceeding.
 
-The only parameter which may need manually tuning is `mem_frac`.
+The only parameter that may need manually tuning is `mem_frac`.
 
 resctl-demo reserves some memory for the rest of the system,
 %BenchBalloonSize% by default, while running the benchmarks, as the system

@@ -70,7 +70,7 @@ implements the following:
   end up staying frozen for too long.
 
 Sideloader is already running as part of this demo, as rd-sideloader
-service. the "sideload" line in the upper left pane, reports its status:
+service. The "sideload" line in the upper left pane, reports its status:
 
   [ sideload  ] jobs:  0/ 0  failed:  0  cfg_warn:  0  -overload -crit
 

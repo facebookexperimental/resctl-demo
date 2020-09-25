@@ -8,7 +8,7 @@
 *===============================*
 
 Most of us have experienced a system getting bogged down by heavy memory
-thrashing, then eventually becoming unresponsive, leaving hard reset the
+thrashing, then eventually becoming unresponsive, leaving hard reset as the
 only option. At other times, after some duration of stall, the kernel OOM
 (Out-Of-Memory) killer kicks in, kills something, and saves the system.
 

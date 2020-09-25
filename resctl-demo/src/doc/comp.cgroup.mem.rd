@@ -8,7 +8,7 @@
 *==============*
 
 Most people have experienced memory shortages - on personal computers,
-Servers, or even phones. When a workload's working set size significantly
+servers, or even phones. When a workload's working set size significantly
 exceeds available memory, the system falls into a deep thrashing state and
 moves at a glacial pace, while the IO device remains constantly busy. This
 is because the memory has to be paged in from, and out to, the storage
@@ -128,7 +128,7 @@ ___*Memory protection in action*___
 Let's repeat a similar experiment as in the previous "Cgroup and Resource
 Protection" section to demonstrate memory protection. rd-hashd should
 already be running at full load. Once it warms up, disable memory control
-and start a linux compile job with a ludicrous level of concurrency which
+and start a Linux compile job with a ludicrous level of concurrency which
 will viciously compete for memory:
 
 %% (                         	: [ Disable memory control and start a compile job ]

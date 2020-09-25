@@ -11,7 +11,7 @@ We want to know how much memory a given workload needs. Allocating too
 little makes the workload thrash unproductively. Too much, and we're just
 wasting memory that could be used for something more useful. Accurate memory
 sizing becomes even more important as we try to push utilization up with
-stacking and sideloading. We need to know how much memory's available for
+stacking and sideloading. We need to know how much memory is available for
 other workloads to stack and sideload.
 
 With PSI memory pressure, we can see how bad a memory shortage is, so that's
