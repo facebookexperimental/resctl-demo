@@ -19,10 +19,10 @@ quality-of-service and disaster readiness.
 
 The idea behind resource control is to control distribution of resources
 across workloads, so machine resources can be shared among different tasks
-without tasks interfering with each other. This enables sizing without
-worrying about maintenance workload spikes and malfunctions and pushing up
-machine utilization without sacrificing reliability, responsiveness or
-disaster readiness.
+without tasks interfering with each other. This enables sizing resource
+usage without worrying about maintenance workloads spikes and malfunctions
+and pushing up machine utilization without sacrificing reliability,
+responsiveness or disaster readiness.
 
 The Facebook resource control demo, or resctl-demo, demonstrates resource
 control in action: It uses workload simulators that mimic common resource

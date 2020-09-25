@@ -58,9 +58,9 @@ antagonist to our interactive rd-hashd.
 See the graph for the steep drop in RPS for hashd: That's the competitions
 taking away its resources: Not good.
 
-Once workload's memory pressure in the top right panel starts spiking, you
-might not have a lot of time before the whole system starts stalling
-severely. Let's stop them.
+Once workload's memory pressure (memP%) in the top right panel starts
+spiking, you might not have a lot of time before the whole system starts
+stalling severely. Let's stop them.
 
 %% (                             : [ Stop the compile job and memory hog ]
 %% reset secondaries
