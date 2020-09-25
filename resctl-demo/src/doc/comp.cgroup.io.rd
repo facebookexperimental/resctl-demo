@@ -124,13 +124,13 @@ ___*Let's put it through the paces*___
 
 rd-hashd should already be running at full load. Once it warms up with
 memory footprint filling up most of the machine, let's disable IO control
-and start a memory hog and an IO hog. Memory hog is an effective stressor
+and start one memory hog and one IO hog. Memory hog is an effective stressor
 for IO isolation tests because it creates a lot of bursty swap writes and
 forces the rest of the system to compete for memory forcing them to depend
 on reclaim IOs. Combined with an IO hog which blasts random read IOs, it can
 overpower even the high-end enterprise SSDs.
 
-%% (                             : [ Disable IO control and start a memory hog and an IO hog ]
+%% (                             : [ Disable IO control and start the memory and IO hogs ]
 %% off io-resctl
 %% on sysload memory-hog memory-growth-1x
 %% on sysload io-hog read-bomb
@@ -139,9 +139,9 @@ overpower even the high-end enterprise SSDs.
 ***WARNING***: Because the system is running without IO protection, nothing
 can guarantee the system's responsiveness. Everything, including this demo
 program, will get sluggish, and might completely stall. Once rd-hashd is
-struggling, stop the hogs and turn IO protection back on:
+struggling, stop the memory and IO hogs and turn IO protection back on:
 
-%% (                         	: [ Stop the memory hog and restore IO control ]
+%% (                         	: [ Stop the memory and IO hogs and restore IO control ]
 %% reset secondaries
 %% reset protections
 %% )
