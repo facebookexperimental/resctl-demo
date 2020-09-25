@@ -4,16 +4,25 @@
 *Welcome*\n
 *=======*
 
-We all want our workloads to utilize servers as much as possible. Toward
-that end, we spend considerable time and effort to tune the workload so
-that, under full load, it saturates the machine just enough so that all
-available resources are utilized while leaving a sufficient buffer to keep
-the machine from falling apart when the maintenance cron job kicks in at
-midnight.
+We all want our workloads to utilize our machines as much as possible.
+Toward that end, we spend considerable time and effort to tune the workloads
+so that, ideally, under full load, they saturate the machines just enough so
+that all available resources are utilized while leaving sufficient buffers
+to keep the machines from falling apart when the maintenance cron jobs kicks
+in at midnight.
 
-The idea behind resource control is to distribute resources between
-workloads, so machine resources can be shared among different tasks without
-tasks interfering with each other.
+In practice, this is nearly impossible to achieve reliably at scale forcing
+us to under-commit many machines to have sufficient buffer for load surges.
+Even with careful calibrations and dynamic machine allocations, it's
+challenging to achieve high fleet-wide utilization while maintaining
+quality-of-service and disaster readiness.
+
+The idea behind resource control is to control distribution of resources
+across workloads, so machine resources can be shared among different tasks
+without tasks interfering with each other. This enables sizing without
+worrying about maintenance workload spikes and malfunctions and pushing up
+machine utilization without sacrificing reliability, responsiveness or
+disaster readiness.
 
 The Facebook resource control demo, or resctl-demo, demonstrates resource
 control in action: It uses workload simulators that mimic common resource
