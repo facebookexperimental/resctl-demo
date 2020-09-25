@@ -32,7 +32,7 @@ lazy_static! {
 
 const LINUX_TAR_XZ_URL: &str = "https://cdn.kernel.org/pub/linux/kernel/v5.x/linux-5.8.11.tar.xz";
 
-const SIDE_BINS: [(&str, &[u8]); 4] = [
+const SIDE_BINS: [(&str, &[u8]); 5] = [
     ("build-linux.sh", include_bytes!("side/build-linux.sh")),
     ("memory-growth.py", include_bytes!("side/memory-growth.py")),
     (
@@ -40,6 +40,7 @@ const SIDE_BINS: [(&str, &[u8]); 4] = [
         include_bytes!("side/memory-balloon.py"),
     ),
     ("read-bomb.py", include_bytes!("side/read-bomb.py")),
+    ("burn-cpus.sh", include_bytes!("side/burn-cpus.sh")),
 ];
 
 fn prepare_side_bins(cfg: &Config) -> Result<()> {
@@ -108,7 +109,7 @@ pub fn prepare_sides(cfg: &Config) -> Result<()> {
 }
 
 pub fn startup_checks(sr_failed: &mut HashSet<SysReq>) {
-    for bin in &["gcc", "ld", "make", "bison", "flex", "pkg-config"] {
+    for bin in &["gcc", "ld", "make", "bison", "flex", "pkg-config", "stress"] {
         if find_bin(bin, Option::<&str>::None).is_none() {
             error!("side: binary dependency {:?} is missing", bin);
             sr_failed.insert(SysReq::Dependencies);

@@ -153,6 +153,27 @@ impl Default for SideloadDefs {
                         frozen_exp: 30,
                     },
                 ),
+                (
+                    "burn-cpus-50pct".into(),
+                    SideloadSpec {
+                        args: vec!["burn-cpus.sh".into(), "1".into(), "2".into()],
+                        frozen_exp: 30,
+                    },
+                ),
+                (
+                    "burn-cpus-1x".into(),
+                    SideloadSpec {
+                        args: vec!["burn-cpus.sh".into(), "1".into()],
+                        frozen_exp: 30,
+                    },
+                ),
+                (
+                    "burn-cpus-2x".into(),
+                    SideloadSpec {
+                        args: vec!["burn-cpus.sh".into(), "2".into()],
+                        frozen_exp: 30,
+                    },
+                ),
             ]
             .iter()
             .cloned()
