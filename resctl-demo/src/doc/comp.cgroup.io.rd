@@ -122,19 +122,24 @@ will vary depending on how much of a bottleneck IO is on your system.
 
 ___*Let's put it through the paces*___
 
-rd-hashd should already be running at full load. Once it warms up, let's
-disable IO control and start a memory hog. Memory hog is an effective
-stressor for IO isolation tests because it creates a lot of bursty swap
-writes and forces the rest of the system to compete for memory forcing them
-to depend on reclaim IOs.
+rd-hashd should already be running at full load. Once it warms up with
+memory footprint filling up most of the machine, let's disable IO control
+and start a memory hog and an IO hog. Memory hog is an effective stressor
+for IO isolation tests because it creates a lot of bursty swap writes and
+forces the rest of the system to compete for memory forcing them to depend
+on reclaim IOs. Combined with an IO hog which blasts random read IOs, it can
+overpower even the high-end enterprise SSDs.
 
-%% (                             : [ Disable IO control and start a memory hog ]
+%% (                             : [ Disable IO control and start a memory hog and an IO hog ]
 %% off io-resctl
 %% on sysload memory-hog memory-growth-1x
+%% on sysload io-hog read-bomb
 %% )
 
-Once rd-hashd is struggling, stop the memory hog and turn IO protection back
-on:
+***WARNING***: Because the system is running without IO protection, nothing
+can guarantee the system's responsiveness. Everything, including this demo
+program, will get sluggish, and might completely stall. Once rd-hashd is
+struggling, stop the hogs and turn IO protection back on:
 
 %% (                         	: [ Stop the memory hog and restore IO control ]
 %% reset secondaries
@@ -144,12 +149,13 @@ on:
 Wait for the sysload count to drop to zero and rd-hashd's RPS and memory
 usage to stabilize, then launch the same memory hog again:
 
-%% (                         	: [ Start the memory hog ]
+%% (                         	: [ Start the memory and IO hogs ]
 %% on sysload memory-hog memory-growth-1x
+%% on sysload io-hog read-bomb
 %% )
 
-The kernel is able to protect hashd indefinitely. oomd will eventually kill
-the memory hog.
+The kernel is able to protect hashd indefinitely. oomd will eventually
+intervene.
 
 
 ___*Read on*___

@@ -149,7 +149,7 @@ impl Default for SideloadDefs {
                 (
                     "read-bomb".into(),
                     SideloadSpec {
-                        args: vec!["read-bomb.py".into(), "4096".into(), "16384".into()],
+                        args: vec!["read-bomb.py".into(), "1024".into(), "16384".into()],
                         frozen_exp: 30,
                     },
                 ),
