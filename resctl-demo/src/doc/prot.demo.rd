@@ -11,8 +11,10 @@ Play with various workloads and protection controls and see what happens.
 rd-hashd control:
 
 %% toggle hashd                  : Enable
-%% knob   hashd-load             : Load level       :
-%% knob   hashd-mem              : Memory footprint :
+%% knob   hashd-load             : Load level          :
+%% knob   hashd-mem              : Memory footprint    :
+%% knob   hashd-lat-target       : Target latency (ms) :
+%% knob   hashd-lat-target-pct   : Latency percentile  :
 %% reset  hashd-params           : [ Restore default parameters ]
 
 Protection settings:

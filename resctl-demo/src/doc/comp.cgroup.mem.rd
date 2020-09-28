@@ -139,6 +139,9 @@ will viciously compete for memory:
 Once the source tree is untarred and the compile commands start getting
 spawned, ___system___'s memory pressure will shoot up. Soon after,
 ___workload___'s pressure will start climbing and rd-hashd's RPS slumping.
+The degree will depend on the performance of the IO device. On a very
+performant SSD such as on AWS c5d.9xlarge machine type, IO control alone may
+be able to protect rd-hashd for the most part in this scenario.
 
 Let's stop the compile job and restore memory control:
 

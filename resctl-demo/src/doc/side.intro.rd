@@ -71,13 +71,16 @@ ___*A naive approach*___
 
 In the previous chapter, we demonstrated that resource control can protect
 the main workload from the rest of the system. While rd-hashd was running at
-full load, we could throw all sorts of misbehaving workloads at the system
-with only limited impact on the main workload. So what happens if we throw a
-sideload at it? Can the same setup that worked against random misbehaving
-workloads give the same protection against a sideload?
+full load, we could throw many sorts of misbehaving workloads at the system
+with only limited impact on the main workload. We also saw that CPU control
+couldn't protect the main workload's latency from a CPU hog when loaded
+close to full.
 
-We already know that rd-hashd can be protected pretty well at full load.
-Let's see how latency at 60% load and ramping up from there are impacted.
+If the CPU control can protect the main workload at moderate load levels,
+maybe we can simply run the sideloads under the same resource control
+configuration and stop them when the main workload's load spikes. Let's see
+how latency at 60% load and ramping up from there are impacted by running
+sideloads this way.
 
 rd-hashd should already be running at 60% load. Once it's warmed up, start a
 Linux build job with 2x CPU count concurrency. Pay attention to how the
@@ -87,13 +90,15 @@ latency in the left graph pane changes:
 %% on sysload compile-job build-linux-2x
 %% )
 
-Note how RPS is holding but latency deteriorates sharply. Press 'g' and
-check out the resource pressure graphs. Even though this page set the CPU
-weight of the build job only at a hundredth of rd-hashd, CPU pressure is
-noticeable. We'll get back to this later.
+Depending on the hardware and kernel configuration, RPS might be holding
+with sharply increased latency or latency might deteriorate too much to
+maintain the target RPS. Press 'g' and check out the resource pressure
+graphs. Even though this page set the CPU weight of the build job only at a
+hundredth of rd-hashd, CPU pressure is noticeable. We'll get back to this
+later.
 
-Now let's push the load up to 100% and see whether its ability to ramp up is
-impacted too:
+If RPS is holding at the target, let's push the load up to 100% and see
+whether its ability to ramp up is impacted too:
 
 %% knob hashd-load 1.0           : [ Set full load ]
 
