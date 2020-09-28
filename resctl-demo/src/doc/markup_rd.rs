@@ -41,6 +41,10 @@ pub enum RdSwitch {
 pub enum RdKnob {
     HashdALoad,
     HashdBLoad,
+    HashdALatTargetPct,
+    HashdBLatTargetPct,
+    HashdALatTarget,
+    HashdBLatTarget,
     HashdAMem,
     HashdBMem,
     HashdAAddrStdev,
@@ -299,6 +303,8 @@ impl RdCmd {
                 };
                 let knob = match args[1] {
                     "hashd-load" | "hashd-A-load" => RdKnob::HashdALoad,
+                    "hashd-lat-target-pct" | "hashd-A-lat-target-pct" => RdKnob::HashdALatTargetPct,
+                    "hashd-lat-target" | "hashd-A-lat-target" => RdKnob::HashdALatTarget,
                     "hashd-mem" | "hashd-A-mem" => RdKnob::HashdAMem,
                     "hashd-addr-stdev" | "hashd-A-addr-stdev" => RdKnob::HashdAAddrStdev,
                     "hashd-file" | "hashd-A-file" => RdKnob::HashdAFile,
@@ -306,6 +312,8 @@ impl RdCmd {
                     "hashd-log-bps" | "hashd-A-write" => RdKnob::HashdALogBps,
                     "hashd-weight" | "hashd-A-weight" => RdKnob::HashdAWeight,
                     "hashd-B-load" => RdKnob::HashdBLoad,
+                    "hashd-B-lat-target-pct" => RdKnob::HashdBLatTargetPct,
+                    "hashd-B-lat-target" => RdKnob::HashdBLatTarget,
                     "hashd-B-mem" => RdKnob::HashdBMem,
                     "hashd-B-addr-stdev" => RdKnob::HashdBAddrStdev,
                     "hashd-B-file" => RdKnob::HashdBFile,

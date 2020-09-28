@@ -255,6 +255,10 @@ fn exec_one_cmd(siv: &mut Cursive, cmd: &RdCmd) {
         RdCmd::Knob(knob, val) => match knob {
             RdKnob::HashdALoad => cs.hashd[0].rps_target_ratio = *val,
             RdKnob::HashdBLoad => cs.hashd[1].rps_target_ratio = *val,
+            RdKnob::HashdALatTargetPct => cs.hashd[0].lat_target_pct = *val,
+            RdKnob::HashdBLatTargetPct => cs.hashd[1].lat_target_pct = *val,
+            RdKnob::HashdALatTarget => cs.hashd[0].lat_target = *val,
+            RdKnob::HashdBLatTarget => cs.hashd[1].lat_target = *val,
             RdKnob::HashdAMem => cs.hashd[0].mem_ratio = Some(*val),
             RdKnob::HashdBMem => cs.hashd[1].mem_ratio = Some(*val),
             RdKnob::HashdAAddrStdev => {
@@ -433,6 +437,9 @@ fn format_knob_val(knob: &RdKnob, ratio: f64) -> String {
     let bench = AGENT_FILES.bench();
 
     let v = match knob {
+        RdKnob::HashdALatTarget | RdKnob::HashdBLatTarget => {
+            format!("{}m", (ratio * 1000.0).round())
+        }
         RdKnob::HashdAMem | RdKnob::HashdBMem => format_size(ratio * bench.hashd.mem_size as f64),
         RdKnob::HashdALogBps | RdKnob::HashdBLogBps => {
             format_size(ratio * bench.iocost.model.wbps as f64)
@@ -535,6 +542,10 @@ fn refresh_knobs(siv: &mut Cursive, doc: &RdDoc, cs: &CmdState) {
         let val = match knob {
             RdKnob::HashdALoad => cs.hashd[0].rps_target_ratio,
             RdKnob::HashdBLoad => cs.hashd[1].rps_target_ratio,
+            RdKnob::HashdALatTargetPct => cs.hashd[0].lat_target_pct,
+            RdKnob::HashdBLatTargetPct => cs.hashd[1].lat_target_pct,
+            RdKnob::HashdALatTarget => cs.hashd[0].lat_target,
+            RdKnob::HashdBLatTarget => cs.hashd[1].lat_target,
             RdKnob::HashdAMem => hmem_ratio(cs.hashd[0].mem_ratio),
             RdKnob::HashdBMem => hmem_ratio(cs.hashd[1].mem_ratio),
             RdKnob::HashdAAddrStdev => hashd_cmd_addr_stdev(&cs.hashd[0]),
