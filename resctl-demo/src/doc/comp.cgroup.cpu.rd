@@ -1,31 +1,39 @@
 ## Copyright (c) Facebook, Inc. and its affiliates.
 %% id comp.cgroup.cpu: CPU Control
 %% reset prep
-%% knob hashd-load 1.0
+%% knob sys-cpu-ratio 0.01
+%% knob hashd-lat-target 1.0
+%% knob hashd-load 0.90
 %% on hashd
+$$ reset all-with-params
 
 *CPU Control*\n
 *===========*
 
-Compared to memory and IO, CPU control is relatively straightforward. If a
-workload doesn't get sufficient CPU cycles, it can't perform its job. CPU
-usage is primarily measured in wallclock time. The cgroup CPU controller can
-distribute CPU cycles proportionally with `cpu.weight`, or limit absolute
-consumption with `cpu.max`. In most cases, configuring `cpu.weight` in
-higher level cgroups is sufficient.
+Compared to memory and IO, CPU control is conceptually more straightforward.
+If a workload doesn't get sufficient CPU cycles, it can't perform its job.
+CPU usage is primarily measured in wallclock time. The cgroup CPU controller
+can distribute CPU cycles proportionally with `cpu.weight`, or limit
+absolute consumption with `cpu.max`. In most cases, configuring `cpu.weight`
+in higher level cgroups is sufficient.
 
-A number of additional details and variables play a role though. While
-wallclock time captures utilization to a reasonable degree, CPU time is an
-aggregate measurement encompassing on-CPU compute and cache resources,
-memory bandwidth, and more, each of which has its own performance
-characteristics.
+A number of additional details and variables complicate the picture though,
+especially for latency-sensitive workloads. As the CPUs get saturated, the
+artifacts from time-sharing become more pronounced. When a thread wakes up
+to service a request, an idle CPU might not be available immediately and the
+scheduling and load balancing decisions start to have significant impacts on
+the latency.
+
+Furthermore, while wallclock time captures utilization to a reasonable
+degree, CPU time is an aggregate measurement encompassing on-CPU compute and
+cache resources, memory bandwidth, and more, each of which has its own
+performance characteristics.
 
 As CPUs get close to saturation, all the CPU’s subsystems get more bogged
 down, and the increase in total amount of work done significantly lags
 behind the increase in CPU time. Further muddying the picture, many of the
 components are shared across CPU cores and logical threads (hyperthreading),
-and how they're distributed by the CPU impacts resource distribution. This
-has implications on sideloading, which we'll discuss later.
+and how they're distributed by the CPU impacts resource distribution.
 
 `cpu.weight` currently repeats scheduling per each level of the cgroup tree.
 For scheduling-intensive workloads, this overhead can add up to a noticeable
@@ -78,34 +86,46 @@ focus in this demo.
 
 ___*Let's see it working*___
 
-rd-hashd should already be running at full load. Once hashd is warmed up,
-let's disable CPU control, and start a Linux build job with concurrency of
-twice the CPU thread count - which is high but not outrageous:
+Due to the scheduling artifacts and CPU subsystem saturation described
+above, the CPU controller usually can't protect a latency-sensitive workload
+by itself. While the total CPU cycles are distributed according to the
+configured weights, when the CPUs are saturated, the latency increase is
+enough to smother a latency-sensitive workload regardless of how low the
+priority of the competition may be.
 
-%% (                         	: [ Disable CPU control and start building kernel ]
-%% off cpu-resctl
-%% on sysload compile-job build-linux-2x
+The RPS behavior under CPU competition turned out to be fairly variable
+depending on the hardware and kernel configurations, so let's instead watch
+how effectively the CPU controller can protect the latency.
+
+rd-hashd is running targeting 90% load and the latency target has been
+relaxed from 100ms to 1s - we're asking rd-hashd to meet 90% load regardless
+of how much latency deteriorates. Also, ___system___'s CPU weight is reduced
+to 1/100th of ___workload___ to make the experiment clearer.
+
+Once hashd is warmed up and the latency is stable below 100ms, let's start a
+CPU hog which keeps calculating sqrt() with concurrency of twice the number
+of CPU threads.
+
+%% (                         	: [ Start a CPU hog ]
+%% on cpu-resctl
+%% on sysload cpu-hog burn-cpus-2x
 %% )
 
-As the compile jobs ramp up, RPS gets snuffed to zero. Let's stop the
-compile job and turn CPU protection back on:
+rd-hashd should be maintaining 90% load level with significantly raised
+latency. The CPU hog is running with only 1/100th of the weight but the CPU
+controller can't adequately protect rd-hashd's latency.
 
-%% (                         	: [ Stop the compile job and restore CPU control ]
-%% reset secondaries
-%% reset protections
-%% )
+That's not to say that CPU control isn't effective. Let's turn off CPU
+control and see what happens:
 
-Wait for the sysload count to drop to zero and rd-hashd to stabilize, then
-launch the same compile job again:
+%% off cpu-resctl                : [ Turn off CPU control ]
 
-%% (                         	: [ Start the compile job ]
-%% on sysload compile-job build-linux-2x
-%% )
+Without CPU control, the overall behavior is clearly and significantly
+worse. rd-hashd might even be failing to hold the target load level because
+latency keeps climibing above 1s.
 
-Note that RPS recovers but is still noticeably lower than ~90%, which is
-where it should be given the 10:1 cpu weight ratio. This is caused by
-scheduler latencies and the muddiness described above around CPU time. We'll
-revisit this later when discussing sideloading.
+The fact the CPU control can't protect latency-sensitive workloads has
+implications on sideloading, which we'll discuss later.
 
 
 ___*Read on*___
