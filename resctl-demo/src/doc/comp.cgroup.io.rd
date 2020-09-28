@@ -139,7 +139,7 @@ overpower even the high-end enterprise SSDs.
 ***WARNING***: Because the system is running without IO protection, nothing
 can guarantee the system's responsiveness. Everything, including this demo
 program, will get sluggish, and might completely stall. Once rd-hashd is
-struggling, stop the memory and IO hogs and turn IO protection back on:
+struggling, stop the memory and IO hogs, and turn IO protection back on:
 
 %% (                         	: [ Stop the memory and IO hogs and restore IO control ]
 %% reset secondaries

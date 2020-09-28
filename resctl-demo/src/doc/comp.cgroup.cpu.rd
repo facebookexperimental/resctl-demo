@@ -30,10 +30,10 @@ cache resources, memory bandwidth, and more, each of which has its own
 performance characteristics.
 
 As CPUs get close to saturation, all the CPU’s subsystems get more bogged
-down, and the increase in total amount of work done significantly lags
-behind the increase in CPU time. Further muddying the picture, many of the
-components are shared across CPU cores and logical threads (hyperthreading),
-and how they're distributed by the CPU impacts resource distribution.
+down, and the increase in total amount of work significantly lags behind the
+increase in CPU time. Further muddying the picture, many of the components
+are shared across CPU cores and logical threads (hyperthreading), and how
+they're distributed by the CPU impacts resource distribution.
 
 `cpu.weight` currently repeats scheduling per each level of the cgroup tree.
 For scheduling-intensive workloads, this overhead can add up to a noticeable

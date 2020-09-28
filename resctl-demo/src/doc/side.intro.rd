@@ -71,10 +71,10 @@ ___*A naive approach*___
 
 In the previous chapter, we demonstrated that resource control can protect
 the main workload from the rest of the system. While rd-hashd was running at
-full load, we could throw many sorts of misbehaving workloads at the system
+full load, we could throw many types of misbehaving workloads at the system
 with only limited impact on the main workload. We also saw that CPU control
-couldn't protect the main workload's latency from a CPU hog when loaded
-close to full.
+couldn't protect rd-hashd's latency from a CPU hog when rd-hashd was running
+close to full load.
 
 If the CPU control can protect the main workload at moderate load levels,
 maybe we can simply run the sideloads under the same resource control
