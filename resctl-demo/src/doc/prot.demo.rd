@@ -48,4 +48,3 @@ Now that we explored resource protection. Let's take a look at something
 more exciting - sideloading.
 
 %% jump side.intro               : [ Next: What Is Sideloading? ]
-%% jump comp.oomd                : [ Prev: OOMD - The Out-Of-Memory Daemon ]

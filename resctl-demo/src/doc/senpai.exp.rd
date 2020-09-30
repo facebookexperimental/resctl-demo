@@ -5,7 +5,7 @@
 *Senpai Playground*\n
 *=================*
 
-***WARNING***: Senpai does not work on rotating hard disks.
+___***WARNING***___: Senpai does not work on rotating hard disks.
 
 Senpai toggles:
 
@@ -24,6 +24,3 @@ Sysload toggles:
 %% toggle sysload compile-job-2 build-linux-defconfig-2x : allmodconfig linux build
 %% toggle sysload memory-hog memory-growth-50pct : Memory hog
 %% toggle sysload io-hog read-bomb : IO hog
-
-
-___*Read on*___

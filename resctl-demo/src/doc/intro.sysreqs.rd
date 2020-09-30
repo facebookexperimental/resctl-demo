@@ -4,8 +4,8 @@
 *System Requirements*\n
 *===================*
 
- ***WARNING***: *Failed to meet %MissedSysReqs% system requirements. The
- failed requirements are marked* **red**. *rd-agent is force started but
+ ___***WARNING***___: *Failed to meet %MissedSysReqs% system requirements.
+ The failed requirements are marked* **red**. *rd-agent is force started but
  some demos won't behave as expected.*
 
 Dividing resources among multiple workloads in a controlled manner requires
@@ -97,8 +97,8 @@ it's currently unmet:
   It can be disabled by writing 0 to /sys/block/$DEV/queue/wbt_lat_usec.
   resctl-demo automatically disables wbt.
 
-* %SysReq::Swap%: Swap must be enabled with the default swappiness and at least
-  as large as the smaller of half of the system memory, or 32G.
+* %SysReq::Swap%: Swap must be enabled with the default swappiness and at
+  least as large as the smaller of a third of the system memory, or 32G.
 
   See %SysReq::SwapOnScratch%.
 
@@ -110,12 +110,12 @@ it's currently unmet:
   Setting up btrfs swapfiles:
   https://wiki.archlinux.org/index.php/Btrfs#Swap_file
 
-* %SysReq::NoSysOomd%: Instances of oomd or earlyoom at the system-level may
+* %SysReq::NoSysOomd%: Instances of OOMD or earlyoom at the system-level may
   interfere and should be disabled. They usually run as a systemd service of
   the same name. You can use `systemctl` to locate and stop the services.
 
-  Disable system-level oomd and earlyoom services. resctl-demo automatically
-  stops and restarts system-level oomd instance.
+  Disable system-level OOMD and earlyoom services. resctl-demo automatically
+  stops and restarts system-level OOMD instance.
 
 * %SysReq::HostCriticalServices%: sshd.service, systemd-journald.service,
   dbus.service, dbus-broker.service must be in ___hostcritical___.

@@ -136,10 +136,11 @@ overpower even the high-end enterprise SSDs.
 %% on sysload io-hog read-bomb
 %% )
 
-***WARNING***: Because the system is running without IO protection, nothing
-can guarantee the system's responsiveness. Everything, including this demo
-program, will get sluggish, and might completely stall. Once rd-hashd is
-struggling, stop the memory and IO hogs, and turn IO protection back on:
+___***WARNING***___: Because the system is running without IO protection,
+nothing can guarantee the system's responsiveness. Everything, including
+this demo program, will get sluggish, and might completely stall. Once
+rd-hashd is struggling, stop the memory and IO hogs, and turn IO protection
+back on:
 
 %% (                         	: [ Stop the memory and IO hogs and restore IO control ]
 %% reset secondaries
@@ -147,14 +148,14 @@ struggling, stop the memory and IO hogs, and turn IO protection back on:
 %% )
 
 Wait for the sysload count to drop to zero and rd-hashd's RPS and memory
-usage to stabilize, then launch the same memory hog again:
+usage to stabilize, then launch the same memory and IO hogs again:
 
 %% (                         	: [ Start the memory and IO hogs ]
 %% on sysload memory-hog memory-growth-1x
 %% on sysload io-hog read-bomb
 %% )
 
-The kernel is able to protect hashd indefinitely. oomd will eventually
+The kernel is able to protect hashd indefinitely. OOMD will eventually
 intervene.
 
 

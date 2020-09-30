@@ -11,7 +11,7 @@ Senpai is a tool that uses PSI memory pressure metrics to maintain a
 moderate level of reclaim activity, keeping memory management informed with
 hot working set knowledge, without impacting performance.
 
-***WARNING***: Senpai does not work on rotating hard disks.
+___***WARNING***___: Senpai does not work on rotating hard disks.
 
 Before we get into the details, let's kick off Senpai.
 

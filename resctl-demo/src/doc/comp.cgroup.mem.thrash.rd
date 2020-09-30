@@ -104,11 +104,13 @@ uniformly:
 %% knob hashd-mem 0.01
 %% )
 
-Once hashd settles, increase the memory footprint using the slider above. Up
+Once hashd settles, increase the memory footprint using the slider below. Up
 until a couple gigabytes below total memory, it rises without any resistance
 and there isn't much IO activity except for log writes. Once you're close to
 the total amount of available memory, give it some time to stabilize and
 keep inching it up slowly while watching IO usage.
+
+%% knob   hashd-mem              : memory footprint :
 
 Depending on the IO device, the workload may go from running fine to barely
 running at all in a single click of the slider or it may be able to hold out

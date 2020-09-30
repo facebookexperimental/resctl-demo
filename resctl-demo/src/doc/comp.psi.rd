@@ -51,8 +51,8 @@ ___*PSI in action*___
 
 Let's see how PSI metrics actually behave. rd-hashd is running at full load.
 Wait for the memory usage to stop climbing. It should be showing zero or a
-very low level of pressure for all three resources. Slowly increase
-rd-hashd's memory footprint using the following slider:
+very low level of pressure for memory and IO. Slowly increase rd-hashd's
+memory footprint using the following slider:
 
 %% knob hashd-mem                : Memory footprint :
 
@@ -134,6 +134,6 @@ workload is functioning at a lowered bandwidth with raised latency - from
 ___*Read on*___
 
 Now that you have a basic understanding of resource pressure, let's check out
-one of its important use cases - oomd.
+one of its important use cases - OOMD.
 
-%% jump comp.oomd                : [ Next: oomd - The Out-Of-Memory Daemon ]
+%% jump comp.oomd                : [ Next: OOMD - The Out-Of-Memory Daemon ]

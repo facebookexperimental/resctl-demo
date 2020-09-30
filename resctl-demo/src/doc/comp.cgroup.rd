@@ -7,7 +7,7 @@
 *Cgroup and Resource Protection*\n
 *==============================*
 
-___*Scenario: A web server, an external memory leak, and no resource control*___
+___*Scenario*___: A web server, an external memory leak, and no resource control
 
 Imagine a fleet of web servers whose main job is running a web application
 to service user requests. But like all systems, a lot of other apps need to
@@ -40,12 +40,12 @@ program will start as rd-sysload-memory-hog.service under ___system___:
 %% on sysload memory-hog memory-growth-1x
 %% )
 
-***WARNING***: Because the system is running without any protection, nothing
-can guarantee the system's responsiveness. Everything, including this demo
-program, will get sluggish, and might completely stall. Depending on how the
-kernel OOM killer reacts, the system may or may not recover in a reasonable
-amount of time. To avoid the need for a reboot, stop the experiment once the
-system becomes sluggish:
+___***WARNING***___: Because the system is running without any protection,
+nothing can guarantee the system's responsiveness. Everything, including
+this demo program, will get sluggish, and might completely stall. Depending
+on how the kernel OOM killer reacts, the system may or may not recover in a
+reasonable amount of time. To avoid the need for a reboot, stop the
+experiment once the system becomes sluggish:
 
 %% (                             : [ Stop the memory hog and restore resource control ]
 %% reset secondaries
@@ -117,7 +117,7 @@ the following top-level slices:
     * Fleet management software: Failures here can mean the machine isn't
       considered online at all.
 
-    * System protection software like out-of-memory daemon (oomd): If these
+    * System protection software like out-of-memory daemon (OOMD): If these
       apps can't run, they can't protect the system.
 
     * Logging and logging in: If we can't log into the machine to read logs
@@ -176,7 +176,7 @@ touching anything else:
 Monitor the RPS and other resource consumption in the graph view ('g'). The
 RPS may go down a little and dip occasionally, but it'll stay close to full
 capacity no matter how long you let the memory hog go on. Eventually the
-memory hog will be killed off by oomd. Try it multiple times by clearing the
+memory hog will be killed off by OOMD. Try it multiple times by clearing the
 memory hog with the following button, and restarting it with the start
 button above:
 
@@ -184,14 +184,14 @@ button above:
 
 In this scenario, with resource control on, our site's not going down, and
 users probably aren't even noticing. If we have a working monitoring
-mechanism, the oomd kills will raise an alarm, people can quickly find out
+mechanism, the OOMD kills will raise an alarm, people can quickly find out
 which program was malfunctioning, and hunt down the bug. What could have
 been a site-wide outage got de-escalated into an internal oops.
 
 This is cgroup resource protection at work. The kernel understood which part
 was important and protected its resources at the expense of the memory hog
 running in the low-priority portion of the system. Eventually, the situation
-for the memory hog became unsustainable and oomd terminated it.
+for the memory hog became unsustainable and OOMD terminated it.
 
 We'll go into details in the following pages but here's a brief summary of
 how resource protection is configured in this demo.
@@ -213,7 +213,7 @@ how resource protection is configured in this demo.
     have to wait for it to be kicked out while ramping up.
 
 * IO: All configurations are through the io.cost controller and thus only
-  have one value to configure⁠—the weight.
+  have one value to configure — the weight.
 
     workload : hostcritical : system : sideload = 500 : 100 : 50 : 1
 

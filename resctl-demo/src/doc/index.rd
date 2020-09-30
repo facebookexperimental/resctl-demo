@@ -7,11 +7,11 @@
 
 Use up and down arrows to navigate, enter to select the page.
 
-%NeedBench%***WARNING***: Benchmark results not available. Visit the
+%NeedBench%___***WARNING***___: Benchmark results not available. Visit the
 ___Welcome___ page and run the benchmarks.
 
-***WARNING***: Failed to meet %MissedSysReqs% system requirements. Visit the
-___System Requirements___ page for details.
+___***WARNING***___: Failed to meet %MissedSysReqs% system requirements.
+Visit the ___System Requirements___ page for details.
 
 *Introduction*
 

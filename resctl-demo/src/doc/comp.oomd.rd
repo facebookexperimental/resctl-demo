@@ -47,7 +47,7 @@ in from the filesystem. When it writes a byte, the page needs to be brought
 back from swap. While the thread is waiting for one page, the other page
 gets reclaimed, so each memory access needs to wait for the IO device.
 
-The application is running magnitudes of order slower than normal and is
+The application is running orders of magnitude slower than normal and is
 most likely completely useless. But to the kernel's eye, it is making
 forward progress - one byte at a time - and thus it won't trigger an OOM
 kill. Left alone, depending on the circumstances and luck, a condition like
@@ -206,7 +206,8 @@ This is what pressure-triggered kills are for. OOMD can monitor application
 health through pressure metrics, and take action when they're clearly out of
 an acceptable range. The following button starts a kernel compile job with
 very high concurrency. The combination is a crude but effective stand-in for
-the above scenario:
+the above scenario. Wait until rd-hashd's memory usage fully ramps up and
+then start the compile job:
 
 %% (                             : [ Start a compile job ]
 %% on sysload compile-job build-linux-32x

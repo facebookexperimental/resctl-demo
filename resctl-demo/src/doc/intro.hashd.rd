@@ -151,7 +151,7 @@ modified through the demo interface:
 
 ___*Tuning the parameters*___
 
-%NeedBench%***WARNING***: This section requires the benchmarks to be
+%NeedBench%___***WARNING***___: This section requires the benchmarks to be
 complete. Please wait for them to finish and refresh this page by pressing
 'r' before proceeding.
 

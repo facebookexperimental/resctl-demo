@@ -68,11 +68,22 @@ take longer than ten minutes to generate, so you should start them now. Keep
 the system idle while the benchmarks are in progress. While you're waiting,
 read the following information to get familiar with navigating the demo.
 
+%HaveBench%___*Note*___: You already ran the benchmarks or are running the
+official AWS image on the c5d.9xlarge machine type. Benchmark results are
+already available and the following button won't do anything. If you want to
+rerun the benchmarks, visit the iocost and hashd sub-pages.
+
+___***WARNING***___: Benchmarks are run with resource control disabled and
+there is a low probability of unrecoverable thrashing. If the system stalls
+for over a minute, reset the machine and retry.
+
 %% on bench-needed               : [ Start benchmarks ]
 
-***WARNING***: Benchmarks are run with resource control disabled and there
-is a low probability of unrecoverable thrashing. If the system stalls for
-over a minute, reset the machine and retry.
+When resctl-demo is running benchmarks for the iocost IO controller and a
+latency-sensitive workload simulator, called rd-hashd, in the top left
+summary panel, the first line shows the current state and the latest
+heartbeat timestamp. The state will first show "BenchIoCost" followed by
+"BenchHashd" and finally "Running" when both benchmarks are complete.
 
 There are a number of system and configuration requirements for the demo to
 run. The second "config" row of the top left summary panel shows the number
@@ -81,15 +92,6 @@ status per resource type. For details on the requirements, follow the link
 below. You can come back to this page by pressing 'b'.
 
 %% jump intro.sysreqs            : [ System Requirements ]
-
-When resctl-demo is running benchmarks for the iocost IO controller and a
-latency-sensitive workload simulator, called rd-hashd, in the top left
-summary panel, the first line shows the current state and the latest
-heartbeat timestamp. The state will first show "BenchIoCost" followed by
-"BenchHashd" and finally "Running" when both benchmarks are complete.
-
-If you already ran the benchmarks or are running the official AWS image on
-the c5d.9xlarge machine type, it should already be in the "Running" state.
 
 The benchmarks try to calibrate resctl-demo so that the demo scenarios
 behave as expected. However, resctl-demo is primarily verified on the
