@@ -5,6 +5,7 @@
 %% knob sys-io-ratio 0.01
 %% knob hashd-load 0.6
 %% on hashd
+$$ reset all-with-params
 
 *What is Sideloading?*\n
 *====================*
@@ -83,30 +84,32 @@ how latency at 60% load and ramping up from there are impacted by running
 sideloads this way.
 
 rd-hashd should already be running at 60% load. Once it's warmed up, start a
-Linux build job with 2x CPU count concurrency. Pay attention to how the
-latency in the left graph pane changes:
+Linux build job with 1x CPU count concurrency. Depending on the hardware and
+kernel configurations, rd-hashd may fail to hold the RPS with the usual
+100ms latency target, so let's relax the latency target too. Pay attention
+to how the latency in the left graph pane changes:
 
-%% (                             : [ Start linux build job ]
-%% on sysload compile-job build-linux-2x
+%% (                             : [ Relax rd-hashd latency target and start linux build job ]
+%% knob hashd-lat-target 1.0
+%% on sysload compile-job build-linux-1x
 %% )
 
-Depending on the hardware and kernel configuration, RPS might be holding
-with sharply increased latency or latency might deteriorate too much to
-maintain the target RPS. Press 'g' and check out the resource pressure
-graphs. Even though this page set the CPU weight of the build job only at a
-hundredth of rd-hashd, CPU pressure is noticeable. We'll get back to this
-later.
+Note how RPS is holding but latency deteriorates sharply. Press 'g' and
+check out the resource pressure graphs. Even though this page set the CPU
+weight of the build job only at a hundredth of rd-hashd, CPU pressure is
+noticeable. We'll get back to this later.
 
-If RPS is holding at the target, let's push the load up to 100% and see
-whether its ability to ramp up is impacted too:
+Now let's push the load up to 100% and see whether its ability to ramp up is
+impacted too:
 
 %% knob hashd-load 1.0           : [ Set full load ]
 
 It climbs, but seems kind of sluggish. Let's compare it with a load rising
 but without the build job:
 
-%% (                             : [ Stop linux build and set 60% load ]
+%% (                             : [ Stop linux build, reset latency target and set 60% load ]
 %% off sysload compile-job
+%% reset hashd-params
 %% knob hashd-load 0.6
 %% )
 

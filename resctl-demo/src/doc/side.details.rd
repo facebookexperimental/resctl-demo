@@ -3,9 +3,11 @@
 %% reset prep
 %% knob sys-cpu-ratio 0.01
 %% knob sys-io-ratio 0.01
+%% knob hashd-lat-target 1.0
 %% knob hashd-load 0.6
 %% on hashd
 %% graph RpsCpu
+$$ reset all-with-params
 
 *Some Details on Sideloading*\n
 *===========================*
@@ -61,12 +63,13 @@ measure for the total amount of work the CPUs are doing.
 
 rd-hashd should already be running at 60% load. Once it warms up, note the
 CPU utilization level of ___workload___: It should be fairly stable. Now,
-let's start the Linux build job as sysload - no CPU headroom - and see how
-that changes:
+let's start the Linux build job as sysload - no CPU headroom - with relaxed
+rd-hashd latency target and see how that changes:
 
-%% (                             : [ Start linux build sysload ]
+%% (                             : [ Relax rd-hashd latency target and start linux build sysload ]
 %% reset secondaries
-%% on sysload compile-job build-linux-2x
+%% knob hashd-lat-target 1.0
+%% on sysload compile-job build-linux-1x
 %% )
 
 Wait until the compile phase starts and ___system___'s CPU utilization rises
@@ -78,9 +81,11 @@ major contributing factors for the increased latency.
 Let's start it as a sideload - with CPU headroom - and see whether there's
 any difference:
 
-%% (                             : [ Stop linux build sysload and start it as sideload ]
+%% (                             : [ Reset latency target, stop linux build sysload and start it as sideload ]
 %% reset secondaries
-%% on sideload compile-job build-linux-2x
+%% reset hashd-params
+%% knob hashd-load 0.6
+%% on sideload compile-job build-linux-1x
 %% )
 
 Once the compile phase starts, ___workload___'s CPU utilization rises, but
@@ -108,7 +113,7 @@ sideload:
 %% (                             : [ Stop hashd and start allnoconfig linux build sysload ]
 %% off hashd
 %% reset secondaries
-%% on sysload compile-job build-linux-allnoconfig-2x
+%% on sysload compile-job build-linux-allnoconfig-1x
 %% )
 
 Monitor the progress in the "other logs" pane on the left. Depending on the
@@ -132,7 +137,7 @@ build job again:
 
 %% (                             : [ Start allnoconfig linux build sideload ]
 %% reset secondaries
-%% on sideload compile-job build-linux-allnoconfig-2x
+%% on sideload compile-job build-linux-allnoconfig-1x
 %% )
 
 Wait for it to finish and note the time as before. The log for this run is
@@ -153,7 +158,7 @@ test machine:
 %% (                             : [ Stop hashd and start defconfig linux build sysload ]
 %% off hashd
 %% reset secondaries
-%% on sysload compile-job build-linux-defconfig-2x
+%% on sysload compile-job build-linux-defconfig-1x
 %% )
 
 Wait for completion and take note of how long compilation took and then
@@ -168,7 +173,7 @@ Once it warms up, start the same build job as a sideload:
 
 %% (                             : [ Start defconfig linux build sideload ]
 %% reset secondaries
-%% on sideload compile-job build-linux-defconfig-2x
+%% on sideload compile-job build-linux-defconfig-1x
 %% )
 
 On the test machine, the full machine run took 81 seconds; the sideload run

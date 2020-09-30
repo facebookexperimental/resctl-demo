@@ -91,16 +91,16 @@ impl Default for SideloadDefs {
                     },
                 ),
                 (
-                    "build-linux-allnoconfig-2x".into(),
+                    "build-linux-allnoconfig-1x".into(),
                     SideloadSpec {
-                        args: vec!["build-linux.sh".into(), "allnoconfig".into(), "2".into()],
+                        args: vec!["build-linux.sh".into(), "allnoconfig".into(), "1".into()],
                         frozen_exp: 30,
                     },
                 ),
                 (
-                    "build-linux-defconfig-2x".into(),
+                    "build-linux-defconfig-1x".into(),
                     SideloadSpec {
-                        args: vec!["build-linux.sh".into(), "defconfig".into(), "2".into()],
+                        args: vec!["build-linux.sh".into(), "defconfig".into(), "1".into()],
                         frozen_exp: 30,
                     },
                 ),

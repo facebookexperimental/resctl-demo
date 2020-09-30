@@ -100,12 +100,12 @@ Now, let's repeat the experiment from the last section, but launch the Linux
 compile job as a sideload that's supervised by the sideloader.
 
 rd-hashd should already be running at 60% load. Once it warms up, let's
-start a Linux compile job with 2x CPU count concurrency as before. It'll
+start a Linux compile job with 1x CPU count concurrency as before. It'll
 have the same resource weights as before; the only difference is that it's
 now running under the supervision of sideloader:
 
 %% (                             : [ Start linux compile job as a sideload ]
-%% on sideload compile-job build-linux-2x
+%% on sideload compile-job build-linux-1x
 %% )
 
 While the Linux source tree is being untarred, depending on the memory
