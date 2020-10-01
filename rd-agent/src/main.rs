@@ -569,8 +569,23 @@ impl Config {
             self.sr_failed.insert(SysReq::Freezer);
         }
 
+        // IO controllers
         self.check_iocost();
         slices::check_other_io_controllers(&mut self.sr_failed);
+
+        // anon memory balance
+        match report::read_cgroup_flat_keyed_file("/proc/vmstat") {
+            Ok(stat) => {
+                if let None = stat.get("pgscan_Anon") {
+                    error!("cfg: /proc/vmstat doesn't contain pgscan_anon");
+                    self.sr_failed.insert(SysReq::AnonBalance);
+                }
+            }
+            Err(e) => {
+                error!("cfg: failed to read /proc/vmstat ({:?})", &e);
+                self.sr_failed.insert(SysReq::AnonBalance);
+            }
+        }
 
         // scratch and root filesystems
         let mi = match Self::check_one_fs(&self.scr_path, &mut self.sr_failed) {

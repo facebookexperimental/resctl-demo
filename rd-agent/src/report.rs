@@ -62,7 +62,7 @@ fn read_stalls(path: &str) -> Result<(f64, f64)> {
     Ok((some.unwrap_or(0.0), full.unwrap_or(0.0)))
 }
 
-fn read_cgroup_flat_keyed_file(path: &str) -> Result<HashMap<String, u64>> {
+pub fn read_cgroup_flat_keyed_file(path: &str) -> Result<HashMap<String, u64>> {
     let f = fs::OpenOptions::new().read(true).open(path)?;
     let r = BufReader::new(f);
     let mut map = HashMap::new();

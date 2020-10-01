@@ -20,6 +20,7 @@ pub enum SysReq {
     IoCost,
     IoCostVer,
     NoOtherIoControllers,
+    AnonBalance,
     Btrfs,
     BtrfsAsyncDiscard,
     NoCompositeStorage,

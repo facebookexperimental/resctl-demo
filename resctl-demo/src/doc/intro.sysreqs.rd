@@ -59,13 +59,19 @@ it's currently unmet:
 
 * %SysReq::IoCostVer%: blk-iocost received significant updates to improve
   control quality and visibility during the v5.10 development cycle. A
-  kernel with these updates is recommended.
+  kernel with these updates is recommended. For details:
+  https://lwn.net/Articles/830397/
 
 * %SysReq::NoOtherIoControllers%: Other IO controllers - io.max and io.latency -
   can interfere and shouldn't have active configurations.
 
   If configured through systemd, remove all IO{Read|Write}{Bandwidth|IOPS}Max
   and IoDeviceLatencyTargetSec configurations.
+
+* %SysReq::AnonBalance%: Kernel memory management received a major update
+  during the v5.8 development cycle which put anonymous memory on an equal
+  footing with page cache and made swap useful, especially on SSDs. For
+  details: https://lwn.net/Articles/821105/
 
 * %SysReq::Btrfs%: Working IO isolation requires support from filesystem to
   avoid priority inversions. Currently, btrfs is the only supported filesystem.
