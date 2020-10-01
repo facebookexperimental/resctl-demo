@@ -113,9 +113,4 @@ You can re-run and cancel hashd benchmark with the following.
 
 ___*Read on*___
 
-For more high-level explanations of IO control and the io.cost controller,
-see the following pages.
-
-%% jump comp.cgroup.io           : [ IO Control ]
-%%
 %% jump intro.hashd              : [ Next: The rd-hashd Workload Simulator ]

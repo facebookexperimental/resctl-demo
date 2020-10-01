@@ -3,7 +3,6 @@
 %% reset prep
 %% knob sys-cpu-ratio 0.01
 %% knob sys-io-ratio 0.01
-%% knob hashd-lat-target 1.0
 %% knob hashd-load 0.6
 %% on hashd
 %% graph RpsCpu
@@ -68,7 +67,7 @@ rd-hashd latency target and see how that changes:
 
 %% (                             : [ Relax rd-hashd latency target and start linux build sysload ]
 %% reset secondaries
-%% knob hashd-lat-target 1.0
+%% knob hashd-lat-target 0.2
 %% on sysload compile-job build-linux-1x
 %% )
 
