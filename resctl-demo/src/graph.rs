@@ -700,6 +700,7 @@ pub enum GraphTag {
     WriteBps,
     SwapUtil,
     CpuPsiSome,
+    CpuPsiSome2,
     MemPsiSome,
     IoPsiSome,
     MemPsiFull,
@@ -753,6 +754,15 @@ static ALL_GRAPHS: &[(GraphTag, &str, &[PlotId])] = &[
     ),
     (
         GraphTag::CpuPsiSome,
+        "CPU some pressures in top-level slices",
+        &[
+            PlotId::WorkCpuPsiSome,
+            PlotId::SideCpuPsiSome,
+            PlotId::SysCpuPsiSome,
+        ],
+    ),
+    (
+        GraphTag::CpuPsiSome2,
         "CPU some pressures in top-level slices",
         &[
             PlotId::WorkCpuPsiSome,
@@ -963,7 +973,7 @@ pub fn layout_factory(id: GraphSetId) -> Box<dyn View> {
                     )
                     .child(
                         horiz_or_vert()
-                            .child(resize_one(&layout, DummyView))
+                            .child(graph(GraphTag::CpuPsiSome2))
                             .child(graph(GraphTag::IoPsiSome)),
                     ),
             );
