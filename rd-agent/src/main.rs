@@ -576,7 +576,7 @@ impl Config {
         // anon memory balance
         match report::read_cgroup_flat_keyed_file("/proc/vmstat") {
             Ok(stat) => {
-                if let None = stat.get("pgscan_Anon") {
+                if let None = stat.get("pgscan_anon") {
                     error!("cfg: /proc/vmstat doesn't contain pgscan_anon");
                     self.sr_failed.insert(SysReq::AnonBalance);
                 }
