@@ -1,6 +1,7 @@
 ## Copyright (c) Facebook, Inc. and its affiliates.
 %% id senpai.intro: The Problem of Sizing Memory
 %% reset prep
+%% graph RpsMem
 %% knob hashd-load 1.0
 %% on hashd
 
@@ -18,9 +19,10 @@ With PSI memory pressure, we can see how bad a memory shortage is, so that's
 one side of the scale - we can tell when a workload needs more. But can we
 tell when a workload has more than enough memory?
 
-rd-hashd should be running at full load already. Wait until its memory usage
-doesn't climb anymore. It should be filling most of the machine. Let's
-reduce the load to 25%:
+The left graph panel is showing the RPS and memory usage of rd-hashd which
+should be running at full load already. Wait until its memory usage doesn't
+climb anymore. It should be filling most of the machine. Let's reduce the
+load to 25%:
 
 %% knob hashd-load 0.25          : [ Reduce rd-hashd load level to 25% ]
 

@@ -1,6 +1,7 @@
 ## Copyright (c) Facebook, Inc. and its affiliates.
 %% id senpai.senpai: Senpai
 %% reset prep
+%% graph RpsMem
 %% knob hashd-load 0.25
 %% on hashd
 
@@ -56,13 +57,14 @@ and the IO overhead from faulting some of them back in, tends to be
 negligible. When the workload actually saturates the system, PSI levels tell
 senpai to back off and go idle, and both the CPU and IO overhead disappear.
 
-Senpai should have shaved off some memory by now. We reduced rd-hashd load
-to 25% which reduces its memory footprint by around 37.5% (half of memory
-usage doesn't scale with RPS). On a test machine with 32G of memory, memory
-usage at the full RPS is around 27G, so I'd expect it to shrink to around
-17G. This is a rough estimate - the actual number will depend on benchmark
-variance, SSD performance, and Senpai's memory pressure threshold and
-configuration.
+Take a look at the rd-hashd RPS and memory usage graphs on the left, Senpai
+should have shaved off some memory by now. Compress the timescale with 't'
+to see the changes clearer. We reduced rd-hashd load to 25% which reduces
+its memory footprint by around 37.5% (half of memory usage doesn't scale
+with RPS). On a test machine with 32G of memory, memory usage at the full
+RPS is around 27G, so I'd expect it to shrink to around 17G. This is a rough
+estimate - the actual number will depend on benchmark variance, SSD
+performance, and Senpai's memory pressure threshold and configuration.
 
 On a test setup with 32G of memory running and 250G Samsung 860 EVO SSD,
 Senpai reduced rd-hashd's memory usage by about 3G, down to 24G in six

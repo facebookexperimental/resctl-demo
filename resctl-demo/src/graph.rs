@@ -709,6 +709,7 @@ pub enum GraphTag {
     WriteLat,
     IoCost,
     RpsCpu,
+    RpsMem,
 }
 
 static ALL_GRAPHS: &[(GraphTag, &str, &[PlotId])] = &[
@@ -829,6 +830,11 @@ static ALL_GRAPHS: &[(GraphTag, &str, &[PlotId])] = &[
         GraphTag::RpsCpu,
         "Workload RPS / CPU util",
         &[PlotId::HashdARpsMax100, PlotId::WorkCpu],
+    ),
+    (
+        GraphTag::RpsMem,
+        "Workload RPS / Memory util (GB)",
+        &[PlotId::HashdARps, PlotId::WorkMem],
     ),
 ];
 
