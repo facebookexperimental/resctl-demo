@@ -53,9 +53,13 @@ it's currently unmet:
   option. For details: https://lkml.org/lkml/2019/12/19/1272
 
 * %SysReq::IoCost%: blk-iocost is the new IO controller which can
-  comprehensively control IO capacity distribution proportionally. Available in
-  kernels >= v5.4 (CONFIG_BLK_CGROUP_IOCOST). For details:
+  comprehensively control IO capacity distribution proportionally. Enabled
+  with CONFIG_BLK_CGROUP_IOCOST. For details:
   https://lwn.net/Articles/793460/
+
+* %SysReq::IoCostVer%: blk-iocost received significant updates to improve
+  control quality and visibility during the v5.10 development cycle. A
+  kernel with these updates is recommended.
 
 * %SysReq::NoOtherIoControllers%: Other IO controllers - io.max and io.latency -
   can interfere and shouldn't have active configurations.

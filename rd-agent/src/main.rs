@@ -29,7 +29,6 @@ mod side;
 mod sideloader;
 mod slices;
 
-use bench::IOCOST_QOS_PATH;
 use rd_agent_intf::{
     Args, BenchKnobs, Cmd, CmdAck, Report, SideloadDefs, SliceKnobs, SvcReport, SvcStateReport,
     SysReq, SysReqsReport, OOMD_SVC_NAME,
@@ -403,6 +402,32 @@ impl Config {
         }
     }
 
+    fn check_iocost(&mut self) {
+        if let Err(e) = bench::iocost_on_off(true, &self) {
+            error!(
+                "cfg: failed to enabled cgroup2 iocost controller ({:?})",
+                &e
+            );
+            self.sr_failed.insert(SysReq::IoCost);
+            return;
+        }
+
+        match report::read_cgroup_nested_keyed_file("/sys/fs/cgroup/io.stat") {
+            Ok(is) => {
+                if let Some(stat) = is.get(&format!("{}:{}", self.scr_devnr.0, self.scr_devnr.1)) {
+                    if let None = stat.get("cost.usage") {
+                        error!("cfg: /sys/fs/cgroup/io.stat doesn't contain cost.usage");
+                        self.sr_failed.insert(SysReq::IoCostVer);
+                    }
+                }
+            }
+            Err(e) => {
+                error!("cfg: failed to read /sys/fs/cgroup/io.stat ({:?})", &e);
+                self.sr_failed.insert(SysReq::IoCostVer);
+            }
+        }
+    }
+
     fn check_one_fs(path: &str, sr_failed: &mut HashSet<SysReq>) -> Result<MountInfo> {
         let mi = path_to_mountpoint(path)?;
         let rot = is_path_rotational(path);
@@ -544,11 +569,7 @@ impl Config {
             self.sr_failed.insert(SysReq::Freezer);
         }
 
-        if !Path::new(IOCOST_QOS_PATH).exists() {
-            error!("cfg: cgroup2 iocost controller not available");
-            self.sr_failed.insert(SysReq::IoCost);
-        }
-
+        self.check_iocost();
         slices::check_other_io_controllers(&mut self.sr_failed);
 
         // scratch and root filesystems

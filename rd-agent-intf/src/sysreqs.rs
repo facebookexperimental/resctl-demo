@@ -18,6 +18,7 @@ pub enum SysReq {
     Freezer,
     MemCgRecursiveProt,
     IoCost,
+    IoCostVer,
     NoOtherIoControllers,
     Btrfs,
     BtrfsAsyncDiscard,

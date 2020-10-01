@@ -75,7 +75,9 @@ fn read_cgroup_flat_keyed_file(path: &str) -> Result<HashMap<String, u64>> {
     Ok(map)
 }
 
-fn read_cgroup_nested_keyed_file(path: &str) -> Result<HashMap<String, HashMap<String, String>>> {
+pub fn read_cgroup_nested_keyed_file(
+    path: &str,
+) -> Result<HashMap<String, HashMap<String, String>>> {
     let f = fs::OpenOptions::new().read(true).open(path)?;
     let r = BufReader::new(f);
     let mut top_map = HashMap::new();
