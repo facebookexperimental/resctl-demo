@@ -48,10 +48,10 @@ const MAIN_VERT_MIN_HEIGHT: usize = 80;
 
 const COLOR_BLACK: Color = Color::Rgb(0, 0, 0);
 const COLOR_WHITE: Color = Color::Rgb(255, 255, 255);
-const COLOR_RED: Color = Color::Rgb(182, 0, 0);
-const COLOR_GREEN: Color = Color::Rgb(78, 154, 6);
-const COLOR_BLUE: Color = Color::Rgb(52, 101, 164);
-const COLOR_MAGENTA: Color = Color::Rgb(173, 127, 168);
+const COLOR_RED: Color = Color::Rgb(215, 0, 0);
+const COLOR_GREEN: Color = Color::Rgb(0, 215, 0);
+const COLOR_BLUE: Color = Color::Rgb(0, 135, 255);
+const COLOR_MAGENTA: Color = Color::Rgb(135, 95, 175);
 
 pub const COLOR_BACKGROUND: Color = COLOR_BLACK;
 pub const COLOR_DFL: Color = COLOR_WHITE;
