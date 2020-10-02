@@ -14,9 +14,9 @@ directions on the applied resource control strategies are born of the
 collaboration between *Tejun Heo* and *Johannes Weiner* over the past eight
 years.
 
-*Johannes Weiner* developed and led everything memory management related
+*Johannes Weiner* developed and led everything memory management related,
 including most of the cgroup2 memory controller and anonymous memory
-balancing. Johannes also developed PSI, guided its application in OOMD,
+balancing. Johannes also developed PSI, guided its application in OOMD, and
 created Senpai on top.
 
 *Josef Bacik* developed `io.latency` - the first working comprehensive IO
@@ -25,7 +25,7 @@ because of the many improvements that Josef made across the kernel in block
 layer, filesystem, memory management, and read-ahead.
 
 *Andy Newell* created the theoretical base for the `io.cost` controller,
-devised the multiple node weight update algorithm which improved work
+devised the multiple node weight update algorithm, which improved work
 conservation and control quality.
 
 *Tejun Heo* worked on the cgroup core, implemented `io.cost` based on Andy's
@@ -65,9 +65,9 @@ Collabora. Thanks to *Guy Lunardi* and *Angelica Ramos* for support from
 Collabora.
 
 None of these would have been possible without the Linux kernel and the many
-opensource projects we depend and build upon everyday. Our deep gratitude
-for the broader Linux community for their feedback, bug reports, code
-review, and discussions.
+open source projects we depend and build upon everyday. Our deep gratitude
+goes out to the broader Linux community for their feedback, bug reports,
+code review, and discussions.
 
 
 %% jump index                    : [ Go back to index ]
