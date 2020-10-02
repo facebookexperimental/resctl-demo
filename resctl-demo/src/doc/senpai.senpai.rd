@@ -94,6 +94,7 @@ always yield desirable precision, particularly for quickly changing
 workloads, so we're now experimenting with in-memory reclaim caches, such as
 zswap and zcache.
 
+
 ___*Read on*___
 
 On the next page, you can experiment with Senpai in different situations.

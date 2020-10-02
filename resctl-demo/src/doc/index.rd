@@ -47,3 +47,7 @@ Visit the ___System Requirements___ page for details.
 %% jump senpai.intro             : * The Problem of Memory Sizing
 %% jump senpai.senpai            : * Senpai
 %% jump senpai.exp               : * Senpai Playground
+
+*Credits*
+
+%% jump credits                  : * Credits
