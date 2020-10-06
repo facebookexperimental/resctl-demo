@@ -69,9 +69,9 @@ the system idle while the benchmarks are in progress. While you're waiting,
 read the following information to get familiar with navigating the demo.
 
 %HaveBench%___*Note*___: You already ran the benchmarks or are running the
-official AWS image on the c5d.9xlarge machine type. Benchmark results are
-already available and the following button won't do anything. If you want to
-rerun the benchmarks, visit the iocost and hashd sub-pages.
+official AWS image on the c5d.4xlarge or c5d.9xlarge machine type. Benchmark
+results are already available and the following button won't do anything. If
+you want to rerun the benchmarks, visit the iocost and hashd sub-pages.
 
 ___***WARNING***___: Benchmarks are run with resource control disabled and
 there is a low probability of unrecoverable thrashing. If the system stalls
@@ -95,11 +95,13 @@ below. You can come back to this page by pressing 'b'.
 
 The benchmarks try to calibrate resctl-demo so that the demo scenarios
 behave as expected. However, resctl-demo is primarily verified on the
-following two setups:
+following setups:
 
 1. AMD Ryzen 7 3800X 8-Core 16-Threads CPU, 32G memory, Samsung 860 512G SSD
 
-2. AWS c5d.9xlarge - 36 vCPUs, 72G memory, local 900G SSD
+2. AWS c5d.4xlarge - 16 vCPUs, 32G memory, local 450G SSD
+
+3. AWS c5d.9xlarge - 36 vCPUs, 72G memory, local 900G SSD
 
 On setups that are significantly weaker than #1, the demo scenarios may not
 behave as expected, especially on SSDs with high and inconsistent latency
