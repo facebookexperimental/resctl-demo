@@ -707,6 +707,9 @@ impl Config {
             let _ = svc.stop();
         }
 
+        // Gotta re-read sysinfo to avoid reading cached oomd pid from
+        // before stopping it.
+        let sys = sysinfo::System::new();
         let procs = sys.get_process_list();
         for (pid, proc) in procs {
             let exe = proc
