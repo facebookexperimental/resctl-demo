@@ -107,7 +107,7 @@ and page cache fraction higher than the defaults:
 * size: Maximum memory footprint in bytes. This in combination with
   `file_max_frac` determines the amount of space used by testfiles. The
   actual memory footprint is determined by scaling this down with the
-  `mem_frac` parameter. Defaults to 3 times the amount of system memory.
+  `mem_frac` parameter. Defaults to 4 times the amount of system memory.
 
 * file_max_frac: Maximum fraction of page cache out of memory footprint. 0.0
   means all memory footprint is anonymous memory, 1.0 all page cache. The
