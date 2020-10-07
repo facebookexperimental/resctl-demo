@@ -245,6 +245,10 @@ impl Config {
             );
         }
 
+        if maj == 0 && min == 4 && rel == 0 {
+            bail!("version 0.4.0 has a bug in senpai::limit_min_bytes handling");
+        }
+
         debug!("oomd: {:?} {}.{}.{}", &bin, maj, min, rel);
         Ok((bin, "oomd.service".to_string()))
     }
