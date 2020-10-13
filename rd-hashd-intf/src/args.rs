@@ -213,8 +213,8 @@ impl JsonSave for Args {
 impl JsonArgs for Args {
     fn match_cmdline() -> ArgMatches<'static> {
         App::new("rd-hashd")
-            .version("0.1")
-            .author("Tejun Heo <tj@kernel.org>")
+            .version(env!("CARGO_PKG_VERSION"))
+            .author(env!("CARGO_PKG_AUTHORS"))
             .about(HELP_BODY)
             .args_from_usage(&ARGS_STR)
             .setting(AppSettings::UnifiedHelpMessage)

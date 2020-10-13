@@ -1,7 +1,7 @@
 # Copyright (c) Facebook, Inc. and its affiliates
 [package]
 name = "rd-hashd-intf"
-version = "0.1.0"
+version = "1.0.0"
 authors = ["Tejun Heo <tj@kernel.org>"]
 edition = "2018"
 
