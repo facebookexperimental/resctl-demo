@@ -29,7 +29,7 @@ pub fn check_other_io_controllers(sr_failed: &mut HashSet<SysReq>) {
         match read_one_line(&path) {
             Ok(line) if line.trim().len() == 0 => continue,
             Err(_) => continue,
-            _ => (),
+            _ => {}
         }
         if failed.is_none() {
             failed = path
@@ -106,7 +106,7 @@ fn propagate_one_slice(slice: Slice, resctl: &systemd::UnitResCtl) -> Result<()>
                 acc
             });
         match unit.props.string("ControlGroup") {
-            Some(v) if AsRef::<OsStr>::as_ref(&v) == trimmed => (),
+            Some(v) if AsRef::<OsStr>::as_ref(&v) == trimmed => {}
             v => {
                 trace!("resctl: skipping {:?} != {:?}", &v, &trimmed);
                 continue;
@@ -114,7 +114,7 @@ fn propagate_one_slice(slice: Slice, resctl: &systemd::UnitResCtl) -> Result<()>
         }
 
         match unit.state {
-            US::Running | US::OtherActive(_) => (),
+            US::Running | US::OtherActive(_) => {}
             _ => {
                 trace!(
                     "resctl: skipping {:?} due to invalid state {:?}",
@@ -219,7 +219,7 @@ pub fn apply_slices(knobs: &mut SliceKnobs, hashd_mem_size: u64, cfg: &Config) -
                 };
                 propagate_one_slice(slice, &resctl)?;
             }
-            _ => (),
+            _ => {}
         };
     }
     if updated {
@@ -252,7 +252,7 @@ pub fn clear_slices() -> Result<()> {
     for slice in Slice::into_enum_iter() {
         match clear_one_slice(slice) {
             Ok(true) => updated = true,
-            Ok(false) => (),
+            Ok(false) => {}
             Err(e) => warn!(
                 "resctl: Failed to clear configurations for {:?} ({:?})",
                 slice.name(),
@@ -264,7 +264,7 @@ pub fn clear_slices() -> Result<()> {
                 let resctl = Default::default();
                 propagate_one_slice(slice, &resctl)?;
             }
-            _ => (),
+            _ => {}
         };
     }
     if updated {
@@ -315,7 +315,7 @@ fn verify_and_fix_cgrp_mem(path: &str, is_limit: bool, knob: MemoryKnob) -> Resu
         "memory.low" => unit.resctl.mem_low = Some(nr_bytes),
         "memory.high" => unit.resctl.mem_high = Some(nr_bytes),
         "memory.max" => unit.resctl.mem_max = Some(nr_bytes),
-        _ => (),
+        _ => {}
     }
     unit.apply()
 }
@@ -355,7 +355,7 @@ fn verify_and_fix_one_slice(
         trace!("resctl: verify: {:?}", &cpu_weight_path);
         let line = read_one_line(&cpu_weight_path)?;
         match scan_fmt!(&line, "{d}", u32) {
-            Ok(v) if v == sk.cpu_weight => (),
+            Ok(v) if v == sk.cpu_weight => {}
             v => {
                 info!(
                     "resctl: {:?} should be {} but is {:?}, fixing",
@@ -371,7 +371,7 @@ fn verify_and_fix_one_slice(
         trace!("resctl: verify: {:?}", &io_weight_path);
         let line = read_one_line(&io_weight_path)?;
         match scan_fmt!(&line, "default {d}", u32) {
-            Ok(v) if v == sk.io_weight => (),
+            Ok(v) if v == sk.io_weight => {}
             v => {
                 info!(
                     "resctl: {:?} should be {} but is {:?}, fixing",

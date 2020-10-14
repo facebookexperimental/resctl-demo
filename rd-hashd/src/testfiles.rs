@@ -115,7 +115,9 @@ impl TestFiles {
 
             // try creating dir only on the first file of the dir
             if fi == 0 {
-                unsafe { libc::sync() };
+                unsafe {
+                    libc::sync()
+                };
                 debug!("testfiles: populating {:?}", &dpath);
                 fs::create_dir_all(&dpath)?;
             }
@@ -131,7 +133,7 @@ impl TestFiles {
                         trace!("testfiles: using existing {:?}", &fpath);
                         continue;
                     }
-                    _ => (),
+                    _ => {}
                 }
                 debug!("testfiles: removing invalid file {}", &fname);
                 if fpath.is_dir() {
@@ -155,7 +157,9 @@ impl TestFiles {
 
             progress(i * self.unit_size);
         }
-        unsafe { libc::sync() };
+        unsafe {
+            libc::sync()
+        };
         progress(self.nr_files * self.unit_size);
         Ok(())
     }

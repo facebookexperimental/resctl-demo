@@ -54,7 +54,7 @@ fn read_stalls(path: &str) -> Result<(f64, f64)> {
             match (which.as_ref(), v) {
                 ("some", v) => some = Some(v as f64 / 1_000_000.0),
                 ("full", v) => full = Some(v as f64 / 1_000_000.0),
-                _ => (),
+                _ => {}
             }
         }
     }
@@ -644,7 +644,7 @@ impl ReportWorker {
                     trace!("report: Sleeping {}ms", sleep_dur.as_millis());
                     continue 'outer;
                 }
-                _ => (),
+                _ => {}
             }
 
             let now = unix_now();

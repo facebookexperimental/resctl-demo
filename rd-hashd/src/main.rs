@@ -327,7 +327,7 @@ fn main() {
                     &params_file.path.as_ref().unwrap()
                 );
             }
-            Ok(false) => (),
+            Ok(false) => {}
             Err(e) => warn!(
                 "Failed to reload params file {:?} ({:?})",
                 &params_file.path, &e

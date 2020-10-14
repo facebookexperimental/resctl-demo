@@ -1,23 +1,24 @@
 #!/bin/python3
 # Copyright (c) Facebook, Inc. and its affiliates
 
-import os
-import sys
 import math
 import mmap
+import os
+import sys
 import time
 
+
 if len(sys.argv) < 3:
-    print('Usage: memory-balloon.py RBPS WBPS', file=sys.stderr);
+    print("Usage: memory-balloon.py RBPS WBPS", file=sys.stderr)
     sys.exit(1)
 
-if sys.argv[1][-1] == '%':
-    rbps = float(os.environ.get('IO_RBPS')) * float(sys.argv[1][:-1]) / 100
+if sys.argv[1][-1] == "%":
+    rbps = float(os.environ.get("IO_RBPS")) * float(sys.argv[1][:-1]) / 100
 else:
     rbps = float(sys.argv[1])
 
-if sys.argv[2][-1] == '%':
-    wbps = float(os.environ.get('IO_WBPS')) * float(sys.argv[2][:-1]) / 100
+if sys.argv[2][-1] == "%":
+    wbps = float(os.environ.get("IO_WBPS")) * float(sys.argv[2][:-1]) / 100
 else:
     wbps = float(sys.argv[2])
 
@@ -32,6 +33,7 @@ write_sz = 0
 rdebt = rbps
 wdebt = wbps
 
+
 def alloc_next_page():
     global chunks, write_sz
 
@@ -43,6 +45,7 @@ def alloc_next_page():
         chunks.append(mmap.mmap(-1, CHUNK_SZ, flags=mmap.MAP_PRIVATE))
 
     chunks[idx][off] = 1
+
 
 def read_next_page():
     global chunks, read_sz, write_sz
@@ -58,11 +61,11 @@ def read_next_page():
 
     read_sz += PAGE_SZ
 
+
 def run():
     global rbps, wbps, chunks, read_sz, write_sz, rdebt, wdebt
 
-    print('Target rbps={:.2f}M wbps={:.2f}M'
-          .format(rbps / (1 << 20), wbps / (1 << 20), flush=True))
+    print("Target rbps={:.2f}M wbps={:.2f}M".format(rbps / (1 << 20), wbps / (1 << 20)))
 
     debt_at = time.time()
     report_at = debt_at
@@ -92,17 +95,21 @@ def run():
 
         if now - report_at > 1:
             dur = now - report_at
-            print('size={:.2f}G rbps={:.2f}M wbps={:.2f}M'
-                  .format(write_sz / (1 << 30),
-                          ((read_sz - last_read) / (1 << 20)) / dur,
-                          ((write_sz - last_write) / (1 << 20)) / dur),
-                  flush=True)
+            print(
+                "size={:.2f}G rbps={:.2f}M wbps={:.2f}M".format(
+                    write_sz / (1 << 30),
+                    ((read_sz - last_read) / (1 << 20)) / dur,
+                    ((write_sz - last_write) / (1 << 20)) / dur,
+                ),
+                flush=True,
+            )
             last_read = read_sz
             last_write = write_sz
             report_at += dur
 
         if rdebt < PAGE_SZ and wdebt < PAGE_SZ:
             time.sleep(0.1)
+
 
 if __name__ == "__main__":
     run()

@@ -2,12 +2,12 @@
 # Copyright (c) Facebook, Inc. and its affiliates
 set -e
 
-DIR=$(dirname $0)
+DIR=$(dirname "$0")
 cd "$DIR"
 
-if ! [ -f target/release/rd-hashd -a \
-       -f target/release/rd-agent -a \
-       -f target/release/resctl-demo ]; then
+if ! [ -f target/release/rd-hashd ] || \
+       ! [ -f target/release/rd-agent ] || \
+       ! [ -f target/release/resctl-demo ]; then
     echo 'Error: Binaries not ready. Run "cargo build --release".' 2>&1
     exit 1
 fi
@@ -20,7 +20,7 @@ tar cvzf target/resctl-demo.tar.gz --transform 's|^.*/\([^/]*\)$|\1|' \
 
 if [ -n "$1" ]; then
     echo "[ Installing under $1 ]"
-    cat target/resctl-demo.tar.gz | (cd $1; tar xzf -)
+    cd "$1"; tar xzf target/resctl-demo.tar.gz
 else
     echo "[ Target directory not specified ]"
 fi

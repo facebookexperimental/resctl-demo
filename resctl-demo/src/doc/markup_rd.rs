@@ -151,7 +151,7 @@ fn markup_text_next_tok(chars: &mut std::iter::Peekable<std::str::Chars>) -> (St
                 _ => break,
             }
         },
-        None => (),
+        None => {}
     }
     let next_is_space = match chars.peek() {
         Some(&c) if c.is_whitespace() => true,
@@ -204,7 +204,7 @@ fn parse_markup_text(input: &str) -> Option<StyledString> {
                     }
                 }
             }
-            _ => (),
+            _ => {}
         }
 
         let mut style: Style = match nr_stars {
@@ -280,9 +280,9 @@ impl RdCmd {
                     _ => bail!("invalid switch target"),
                 };
                 match &sw {
-                    RdSwitch::Sideload(_, _) | RdSwitch::Sysload(_, _) => (),
+                    RdSwitch::Sideload(_, _) | RdSwitch::Sysload(_, _) => {}
                     _ if args.len() != 2 => bail!("too many arguments"),
-                    _ => (),
+                    _ => {}
                 }
                 match args[0] {
                     "on" => RdCmd::On(sw),
@@ -410,13 +410,13 @@ impl RdCmdParsed {
         match &cmd {
             RdCmd::Knob(knob, v) => {
                 if *v < 0.0 && prompt.is_none() {
-                    bail!("{:?} must have paramter value", knob);
+                    bail!("{:?} must have parameter value", knob);
                 }
             }
             RdCmd::Toggle(_) if prompt.is_none() => {
                 bail!("{:?} must be used with prompt", &cmd);
             }
-            _ => (),
+            _ => {}
         }
 
         Ok(Some(Self {
@@ -650,7 +650,7 @@ in it but should be handled as a ___single___ para.
 
 This is the *third* paragraph.
 
-    
+
 
 This should be the **fourth** **___paragraph___**. Only whitespaces
 don't count as a para.
@@ -667,8 +667,7 @@ tags testing - tag01 %tag0%: tag 1%tags1%, tag 2[%tag2%], %tag 3%tag4%
 $$ off oomd
 $$ off hashd
 ";
-        init_logging(0);
-        let mut siv = cursive::Cursive::default();
+        let mut siv = cursive::dummy();
         set_cursive_theme(&mut siv);
 
         let doc = RdDoc::parse(input.as_bytes()).unwrap();
@@ -693,7 +692,7 @@ $$ off hashd
                         )
                         .child(DummyView);
                 }
-                RdPara::Prompt(prompt, cmd) => {
+                RdPara::Prompt(prompt, cmd, _) => {
                     view = view
                         .child(
                             LinearLayout::horizontal()

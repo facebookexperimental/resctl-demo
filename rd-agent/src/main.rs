@@ -75,7 +75,7 @@ fn prepare_bin_file(path: &str, body: &[u8]) -> Result<()> {
             }
         }
         Err(e) => match e.kind() {
-            io::ErrorKind::AlreadyExists => (),
+            io::ErrorKind::AlreadyExists => {}
             _ => return Err(e.into()),
         },
     }
@@ -727,7 +727,7 @@ impl Config {
                     error!("cfg: {:?} detected (pid {}): disable", &exe, pid);
                     self.sr_failed.insert(SysReq::NoSysOomd);
                 }
-                _ => (),
+                _ => {}
             }
         }
 

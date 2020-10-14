@@ -53,7 +53,7 @@ fn load_docs() -> BTreeMap<String, &'static str> {
                 RdSwitch::Sysload(tag, _id) => {
                     SYSLOAD_NAMES.lock().unwrap().insert(tag.into());
                 }
-                _ => (),
+                _ => {}
             },
             RdCmd::Graph(tag) => {
                 if tag.len() > 0 {
@@ -63,7 +63,7 @@ fn load_docs() -> BTreeMap<String, &'static str> {
             RdCmd::Jump(t) => {
                 targets.insert(t.to_string());
             }
-            _ => (),
+            _ => {}
         };
 
         for cmd in doc
@@ -180,7 +180,7 @@ fn format_markup_tags(tag: &str) -> Option<StyledString> {
                     bench.hashd.mem_size as f64 * bench.hashd.mem_frac,
                 )));
             }
-            _ => (),
+            _ => {}
         }
     }
 
@@ -505,10 +505,9 @@ fn refresh_toggles(siv: &mut Cursive, doc: &RdDoc, cs: &CmdState) {
 fn refresh_one_knob(siv: &mut Cursive, knob: &RdKnob, cnt: u32, mut val: f64) {
     val = val.max(0.0).min(1.0);
     for idx in 0..cnt {
-        siv.call_on_name(
-            &format!("{:?}[{}]-digit", &knob, idx),
-            |t: &mut TextView| t.set_content(format_knob_val(&knob, val)),
-        );
+        siv.call_on_name(&format!("{:?}[{}]-digit", &knob, idx), |t: &mut TextView| {
+            t.set_content(format_knob_val(&knob, val))
+        });
         siv.call_on_name(
             &format!("{:?}[{}]-slider", &knob, idx),
             |s: &mut SliderView| {

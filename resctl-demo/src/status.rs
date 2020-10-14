@@ -406,10 +406,7 @@ pub fn status_layout_factory() -> impl View {
             .child(TextView::new("").with_name("status-workload-A"))
             .child(TextView::new("").with_name("status-workload-B")),
     )
-    .title(format!(
-        "Facebook Resource Control Demo v{} - 'q': quit",
-        env!("CARGO_PKG_VERSION")
-    ))
+    .title(format!("Facebook Resource Control Demo - 'q': quit",))
     .resized(
         SizeConstraint::Fixed(layout.status.x),
         SizeConstraint::Fixed(layout.status.y),

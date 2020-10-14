@@ -13,30 +13,50 @@
 # Copyright (C) 2020 Facebook
 
 from __future__ import print_function
-from bcc import BPF
-from time import sleep
+
 import argparse
 import json
 import sys
+from time import sleep
+
+from bcc import BPF
+
 
 description = """
 Monitor IO latency distribution of a block device
 """
 
-parser = argparse.ArgumentParser(description = description,
-                                 formatter_class = argparse.ArgumentDefaultsHelpFormatter)
-parser.add_argument('devno', metavar='MAJ:MIN', type=str,
-                    help='Target block device number')
-parser.add_argument('-i', '--interval', type=int, default=3,
-                    help='Report interval')
-parser.add_argument('-w', '--which', choices=['from-rq-alloc', 'after-rq-alloc', 'on-device'],
-                    default='on-device', help='Which latency to measure')
-parser.add_argument('-p', '--pcts', metavar='PCT', type=str, nargs='+',
-                    default=['1', '5', '10', '16', '25', '50', '75', '84', '90', '95', '99', '100'],
-                    help='Percentiles to calculate')
-parser.add_argument('-j', '--json', action='store_true',
-                    help='Output in json')
-parser.add_argument('--verbose', '-v', action='count', default = 0)
+WHICH_LATENCY_TO_START_TIME = {
+    "from-rq-alloc": "alloc_time_ns",
+    "after-rq-alloc": "start_time_ns",
+    "on-device": "io_start_time_ns",
+}
+
+parser = argparse.ArgumentParser(
+    description=description, formatter_class=argparse.ArgumentDefaultsHelpFormatter
+)
+parser.add_argument(
+    "devno", metavar="MAJ:MIN", type=str, help="Target block device number"
+)
+parser.add_argument("-i", "--interval", type=int, default=3, help="Report interval")
+parser.add_argument(
+    "-w",
+    "--which",
+    choices=WHICH_LATENCY_TO_START_TIME.keys(),
+    default="on-device",
+    help="Which latency to measure",
+)
+parser.add_argument(
+    "-p",
+    "--pcts",
+    metavar="PCT",
+    type=str,
+    nargs="+",
+    default=["1", "5", "10", "16", "25", "50", "75", "84", "90", "95", "99", "100"],
+    help="Percentiles to calculate",
+)
+parser.add_argument("-j", "--json", action="store_true", help="Output in json")
+parser.add_argument("--verbose", "-v", action="count", default=0)
 
 bpf_source = """
 #include <linux/blk_types.h>
@@ -102,18 +122,18 @@ void kprobe_blk_account_io_done(struct pt_regs *ctx, struct request *rq, u64 now
 args = parser.parse_args()
 args.pcts.sort(key=lambda x: float(x))
 
-if args.which == 'from-rq-alloc':
-    start_time_field = 'alloc_time_ns'
-elif args.which == 'after-rq-alloc':
-    start_time_field = 'start_time_ns'
-elif args.which == 'on-device':
-    start_time_field = 'io_start_time_ns'
+if args.which in WHICH_LATENCY_TO_START_TIME:
+    start_time_field = WHICH_LATENCY_TO_START_TIME[args.which]
 else:
-    die()
+    print(
+        "Invalid latency given to --which."
+        "Please choose from: {}".format(WHICH_LATENCY_TO_START_TIME.keys())
+    )
+    sys.exit(1)
 
-bpf_source = bpf_source.replace('__START_TIME_FIELD__', start_time_field)
-bpf_source = bpf_source.replace('__MAJOR__', str(int(args.devno.split(':')[0])))
-bpf_source = bpf_source.replace('__MINOR__', str(int(args.devno.split(':')[1])))
+bpf_source = bpf_source.replace("__START_TIME_FIELD__", start_time_field)
+bpf_source = bpf_source.replace("__MAJOR__", str(int(args.devno.split(":")[0])))
+bpf_source = bpf_source.replace("__MINOR__", str(int(args.devno.split(":")[1])))
 
 bpf = BPF(text=bpf_source)
 bpf.attach_kprobe(event="blk_account_io_done", fn_name="kprobe_blk_account_io_done")
@@ -136,17 +156,22 @@ rwdf_10us = [0] * 400
 
 io_type = ["read", "write", "discard", "flush"]
 
+
 def find_pct(req, total, slots, idx, counted):
     while idx > 0:
         idx -= 1
         if slots[idx] > 0:
             counted += slots[idx]
             if args.verbose > 1:
-                print('idx={} counted={} pct={:.1f} req={}'
-                      .format(idx, counted, counted / total, req))
+                print(
+                    "idx={} counted={} pct={:.1f} req={}".format(
+                        idx, counted, counted / total, req
+                    )
+                )
             if (counted / total) * 100 >= 100 - req:
                 break
     return (idx, counted)
+
 
 def calc_lat_pct(req_pcts, total, lat_100ms, lat_1ms, lat_10us):
     pcts = [0] * len(req_pcts)
@@ -166,8 +191,11 @@ def calc_lat_pct(req_pcts, total, lat_100ms, lat_1ms, lat_10us):
             (gran, slots) = data[data_sel]
             (idx, counted) = find_pct(req, total, slots, idx, counted)
             if args.verbose > 1:
-                print('pct_idx={} req={} gran={} idx={} counted={} total={}'
-                      .format(pct_idx, req, gran, idx, counted, total))
+                print(
+                    "pct_idx={} req={} gran={} idx={} counted={} total={}".format(
+                        pct_idx, req, gran, idx, counted, total
+                    )
+                )
             if idx > 0 or data_sel == len(data) - 1:
                 break
             counted = last_counted
@@ -178,17 +206,19 @@ def calc_lat_pct(req_pcts, total, lat_100ms, lat_1ms, lat_10us):
 
     return pcts
 
+
 def format_usec(lat):
     if lat > SEC:
-        return '{:.1f}s'.format(lat / SEC)
+        return "{:.1f}s".format(lat / SEC)
     elif lat > 10 * MSEC:
-        return '{:.0f}ms'.format(lat / MSEC)
+        return "{:.0f}ms".format(lat / MSEC)
     elif lat > MSEC:
-        return '{:.1f}ms'.format(lat / MSEC)
+        return "{:.1f}ms".format(lat / MSEC)
     elif lat > 0:
-        return '{:.0f}us'.format(lat)
+        return "{:.0f}us".format(lat)
     else:
-        return '-'
+        return "-"
+
 
 # 0 interval can be used to test whether this script would run successfully.
 if args.interval == 0:
@@ -197,7 +227,7 @@ if args.interval == 0:
 while True:
     sleep(args.interval)
 
-    rwdf_total = [0] * 4;
+    rwdf_total = [0] * 4
 
     for i in range(400):
         v = cur_rwdf_100ms.sum(i).value
@@ -219,15 +249,19 @@ while True:
         left = i * 100
         right = left + 100
         rwdf_lat.append(
-            calc_lat_pct(args.pcts, rwdf_total[i],
-                         rwdf_100ms[left:right],
-                         rwdf_1ms[left:right],
-                         rwdf_10us[left:right]))
+            calc_lat_pct(
+                args.pcts,
+                rwdf_total[i],
+                rwdf_100ms[left:right],
+                rwdf_1ms[left:right],
+                rwdf_10us[left:right],
+            )
+        )
 
         if args.verbose:
-            print('{:7} 100ms {}'.format(io_type[i], rwdf_100ms[left:right]))
-            print('{:7}   1ms {}'.format(io_type[i], rwdf_1ms[left:right]))
-            print('{:7}  10us {}'.format(io_type[i], rwdf_10us[left:right]))
+            print("{:7} 100ms {}".format(io_type[i], rwdf_100ms[left:right]))
+            print("{:7}   1ms {}".format(io_type[i], rwdf_1ms[left:right]))
+            print("{:7}  10us {}".format(io_type[i], rwdf_10us[left:right]))
 
     if args.json:
         result = {}
@@ -238,14 +272,16 @@ while True:
             result[io_type[iot]] = lats
         print(json.dumps(result), flush=True)
     else:
-        print('\n{:<7}'.format(args.devno), end='')
+        print("\n{:<7}".format(args.devno), end="")
         widths = []
         for pct in args.pcts:
             widths.append(max(len(pct), 5))
-            print(' {:>5}'.format(pct), end='')
+            print(" {:>5}".format(pct), end="")
         print()
         for iot in range(4):
-            print('{:7}'.format(io_type[iot]), end='')
+            print("{:7}".format(io_type[iot]), end="")
             for pi in range(len(rwdf_lat[iot])):
-                print(' {:>{}}'.format(format_usec(rwdf_lat[iot][pi]), widths[pi]), end='')
+                print(
+                    " {:>{}}".format(format_usec(rwdf_lat[iot][pi]), widths[pi]), end=""
+                )
             print()

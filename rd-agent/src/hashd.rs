@@ -231,7 +231,7 @@ impl HashdSet {
             (false, false) => return [0.0, 0.0],
             (true, false) => return [1.0, 0.0],
             (false, true) => return [0.0, 1.0],
-            (true, true) => (),
+            (true, true) => {}
         }
 
         let sum = cmd[0].weight + cmd[1].weight;

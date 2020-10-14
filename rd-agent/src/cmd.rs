@@ -359,7 +359,7 @@ impl Runner {
                 cmd_pending = false;
                 loop {
                     match data.apply_cmd(&mut removed_sysloads, &mut removed_sideloads) {
-                        Ok(true) => (),
+                        Ok(true) => {}
                         Ok(false) => break,
                         Err(e) => {
                             warn!("cmd: Failed to apply commands ({:?})", &e);
