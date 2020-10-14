@@ -18,6 +18,12 @@ images to help getting started. Visit the following page for details:
 
   https://facebookmicrosites.github.io/resctl-demo-website
 
+## Discussions
+
+For discussions around resctl-demo and resource control in general:
+
+  https://groups.google.com/g/resctl-demo
+
 ## Requirements
 
 The basic building blocks are provided by the Linux kernel's cgroup2 and other
