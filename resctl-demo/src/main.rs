@@ -523,7 +523,7 @@ fn main() {
     info!("TEMP_DIR: {:?}", TEMP_DIR.path());
     touch_units();
 
-    let mut siv = Cursive::default();
+    let mut siv = cursive::default();
     set_cursive_theme(&mut siv);
 
     let _exit_guard = ExitGuard {};
