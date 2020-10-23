@@ -505,7 +505,7 @@ impl Config {
         }
 
         if !enforce {
-            bail!("cfg: {} is not in hostcritical.slice", svc_name);
+            bail!("{} is not in hostcritical.slice", svc_name);
         }
 
         // enforcing, try relocating
@@ -772,7 +772,7 @@ impl Config {
 
         // do we have oomd?
         if let Err(e) = &self.oomd_bin {
-            info!(
+            warn!(
                 "cfg: Failed to find oomd ({:?}), see https://github.com/facebookincubator/oomd",
                 &e
             );
