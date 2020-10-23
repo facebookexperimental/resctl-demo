@@ -44,6 +44,7 @@ lazy_static! {
              --prepare          'Prepare the files and directories and exit'
              --linux-tar=[FILE] 'Path to linux source tarball to be used by build sideload'
              --reset            'Reset all states except for bench results, linux.tar and testfiles'
+             --passive          'Make system configuration changes only when explicitly requested'
          -a, --args=[FILE]      'Load base command line arguments from FILE'
          -v...                  'Sets the level of verbosity'",
         dfl_dir = DFL_TOP,
@@ -66,6 +67,8 @@ pub struct Args {
     pub linux_tar: Option<String>,
     #[serde(skip)]
     pub reset: bool,
+    #[serde(skip)]
+    pub passive: bool,
 }
 
 impl Default for Args {
@@ -79,6 +82,7 @@ impl Default for Args {
             prepare: false,
             linux_tar: None,
             reset: false,
+            passive: false,
         }
     }
 }
@@ -136,6 +140,7 @@ impl JsonArgs for Args {
         self.prepare = matches.is_present("prepare");
         self.linux_tar = matches.value_of("linux-tar").map(|x| x.to_string());
         self.reset = matches.is_present("reset");
+        self.passive = matches.is_present("passive");
 
         updated_base
     }
