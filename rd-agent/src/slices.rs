@@ -70,7 +70,7 @@ fn mknob_to_unit_resctl(knob: &MemoryKnob) -> Option<u64> {
     }
 }
 
-fn propagate_mem_prot(slice: Slice) -> bool {
+fn slice_needs_mem_prot_propagation(slice: Slice) -> bool {
     match slice {
         Slice::Work | Slice::Side => false,
         _ => true,
@@ -209,18 +209,17 @@ pub fn apply_slices(knobs: &mut SliceKnobs, hashd_mem_size: u64, cfg: &Config) -
             updated = true;
         }
 
-        match slice {
-            Slice::Host | Slice::User | Slice::Sys => {
-                let sk = knobs.slices.get(slice.name()).unwrap();
-                let resctl = systemd::UnitResCtl {
-                    mem_min: mknob_to_unit_resctl(&sk.mem_min),
-                    mem_low: mknob_to_unit_resctl(&sk.mem_low),
-                    ..Default::default()
-                };
-                propagate_one_slice(slice, &resctl)?;
+        if slice_needs_mem_prot_propagation(slice) {
+            let sk = knobs.slices.get(slice.name()).unwrap();
+            let mut resctl = systemd::UnitResCtl::default();
+
+            if !cfg.memcg_recursive_prot() {
+                resctl.mem_min = mknob_to_unit_resctl(&sk.mem_min);
+                resctl.mem_low = mknob_to_unit_resctl(&sk.mem_low);
             }
-            _ => (),
-        };
+
+            propagate_one_slice(slice, &resctl)?;
+        }
     }
     if updated {
         info!("resctl: Applying updated slice configurations");
@@ -391,7 +390,7 @@ fn verify_and_fix_one_slice(
             verify_and_fix_cgrp_mem(&(path.to_string() + "/memory.high"), true, sk.mem_high)?;
         }
 
-        if propagate_mem_prot(slice) {
+        if slice_needs_mem_prot_propagation(slice) {
             if !recursive_mem_prot {
                 verify_and_fix_mem_prot(path, "memory.min", sk.mem_min)?;
                 verify_and_fix_mem_prot(path, "memory.low", sk.mem_low)?;

@@ -447,7 +447,11 @@ impl Config {
         }
     }
 
-    fn check_one_fs(path: &str, sr_failed: &mut HashSet<SysReq>, enforce: bool) -> Result<MountInfo> {
+    fn check_one_fs(
+        path: &str,
+        sr_failed: &mut HashSet<SysReq>,
+        enforce: bool,
+    ) -> Result<MountInfo> {
         let mi = path_to_mountpoint(path)?;
         let rot = is_path_rotational(path);
         if mi.fstype != "btrfs" {
@@ -489,7 +493,11 @@ impl Config {
         Ok(mi)
     }
 
-    fn check_one_hostcritical_service(svc_name: &str, may_restart: bool, enforce: bool) -> Result<()> {
+    fn check_one_hostcritical_service(
+        svc_name: &str,
+        may_restart: bool,
+        enforce: bool,
+    ) -> Result<()> {
         let mut svc;
         match systemd::Unit::new_sys(svc_name.to_string()) {
             Ok(v) => svc = v,
@@ -864,6 +872,10 @@ impl Config {
     pub fn hashd_paths(&self, sel: HashdSel) -> &HashdPaths {
         &self.hashd_paths[sel as usize]
     }
+
+    pub fn memcg_recursive_prot(&self) -> bool {
+        !self.sr_failed.contains(&SysReq::MemCgRecursiveProt)
+    }
 }
 
 impl Drop for Config {
@@ -1112,7 +1124,7 @@ fn main() {
     if let Err(e) = slices::verify_and_fix_slices(
         &sobjs.slice_file.data,
         workload_senpai,
-        !cfg.sr_failed.contains(&SysReq::MemCgRecursiveProt),
+        cfg.memcg_recursive_prot(),
     ) {
         error!(
             "cfg: Failed to verify and fix slice configurations ({:?})",
