@@ -199,7 +199,7 @@ fn oomd_cfg_slice_senpai(knobs: &OomdSliceSenpaiKnobs, slice: Slice, mem_size: u
 }
 
 pub struct Oomd {
-    bin: String,
+    bin: Option<String>,
     daemon_cfg_path: String,
     svc: Option<TransientService>,
 
@@ -210,8 +210,13 @@ impl Oomd {
     pub fn new(cfg: &Config) -> Result<Self> {
         let file = JsonConfigFile::<OomdKnobs>::load_or_create(Some(&cfg.oomd_cfg_path.clone()))?;
 
+        let bin = match cfg.oomd_bin.as_ref() {
+            Ok(v) => Some(v.clone()),
+            Err(_) => None,
+        };
+
         Ok(Self {
-            bin: cfg.oomd_bin.clone(),
+            bin,
             daemon_cfg_path: cfg.oomd_daemon_cfg_path.clone(),
             file,
             svc: None,
@@ -222,6 +227,7 @@ impl Oomd {
         debug!("oomd: Stoppping");
         self.svc = None;
 
+        // clean up after senpai
         for slice in &[Slice::Work, Slice::Sys] {
             let path = format!("/sys/fs/cgroup/{}/memory.high", slice.name());
             debug!("oomd: clearing {:?}", &path);
@@ -235,6 +241,11 @@ impl Oomd {
     }
 
     pub fn apply(&mut self) -> Result<()> {
+        if self.bin.is_none() {
+            warn!("oomd: Configuration update requested but oomd is not available");
+            return Ok(());
+        }
+
         if self.svc.is_some() {
             self.stop();
         }
@@ -290,7 +301,7 @@ impl Oomd {
         let mut svc = TransientService::new_sys(
             OOMD_SVC_NAME.into(),
             vec![
-                self.bin.clone(),
+                self.bin.as_ref().unwrap().clone(),
                 "--config".into(),
                 self.daemon_cfg_path.clone(),
                 "--interval".into(),

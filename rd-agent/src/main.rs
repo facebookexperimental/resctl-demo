@@ -150,8 +150,8 @@ pub struct Config {
     pub misc_bin_path: String,
     pub io_latencies_bin: Option<String>,
     pub iocost_paths: IOCostPaths,
-    pub oomd_bin: String,
-    pub oomd_sys_svc: String,
+    pub oomd_bin: Result<String>,
+    pub oomd_sys_svc: Option<String>,
     pub oomd_cfg_path: String,
     pub oomd_daemon_cfg_path: String,
     pub sideloader_bin: String,
@@ -290,14 +290,8 @@ impl Config {
             .to_string();
 
         let (oomd_bin, oomd_sys_svc) = match Self::find_oomd() {
-            Ok(v) => v,
-            Err(e) => {
-                error!(
-                    "cfg: Failed to find oomd ({:?}), see https://github.com/facebookincubator/oomd",
-                    &e
-                );
-                panic!();
-            }
+            Ok((bin, svc)) => (Ok(bin), Some(svc)),
+            Err(e) => (Err(e), None),
         };
 
         let misc_bin_path = top_path.clone() + "/misc-bin";
@@ -697,13 +691,24 @@ impl Config {
             }
         }
 
+        // do we have oomd?
+        if let Err(e) = &self.oomd_bin {
+            info!(
+                "cfg: Failed to find oomd ({:?}), see https://github.com/facebookincubator/oomd",
+                &e
+            );
+            self.sr_failed.insert(SysReq::Oomd);
+        }
+
         // make sure oomd or earlyoom isn't gonna interfere
-        if let Ok(svc) = systemd::Unit::new_sys(self.oomd_sys_svc.clone()) {
-            if svc.state == systemd::UnitState::Running {
-                self.sr_oomd_sys_svc = Some(svc);
-                let svc = self.sr_oomd_sys_svc.as_mut().unwrap();
-                info!("cfg: Stopping {:?} while resctl-demo is running", &svc.name);
-                let _ = svc.stop();
+        if let Some(oomd_sys_svc) = &self.oomd_sys_svc {
+            if let Ok(svc) = systemd::Unit::new_sys(oomd_sys_svc.clone()) {
+                if svc.state == systemd::UnitState::Running {
+                    self.sr_oomd_sys_svc = Some(svc);
+                    let svc = self.sr_oomd_sys_svc.as_mut().unwrap();
+                    info!("cfg: Stopping {:?} while resctl-demo is running", &svc.name);
+                    let _ = svc.stop();
+                }
             }
         }
 
