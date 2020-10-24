@@ -77,6 +77,13 @@ fn slice_needs_mem_prot_propagation(slice: Slice) -> bool {
     }
 }
 
+fn slice_needs_start_stop(slice: Slice) -> bool {
+    match slice {
+        Slice::Side => true,
+        _ => false,
+    }
+}
+
 fn propagate_one_slice(slice: Slice, resctl: &systemd::UnitResCtl) -> Result<()> {
     debug!("resctl: propagating {:?} w/ {:?}", slice, &resctl);
 
@@ -193,6 +200,24 @@ fn apply_one_slice(knobs: &SliceKnobs, slice: Slice, zero_mem_low: bool) -> Resu
 
     debug!("resctl: writing updated {:?}", &path);
     crate::write_unit_configlet(slice.name(), "resctl", &configlet)?;
+
+    if slice_needs_start_stop(slice) {
+        match systemd::Unit::new_sys(slice.name().into()) {
+            Ok(mut unit) => {
+                if let Err(e) = unit.try_start_nowait() {
+                    warn!("resctl: Failed to start {:?} ({})", slice.name(), &e);
+                }
+            }
+            Err(e) => {
+                warn!(
+                    "resctl: Failed to create unit for {:?} ({})",
+                    slice.name(),
+                    &e
+                );
+            }
+        }
+    }
+
     Ok(true)
 }
 
@@ -236,6 +261,23 @@ pub fn apply_slices(knobs: &mut SliceKnobs, hashd_mem_size: u64, cfg: &Config) -
 }
 
 fn clear_one_slice(slice: Slice) -> Result<bool> {
+    if slice_needs_start_stop(slice) {
+        match systemd::Unit::new_sys(slice.name().into()) {
+            Ok(mut unit) => {
+                if let Err(e) = unit.stop() {
+                    error!("resctl: Failed to stop {:?} ({}_", slice.name(), &e);
+                }
+            }
+            Err(e) => {
+                error!(
+                    "resctl: Failed to create unit for {:?} ({})",
+                    slice.name(),
+                    &e
+                );
+            }
+        }
+    }
+
     let path = crate::unit_configlet_path(slice.name(), "resctl");
     if Path::new(&path).exists() {
         debug!("resctl: Removing {:?}", &path);
