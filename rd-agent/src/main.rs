@@ -138,6 +138,7 @@ pub struct IOCostPaths {
 
 #[derive(Debug)]
 pub struct Config {
+    pub passive: bool,
     pub top_path: String,
     pub scr_path: String,
     pub scr_dev: String,
@@ -344,6 +345,7 @@ impl Config {
         }
 
         Self {
+            passive: args.passive,
             scr_devnr: storage_info::devname_to_devnr(&scr_dev).unwrap(),
             scr_dev,
             scr_dev_forced: args.dev.is_some(),
@@ -549,7 +551,8 @@ impl Config {
         );
     }
 
-    fn startup_checks(&mut self, enforce: bool) -> Result<()> {
+    fn startup_checks(&mut self) -> Result<()> {
+        let enforce = !self.passive;
         let sys = sysinfo::System::new();
 
         // check cgroup2 & controllers
@@ -1089,7 +1092,7 @@ fn main() {
         panic!();
     }
 
-    if let Err(e) = cfg.startup_checks(!args_file.data.passive) {
+    if let Err(e) = cfg.startup_checks() {
         if args_file.data.force {
             warn!("cfg: Ignoring startup check failures as per --force");
         } else {
