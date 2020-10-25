@@ -222,6 +222,10 @@ fn apply_one_slice(knobs: &SliceKnobs, slice: Slice, zero_mem_low: bool) -> Resu
 }
 
 pub fn apply_slices(knobs: &mut SliceKnobs, hashd_mem_size: u64, cfg: &Config) -> Result<()> {
+    if cfg.passive {
+        return Ok(());
+    }
+
     if knobs.work_mem_low_none {
         let sk = knobs.slices.get_mut(Slice::Work.name()).unwrap();
         sk.mem_low = MemoryKnob::Bytes((hashd_mem_size as f64 * 0.75).ceil() as u64);
@@ -505,8 +509,12 @@ fn fix_overrides(dseqs: &DisableSeqKnobs) -> Result<()> {
 pub fn verify_and_fix_slices(
     knobs: &SliceKnobs,
     workload_senpai: bool,
-    recursive_mem_prot: bool,
+    cfg: &Config,
 ) -> Result<()> {
+    if cfg.passive {
+        return Ok(());
+    }
+
     let seq = super::instance_seq();
     let dseqs = &knobs.disable_seqs;
     let line = read_one_line("/sys/fs/cgroup/cgroup.subtree_control")?;
@@ -521,7 +529,7 @@ pub fn verify_and_fix_slices(
 
     for slice in Slice::into_enum_iter() {
         let verify_mem_high = slice != Slice::Work || !workload_senpai;
-        verify_and_fix_one_slice(knobs, slice, verify_mem_high, recursive_mem_prot)?;
+        verify_and_fix_one_slice(knobs, slice, verify_mem_high, cfg.memcg_recursive_prot())?;
     }
 
     check_other_io_controllers(&mut HashSet::new());

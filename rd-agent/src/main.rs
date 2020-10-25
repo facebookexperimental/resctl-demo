@@ -1124,11 +1124,7 @@ fn main() {
         panic!();
     }
 
-    if let Err(e) = slices::verify_and_fix_slices(
-        &sobjs.slice_file.data,
-        workload_senpai,
-        cfg.memcg_recursive_prot(),
-    ) {
+    if let Err(e) = slices::verify_and_fix_slices(&sobjs.slice_file.data, workload_senpai, &cfg) {
         error!(
             "cfg: Failed to verify and fix slice configurations ({:?})",
             &e
