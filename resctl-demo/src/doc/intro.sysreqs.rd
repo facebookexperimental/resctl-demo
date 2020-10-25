@@ -120,6 +120,10 @@ it's currently unmet:
   Setting up btrfs swapfiles:
   https://wiki.archlinux.org/index.php/Btrfs#Swap_file
 
+* %SysReq::Oomd%: OOMD binary >= 0.3.0 && != 0.4.0 must be present. Note
+  that 0.4.0 is excluded due to a bug in Senpai implementation. See
+  https://github.com/facebookincubator/oomd.
+
 * %SysReq::NoSysOomd%: Instances of OOMD or earlyoom at the system-level may
   interfere and should be disabled. They usually run as a systemd service of
   the same name. You can use `systemctl` to locate and stop the services.

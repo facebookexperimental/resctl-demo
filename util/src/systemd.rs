@@ -510,9 +510,13 @@ impl Unit {
         }
     }
 
-    pub fn try_start(&mut self) -> Result<bool> {
+    pub fn try_start_nowait(&mut self) -> Result<()> {
         debug!("svc: {:?} starting ({:?})", &self.name, &self.state);
-        self.sd_bus().with(|s| s.start_unit(&self.name))?;
+        self.sd_bus().with(|s| s.start_unit(&self.name))
+    }
+
+    pub fn try_start(&mut self) -> Result<bool> {
+        self.try_start_nowait()?;
         self.wait_transition(
             |x| match x {
                 US::Running | US::Exited | US::Failed(_) => true,
