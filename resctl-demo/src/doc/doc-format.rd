@@ -119,7 +119,8 @@ have a value argument or prompt.
 %% knob   hashd-mem              : Main workload memory footprint            :
 %% knob   hashd-file             : Main workload pagecache proportion        :
 %% knob   hashd-file-max         : Main workload max pagecache proportion    :
-%% knob   hashd-addr-stdev       : Main workload access standard deviation   :
+%% knob   hashd-file-addr-stdev  : Main workload file access stdev           :
+%% knob   hashd-anon-addr-stdev  : Main workload anon access stdev           :
 %% knob   hashd-log-bps          : Main workload log write bandwidth         :
 %% knob   hashd-weight           : Main workload weight                      :
 %% knob   hashd-B-load           : Second workload load level                :
@@ -128,7 +129,8 @@ have a value argument or prompt.
 %% knob   hashd-B-mem            : Second workload memory footprint          :
 %% knob   hashd-B-file           : Second workload pagecache proportion      :
 %% knob   hashd-B-file-max       : Second workload max pagecache proportion  :
-%% knob   hashd-B-addr-stdev     : Second workload access standard deviation :
+%% knob   hashd-B-file-addr-stdev: Second workload file access stdev         :
+%% knob   hashd-B-anon-addr-stdev: Second workload anon access stdev         :
 %% knob   hashd-B-log-bps        : Second workload log write bandwidth       :
 %% knob   hashd-B-weight         : Second workload weight                    :
 %%

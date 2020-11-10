@@ -261,19 +261,17 @@ fn exec_one_cmd(siv: &mut Cursive, cmd: &RdCmd) {
             RdKnob::HashdBLatTarget => cs.hashd[1].lat_target = *val,
             RdKnob::HashdAMem => cs.hashd[0].mem_ratio = Some(*val),
             RdKnob::HashdBMem => cs.hashd[1].mem_ratio = Some(*val),
-            RdKnob::HashdAAddrStdev => {
-                if *val < 1.0 {
-                    cs.hashd[0].addr_stdev = Some(*val);
-                } else {
-                    cs.hashd[0].addr_stdev = Some(100.0);
-                }
+            RdKnob::HashdAFileAddrStdev => {
+                cs.hashd[0].file_addr_stdev = Some(if *val < 1.0 { *val } else { 100.0 });
             }
-            RdKnob::HashdBAddrStdev => {
-                if *val < 1.0 {
-                    cs.hashd[1].addr_stdev = Some(*val);
-                } else {
-                    cs.hashd[1].addr_stdev = Some(100.0);
-                }
+            RdKnob::HashdAAnonAddrStdev => {
+                cs.hashd[0].anon_addr_stdev = Some(if *val < 1.0 { *val } else { 100.0 });
+            }
+            RdKnob::HashdBFileAddrStdev => {
+                cs.hashd[1].file_addr_stdev = Some(if *val < 1.0 { *val } else { 100.0 });
+            }
+            RdKnob::HashdBAnonAddrStdev => {
+                cs.hashd[1].anon_addr_stdev = Some(if *val < 1.0 { *val } else { 100.0 });
             }
             RdKnob::HashdAFile => cs.hashd[0].file_ratio = *val,
             RdKnob::HashdBFile => cs.hashd[1].file_ratio = *val,
@@ -527,11 +525,19 @@ fn hmem_ratio(knob: Option<f64>) -> f64 {
     }
 }
 
-fn hashd_cmd_addr_stdev(hashd: &HashdCmd) -> f64 {
-    if let Some(v) = hashd.addr_stdev {
+fn hashd_cmd_file_addr_stdev(hashd: &HashdCmd) -> f64 {
+    if let Some(v) = hashd.file_addr_stdev {
         v.min(1.0)
     } else {
-        rd_hashd_intf::Params::DFL_ADDR_STDEV
+        rd_hashd_intf::DFL_PARAMS.file_addr_stdev_ratio
+    }
+}
+
+fn hashd_cmd_anon_addr_stdev(hashd: &HashdCmd) -> f64 {
+    if let Some(v) = hashd.anon_addr_stdev {
+        v.min(1.0)
+    } else {
+        rd_hashd_intf::DFL_PARAMS.anon_addr_stdev_ratio
     }
 }
 
@@ -548,8 +554,10 @@ fn refresh_knobs(siv: &mut Cursive, doc: &RdDoc, cs: &CmdState) {
             RdKnob::HashdBLatTarget => cs.hashd[1].lat_target,
             RdKnob::HashdAMem => hmem_ratio(cs.hashd[0].mem_ratio),
             RdKnob::HashdBMem => hmem_ratio(cs.hashd[1].mem_ratio),
-            RdKnob::HashdAAddrStdev => hashd_cmd_addr_stdev(&cs.hashd[0]),
-            RdKnob::HashdBAddrStdev => hashd_cmd_addr_stdev(&cs.hashd[1]),
+            RdKnob::HashdAFileAddrStdev => hashd_cmd_file_addr_stdev(&cs.hashd[0]),
+            RdKnob::HashdAAnonAddrStdev => hashd_cmd_anon_addr_stdev(&cs.hashd[0]),
+            RdKnob::HashdBFileAddrStdev => hashd_cmd_file_addr_stdev(&cs.hashd[1]),
+            RdKnob::HashdBAnonAddrStdev => hashd_cmd_anon_addr_stdev(&cs.hashd[1]),
             RdKnob::HashdAFile => cs.hashd[0].file_ratio,
             RdKnob::HashdBFile => cs.hashd[1].file_ratio,
             RdKnob::HashdAFileMax => cs.hashd[0].file_max_ratio,
