@@ -99,8 +99,8 @@ performs benchmark to determine the parameters and then starts a normal run.
 ";
 
 lazy_static! {
+    pub static ref DFL_ARGS: Args = Default::default();
     static ref ARGS_STR: String = {
-        let dfl: Args = Default::default();
         format!(
             "-t, --testfiles=[DIR]       'Testfiles directory'
              -s, --size=[SIZE]           'Max memory footprint, affects testfiles size (default: {dfl_size:.2}G)'
@@ -122,10 +122,10 @@ lazy_static! {
                  --bench-log-bps=[BPS]   'Log write bps at max rps'
              -a, --args=[FILE]           'Load base command line arguments from FILE'
              -v...                       'Sets the level of verbosity'",
-            dfl_size=to_gb(dfl.size),
-            dfl_file_max_frac=dfl.file_max_frac,
-            dfl_log_size=to_gb(dfl.log_size),
-            dfl_intv=dfl.interval)
+            dfl_size=to_gb(DFL_ARGS.size),
+            dfl_file_max_frac=DFL_ARGS.file_max_frac,
+            dfl_log_size=to_gb(DFL_ARGS.log_size),
+            dfl_intv=DFL_ARGS.interval)
     };
 }
 

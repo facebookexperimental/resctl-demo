@@ -100,7 +100,8 @@ hashd's memory access pattern uniform so that all memory is accessed
 uniformly:
 
 %% (                             : [ Set uniform access pattern and reduce memory footprint ]
-%% knob hashd-addr-stdev 1.0
+%% knob hashd-file-addr-stdev 1.0
+%% knob hashd-anon-addr-stdev 1.0
 %% knob hashd-mem 0.01
 %% )
 
