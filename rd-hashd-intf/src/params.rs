@@ -143,7 +143,7 @@ impl Default for Params {
             sleep_mean: 20.0 * MSEC,
             sleep_stdev_ratio: 0.33,
             cpu_ratio: 1.0,
-            log_bps: 0,
+            log_bps: 16 << 20,
             acc_dist_slots: 0,
             lat_pid: PidParams {
                 kp: 0.1,
