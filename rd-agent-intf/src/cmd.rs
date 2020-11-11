@@ -55,7 +55,7 @@ lazy_static! {
                 dfl_file_max_ratio = rd_hashd_intf::DFL_ARGS.file_max_frac,
                 dfl_file_addr_stdev = rd_hashd_intf::DFL_PARAMS.file_addr_stdev_ratio,
                 dfl_anon_addr_stdev = rd_hashd_intf::DFL_PARAMS.anon_addr_stdev_ratio,
-                dfl_log_bps = to_mb(HashdCmd::default().log_bps),
+                dfl_log_bps = to_mb(rd_hashd_intf::DFL_PARAMS.log_bps),
         )
     };
 }
@@ -92,7 +92,7 @@ impl Default for HashdCmd {
             anon_addr_stdev: None,
             file_ratio: rd_hashd_intf::DFL_PARAMS.file_frac,
             file_max_ratio: rd_hashd_intf::DFL_ARGS.file_max_frac,
-            log_bps: 16 << 20,
+            log_bps: rd_hashd_intf::DFL_PARAMS.log_bps,
             weight: 1.0,
         }
     }
