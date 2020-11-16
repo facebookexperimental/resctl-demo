@@ -483,6 +483,8 @@ fn touch_units() {
 
 fn main() {
     let matches = clap::App::new("resctl-demo")
+        .version(env!("CARGO_PKG_VERSION"))
+        .author(env!("CARGO_PKG_AUTHORS"))
         .about("Facebook Resource Control Demo")
         .args_from_usage(&ARGS_STR)
         .setting(clap::AppSettings::UnifiedHelpMessage)

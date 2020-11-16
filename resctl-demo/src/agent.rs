@@ -30,6 +30,8 @@ lazy_static! {
     pub static ref AGENT_FILES: AgentFilesWrapper =
         AgentFilesWrapper::new(match &ARGS.lock().unwrap().as_ref() {
             Some(args) => &args.dir,
+            // Args are not initialized during tests, so we need to guard
+            // against that here.
             None => "",
         });
     pub static ref AGENT_MINDER: Mutex<AgentMinder> = {

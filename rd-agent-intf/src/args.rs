@@ -89,6 +89,7 @@ impl JsonSave for Args {}
 impl JsonArgs for Args {
     fn match_cmdline() -> clap::ArgMatches<'static> {
         return clap::App::new("rd-agent")
+            .version(env!("CARGO_PKG_VERSION"))
             .about(HELP_BODY)
             .args_from_usage(&ARGS_STR)
             .setting(clap::AppSettings::UnifiedHelpMessage)
