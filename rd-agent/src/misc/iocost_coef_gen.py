@@ -26,18 +26,18 @@ for more details.
 """
 
 import argparse
-import atexit
-import glob
-import json
-import os
-import random
 import re
-import shutil
-import signal
-import subprocess
+import json
+import glob
+import os
 import sys
-import tempfile
 import time
+import signal
+import atexit
+import random
+import shutil
+import tempfile
+import subprocess
 
 parser = argparse.ArgumentParser(description=desc,
                                  formatter_class=argparse.RawTextHelpFormatter)

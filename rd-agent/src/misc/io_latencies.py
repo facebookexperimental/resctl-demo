@@ -16,25 +16,37 @@
 # Copyright (C) 2020 Facebook
 
 from __future__ import print_function
-
+from bcc import BPF
+from time import sleep
+from threading import Event
 import argparse
 import json
-import os
 import sys
-from time import sleep
-
-from bcc import BPF
+import os
+import signal
 
 description = """
 Monitor IO latency distribution of a block device
 """
 
-parser = argparse.ArgumentParser(description = description,
+epilog = """
+When interval is infinite, biolatpcts will print out result once the
+initialization is complete to indicate readiness. After initialized,
+biolatpcts will output whenever it receives SIGUSR1/2 and before exiting on
+SIGINT, SIGTERM or SIGHUP.
+
+SIGUSR1 starts a new period after reporting. SIGUSR2 doesn't and can be used
+to monitor progress without affecting accumulation of data points. They can
+be used to obtain latency distribution between two arbitrary events and
+monitor progress inbetween.
+"""
+
+parser = argparse.ArgumentParser(description = description, epilog = epilog,
                                  formatter_class = argparse.ArgumentDefaultsHelpFormatter)
 parser.add_argument('dev', metavar='DEV', type=str,
                     help='Target block device (/dev/DEVNAME, DEVNAME or MAJ:MIN)')
 parser.add_argument('-i', '--interval', type=int, default=3,
-                    help='Report interval')
+                    help='Report interval (0: exit after startup, -1: infinite)')
 parser.add_argument('-w', '--which', choices=['from-rq-alloc', 'after-rq-alloc', 'on-device'],
                     default='on-device', help='Which latency to measure')
 parser.add_argument('-p', '--pcts', metavar='PCT,...', type=str,
@@ -211,23 +223,53 @@ def format_usec(lat):
 if args.interval == 0:
     sys.exit(0)
 
-while True:
-    sleep(args.interval)
+# Set up signal handling so that we print the result on USR1/2 and before
+# exiting on a signal. Combined with infinite interval, this can be used to
+# obtain overall latency distribution between two events. On USR2 the
+# accumulated counters are cleared too, which can be used to define
+# arbitrary intervals.
+force_update_last_rwdf = False
+keep_running = True
+result_req = Event()
+def sig_handler(sig, frame):
+    global keep_running, force_update_last_rwdf, result_req
+    if sig == signal.SIGUSR1:
+        force_update_last_rwdf = True
+    elif sig != signal.SIGUSR2:
+        keep_running = False
+    result_req.set()
 
+for sig in (signal.SIGUSR1, signal.SIGUSR2, signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
+    signal.signal(sig, sig_handler)
+
+# If infinite interval, always trigger the first output so that the caller
+# can tell when initialization is complete.
+if args.interval < 0:
+    result_req.set();
+
+while keep_running:
+    result_req.wait(args.interval if args.interval > 0 else None)
+    result_req.clear()
+
+    update_last_rwdf = args.interval > 0 or force_update_last_rwdf
+    force_update_last_rwdf = False
     rwdf_total = [0] * 4;
 
     for i in range(400):
         v = cur_rwdf_100ms.sum(i).value
         rwdf_100ms[i] = max(v - last_rwdf_100ms[i], 0)
-        last_rwdf_100ms[i] = v
+        if update_last_rwdf:
+            last_rwdf_100ms[i] = v
 
         v = cur_rwdf_1ms.sum(i).value
         rwdf_1ms[i] = max(v - last_rwdf_1ms[i], 0)
-        last_rwdf_1ms[i] = v
+        if update_last_rwdf:
+            last_rwdf_1ms[i] = v
 
         v = cur_rwdf_10us.sum(i).value
         rwdf_10us[i] = max(v - last_rwdf_10us[i], 0)
-        last_rwdf_10us[i] = v
+        if update_last_rwdf:
+            last_rwdf_10us[i] = v
 
         rwdf_total[int(i / 100)] += rwdf_100ms[i]
 
