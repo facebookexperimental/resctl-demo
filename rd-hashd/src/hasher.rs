@@ -388,6 +388,8 @@ struct DispatchThread {
     sleep_normal: ClampedNormal,
 
     // Latency percentile calculation.
+    lat_min: f64,
+    lat_max: f64,
     ckms: CKMS<f64>,
     ckms_at: Instant,
 
@@ -527,6 +529,8 @@ impl DispatchThread {
             anon_size_normal: Self::anon_size_normal(&params),
             sleep_normal: Self::sleep_normal(&params),
 
+            lat_min: std::f64::MAX,
+            lat_max: 0.0,
             ckms: CKMS::<f64>::new(Self::CKMS_ERROR),
             ckms_at: now,
             lat_pid,
@@ -628,6 +632,8 @@ impl DispatchThread {
     }
 
     fn reset_lat_rps(&mut self, now: Instant) {
+        self.lat_min = std::f64::MAX;
+        self.lat_max = 0.0;
         self.ckms_at = now;
         self.ckms = CKMS::<f64>::new(Self::CKMS_ERROR);
         self.last_nr_done = self.nr_done;
@@ -644,6 +650,7 @@ impl DispatchThread {
             return false;
         }
 
+        self.lat.min = self.lat_min;
         self.lat.p01 = p01.unwrap().1;
         self.lat.p05 = self.ckms.query(0.05).unwrap().1;
         self.lat.p10 = self.ckms.query(0.10).unwrap().1;
@@ -653,6 +660,10 @@ impl DispatchThread {
         self.lat.p90 = self.ckms.query(0.90).unwrap().1;
         self.lat.p95 = self.ckms.query(0.95).unwrap().1;
         self.lat.p99 = self.ckms.query(0.99).unwrap().1;
+        self.lat.p99_9 = self.ckms.query(0.999).unwrap().1;
+        self.lat.p99_99 = self.ckms.query(0.9999).unwrap().1;
+        self.lat.p99_999 = self.ckms.query(0.99999).unwrap().1;
+        self.lat.max = self.lat_max;
         self.lat.ctl = self.ckms.query(self.params.lat_target_pct).unwrap().1;
         self.rps = (self.nr_done - self.last_nr_done) as f64 / dur.as_secs_f64();
 
@@ -777,6 +788,8 @@ impl DispatchThread {
                             self.nr_in_flight -= 1;
                             self.nr_done += 1;
                             let dur = Instant::now().duration_since(started_at).as_secs_f64();
+                            self.lat_min = self.lat_min.min(dur);
+                            self.lat_max = self.lat_max.max(dur);
                             self.ckms.insert(dur);
                             if let Some(logger) = self.logger.as_mut() {
                                 logger.log(&format!("{} {:.2}ms",
