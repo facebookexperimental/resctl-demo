@@ -25,7 +25,6 @@ mod command;
 mod doc;
 mod graph;
 mod journal;
-mod journal_tailer;
 mod report_ring;
 mod status;
 

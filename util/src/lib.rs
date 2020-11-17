@@ -25,10 +25,12 @@ use std::thread_local;
 use std::time::{Duration, UNIX_EPOCH};
 use sysinfo::{self, SystemExt};
 
+pub mod journal_tailer;
 pub mod json_file;
 pub mod storage_info;
 pub mod systemd;
 
+pub use journal_tailer::*;
 pub use json_file::{
     JsonArgs, JsonArgsHelper, JsonConfigFile, JsonLoad, JsonRawFile, JsonReportFile, JsonSave,
 };
