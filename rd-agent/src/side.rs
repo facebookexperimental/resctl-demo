@@ -1,6 +1,6 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
 use super::{prepare_bin_file, Config};
-use anyhow::{bail, Result};
+use anyhow::{anyhow, bail, Result};
 use lazy_static::lazy_static;
 use libc;
 use log::{debug, error, info, warn};
@@ -82,7 +82,8 @@ fn prepare_linux_tar(cfg: &Config) -> Result<()> {
         .arg(LINUX_TAR_XZ_URL)
         .arg("-O")
         .arg(&xz_path)
-        .status()?
+        .status()
+        .map_err(|e| anyhow!("failed to execute wget ({})", &e))?
         .success()
     {
         bail!("failed to download linux tarball");
@@ -111,7 +112,7 @@ pub fn prepare_sides(cfg: &Config) -> Result<()> {
 pub fn startup_checks(sr_failed: &mut HashSet<SysReq>) {
     for bin in &["gcc", "ld", "make", "bison", "flex", "pkg-config", "stress"] {
         if find_bin(bin, Option::<&str>::None).is_none() {
-            error!("side: binary dependency {:?} is missing", bin);
+            warn!("side: binary dependency {:?} is missing", bin);
             sr_failed.insert(SysReq::Dependencies);
         }
     }
@@ -120,14 +121,14 @@ pub fn startup_checks(sr_failed: &mut HashSet<SysReq>) {
         let st = match Command::new("pkg-config").arg("--exists").arg(lib).status() {
             Ok(v) => v,
             Err(e) => {
-                error!("side: pkg-config failed ({:?})", &e);
+                warn!("side: pkg-config failed ({:?})", &e);
                 sr_failed.insert(SysReq::Dependencies);
                 continue;
             }
         };
 
         if !st.success() {
-            error!("side: devel library dependency {:?} is missing", lib);
+            warn!("side: devel library dependency {:?} is missing", lib);
             sr_failed.insert(SysReq::Dependencies);
         }
     }

@@ -68,9 +68,14 @@ impl Hashd {
             Some(v) => v,
             None => knobs.mem_frac,
         };
-        let addr_stdev = match cmd.addr_stdev {
+
+        let file_addr_stdev = match cmd.file_addr_stdev {
             Some(v) => v,
-            None => rd_hashd_intf::Params::DFL_ADDR_STDEV,
+            None => rd_hashd_intf::DFL_PARAMS.file_addr_stdev_ratio,
+        };
+        let anon_addr_stdev = match cmd.anon_addr_stdev {
+            Some(v) => v,
+            None => rd_hashd_intf::DFL_PARAMS.anon_addr_stdev_ratio,
         };
 
         let mut params = match rd_hashd_intf::Params::load(&self.params_path) {
@@ -113,10 +118,12 @@ impl Hashd {
             params.mem_chunk_pages = knobs.mem_chunk_pages;
             changed = true;
         }
-        if params.file_addr_stdev_ratio != addr_stdev || params.anon_addr_stdev_ratio != addr_stdev
-        {
-            params.file_addr_stdev_ratio = addr_stdev;
-            params.anon_addr_stdev_ratio = addr_stdev;
+        if params.file_addr_stdev_ratio != file_addr_stdev {
+            params.file_addr_stdev_ratio = file_addr_stdev;
+            changed = true;
+        }
+        if params.anon_addr_stdev_ratio != anon_addr_stdev {
+            params.anon_addr_stdev_ratio = anon_addr_stdev;
             changed = true;
         }
         if params.file_frac != cmd.file_ratio {
@@ -207,9 +214,9 @@ impl HashdSet {
                     params_path: cfg.hashd_paths(HashdSel::A).params.clone(),
                     report_path: cfg.hashd_paths(HashdSel::A).report.clone(),
                     path_args: hashd_path_args(cfg, HashdSel::A),
-                    lat_target_pct: rd_hashd_intf::Params::DFL_LAT_TARGET_PCT,
+                    lat_target_pct: rd_hashd_intf::DFL_PARAMS.lat_target_pct,
                     rps_max: 1,
-                    file_max_ratio: rd_hashd_intf::Args::DFL_FILE_MAX_FRAC,
+                    file_max_ratio: rd_hashd_intf::DFL_ARGS.file_max_frac,
                     svc: None,
                 },
                 Hashd {
@@ -217,9 +224,9 @@ impl HashdSet {
                     params_path: cfg.hashd_paths(HashdSel::B).params.clone(),
                     report_path: cfg.hashd_paths(HashdSel::B).report.clone(),
                     path_args: hashd_path_args(cfg, HashdSel::B),
-                    lat_target_pct: rd_hashd_intf::Params::DFL_LAT_TARGET_PCT,
+                    lat_target_pct: rd_hashd_intf::DFL_PARAMS.lat_target_pct,
                     rps_max: 1,
-                    file_max_ratio: rd_hashd_intf::Args::DFL_FILE_MAX_FRAC,
+                    file_max_ratio: rd_hashd_intf::DFL_ARGS.file_max_frac,
                     svc: None,
                 },
             ],

@@ -1,7 +1,6 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
-use super::bench::{iocost_on_off, IOCOST_QOS_PATH};
 use super::{prepare_bin_file, Config};
-use anyhow::{bail, Result};
+use anyhow::Result;
 use std::process::Command;
 use util::*;
 
@@ -30,14 +29,6 @@ pub fn prepare_misc_bins(cfg: &Config) -> Result<()> {
                 .args(&["-i", "0"]),
             "is bcc working? https://github.com/iovisor/bcc",
         )?;
-    }
-
-    if let Err(e) = iocost_on_off(true, cfg) {
-        bail!(
-            "failed to enable iocost by writing to {:?} ({:?})",
-            IOCOST_QOS_PATH,
-            &e
-        );
     }
 
     Ok(())

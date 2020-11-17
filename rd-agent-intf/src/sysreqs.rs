@@ -38,6 +38,7 @@ pub enum SysReq {
     NoWbt,
     SwapOnScratch,
     Swap,
+    Oomd,
     NoSysOomd,
     HostCriticalServices,
     Dependencies,

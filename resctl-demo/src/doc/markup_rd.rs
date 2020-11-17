@@ -47,8 +47,10 @@ pub enum RdKnob {
     HashdBLatTarget,
     HashdAMem,
     HashdBMem,
-    HashdAAddrStdev,
-    HashdBAddrStdev,
+    HashdAFileAddrStdev,
+    HashdAAnonAddrStdev,
+    HashdBFileAddrStdev,
+    HashdBAnonAddrStdev,
     HashdAFile,
     HashdBFile,
     HashdAFileMax,
@@ -306,7 +308,12 @@ impl RdCmd {
                     "hashd-lat-target-pct" | "hashd-A-lat-target-pct" => RdKnob::HashdALatTargetPct,
                     "hashd-lat-target" | "hashd-A-lat-target" => RdKnob::HashdALatTarget,
                     "hashd-mem" | "hashd-A-mem" => RdKnob::HashdAMem,
-                    "hashd-addr-stdev" | "hashd-A-addr-stdev" => RdKnob::HashdAAddrStdev,
+                    "hashd-file-addr-stdev" | "hashd-A-file-addr-stdev" => {
+                        RdKnob::HashdAFileAddrStdev
+                    }
+                    "hashd-anon-addr-stdev" | "hashd-A-anon-addr-stdev" => {
+                        RdKnob::HashdAAnonAddrStdev
+                    }
                     "hashd-file" | "hashd-A-file" => RdKnob::HashdAFile,
                     "hashd-file-max" | "hashd-A-file-max" => RdKnob::HashdAFileMax,
                     "hashd-log-bps" | "hashd-A-write" => RdKnob::HashdALogBps,
@@ -315,7 +322,8 @@ impl RdCmd {
                     "hashd-B-lat-target-pct" => RdKnob::HashdBLatTargetPct,
                     "hashd-B-lat-target" => RdKnob::HashdBLatTarget,
                     "hashd-B-mem" => RdKnob::HashdBMem,
-                    "hashd-B-addr-stdev" => RdKnob::HashdBAddrStdev,
+                    "hashd-B-file-addr-stdev" => RdKnob::HashdBFileAddrStdev,
+                    "hashd-B-anon-addr-stdev" => RdKnob::HashdBAnonAddrStdev,
                     "hashd-B-file" => RdKnob::HashdBFile,
                     "hashd-B-file-max" => RdKnob::HashdBFileMax,
                     "hashd-B-log-bps" => RdKnob::HashdBLogBps,

@@ -6,7 +6,7 @@ have been intensively researching and implementing mechanisms and methods to
 advance resource control. resctl-demo demonstrates and documents various aspects
 of resource control using self-contained workloads in guided scenarios.
 
-<a href="https://www.facebook.com/Engineering/videos/695045534728386/">
+<a href="https://engineering.fb.com/wp-content/uploads/2020/10/resctl-demoV2.mp4">
   <img src="img/screenshot.png" alt="resctl-demo in action" width="50%">
 </a>
 
@@ -17,6 +17,12 @@ difficult to configure on an existing system. resctl-demo provides premade
 images to help getting started. Visit the following page for details:
 
   https://facebookmicrosites.github.io/resctl-demo-website
+
+## Discussions
+
+For discussions around resctl-demo and resource control in general:
+
+  https://groups.google.com/g/resctl-demo
 
 ## Requirements
 

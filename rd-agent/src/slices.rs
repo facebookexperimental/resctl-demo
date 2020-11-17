@@ -70,10 +70,17 @@ fn mknob_to_unit_resctl(knob: &MemoryKnob) -> Option<u64> {
     }
 }
 
-fn propagate_mem_prot(slice: Slice) -> bool {
+fn slice_needs_mem_prot_propagation(slice: Slice) -> bool {
     match slice {
         Slice::Work | Slice::Side => false,
         _ => true,
+    }
+}
+
+fn slice_needs_start_stop(slice: Slice) -> bool {
+    match slice {
+        Slice::Side => true,
+        _ => false,
     }
 }
 
@@ -193,10 +200,32 @@ fn apply_one_slice(knobs: &SliceKnobs, slice: Slice, zero_mem_low: bool) -> Resu
 
     debug!("resctl: writing updated {:?}", &path);
     crate::write_unit_configlet(slice.name(), "resctl", &configlet)?;
+
+    if slice_needs_start_stop(slice) {
+        match systemd::Unit::new_sys(slice.name().into()) {
+            Ok(mut unit) => {
+                if let Err(e) = unit.try_start_nowait() {
+                    warn!("resctl: Failed to start {:?} ({})", slice.name(), &e);
+                }
+            }
+            Err(e) => {
+                warn!(
+                    "resctl: Failed to create unit for {:?} ({})",
+                    slice.name(),
+                    &e
+                );
+            }
+        }
+    }
+
     Ok(true)
 }
 
 pub fn apply_slices(knobs: &mut SliceKnobs, hashd_mem_size: u64, cfg: &Config) -> Result<()> {
+    if cfg.passive {
+        return Ok(());
+    }
+
     if knobs.work_mem_low_none {
         let sk = knobs.slices.get_mut(Slice::Work.name()).unwrap();
         sk.mem_low = MemoryKnob::Bytes((hashd_mem_size as f64 * 0.75).ceil() as u64);
@@ -209,18 +238,17 @@ pub fn apply_slices(knobs: &mut SliceKnobs, hashd_mem_size: u64, cfg: &Config) -
             updated = true;
         }
 
-        match slice {
-            Slice::Host | Slice::User | Slice::Sys => {
-                let sk = knobs.slices.get(slice.name()).unwrap();
-                let resctl = systemd::UnitResCtl {
-                    mem_min: mknob_to_unit_resctl(&sk.mem_min),
-                    mem_low: mknob_to_unit_resctl(&sk.mem_low),
-                    ..Default::default()
-                };
-                propagate_one_slice(slice, &resctl)?;
+        if slice_needs_mem_prot_propagation(slice) {
+            let sk = knobs.slices.get(slice.name()).unwrap();
+            let mut resctl = systemd::UnitResCtl::default();
+
+            if !cfg.memcg_recursive_prot() {
+                resctl.mem_min = mknob_to_unit_resctl(&sk.mem_min);
+                resctl.mem_low = mknob_to_unit_resctl(&sk.mem_low);
             }
-            _ => {}
-        };
+
+            propagate_one_slice(slice, &resctl)?;
+        }
     }
     if updated {
         info!("resctl: Applying updated slice configurations");
@@ -237,6 +265,23 @@ pub fn apply_slices(knobs: &mut SliceKnobs, hashd_mem_size: u64, cfg: &Config) -
 }
 
 fn clear_one_slice(slice: Slice) -> Result<bool> {
+    if slice_needs_start_stop(slice) {
+        match systemd::Unit::new_sys(slice.name().into()) {
+            Ok(mut unit) => {
+                if let Err(e) = unit.stop() {
+                    error!("resctl: Failed to stop {:?} ({}_", slice.name(), &e);
+                }
+            }
+            Err(e) => {
+                error!(
+                    "resctl: Failed to create unit for {:?} ({})",
+                    slice.name(),
+                    &e
+                );
+            }
+        }
+    }
+
     let path = crate::unit_configlet_path(slice.name(), "resctl");
     if Path::new(&path).exists() {
         debug!("resctl: Removing {:?}", &path);
@@ -274,14 +319,18 @@ pub fn clear_slices() -> Result<()> {
 }
 
 fn verify_and_fix_cgrp_mem(path: &str, is_limit: bool, knob: MemoryKnob) -> Result<()> {
-    let target = knob.nr_bytes(is_limit);
     trace!("resctl: verify: {:?}", path);
     let line = read_one_line(path)?;
     let cur = match line.as_ref() {
         "max" => Some(std::u64::MAX),
         v => v.parse::<u64>().ok(),
     };
-    if let Some(v) = cur {
+    if let Some(mut v) = cur {
+        // max can be mapped to either u64::MAX or *TOTAL_MEMORY, limit to
+        // the latter to avoid spurious mismatches.
+        let target = knob.nr_bytes(is_limit).min(*TOTAL_MEMORY as u64);
+        v = v.min(*TOTAL_MEMORY as u64);
+
         if target == v || (target > 0 && ((v as f64 - target as f64) / target as f64).abs() < 0.1) {
             return Ok(());
         }
@@ -391,7 +440,7 @@ fn verify_and_fix_one_slice(
             verify_and_fix_cgrp_mem(&(path.to_string() + "/memory.high"), true, sk.mem_high)?;
         }
 
-        if propagate_mem_prot(slice) {
+        if slice_needs_mem_prot_propagation(slice) {
             if !recursive_mem_prot {
                 verify_and_fix_mem_prot(path, "memory.min", sk.mem_min)?;
                 verify_and_fix_mem_prot(path, "memory.low", sk.mem_low)?;
@@ -460,8 +509,12 @@ fn fix_overrides(dseqs: &DisableSeqKnobs) -> Result<()> {
 pub fn verify_and_fix_slices(
     knobs: &SliceKnobs,
     workload_senpai: bool,
-    recursive_mem_prot: bool,
+    cfg: &Config,
 ) -> Result<()> {
+    if cfg.passive {
+        return Ok(());
+    }
+
     let seq = super::instance_seq();
     let dseqs = &knobs.disable_seqs;
     let line = read_one_line("/sys/fs/cgroup/cgroup.subtree_control")?;
@@ -476,7 +529,7 @@ pub fn verify_and_fix_slices(
 
     for slice in Slice::into_enum_iter() {
         let verify_mem_high = slice != Slice::Work || !workload_senpai;
-        verify_and_fix_one_slice(knobs, slice, verify_mem_high, recursive_mem_prot)?;
+        verify_and_fix_one_slice(knobs, slice, verify_mem_high, cfg.memcg_recursive_prot())?;
     }
 
     check_other_io_controllers(&mut HashSet::new());

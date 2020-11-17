@@ -1,5 +1,6 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
 use anyhow::Result;
+use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
 
 use util::*;
@@ -9,6 +10,10 @@ pub struct PidParams {
     pub kp: f64,
     pub ki: f64,
     pub kd: f64,
+}
+
+lazy_static! {
+    pub static ref DFL_PARAMS: Params = Default::default();
 }
 
 const PARAMS_DOC: &str = "\
@@ -105,11 +110,6 @@ pub struct Params {
 }
 
 impl Params {
-    pub const DFL_LAT_TARGET_PCT: f64 = 0.9;
-    pub const DFL_STDEV: f64 = 0.33; // 3 sigma == mean
-    pub const DFL_ADDR_STDEV: f64 = 0.2;
-    pub const DFL_FILE_FRAC: f64 = 0.15;
-
     pub fn log_padding(&self) -> u64 {
         if self.rps_max > 0 {
             (self.log_bps as f64 / self.rps_max as f64).round() as u64
@@ -124,26 +124,26 @@ impl Default for Params {
         Self {
             control_period: 1.0,
             concurrency_max: 65536,
-            lat_target_pct: Self::DFL_LAT_TARGET_PCT,
+            lat_target_pct: 0.9,
             lat_target: 100.0 * MSEC,
             rps_target: 65536,
             rps_max: 0,
             mem_chunk_pages: 1,
             mem_frac: 0.80,
-            file_frac: Self::DFL_FILE_FRAC,
+            file_frac: 0.15,
             file_size_mean: 4 << 20,
-            file_size_stdev_ratio: Self::DFL_STDEV,
-            file_addr_stdev_ratio: Self::DFL_ADDR_STDEV,
+            file_size_stdev_ratio: 0.33,
+            file_addr_stdev_ratio: 0.2,
             file_addr_rps_base_frac: 0.5,
             anon_size_ratio: 1.0,
-            anon_size_stdev_ratio: Self::DFL_STDEV,
-            anon_addr_stdev_ratio: Self::DFL_ADDR_STDEV,
+            anon_size_stdev_ratio: 0.33,
+            anon_addr_stdev_ratio: 0.2,
             anon_addr_rps_base_frac: 0.5,
             anon_write_frac: 0.05,
             sleep_mean: 20.0 * MSEC,
-            sleep_stdev_ratio: Self::DFL_STDEV,
+            sleep_stdev_ratio: 0.33,
             cpu_ratio: 1.0,
-            log_bps: 0,
+            log_bps: 16 << 20,
             acc_dist_slots: 0,
             lat_pid: PidParams {
                 kp: 0.1,
