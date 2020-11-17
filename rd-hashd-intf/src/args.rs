@@ -43,6 +43,7 @@ the changes will be applied immediately.
 If the specified --args and/or --params files don't exist, they will be
 created with the default values. Any configurations in --args can be
 overridden on the command line and the changes will be saved in the file.
+Note that only the arguments with single letter shortcuts are saved.
 --params is optional. If not specified, default parameters will be used.
 
 rd-hashd reports the current status in the optional --report file and the
@@ -103,26 +104,26 @@ lazy_static! {
     pub static ref DFL_ARGS: Args = Default::default();
     static ref ARGS_STR: String = {
         format!(
-            "-t, --testfiles=[DIR]       'Testfiles directory'
-             -s, --size=[SIZE]           'Max memory footprint, affects testfiles size (default: {dfl_size:.2}G)'
-             -f, --file-max=[FRAC]       'Max fraction of page cache, affects testfiles size (default: {dfl_file_max_frac:.2})'
-             -c, --compressibility=[FRAC] 'File and anon data compressibility (default: 0)
-             -p, --params=[FILE]         'Runtime updatable parameters, will be created if non-existent'
-             -r, --report=[FILE]         'Runtime report file, FILE.staging will be used for staging'
-             -l, --log-dir=[PATH]        'Record hash results to the files in PATH'
-             -L, --log-size=[SIZE]       'Maximum log retention (default: {dfl_log_size:.2}G)'
-             -i, --interval=[SECS]       'Summary report interval, 0 to disable (default: {dfl_intv}s)'
-             -R, --rotational=[BOOL]     'Force rotational detection to either true or false'
-             -k, --keep-caches           'Don't drop caches for testfiles on startup'
-                 --clear-testfiles       'Clear testfiles before preparing them'
-                 --prepare-config        'Prepare config files and exit'
-                 --prepare               'Prepare config files and testfiles and exit'
-                 --bench                 'Benchmark and record results in args and params file'
-                 --bench-cpu             'Benchmark cpu'
-                 --bench-mem             'Benchmark memory'
-                 --bench-log-bps=[BPS]   'Log write bps at max rps (default: {dfl_log_bps}M)'
-             -a, --args=[FILE]           'Load base command line arguments from FILE'
-             -v...                       'Sets the level of verbosity'",
+            "-t, --testfiles=[DIR]         'Testfiles directory'
+             -s, --size=[SIZE]             'Max memory footprint, affects testfiles size (default: {dfl_size:.2}G)'
+             -f, --file-max=[FRAC]         'Max fraction of page cache, affects testfiles size (default: {dfl_file_max_frac:.2})'
+             -c, --compressibility=[FRAC]  'File and anon data compressibility (default: 0)
+             -p, --params=[FILE]           'Runtime updatable parameters, will be created if non-existent'
+             -r, --report=[FILE]           'Runtime report file, FILE.staging will be used for staging'
+             -l, --log-dir=[PATH]          'Record hash results to the files in PATH'
+             -L, --log-size=[SIZE]         'Maximum log retention (default: {dfl_log_size:.2}G)'
+             -i, --interval=[SECS]         'Summary report interval, 0 to disable (default: {dfl_intv}s)'
+             -R, --rotational=[BOOL]       'Force rotational detection to either true or false'
+             -a, --args=[FILE]             'Load base command line arguments from FILE'
+                 --keep-caches             'Don't drop caches for testfiles on startup'
+                 --clear-testfiles         'Clear testfiles before preparing them'
+                 --prepare-config          'Prepare config files and exit'
+                 --prepare                 'Prepare config files and testfiles and exit'
+                 --bench                   'Benchmark and record results in args and params file'
+                 --bench-cpu               'Benchmark cpu'
+                 --bench-mem               'Benchmark memory'
+                 --bench-log-bps=[BPS]     'Log write bps at max rps (default: {dfl_log_bps}M)'
+             -v...                         'Sets the level of verbosity'",
             dfl_size=to_gb(DFL_ARGS.size),
             dfl_file_max_frac=DFL_ARGS.file_max_frac,
             dfl_log_size=to_gb(DFL_ARGS.log_size),
@@ -153,9 +154,9 @@ pub struct Args {
     pub log_size: u64,
     pub interval: u32,
     pub rotational: Option<bool>,
-    pub keep_caches: bool,
-    pub bench_log_bps: u64,
 
+    #[serde(skip)]
+    pub keep_caches: bool,
     #[serde(skip)]
     pub clear_testfiles: bool,
     #[serde(skip)]
@@ -166,6 +167,8 @@ pub struct Args {
     pub bench_cpu: bool,
     #[serde(skip)]
     pub bench_mem: bool,
+    #[serde(skip)]
+    pub bench_log_bps: u64,
     #[serde(skip)]
     pub verbosity: u32,
 }
@@ -194,11 +197,11 @@ impl Default for Args {
             rotational: None,
             clear_testfiles: false,
             keep_caches: false,
-            bench_log_bps: DFL_PARAMS.log_bps,
             prepare_testfiles: true,
             prepare_and_exit: false,
             bench_cpu: false,
             bench_mem: false,
+            bench_log_bps: DFL_PARAMS.log_bps,
             verbosity: 0,
         }
     }
@@ -312,20 +315,8 @@ impl JsonArgs for Args {
             };
             updated_base = true;
         }
-        if self.keep_caches != matches.is_present("keep-caches") {
-            self.keep_caches = !self.keep_caches;
-            updated_base = true;
-        }
 
-        let bench_log_bps = match matches.value_of("bench-log-bps") {
-            Some(v) => v.parse::<u64>().unwrap(),
-            None => 0,
-        };
-        if self.bench_log_bps != bench_log_bps {
-            self.bench_log_bps = bench_log_bps;
-            updated_base = true;
-        }
-
+        self.keep_caches = matches.is_present("keep-caches");
         self.clear_testfiles = matches.is_present("clear-testfiles");
 
         let prep_cfg = matches.is_present("prepare-config");
@@ -348,6 +339,11 @@ impl JsonArgs for Args {
                 self.prepare_testfiles = false;
             }
         }
+
+        self.bench_log_bps = match matches.value_of("bench-log-bps") {
+            Some(v) => v.parse::<u64>().unwrap(),
+            None => 0,
+        };
 
         self.verbosity = Self::verbosity(matches);
 
