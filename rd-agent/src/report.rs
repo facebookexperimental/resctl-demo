@@ -23,8 +23,8 @@ use util::*;
 use super::cmd::Runner;
 use rd_agent_intf::{
     BenchHashdReport, BenchIoCostReport, HashdReport, IoCostReport, IoLatReport, Report,
-    ResCtlReport, Slice, UsageReport, HASHD_A_SVC_NAME, HASHD_B_SVC_NAME, REPORT_1MIN_RETENTION,
-    REPORT_RETENTION,
+    ResCtlReport, Slice, UsageReport, HASHD_A_SVC_NAME, HASHD_BENCH_SVC_NAME, HASHD_B_SVC_NAME,
+    IOCOST_BENCH_SVC_NAME, REPORT_1MIN_RETENTION, REPORT_RETENTION,
 };
 
 #[derive(Debug, Default)]
@@ -207,6 +207,13 @@ pub struct UsageTracker {
 }
 
 impl UsageTracker {
+    const USAGE_SVCS: [&'static str; 4] = [
+        IOCOST_BENCH_SVC_NAME,
+        HASHD_BENCH_SVC_NAME,
+        HASHD_A_SVC_NAME,
+        HASHD_B_SVC_NAME,
+    ];
+
     fn new(devnr: (u32, u32)) -> Self {
         let mut us = Self {
             devnr,
@@ -219,10 +226,9 @@ impl UsageTracker {
         for slice in Slice::into_enum_iter() {
             us.usages.insert(slice.name().into(), Default::default());
         }
-        us.usages
-            .insert(HASHD_A_SVC_NAME.into(), Default::default());
-        us.usages
-            .insert(HASHD_B_SVC_NAME.into(), Default::default());
+        for svc in Self::USAGE_SVCS.iter() {
+            us.usages.insert((*svc).into(), Default::default());
+        }
 
         if let Err(e) = us.update() {
             warn!("report: Failed to update usages ({:?})", &e);
@@ -241,7 +247,7 @@ impl UsageTracker {
                 read_cgroup_usage(slice.cgrp(), self.devnr),
             );
         }
-        for hashd in [HASHD_A_SVC_NAME, HASHD_B_SVC_NAME].iter() {
+        for hashd in Self::USAGE_SVCS.iter() {
             let cgrp = format!("{}/{}", Slice::Work.cgrp(), hashd);
             usages.insert(hashd.to_string(), read_cgroup_usage(&cgrp, self.devnr));
         }
