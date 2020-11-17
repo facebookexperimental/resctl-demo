@@ -122,6 +122,9 @@ lazy_static! {
                  --bench                   'Benchmark and record results in args and params file'
                  --bench-cpu               'Benchmark cpu'
                  --bench-mem               'Benchmark memory'
+                 --bench-fake-cpu-load     'Fake CPU load while benchmarking memory'
+                 --bench-hash-size=[SIZE]  'Use the specified hash size'
+                 --bench-rps-max=[RPS]     'Use the specified RPS max'
                  --bench-log-bps=[BPS]     'Log write bps at max rps (default: {dfl_log_bps}M)'
              -v...                         'Sets the level of verbosity'",
             dfl_size=to_gb(DFL_ARGS.size),
@@ -168,6 +171,12 @@ pub struct Args {
     #[serde(skip)]
     pub bench_mem: bool,
     #[serde(skip)]
+    pub bench_fake_cpu_load: bool,
+    #[serde(skip)]
+    pub bench_hash_size: usize,
+    #[serde(skip)]
+    pub bench_rps_max: u32,
+    #[serde(skip)]
     pub bench_log_bps: u64,
     #[serde(skip)]
     pub verbosity: u32,
@@ -201,6 +210,9 @@ impl Default for Args {
             prepare_and_exit: false,
             bench_cpu: false,
             bench_mem: false,
+            bench_fake_cpu_load: false,
+            bench_hash_size: 0,
+            bench_rps_max: 0,
             bench_log_bps: DFL_PARAMS.log_bps,
             verbosity: 0,
         }
@@ -340,6 +352,16 @@ impl JsonArgs for Args {
             }
         }
 
+        self.bench_fake_cpu_load = matches.is_present("bench-fake-cpu-load");
+
+        self.bench_hash_size = match matches.value_of("bench-hash-size") {
+            Some(v) => v.parse::<usize>().unwrap(),
+            None => 0,
+        };
+        self.bench_rps_max = match matches.value_of("bench-rps-max") {
+            Some(v) => v.parse::<u32>().unwrap(),
+            None => 0,
+        };
         self.bench_log_bps = match matches.value_of("bench-log-bps") {
             Some(v) => v.parse::<u64>().unwrap(),
             None => 0,
