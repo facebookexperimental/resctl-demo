@@ -138,7 +138,6 @@ pub struct IOCostPaths {
 
 #[derive(Debug)]
 pub struct Config {
-    pub passive: bool,
     pub top_path: String,
     pub scr_path: String,
     pub scr_dev: String,
@@ -172,6 +171,8 @@ pub struct Config {
     pub sys_scr_path: String,
     pub balloon_bin: String,
     pub side_linux_tar_path: Option<String>,
+
+    pub passive: bool,
 
     pub sr_failed: HashSet<SysReq>,
     sr_wbt: Option<u64>,
@@ -345,7 +346,6 @@ impl Config {
         }
 
         Self {
-            passive: args.passive,
             scr_devnr: storage_info::devname_to_devnr(&scr_dev).unwrap(),
             scr_dev,
             scr_dev_forced: args.dev.is_some(),
@@ -400,6 +400,8 @@ impl Config {
             side_linux_tar_path: args.linux_tar.clone(),
             top_path,
             scr_path,
+
+            passive: args.passive,
 
             sr_failed: HashSet::new(),
             sr_wbt: None,

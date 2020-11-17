@@ -43,7 +43,7 @@ lazy_static! {
              --prepare          'Prepare the files and directories and exit'
              --linux-tar=[FILE] 'Path to linux source tarball to be used by build sideload'
              --reset            'Reset all states except for bench results, linux.tar and testfiles'
-             --passive          'Make system configuration changes only when explicitly requested'
+             --passive          'Do not make system configuration changes, implies --force'
          -v...                  'Sets the level of verbosity'",
         dfl_dir = Args::default().dir,
     );
@@ -139,7 +139,10 @@ impl JsonArgs for Args {
         self.prepare = matches.is_present("prepare");
         self.linux_tar = matches.value_of("linux-tar").map(|x| x.to_string());
         self.reset = matches.is_present("reset");
-        self.passive = matches.is_present("passive");
+        if matches.is_present("passive") {
+            self.passive = true;
+            self.force = true;
+        }
 
         updated_base
     }
