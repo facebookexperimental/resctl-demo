@@ -92,7 +92,7 @@ impl ReportRing {
                 Ok(v) => v,
                 Err(e) => {
                     match e.downcast_ref::<io::Error>() {
-                        Some(ie) if ie.raw_os_error() == Some(libc::ENOENT) => (),
+                        Some(ie) if ie.raw_os_error() == Some(libc::ENOENT) => {}
                         _ => warn!("Failed to load {:?} ({:?})", &path, &e),
                     }
                     continue;
@@ -117,11 +117,7 @@ impl ReportRingSet {
             sec_ring: ReportRing::new(
                 Box::new(|| {
                     let path = AGENT_FILES.index().report_d;
-                    if path.len() > 0 {
-                        Some(path)
-                    } else {
-                        None
-                    }
+                    if path.len() > 0 { Some(path) } else { None }
                 }),
                 1,
                 60,
@@ -130,11 +126,7 @@ impl ReportRingSet {
             min_ring: ReportRing::new(
                 Box::new(|| {
                     let path = AGENT_FILES.index().report_1min_d;
-                    if path.len() > 0 {
-                        Some(path)
-                    } else {
-                        None
-                    }
+                    if path.len() > 0 { Some(path) } else { None }
                 }),
                 60,
                 60,

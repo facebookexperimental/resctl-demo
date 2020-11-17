@@ -12,7 +12,17 @@ const SYSREQ_DOC: &str = "\
 //
 ";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, IntoEnumIterator, Serialize, Deserialize)]
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Hash,
+    IntoEnumIterator,
+    Serialize,
+    Deserialize
+)]
 pub enum SysReq {
     Controllers,
     Freezer,

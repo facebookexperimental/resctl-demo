@@ -176,7 +176,7 @@ impl<T: JsonLoad + JsonSave> JsonConfigFile<T> {
         // Consider the file iff it stayed the same for at least 10ms.
         match SystemTime::now().duration_since(modified) {
             Ok(dur) if dur.as_millis() < 10 => return Ok(false),
-            _ => (),
+            _ => {}
         }
 
         // The same as loaded?

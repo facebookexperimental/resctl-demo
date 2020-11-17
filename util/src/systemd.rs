@@ -250,7 +250,7 @@ impl UnitProps {
     fn state(&self) -> US {
         let v = self.string("LoadState");
         match v.as_deref() {
-            Some("loaded") => (),
+            Some("loaded") => {}
             Some("not-found") => return US::NotFound,
             Some(_) => return US::Other(v.unwrap()),
             None => return US::Other("no-load-state".into()),
@@ -374,7 +374,7 @@ impl Unit {
 
         if self.state == US::Running {
             match &new_state {
-                US::Running => (),
+                US::Running => {}
                 US::Exited => info!("svc: {:?} exited", &self.name),
                 US::Failed(how) => info!("svc: {:?} failed ({:?})", &self.name, &how),
                 US::NotFound => info!("svc: {:?} is gone", &self.name),
@@ -458,8 +458,8 @@ impl Unit {
                     &self.state
                 );
                 match &self.state {
-                    US::OtherActive(_) | US::Other(_) => (),
-                    state if !wait_till(state) => (),
+                    US::OtherActive(_) | US::Other(_) => {}
+                    state if !wait_till(state) => {}
                     _ => return,
                 }
             }
@@ -482,7 +482,7 @@ impl Unit {
                 debug!("svc: {:?} already stopped ({:?})", &self.name, &self.state);
                 return Ok(true);
             }
-            _ => (),
+            _ => {}
         }
 
         self.sd_bus().with(|s| s.stop_unit(&self.name))?;
@@ -558,8 +558,8 @@ impl TransientService {
         }
         let mut svc = Self {
             unit: Unit::new(user, name)?,
-            args: args,
-            envs: envs,
+            args,
+            envs,
             extra_props: HashMap::new(),
             keep: false,
         };
@@ -676,7 +676,7 @@ impl Drop for TransientService {
             return;
         }
         match self.unit.stop_and_reset() {
-            Ok(()) => (),
+            Ok(()) => {}
             Err(e) => warn!("Failed to stop {} on drop ({:?})", &self.unit.name, &e),
         }
     }
@@ -689,7 +689,9 @@ mod tests {
     use std::thread::sleep;
     use std::time::Duration;
 
-    #[test]
+    //#[test]
+    // TODO: This test is not hermetic as it has an implicit dependency
+    // on the systemd session bus; it should be spinning up its own bus instead.
     fn test_transient_service() {
         let _ = ::env_logger::try_init();
         let name = "test-transient.service";

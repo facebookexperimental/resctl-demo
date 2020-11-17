@@ -28,7 +28,12 @@ pub static AGENT_RUNNING: AtomicBool = AtomicBool::new(false);
 
 lazy_static! {
     pub static ref AGENT_FILES: AgentFilesWrapper =
-        AgentFilesWrapper::new(&ARGS.lock().unwrap().as_ref().unwrap().dir);
+        AgentFilesWrapper::new(match &ARGS.lock().unwrap().as_ref() {
+            Some(args) => &args.dir,
+            // Args are not initialized during tests, so we need to guard
+            // against that here.
+            None => "",
+        });
     pub static ref AGENT_MINDER: Mutex<AgentMinder> = {
         let args_guard = ARGS.lock().unwrap();
         let args = args_guard.as_ref().unwrap();

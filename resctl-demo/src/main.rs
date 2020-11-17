@@ -181,7 +181,7 @@ impl Layout {
 
         Self {
             screen: scr,
-            horiz: horiz,
+            horiz,
             status: Vec2::new(half_x, STATUS_HEIGHT),
             usage: Vec2::new(half_x, STATUS_HEIGHT),
             main: Vec2::new(main_x, main_y),
@@ -222,7 +222,7 @@ fn add_zoomed_layer(siv: &mut Cursive) {
     match zv.last() {
         Some(ZoomedView::Agent) => agent::post_zoomed_layout(siv),
         Some(ZoomedView::Journals) => journal::post_zoomed_layout(siv),
-        _ => (),
+        _ => {}
     }
 }
 
@@ -306,7 +306,7 @@ fn update_agent_zoomed_view(siv: &mut Cursive) {
             Some(_) => {
                 siv.pop_layer();
             }
-            _ => (),
+            _ => {}
         }
         zv.push(ZoomedView::Agent);
     } else {
@@ -334,7 +334,7 @@ fn toggle_zoomed_view(siv: &mut Cursive, target: Option<ZoomedView>) {
         Some(_) => {
             siv.pop_layer();
         }
-        _ => (),
+        _ => {}
     }
 
     match target {

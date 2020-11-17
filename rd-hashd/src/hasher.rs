@@ -96,7 +96,7 @@ impl AnonUnit {
         let layout = Layout::from_size_align(size, *PAGE_SIZE).unwrap();
         Self {
             data: unsafe { alloc(layout) },
-            layout: layout,
+            layout,
         }
     }
 }
@@ -194,8 +194,8 @@ impl ClampedNormal {
         Self {
             normal: Normal::new(mean, stdev).unwrap(),
             uniform: Uniform::new_inclusive(left, right),
-            left: left,
-            right: right,
+            left,
+            right,
         }
     }
 
@@ -888,16 +888,21 @@ impl Drop for Dispatch {
 #[cfg(test)]
 mod tests {
     use quantiles::ckms::CKMS;
+    use rand::rngs::SmallRng;
+    use rand::SeedableRng;
+
     const CKMS_ERROR: f64 = 0.001;
 
     #[test]
     fn test_clamped_normal() {
         let _ = ::env_logger::try_init();
+        let mut rng = SmallRng::from_entropy();
+
         // 0 stdev should always give mean.
         println!("Testing ClampedNormal (0, 0) [-1, 1] == 0");
         let mut n = super::ClampedNormal::new(0.0, 0.0, -1.0, 1.0);
         for _ in 0..1024 {
-            assert_eq!(n.sample(), 0.0);
+            assert_eq!(n.sample(&mut rng), 0.0);
         }
 
         // Should behave like a normal distribution with strict bounds.
@@ -905,7 +910,7 @@ mod tests {
         let mut ckms = CKMS::<f64>::new(CKMS_ERROR);
         let mut n = super::ClampedNormal::new(1.0, 0.333333, 0.0, 2.0);
         for _ in 0..4096 {
-            let v = n.sample();
+            let v = n.sample(&mut rng);
             assert!(v >= 0.0 && v <= 2.0);
             ckms.insert(v);
         }
@@ -922,7 +927,7 @@ mod tests {
         let mut ckms = CKMS::<f64>::new(CKMS_ERROR);
         let mut n = super::ClampedNormal::new(0.0, 10.0, -1.0, 1.0);
         for _ in 0..4096 {
-            let v = n.sample();
+            let v = n.sample(&mut rng);
             assert!(v >= -1.0 && v <= 1.0);
             ckms.insert(v);
         }
@@ -933,28 +938,5 @@ mod tests {
         assert!(p25 >= -0.6 && p25 <= -0.4);
         assert!(p50 >= -0.1 && p50 <= 0.1);
         assert!(p75 >= 0.4 && p75 <= 0.6);
-    }
-
-    #[test]
-    fn test_anon_rel_to_idx_off() {
-        let _ = ::env_logger::try_init();
-        const UNIT_SIZE: usize = super::AnonArea::UNIT_SIZE;
-        let rel_to_idx_off = super::AnonArea::rel_to_idx_off;
-
-        let mut pos = 201;
-        for i in -100..0 {
-            let (idx, _) = rel_to_idx_off(i as f64 / 100.0 + 0.005, 200 * UNIT_SIZE);
-            println!("idx={} pos={}", idx, pos);
-            pos -= 2;
-            assert_eq!(idx, pos);
-        }
-
-        let mut pos = 0;
-        for i in 0..100 {
-            let (idx, _) = rel_to_idx_off(i as f64 / 100.0 + 0.005, 200 * UNIT_SIZE);
-            println!("idx={} pos={}", idx, pos);
-            assert_eq!(idx, pos);
-            pos += 2;
-        }
     }
 }

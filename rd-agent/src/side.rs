@@ -147,7 +147,7 @@ fn really_remove_dir_all(path: &str) {
             Some(libc::ENOENT) => {
                 break;
             }
-            Some(libc::ENOTEMPTY) => (),
+            Some(libc::ENOTEMPTY) => {}
             _ => {
                 error!("side: Failed to remove {:?} ({:?})", path, &e);
                 break;
@@ -200,7 +200,7 @@ pub struct Sideload {
 impl Drop for Sideload {
     fn drop(&mut self) {
         match fs::remove_file(&self.job_path) {
-            Ok(()) => (),
+            Ok(()) => {}
             Err(e) => error!("side: Failed to remove {:?} ({:?})", &self.job_path, &e),
         }
         if let Err(e) = self.unit.stop_and_reset() {
@@ -366,8 +366,8 @@ impl SideRunner {
                 name.clone(),
                 Sideload {
                     name: name.clone(),
-                    scr_path: scr_path,
-                    job_path: job_path,
+                    scr_path,
+                    job_path,
                     unit: systemd::Unit::new_sys(sideload_svc_name(&name))?,
                 },
             );
