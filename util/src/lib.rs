@@ -345,7 +345,7 @@ pub fn prog_kick() {
     PROG_WAITQ.notify_all();
 }
 
-#[derive(PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProgState {
     Running,
     Exiting,
