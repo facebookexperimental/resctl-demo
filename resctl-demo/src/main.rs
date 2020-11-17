@@ -70,7 +70,6 @@ lazy_static! {
          -D, --dev=[DEVICE]     'Scratch device override (e.g. nvme0n1)'
          -l, --linux=[PATH]     'Path to linux.tar, downloaded automatically if not specified'
          -k, --keep             'Do not shutdown rd-agent on exit'
-         -i, --iocost-mon       'Enable drgn-based iocost stat monitoring'
          -L, --no-iolat         'Disable bpf-based io latency stat monitoring'
              --force            'Ignore startup check failures'",
         dfl_dir = rd_agent_intf::Args::default().dir,
