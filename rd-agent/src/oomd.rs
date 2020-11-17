@@ -233,7 +233,7 @@ impl Oomd {
             debug!("oomd: clearing {:?}", &path);
             if let Err(e) = write_one_line(&path, "max") {
                 warn!(
-                    "oomd: Failed to clear ${:?} after shutdown ({:?})",
+                    "oomd: Failed to clear {:?} after shutdown ({:?})",
                     &path, &e
                 );
             }
