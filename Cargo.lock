@@ -1163,6 +1163,7 @@ dependencies = [
  "clap",
  "enum-iterator",
  "lazy_static",
+ "libc",
  "log",
  "rd-hashd-intf",
  "serde",

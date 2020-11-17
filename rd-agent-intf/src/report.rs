@@ -1,4 +1,5 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
+use anyhow::Result;
 use chrono::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -303,5 +304,35 @@ impl JsonLoad for Report {}
 impl JsonSave for Report {
     fn preamble() -> Option<String> {
         Some(REPORT_DOC.to_string())
+    }
+}
+
+pub struct ReportIter {
+    dir: String,
+    cur: u64,
+    end: u64,
+}
+
+impl ReportIter {
+    pub fn new(dir: &str, start: u64, end: u64) -> Self {
+        Self {
+            dir: dir.into(),
+            cur: start,
+            end,
+        }
+    }
+}
+
+impl Iterator for ReportIter {
+    type Item = (Result<Report>, u64);
+    fn next(&mut self) -> Option<(Result<Report>, u64)> {
+        if self.cur == self.end {
+            return None;
+        }
+        let cur = self.cur;
+        self.cur += 1;
+
+        let path = format!("{}/{}.json", &self.dir, cur);
+        Some((Report::load(&path), cur))
     }
 }
