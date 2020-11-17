@@ -33,6 +33,7 @@ lazy_static! {
 //
 //  cmd_seq: Written to cmd-ack.json once the commands are accepted
 //  bench_hashd_seq: If > bench::hashd_seq, start benchmark; otherwise, cancel
+//  bench_hashd_args: Extra arguments hashd benchmark
 //  bench_iocost_seq: If > bench::iocost_seq, start benchmark; otherwise, cancel
 //  sideloader.cpu_headroom: Sideload CPU headroom ratio [0.0, 1.0]
 //  hashd[].active: On/off
@@ -103,6 +104,7 @@ impl Default for HashdCmd {
 pub struct Cmd {
     pub cmd_seq: u64,
     pub bench_hashd_seq: u64,
+    pub bench_hashd_args: Vec<String>,
     pub bench_iocost_seq: u64,
     pub sideloader: SideloaderCmd,
     pub hashd: [HashdCmd; 2],
@@ -116,6 +118,7 @@ impl Default for Cmd {
         Self {
             cmd_seq: 0,
             bench_hashd_seq: 0,
+            bench_hashd_args: vec![],
             bench_iocost_seq: 0,
             sideloader: SideloaderCmd { cpu_headroom: 0.2 },
             hashd: Default::default(),

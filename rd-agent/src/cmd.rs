@@ -213,6 +213,7 @@ impl RunnerData {
                             &*self.cfg,
                             cmd.hashd[0].log_bps,
                             0,
+                            cmd.bench_hashd_args.clone(),
                         )?);
 
                         self.state = BenchHashd;

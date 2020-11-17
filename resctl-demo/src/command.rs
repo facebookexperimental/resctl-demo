@@ -106,7 +106,10 @@ impl CmdState {
         let report = &af.report.data;
 
         cmd.cmd_seq += 1;
-        cmd.bench_hashd_seq = self.bench_hashd_next;
+        if self.bench_hashd_next > cmd.bench_hashd_seq {
+            cmd.bench_hashd_seq = self.bench_hashd_next;
+            cmd.bench_hashd_args = vec![];
+        }
         cmd.bench_iocost_seq = self.bench_iocost_next;
 
         cmd.hashd = self.hashd.clone();

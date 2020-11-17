@@ -18,10 +18,16 @@ use super::{hashd, Config, HashdSel};
 pub const IOCOST_QOS_PATH: &str = "/sys/fs/cgroup/io.cost.qos";
 const IOCOST_MODEL_PATH: &str = "/sys/fs/cgroup/io.cost.model";
 
-pub fn start_hashd_bench(cfg: &Config, log_bps: u64, mem_high: u64) -> Result<TransientService> {
+pub fn start_hashd_bench(
+    cfg: &Config,
+    log_bps: u64,
+    mem_high: u64,
+    mut extra_args: Vec<String>,
+) -> Result<TransientService> {
     let mut args = hashd::hashd_path_args(&cfg, HashdSel::A);
     args.push(format!("--bench-log-bps={}", log_bps));
     args.push("--bench".into());
+    args.append(&mut extra_args);
     debug!("args: {:#?}", &args);
 
     let mut svc =
