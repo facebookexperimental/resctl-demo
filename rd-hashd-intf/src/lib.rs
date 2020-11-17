@@ -5,4 +5,4 @@ pub mod report;
 
 pub use args::{Args, DFL_ARGS};
 pub use params::{Params, DFL_PARAMS};
-pub use report::{Latencies, Report, Stat};
+pub use report::{Latencies, Phase, Report, Stat};

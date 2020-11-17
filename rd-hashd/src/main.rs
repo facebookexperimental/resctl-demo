@@ -8,7 +8,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::sleep;
 use std::time::{Duration, Instant, SystemTime};
 
-use rd_hashd_intf::{Args, Params, Report, Stat};
+use rd_hashd_intf::{Args, Params, Phase, Report, Stat};
 use util::*;
 
 mod bench;
@@ -284,6 +284,8 @@ fn main() {
     //
     // Monitor and report.
     //
+    report_file.data.phase = Phase::Running;
+
     sleep(Duration::from_secs(1));
 
     let mut stat_sum: Stat = Default::default();

@@ -6,6 +6,36 @@ use std::time::UNIX_EPOCH;
 
 use util::*;
 
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Serialize,
+    Deserialize
+)]
+pub enum Phase {
+    Prep,
+    Running,
+    BenchCpuSinglePrep,
+    BenchCpuSingle,
+    BenchCpuSaturationPrep,
+    BenchCpuSaturation,
+    BenchMemPrep,
+    BenchMemUp,
+    BenchMemBisect,
+    BenchMemRefine,
+}
+
+impl Default for Phase {
+    fn default() -> Self {
+        Phase::Prep
+    }
+}
+
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Latencies {
     pub p01: f64,
@@ -114,6 +144,7 @@ const REPORT_DOC_HEADER: &str = "\
 // rd-hashd runtime report
 //
 //  timestamp: The time this report was created at
+//  phase: The current phase
 //  rotational: Are testfiles and/or swap on hard disk drives?
 //  rotational_testfiles: Are testfiles on hard disk drives?
 //  rotational_swap: Is swap on hard disk drives?
@@ -124,6 +155,7 @@ const REPORT_DOC_HEADER: &str = "\
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Report {
     pub timestamp: DateTime<Local>,
+    pub phase: Phase,
     pub rotational: bool,
     pub rotational_testfiles: bool,
     pub rotational_swap: bool,
@@ -137,6 +169,7 @@ impl Default for Report {
     fn default() -> Self {
         Self {
             timestamp: DateTime::from(UNIX_EPOCH),
+            phase: Default::default(),
             rotational: false,
             rotational_testfiles: false,
             rotational_swap: false,
