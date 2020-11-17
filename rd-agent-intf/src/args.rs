@@ -36,14 +36,14 @@ lazy_static! {
     static ref ARGS_STR: String = format!(
         "-d, --dir=[TOPDIR]     'Top-level dir for operation and scratch files (default: {dfl_dir})'
          -s, --scratch=[DIR]    'Scratch dir for workloads to use (default: $TOPDIR/scratch)'
-         -L, --no-iolat         'Disable bpf-based io latency stat monitoring'
-             --dev=[NAME]       'Override storage device autodetection (e.g. sda, nvme0n1)'
+         -D, --dev=[NAME]       'Override storage device autodetection (e.g. sda, nvme0n1)'
+         -a, --args=[FILE]      'Load base command line arguments from FILE'
+             --no-iolat         'Disable bpf-based io latency stat monitoring'
              --force            'Ignore startup check results and proceed'
              --prepare          'Prepare the files and directories and exit'
              --linux-tar=[FILE] 'Path to linux source tarball to be used by build sideload'
              --reset            'Reset all states except for bench results, linux.tar and testfiles'
              --passive          'Make system configuration changes only when explicitly requested'
-         -a, --args=[FILE]      'Load base command line arguments from FILE'
          -v...                  'Sets the level of verbosity'",
         dfl_dir = Args::default().dir,
     );
@@ -55,8 +55,9 @@ pub struct Args {
     pub dir: String,
     pub scratch: Option<String>,
     pub dev: Option<String>,
-    pub no_iolat: bool,
 
+    #[serde(skip)]
+    pub no_iolat: bool,
     #[serde(skip)]
     pub force: bool,
     #[serde(skip)]
@@ -134,7 +135,6 @@ impl JsonArgs for Args {
         }
 
         self.no_iolat = matches.is_present("no-iolat");
-
         self.force = matches.is_present("force");
         self.prepare = matches.is_present("prepare");
         self.linux_tar = matches.value_of("linux-tar").map(|x| x.to_string());
