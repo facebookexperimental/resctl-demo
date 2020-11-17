@@ -32,8 +32,6 @@ All files used by workloads are under the scratch directory. See
 TOPDIR/index.json and TOPDIR/cmd.json.
 ";
 
-pub const DFL_TOP: &str = "/var/lib/resctl-demo";
-
 lazy_static! {
     static ref ARGS_STR: String = format!(
         "-d, --dir=[TOPDIR]     'Top-level dir for operation and scratch files (default: {dfl_dir})'
@@ -47,7 +45,7 @@ lazy_static! {
              --passive          'Make system configuration changes only when explicitly requested'
          -a, --args=[FILE]      'Load base command line arguments from FILE'
          -v...                  'Sets the level of verbosity'",
-        dfl_dir = DFL_TOP,
+        dfl_dir = Args::default().dir,
     );
 }
 
@@ -74,7 +72,7 @@ pub struct Args {
 impl Default for Args {
     fn default() -> Self {
         Self {
-            dir: DFL_TOP.into(),
+            dir: "/var/lib/resctl-demo".into(),
             scratch: None,
             dev: None,
             no_iolat: false,
@@ -107,13 +105,14 @@ impl JsonArgs for Args {
     }
 
     fn process_cmdline(&mut self, matches: &clap::ArgMatches) -> bool {
+        let dfl = Args::default();
         let mut updated_base = false;
 
         if let Some(v) = matches.value_of("dir") {
             self.dir = if v.len() > 0 {
                 v.to_string()
             } else {
-                DFL_TOP.into()
+                dfl.dir.clone()
             };
             updated_base = true;
         }

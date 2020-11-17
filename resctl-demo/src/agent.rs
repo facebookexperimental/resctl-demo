@@ -14,7 +14,7 @@ use std::sync::Mutex;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use util::*;
 
-use rd_agent_intf::{Slice, AGENT_SVC_NAME, DFL_TOP};
+use rd_agent_intf::{Slice, AGENT_SVC_NAME};
 
 use super::journal::JournalViewId;
 use super::{
@@ -347,7 +347,11 @@ fn update_agent_state(siv: &mut Cursive, start: bool, force: bool) {
     let mut emsg = StyledString::plain(" ");
     if start {
         let v = read_text_view(siv, "agent-arg-dir");
-        am.dir = if v.len() > 0 { v } else { DFL_TOP.into() };
+        am.dir = if v.len() > 0 {
+            v
+        } else {
+            rd_agent_intf::Args::default().dir
+        };
         am.scratch = read_text_view(siv, "agent-arg-scr");
         am.dev = read_text_view(siv, "agent-arg-dev");
         am.linux_tar = read_text_view(siv, "agent-arg-linux-tar");

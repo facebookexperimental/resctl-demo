@@ -12,7 +12,7 @@ pub mod side_defs;
 pub mod slices;
 pub mod sysreqs;
 
-pub use args::{Args, DFL_TOP};
+pub use args::Args;
 pub use bench::{BenchKnobs, HashdKnobs, IoCostKnobs};
 pub use cmd::{Cmd, HashdCmd, SideloaderCmd};
 pub use cmd_ack::CmdAck;
