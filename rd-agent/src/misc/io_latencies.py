@@ -18,39 +18,24 @@
 from __future__ import print_function
 from bcc import BPF
 from time import sleep
-from threading import Event
 import argparse
 import json
 import sys
-import os
-import signal
 
 description = """
 Monitor IO latency distribution of a block device
 """
 
-epilog = """
-When interval is infinite, biolatpcts will print out result once the
-initialization is complete to indicate readiness. After initialized,
-biolatpcts will output whenever it receives SIGUSR1/2 and before exiting on
-SIGINT, SIGTERM or SIGHUP.
-
-SIGUSR1 starts a new period after reporting. SIGUSR2 doesn't and can be used
-to monitor progress without affecting accumulation of data points. They can
-be used to obtain latency distribution between two arbitrary events and
-monitor progress inbetween.
-"""
-
-parser = argparse.ArgumentParser(description = description, epilog = epilog,
+parser = argparse.ArgumentParser(description = description,
                                  formatter_class = argparse.ArgumentDefaultsHelpFormatter)
-parser.add_argument('dev', metavar='DEV', type=str,
-                    help='Target block device (/dev/DEVNAME, DEVNAME or MAJ:MIN)')
+parser.add_argument('devno', metavar='MAJ:MIN', type=str,
+                    help='Target block device number')
 parser.add_argument('-i', '--interval', type=int, default=3,
-                    help='Report interval (0: exit after startup, -1: infinite)')
+                    help='Report interval')
 parser.add_argument('-w', '--which', choices=['from-rq-alloc', 'after-rq-alloc', 'on-device'],
                     default='on-device', help='Which latency to measure')
-parser.add_argument('-p', '--pcts', metavar='PCT,...', type=str,
-                    default='1,5,10,16,25,50,75,84,90,95,99,100',
+parser.add_argument('-p', '--pcts', metavar='PCT', type=str, nargs='+',
+                    default=['1', '5', '10', '16', '25', '50', '75', '84', '90', '95', '99', '100'],
                     help='Percentiles to calculate')
 parser.add_argument('-j', '--json', action='store_true',
                     help='Output in json')
@@ -65,9 +50,14 @@ BPF_PERCPU_ARRAY(rwdf_100ms, u64, 400);
 BPF_PERCPU_ARRAY(rwdf_1ms, u64, 400);
 BPF_PERCPU_ARRAY(rwdf_10us, u64, 400);
 
+static unsigned int rq_cmd(unsigned int cmd_flags)
+{
+        __asm__ __volatile__("" : : : "memory");
+        return cmd_flags & REQ_OP_MASK;
+}
+
 void kprobe_blk_account_io_done(struct pt_regs *ctx, struct request *rq, u64 now)
 {
-        unsigned int cmd_flags;
         u64 dur;
         size_t base, slot;
 
@@ -79,23 +69,21 @@ void kprobe_blk_account_io_done(struct pt_regs *ctx, struct request *rq, u64 now
             rq->rq_disk->first_minor != __MINOR__)
                 return;
 
-        cmd_flags = rq->cmd_flags;
-        switch (cmd_flags & REQ_OP_MASK) {
-        case REQ_OP_READ:
+        /*
+         * bcc chokes when the following switch block is converted to a jump
+         * table. Work around by using if/else with forced memory access each
+         * step.
+         */
+        if (rq_cmd(rq->cmd_flags) == REQ_OP_READ)
                 base = 0;
-                break;
-        case REQ_OP_WRITE:
+        else if (rq_cmd(rq->cmd_flags) == REQ_OP_WRITE)
                 base = 100;
-                break;
-        case REQ_OP_DISCARD:
+        else if (rq_cmd(rq->cmd_flags) == REQ_OP_DISCARD)
                 base = 200;
-                break;
-        case REQ_OP_FLUSH:
+        else if (rq_cmd(rq->cmd_flags) == REQ_OP_FLUSH)
                 base = 300;
-                break;
-        default:
+        else
                 return;
-        }
 
         dur = now - rq->__START_TIME_FIELD__;
 
@@ -115,20 +103,7 @@ void kprobe_blk_account_io_done(struct pt_regs *ctx, struct request *rq, u64 now
 """
 
 args = parser.parse_args()
-args.pcts = args.pcts.split(',')
 args.pcts.sort(key=lambda x: float(x))
-
-try:
-    major = int(args.dev.split(':')[0])
-    minor = int(args.dev.split(':')[1])
-except Exception:
-    if '/' in args.dev:
-        stat = os.stat(args.dev)
-    else:
-        stat = os.stat('/dev/' + args.dev)
-
-    major = os.major(stat.st_rdev)
-    minor = os.minor(stat.st_rdev)
 
 if args.which == 'from-rq-alloc':
     start_time_field = 'alloc_time_ns'
@@ -137,12 +112,11 @@ elif args.which == 'after-rq-alloc':
 elif args.which == 'on-device':
     start_time_field = 'io_start_time_ns'
 else:
-    print("Invalid latency measurement {}".format(args.which))
-    exit()
+    die()
 
 bpf_source = bpf_source.replace('__START_TIME_FIELD__', start_time_field)
-bpf_source = bpf_source.replace('__MAJOR__', str(major))
-bpf_source = bpf_source.replace('__MINOR__', str(minor))
+bpf_source = bpf_source.replace('__MAJOR__', str(int(args.devno.split(':')[0])))
+bpf_source = bpf_source.replace('__MINOR__', str(int(args.devno.split(':')[1])))
 
 bpf = BPF(text=bpf_source)
 bpf.attach_kprobe(event="blk_account_io_done", fn_name="kprobe_blk_account_io_done")
@@ -223,53 +197,23 @@ def format_usec(lat):
 if args.interval == 0:
     sys.exit(0)
 
-# Set up signal handling so that we print the result on USR1/2 and before
-# exiting on a signal. Combined with infinite interval, this can be used to
-# obtain overall latency distribution between two events. On USR2 the
-# accumulated counters are cleared too, which can be used to define
-# arbitrary intervals.
-force_update_last_rwdf = False
-keep_running = True
-result_req = Event()
-def sig_handler(sig, frame):
-    global keep_running, force_update_last_rwdf, result_req
-    if sig == signal.SIGUSR1:
-        force_update_last_rwdf = True
-    elif sig != signal.SIGUSR2:
-        keep_running = False
-    result_req.set()
+while True:
+    sleep(args.interval)
 
-for sig in (signal.SIGUSR1, signal.SIGUSR2, signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
-    signal.signal(sig, sig_handler)
-
-# If infinite interval, always trigger the first output so that the caller
-# can tell when initialization is complete.
-if args.interval < 0:
-    result_req.set();
-
-while keep_running:
-    result_req.wait(args.interval if args.interval > 0 else None)
-    result_req.clear()
-
-    update_last_rwdf = args.interval > 0 or force_update_last_rwdf
-    force_update_last_rwdf = False
     rwdf_total = [0] * 4;
 
     for i in range(400):
         v = cur_rwdf_100ms.sum(i).value
         rwdf_100ms[i] = max(v - last_rwdf_100ms[i], 0)
-        if update_last_rwdf:
-            last_rwdf_100ms[i] = v
+        last_rwdf_100ms[i] = v
 
         v = cur_rwdf_1ms.sum(i).value
         rwdf_1ms[i] = max(v - last_rwdf_1ms[i], 0)
-        if update_last_rwdf:
-            last_rwdf_1ms[i] = v
+        last_rwdf_1ms[i] = v
 
         v = cur_rwdf_10us.sum(i).value
         rwdf_10us[i] = max(v - last_rwdf_10us[i], 0)
-        if update_last_rwdf:
-            last_rwdf_10us[i] = v
+        last_rwdf_10us[i] = v
 
         rwdf_total[int(i / 100)] += rwdf_100ms[i]
 
@@ -297,7 +241,7 @@ while keep_running:
             result[io_type[iot]] = lats
         print(json.dumps(result), flush=True)
     else:
-        print('\n{:<7}'.format(os.path.basename(args.dev)), end='')
+        print('\n{:<7}'.format(args.devno), end='')
         widths = []
         for pct in args.pcts:
             widths.append(max(len(pct), 5))
