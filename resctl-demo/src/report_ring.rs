@@ -10,7 +10,7 @@ use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use util::*;
 
-use rd_agent_intf::{Report, REPORT_1MIN_RETENTION, REPORT_RETENTION};
+use rd_agent_intf::Report;
 
 use super::AGENT_FILES;
 
@@ -121,7 +121,7 @@ impl ReportRingSet {
                 }),
                 1,
                 60,
-                REPORT_RETENTION,
+                AGENT_FILES.args().rep_retention,
             ),
             min_ring: ReportRing::new(
                 Box::new(|| {
@@ -130,14 +130,14 @@ impl ReportRingSet {
                 }),
                 60,
                 60,
-                REPORT_1MIN_RETENTION,
+                AGENT_FILES.args().rep_1min_retention,
             ),
         }
     }
 
     fn update(&mut self, now: u64) -> Result<()> {
         self.sec_ring.update(now)?;
-        self.min_ring.update(now - REPORT_RETENTION - 60)?;
+        self.min_ring.update(now - self.sec_ring.retention - 60)?;
         if self.sec_ring.ring.len() > 0 && self.min_ring.ring.len() > 0 {
             debug!(
                 "report: min_ring [{}, {}] sec_ring [{}, {}]",

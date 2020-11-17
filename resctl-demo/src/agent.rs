@@ -141,6 +141,10 @@ impl AgentFilesWrapper {
         self.files.lock().unwrap().refresh();
     }
 
+    pub fn args(&self) -> rd_agent_intf::Args {
+        self.files.lock().unwrap().args.data.clone()
+    }
+
     pub fn index(&self) -> rd_agent_intf::Index {
         self.files.lock().unwrap().index.data.clone()
     }

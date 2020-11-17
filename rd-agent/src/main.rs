@@ -33,6 +33,7 @@ use rd_agent_intf::{
     Args, BenchKnobs, Cmd, CmdAck, Report, SideloadDefs, SliceKnobs, SvcReport, SvcStateReport,
     SysReq, SysReqsReport, OOMD_SVC_NAME,
 };
+use report::clear_old_report_files;
 
 const SWAPPINESS_PATH: &str = "/proc/sys/vm/swappiness";
 
@@ -172,6 +173,8 @@ pub struct Config {
     pub balloon_bin: String,
     pub side_linux_tar_path: Option<String>,
 
+    pub rep_retention: Option<u64>,
+    pub rep_1min_retention: Option<u64>,
     pub passive: bool,
 
     pub sr_failed: HashSet<SysReq>,
@@ -401,6 +404,16 @@ impl Config {
             top_path,
             scr_path,
 
+            rep_retention: if args.keep_reports {
+                None
+            } else {
+                Some(args.rep_retention)
+            },
+            rep_1min_retention: if args.keep_reports {
+                None
+            } else {
+                Some(args.rep_1min_retention)
+            },
             passive: args.passive,
 
             sr_failed: HashSet::new(),
@@ -908,14 +921,10 @@ impl Drop for Config {
 }
 
 fn reset_agent_states(cfg: &Config) {
-    for path in vec![
+    let mut paths = vec![
         &cfg.index_path,
         &cfg.sysreqs_path,
         &cfg.cmd_path,
-        &cfg.report_path,
-        &cfg.report_1min_path,
-        &cfg.report_d_path,
-        &cfg.report_1min_d_path,
         &cfg.slices_path,
         &cfg.hashd_paths[0].args,
         &cfg.hashd_paths[0].params,
@@ -931,18 +940,28 @@ fn reset_agent_states(cfg: &Config) {
         &cfg.side_bin_path,
         &cfg.side_scr_path,
         &cfg.sys_scr_path,
-    ] {
+    ];
+
+    if cfg.rep_retention.is_some() {
+        paths.append(&mut vec![&cfg.report_path, &cfg.report_d_path]);
+    }
+
+    if cfg.rep_1min_retention.is_some() {
+        paths.append(&mut vec![&cfg.report_1min_path, &cfg.report_1min_d_path]);
+    }
+
+    for path in paths {
         let path = Path::new(path);
 
         if !path.exists() {
             continue;
         }
 
+        info!("cfg: Removing {:?}", &path);
         if path.is_dir() {
             match path.read_dir() {
                 Ok(files) => {
                     for file in files.filter_map(|r| r.ok()).map(|e| e.path()) {
-                        info!("cfg: Removing {:?}", &file);
                         if let Err(e) = fs::remove_file(&file) {
                             warn!("cfg: Failed to remove {:?} ({:?})", &file, &e);
                         }
@@ -953,7 +972,6 @@ fn reset_agent_states(cfg: &Config) {
                 }
             }
         } else {
-            info!("cfg: Removing {:?}", &path);
             if let Err(e) = fs::remove_file(&path) {
                 warn!("cfg: Failed to remove {:?} ({:?})", &path, &e);
             }
@@ -968,7 +986,7 @@ fn reset_agent_states(cfg: &Config) {
     Command::new(hashd_args.remove(0))
         .args(hashd_args)
         .status()
-        .expect("cfg: Failed to run rd-hashd --prepare");
+        .expect("cfg: Failed to run rd-hashd --prepare-config");
     fs::copy(
         &cfg.hashd_paths(HashdSel::A).args,
         &cfg.hashd_paths(HashdSel::B).args,
@@ -1104,6 +1122,23 @@ fn main() {
     }
 
     if args_file.data.prepare {
+        // ReportFiles init is responsible for clearing old report files
+        // but we aren't gonna get there. Clear them explicitly.
+        let now = unix_now();
+
+        if let Err(e) = clear_old_report_files(&cfg.report_d_path, cfg.rep_retention, now) {
+            warn!(
+                "report: Failed to clear stale per-second report files ({:?})",
+                &e
+            );
+        }
+        if let Err(e) = clear_old_report_files(&cfg.report_1min_d_path, cfg.rep_1min_retention, now)
+        {
+            warn!(
+                "report: Failed to clear stale per-minute report files ({:?})",
+                &e
+            );
+        }
         return;
     }
 

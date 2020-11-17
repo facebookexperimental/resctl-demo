@@ -24,7 +24,7 @@ use super::cmd::Runner;
 use rd_agent_intf::{
     BenchHashdReport, BenchIoCostReport, HashdReport, IoCostReport, IoLatReport, Report,
     ResCtlReport, Slice, UsageReport, HASHD_A_SVC_NAME, HASHD_BENCH_SVC_NAME, HASHD_B_SVC_NAME,
-    IOCOST_BENCH_SVC_NAME, REPORT_1MIN_RETENTION, REPORT_RETENTION,
+    IOCOST_BENCH_SVC_NAME,
 };
 
 #[derive(Debug, Default)]
@@ -325,7 +325,7 @@ impl UsageTracker {
 
 struct ReportFile {
     intv: u64,
-    retention: u64,
+    retention: Option<u64>,
     path: String,
     d_path: String,
     next_at: u64,
@@ -336,36 +336,46 @@ struct ReportFile {
     nr_samples: u32,
 }
 
-impl ReportFile {
-    fn clear_old_files(&self, now: u64) -> Result<()> {
-        for path in fs::read_dir(&self.d_path)?
-            .filter_map(|x| x.ok())
-            .map(|x| x.path())
-        {
-            let name = path
-                .file_name()
-                .unwrap_or_else(|| OsStr::new(""))
-                .to_str()
-                .unwrap_or("");
-            let stamp = match scan_fmt!(name, "{d}.json", u64) {
-                Ok(v) => v,
-                Err(_) => continue,
-            };
-            if stamp < now - self.retention {
-                if let Err(e) = fs::remove_file(&path) {
-                    warn!(
-                        "report: Failed to remove stale report {:?} ({:?})",
-                        &path, &e
-                    );
-                } else {
-                    debug!("report: Removed stale report {:?}", &path);
-                }
+pub fn clear_old_report_files(d_path: &str, retention: Option<u64>, now: u64) -> Result<()> {
+    for path in fs::read_dir(d_path)?
+        .filter_map(|x| x.ok())
+        .map(|x| x.path())
+    {
+        if retention.is_none() {
+            return Ok(());
+        }
+
+        let name = path
+            .file_name()
+            .unwrap_or_else(|| OsStr::new(""))
+            .to_str()
+            .unwrap_or("");
+        let stamp = match scan_fmt!(name, "{d}.json", u64) {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+        if stamp < now - retention.unwrap() {
+            if let Err(e) = fs::remove_file(&path) {
+                warn!(
+                    "report: Failed to remove stale report {:?} ({:?})",
+                    &path, &e
+                );
+            } else {
+                debug!("report: Removed stale report {:?}", &path);
             }
         }
-        Ok(())
     }
+    Ok(())
+}
 
-    fn new(intv: u64, retention: u64, path: &str, d_path: &str, devnr: (u32, u32)) -> ReportFile {
+impl ReportFile {
+    fn new(
+        intv: u64,
+        retention: Option<u64>,
+        path: &str,
+        d_path: &str,
+        devnr: (u32, u32),
+    ) -> ReportFile {
         let now = unix_now();
 
         let rf = Self {
@@ -381,7 +391,7 @@ impl ReportFile {
             nr_samples: 0,
         };
 
-        if let Err(e) = rf.clear_old_files(now) {
+        if let Err(e) = clear_old_report_files(d_path, retention, now) {
             warn!("report: Failed to clear stale report files ({:?})", &e);
         }
         rf
@@ -458,10 +468,12 @@ impl ReportFile {
         }
 
         // delete expired ones
-        for i in was_at..now {
-            let path = format!("{}/{}.json", &self.d_path, i - self.retention);
-            trace!("report: Removing expired {:?}", &path);
-            let _ = fs::remove_file(&path);
+        if let Some(retention) = self.retention {
+            for i in was_at..now {
+                let path = format!("{}/{}.json", &self.d_path, i - retention);
+                trace!("report: Removing expired {:?}", &path);
+                let _ = fs::remove_file(&path);
+            }
         }
     }
 }
@@ -484,14 +496,14 @@ impl ReportWorker {
             term_rx,
             report_file: ReportFile::new(
                 1,
-                REPORT_RETENTION,
+                cfg.rep_retention,
                 &cfg.report_path,
                 &cfg.report_d_path,
                 cfg.scr_devnr,
             ),
             report_file_1min: ReportFile::new(
                 60,
-                REPORT_1MIN_RETENTION,
+                cfg.rep_1min_retention,
                 &cfg.report_1min_path,
                 &cfg.report_1min_d_path,
                 cfg.scr_devnr,

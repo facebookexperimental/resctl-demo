@@ -52,9 +52,6 @@ const REPORT_DOC: &str = "\
 //
 ";
 
-pub const REPORT_RETENTION: u64 = 60 * 60;
-pub const REPORT_1MIN_RETENTION: u64 = 24 * 60 * 60;
-
 #[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SvcStateReport {
     Running,
