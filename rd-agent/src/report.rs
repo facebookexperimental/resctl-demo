@@ -592,13 +592,19 @@ impl ReportWorker {
 
         let (iolat_tx, iolat_rx) = channel::unbounded::<String>();
         let (mut iolat, mut iolat_jh) = (None, None);
-        if cfg.io_latencies_bin.is_some() {
+        if cfg.biolatpcts_bin.is_some() {
             iolat = Some(
-                Command::new(&cfg.io_latencies_bin.as_ref().unwrap())
+                Command::new(&cfg.biolatpcts_bin.as_ref().unwrap())
                     .arg(format!("{}:{}", cfg.scr_devnr.0, cfg.scr_devnr.1))
                     .args(&["-i", "1", "--json"])
                     .arg("-p")
-                    .args(IoLatReport::PCTS.iter().map(|x| format!("{}", x)))
+                    .arg(
+                        IoLatReport::PCTS
+                            .iter()
+                            .map(|x| format!("{}", x))
+                            .collect::<Vec<String>>()
+                            .join(","),
+                    )
                     .stdout(Stdio::piped())
                     .spawn()
                     .unwrap(),
