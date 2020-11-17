@@ -7,6 +7,7 @@ use std::time::UNIX_EPOCH;
 use util::*;
 
 use super::RunnerState;
+use rd_hashd_intf;
 
 const REPORT_DOC: &str = "\
 //
@@ -33,6 +34,7 @@ const REPORT_DOC: &str = "\
 //  sideloader.overload_why: the reason for critical state
 //  bench.hashd.svc.name: rd-hashd benchmark systemd service name
 //  bench.hashd.svc.state: rd-hashd benchmark systemd service state
+//  bench.hashd.phase: rd-hashd benchmark phase
 //  bench.iocost.svc.name: iocost benchmark systemd service name
 //  bench.iocost.svc.state: iocost benchmark systemd service state
 //  hashd[].svc.name: rd-hashd systemd service name
@@ -90,7 +92,13 @@ pub struct OomdReport {
 }
 
 #[derive(Clone, Serialize, Deserialize, Default)]
-pub struct BenchReport {
+pub struct BenchHashdReport {
+    pub svc: SvcReport,
+    pub phase: rd_hashd_intf::Phase,
+}
+
+#[derive(Clone, Serialize, Deserialize, Default)]
+pub struct BenchIoCostReport {
     pub svc: SvcReport,
 }
 
@@ -107,6 +115,7 @@ pub struct SideloaderReport {
 #[derive(Clone, Serialize, Deserialize, Default)]
 pub struct HashdReport {
     pub svc: SvcReport,
+    pub phase: rd_hashd_intf::Phase,
     pub load: f64,
     pub rps: f64,
     pub lat_pct: f64,
@@ -257,8 +266,8 @@ pub struct Report {
     pub resctl: ResCtlReport,
     pub oomd: OomdReport,
     pub sideloader: SideloaderReport,
-    pub bench_hashd: BenchReport,
-    pub bench_iocost: BenchReport,
+    pub bench_hashd: BenchHashdReport,
+    pub bench_iocost: BenchIoCostReport,
     pub hashd: [HashdReport; 2],
     pub sysloads: BTreeMap<String, SysloadReport>,
     pub sideloads: BTreeMap<String, SideloadReport>,

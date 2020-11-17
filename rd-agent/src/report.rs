@@ -22,8 +22,9 @@ use util::*;
 
 use super::cmd::Runner;
 use rd_agent_intf::{
-    BenchReport, HashdReport, IoCostReport, IoLatReport, Report, ResCtlReport, Slice, UsageReport,
-    HASHD_A_SVC_NAME, HASHD_B_SVC_NAME, REPORT_1MIN_RETENTION, REPORT_RETENTION,
+    BenchHashdReport, BenchIoCostReport, HashdReport, IoCostReport, IoLatReport, Report,
+    ResCtlReport, Slice, UsageReport, HASHD_A_SVC_NAME, HASHD_B_SVC_NAME, REPORT_1MIN_RETENTION,
+    REPORT_RETENTION,
 };
 
 #[derive(Debug, Default)]
@@ -406,6 +407,7 @@ impl ReportFile {
             self.hashd_acc[i] /= self.nr_samples;
             report.hashd[i] = HashdReport {
                 svc: report.hashd[i].svc.clone(),
+                phase: report.hashd[i].phase,
                 ..self.hashd_acc[i].clone()
             };
         }
@@ -522,9 +524,14 @@ impl ReportWorker {
 
         let mut runner = self.runner.data.lock().unwrap();
 
-        let bench_hashd = match runner.bench_hashd.as_mut() {
-            Some(svc) => super::svc_refresh_and_report(&mut svc.unit)?,
-            None => Default::default(),
+        let hashd = runner.hashd_set.report(expiration)?;
+
+        let (bench_hashd, bench_hashd_phase) = match runner.bench_hashd.as_mut() {
+            Some(svc) => (
+                super::svc_refresh_and_report(&mut svc.unit)?,
+                hashd[0].phase,
+            ),
+            None => (Default::default(), Default::default()),
         };
         let bench_iocost = match runner.bench_iocost.as_mut() {
             Some(svc) => super::svc_refresh_and_report(&mut svc.unit)?,
@@ -546,9 +553,12 @@ impl ReportWorker {
             resctl,
             oomd: runner.sobjs.oomd.report()?,
             sideloader: runner.sobjs.sideloader.report()?,
-            bench_hashd: BenchReport { svc: bench_hashd },
-            bench_iocost: BenchReport { svc: bench_iocost },
-            hashd: runner.hashd_set.report(expiration)?,
+            bench_hashd: BenchHashdReport {
+                svc: bench_hashd,
+                phase: bench_hashd_phase,
+            },
+            bench_iocost: BenchIoCostReport { svc: bench_iocost },
+            hashd,
             sysloads: runner.side_runner.report_sysloads()?,
             sideloads: runner.side_runner.report_sideloads()?,
             usages: BTreeMap::new(),

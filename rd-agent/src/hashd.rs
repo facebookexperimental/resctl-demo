@@ -193,6 +193,7 @@ impl Hashd {
 
         Ok(HashdReport {
             svc: svc_r,
+            phase: hashd_r.phase,
             load: (hashd_r.hasher.rps / self.rps_max as f64).min(1.0),
             rps: hashd_r.hasher.rps,
             lat_pct: self.lat_target_pct,
