@@ -6,6 +6,8 @@ use enum_iterator::IntoEnumIterator;
 use json;
 use linux_proc;
 use log::{debug, error, info, trace, warn};
+use nix::sys::signal::{kill, Signal};
+use nix::unistd::Pid;
 use procfs;
 use scan_fmt::scan_fmt;
 use std::collections::{BTreeMap, HashMap};
@@ -15,12 +17,13 @@ use std::io::prelude::*;
 use std::io::BufReader;
 use std::os::unix::fs::symlink;
 use std::panic;
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, Stdio};
 use std::thread::{spawn, JoinHandle};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use util::*;
 
 use super::cmd::Runner;
+use super::Config;
 use rd_agent_intf::{
     BenchHashdReport, BenchIoCostReport, HashdReport, IoCostReport, IoLatReport, Report,
     ResCtlReport, Slice, UsageReport, HASHD_A_SVC_NAME, HASHD_BENCH_SVC_NAME, HASHD_B_SVC_NAME,
@@ -484,6 +487,7 @@ struct ReportWorker {
     report_file: ReportFile,
     report_file_1min: ReportFile,
     iolat: IoLatReport,
+    iolat_cum: IoLatReport,
     iocost_devnr: (u32, u32),
 }
 
@@ -510,6 +514,7 @@ impl ReportWorker {
             ),
 
             iolat: Default::default(),
+            iolat_cum: Default::default(),
             iocost_devnr: cfg.scr_devnr,
 
             runner: {
@@ -581,6 +586,7 @@ impl ReportWorker {
             sideloads: runner.side_runner.report_sideloads()?,
             usages: BTreeMap::new(),
             iolat: self.iolat.clone(),
+            iolat_cum: self.iolat_cum.clone(),
             iocost,
         })
     }
@@ -612,6 +618,32 @@ impl ReportWorker {
         Ok(iolat_map)
     }
 
+    fn start_iolat(
+        cfg: &Config,
+        name: &str,
+        intv: &str,
+        tx: Sender<String>,
+    ) -> (Child, JoinHandle<()>) {
+        let mut cmd = Command::new(&cfg.biolatpcts_bin.as_ref().unwrap())
+            .arg(format!("{}:{}", cfg.scr_devnr.0, cfg.scr_devnr.1))
+            .args(&["-i", intv, "--json"])
+            .arg("-p")
+            .arg(
+                IoLatReport::PCTS
+                    .iter()
+                    .map(|x| format!("{}", x))
+                    .collect::<Vec<String>>()
+                    .join(","),
+            )
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let name = name.to_string();
+        let stdout = cmd.stdout.take().unwrap();
+        let jh = spawn(move || child_reader_thread(name, stdout, tx));
+        (cmd, jh)
+    }
+
     fn run_inner(mut self) {
         let mut next_at = unix_now() + 1;
 
@@ -620,27 +652,18 @@ impl ReportWorker {
 
         let (iolat_tx, iolat_rx) = channel::unbounded::<String>();
         let (mut iolat, mut iolat_jh) = (None, None);
+
+        let (iolat_cum_tx, iolat_cum_rx) = channel::unbounded::<String>();
+        let (mut iolat_cum, mut iolat_cum_jh) = (None, None);
+
         if cfg.biolatpcts_bin.is_some() {
-            iolat = Some(
-                Command::new(&cfg.biolatpcts_bin.as_ref().unwrap())
-                    .arg(format!("{}:{}", cfg.scr_devnr.0, cfg.scr_devnr.1))
-                    .args(&["-i", "1", "--json"])
-                    .arg("-p")
-                    .arg(
-                        IoLatReport::PCTS
-                            .iter()
-                            .map(|x| format!("{}", x))
-                            .collect::<Vec<String>>()
-                            .join(","),
-                    )
-                    .stdout(Stdio::piped())
-                    .spawn()
-                    .unwrap(),
-            );
-            let iolat_stdout = iolat.as_mut().unwrap().stdout.take().unwrap();
-            iolat_jh = Some(spawn(move || {
-                child_reader_thread("iolat".into(), iolat_stdout, iolat_tx)
-            }));
+            let (cmd, jh) = Self::start_iolat(cfg, "iolat", "1", iolat_tx);
+            iolat = Some(cmd);
+            iolat_jh = Some(jh);
+
+            let (cmd, jh) = Self::start_iolat(cfg, "iolat_cum", "-1", iolat_cum_tx);
+            iolat_cum = Some(cmd);
+            iolat_cum_jh = Some(jh);
         }
 
         drop(runner);
@@ -649,6 +672,11 @@ impl ReportWorker {
         'outer: loop {
             select! {
                 recv(iolat_rx) -> res => {
+                    // the cumulative instance doesn't have an interval,
+                    // kick it and run it at the same pace as the 1s one.
+                    kill(Pid::from_raw(iolat_cum.as_ref().unwrap().id() as i32),
+                         Signal::SIGUSR2).unwrap();
+
                     match res {
                         Ok(line) => {
                             match Self::parse_iolat_output(&line) {
@@ -658,6 +686,20 @@ impl ReportWorker {
                         }
                         Err(e) => {
                             warn!("report: iolat reader thread failed ({:?})", &e);
+                            break;
+                        }
+                    }
+                },
+                recv(iolat_cum_rx) -> res => {
+                    match res {
+                        Ok(line) => {
+                            match Self::parse_iolat_output(&line) {
+                                Ok(v) => self.iolat_cum = v,
+                                Err(e) => warn!("report: failed to parse iolat_cum output ({:?})", &e),
+                            }
+                        }
+                        Err(e) => {
+                            warn!("report: iolat_cum reader thread failed ({:?})", &e);
                             break;
                         }
                     }
@@ -698,11 +740,18 @@ impl ReportWorker {
         }
 
         drop(iolat_rx);
+        drop(iolat_cum_rx);
 
         if iolat.is_some() {
             let _ = iolat.as_mut().unwrap().kill();
             let _ = iolat.as_mut().unwrap().wait();
             iolat_jh.unwrap().join().unwrap();
+        }
+
+        if iolat_cum.is_some() {
+            let _ = iolat_cum.as_mut().unwrap().kill();
+            let _ = iolat_cum.as_mut().unwrap().wait();
+            iolat_cum_jh.unwrap().join().unwrap();
         }
     }
 

@@ -48,6 +48,7 @@ const REPORT_DOC: &str = "\
 //  sideloads{}.svc.name: Sideload systemd service name
 //  sideloads{}.svc.state: Sideload systemd service state
 //  iolat.{read|write|discard|flush}.p*: IO latency distributions
+//  iolat_cum.{read|write|discard|flush}.p*: Cumulative IO latency distributions
 //
 //
 ";
@@ -271,6 +272,7 @@ pub struct Report {
     pub sideloads: BTreeMap<String, SideloadReport>,
     pub usages: BTreeMap<String, UsageReport>,
     pub iolat: IoLatReport,
+    pub iolat_cum: IoLatReport,
     pub iocost: IoCostReport,
 }
 
@@ -290,6 +292,7 @@ impl Default for Report {
             sideloads: Default::default(),
             usages: Default::default(),
             iolat: Default::default(),
+            iolat_cum: Default::default(),
             iocost: Default::default(),
         }
     }
