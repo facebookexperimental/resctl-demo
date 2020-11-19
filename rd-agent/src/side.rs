@@ -271,9 +271,9 @@ impl SideRunner {
         let cfg = &self.cfg;
 
         vec![
-            format!("NR_CPUS={}", *NR_CPUS),
-            format!("TOTAL_MEMORY={}", *TOTAL_MEMORY),
-            format!("TOTAL_SWAP={}", *TOTAL_SWAP),
+            format!("NR_CPUS={}", nr_cpus()),
+            format!("TOTAL_MEMORY={}", total_memory()),
+            format!("TOTAL_SWAP={}", total_swap()),
             format!("ROTATIONAL_SWAP={}", if *ROTATIONAL_SWAP { 1 } else { 0 }),
             format!("IO_DEV={}", &cfg.scr_dev),
             format!("IO_DEVNR={}:{}", cfg.scr_devnr.0, cfg.scr_devnr.1),

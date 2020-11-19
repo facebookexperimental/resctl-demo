@@ -1,6 +1,5 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
 use anyhow::Result;
-use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
 
 use util::*;
@@ -10,10 +9,6 @@ pub struct PidParams {
     pub kp: f64,
     pub ki: f64,
     pub kd: f64,
-}
-
-lazy_static! {
-    pub static ref DFL_PARAMS: Params = Default::default();
 }
 
 const PARAMS_DOC: &str = "\

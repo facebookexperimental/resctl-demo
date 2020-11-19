@@ -759,19 +759,19 @@ impl Config {
         let swap_total = sys.get_total_swap() as usize * 1024;
         let swap_avail = swap_total - sys.get_used_swap() as usize * 1024;
 
-        if (swap_total as f64) < (*TOTAL_MEMORY as f64 * 0.3) {
+        if (swap_total as f64) < (total_memory() as f64 * 0.3) {
             warn!(
                 "cfg: Swap {:.2}G is smaller than 1/3 of memory {:.2}G",
                 to_gb(swap_total),
-                to_gb(*TOTAL_MEMORY / 3)
+                to_gb(total_memory() / 3)
             );
             self.sr_failed.insert(SysReq::Swap);
         }
-        if (swap_avail as f64) < (*TOTAL_MEMORY as f64 * 0.3).min((31 << 30) as f64) {
+        if (swap_avail as f64) < (total_memory() as f64 * 0.3).min((31 << 30) as f64) {
             warn!(
                 "cfg: Available swap {:.2}G is smaller than min(1/3 of memory {:.2}G, 32G)",
                 to_gb(swap_avail),
-                to_gb(*TOTAL_MEMORY / 3)
+                to_gb(total_memory() / 3)
             );
             self.sr_failed.insert(SysReq::Swap);
         }

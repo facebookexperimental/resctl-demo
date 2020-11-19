@@ -331,7 +331,7 @@ fn exec_one_cmd(siv: &mut Cursive, cmd: &RdCmd) {
 
                 cs.sys_cpu_ratio = SliceConfig::DFL_SYS_CPU_RATIO;
                 cs.sys_io_ratio = SliceConfig::DFL_SYS_IO_RATIO;
-                cs.mem_margin = SliceConfig::dfl_mem_margin() as f64 / *TOTAL_MEMORY as f64;
+                cs.mem_margin = SliceConfig::dfl_mem_margin() as f64 / total_memory() as f64;
                 cs.balloon_ratio = dfl_cmd.balloon_ratio;
                 cs.cpu_headroom = dfl_cmd.sideloader.cpu_headroom;
             };
@@ -442,8 +442,8 @@ fn format_knob_val(knob: &RdKnob, ratio: f64) -> String {
         RdKnob::HashdALogBps | RdKnob::HashdBLogBps => {
             format_size(ratio * bench.iocost.model.wbps as f64)
         }
-        RdKnob::MemMargin => format_size(ratio * *TOTAL_MEMORY as f64),
-        RdKnob::Balloon => format_size(ratio * *TOTAL_MEMORY as f64),
+        RdKnob::MemMargin => format_size(ratio * total_memory() as f64),
+        RdKnob::Balloon => format_size(ratio * total_memory() as f64),
         _ => format_pct(ratio) + "%",
     };
 
@@ -528,7 +528,7 @@ fn hashd_cmd_file_addr_stdev(hashd: &HashdCmd) -> f64 {
     if let Some(v) = hashd.file_addr_stdev {
         v.min(1.0)
     } else {
-        rd_hashd_intf::DFL_PARAMS.file_addr_stdev_ratio
+        rd_hashd_intf::Params::default().file_addr_stdev_ratio
     }
 }
 
@@ -536,7 +536,7 @@ fn hashd_cmd_anon_addr_stdev(hashd: &HashdCmd) -> f64 {
     if let Some(v) = hashd.anon_addr_stdev {
         v.min(1.0)
     } else {
-        rd_hashd_intf::DFL_PARAMS.anon_addr_stdev_ratio
+        rd_hashd_intf::Params::default().anon_addr_stdev_ratio
     }
 }
 

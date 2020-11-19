@@ -568,7 +568,7 @@ impl DispatchThread {
 
             lat: Latencies::default(),
             concurrency_max: params.concurrency_max as f64,
-            concurrency: (*NR_CPUS as f64 / 2.0).max(1.0),
+            concurrency: (nr_cpus() as f64 / 2.0).max(1.0),
             nr_in_flight: 0,
             nr_done: 0,
             last_nr_done: 0,

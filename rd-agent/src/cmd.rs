@@ -262,7 +262,7 @@ impl RunnerData {
                     }
 
                     let balloon_size =
-                        ((*TOTAL_MEMORY as f64) * &self.sobjs.cmd_file.data.balloon_ratio) as usize;
+                        ((total_memory() as f64) * &self.sobjs.cmd_file.data.balloon_ratio) as usize;
                     if let Err(e) = self.balloon.set_size(balloon_size) {
                         error!(
                             "cmd: Failed to set balloon size to {:.2}G ({:?})",

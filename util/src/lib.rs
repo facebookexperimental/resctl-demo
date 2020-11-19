@@ -10,6 +10,7 @@ use simplelog as sl;
 use std::cell::RefCell;
 use std::env;
 use std::ffi::{CString, OsStr, OsString};
+use std::fmt::Write as FmtWrite;
 use std::fs;
 use std::io::prelude::*;
 use std::io::BufReader;
@@ -20,7 +21,7 @@ use std::os::unix::fs::MetadataExt as UnixME;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{self, Command};
-use std::sync::{Condvar, Mutex};
+use std::sync::{atomic, Condvar, Mutex};
 use std::thread_local;
 use std::time::{Duration, UNIX_EPOCH};
 use sysinfo::{self, SystemExt};
@@ -42,18 +43,21 @@ pub const TO_PCT: f64 = 100.0;
 pub const MSEC: f64 = 1.0 / 1000.0;
 
 lazy_static! {
-    pub static ref TOTAL_MEMORY: usize = {
+    pub static ref TOTAL_SYSTEM_MEMORY: usize = {
         let mut sys = sysinfo::System::new();
         sys.refresh_memory();
         sys.get_total_memory() as usize * 1024
     };
-    pub static ref TOTAL_SWAP: usize = {
+    pub static ref TOTAL_SYSTEM_SWAP: usize = {
         let mut sys = sysinfo::System::new();
         sys.refresh_memory();
         sys.get_total_swap() as usize * 1024
     };
+    pub static ref NR_SYSTEM_CPUS: usize = ::num_cpus::get();
+    static ref TOTAL_MEMORY: atomic::AtomicUsize = atomic::AtomicUsize::new(0);
+    static ref TOTAL_SWAP: atomic::AtomicUsize = atomic::AtomicUsize::new(0);
+    static ref NR_CPUS: atomic::AtomicUsize = atomic::AtomicUsize::new(0);
     pub static ref PAGE_SIZE: usize = ::page_size::get();
-    pub static ref NR_CPUS: usize = ::num_cpus::get();
     pub static ref ROTATIONAL_SWAP: bool = storage_info::is_swap_rotational();
     pub static ref IS_FB_PROD: bool = {
         match glob("/sys/fs/cgroup/**/fbagentd.service")
@@ -68,6 +72,67 @@ lazy_static! {
             None => false,
         }
     };
+}
+
+pub fn total_memory() -> usize {
+    match TOTAL_MEMORY.load(atomic::Ordering::Relaxed) {
+        0 => *TOTAL_SYSTEM_MEMORY,
+        v => v,
+    }
+}
+
+pub fn total_swap() -> usize {
+    match TOTAL_SWAP.load(atomic::Ordering::Relaxed) {
+        0 => *TOTAL_SYSTEM_SWAP,
+        v => v,
+    }
+}
+
+pub fn nr_cpus() -> usize {
+    match NR_CPUS.load(atomic::Ordering::Relaxed) {
+        0 => *NR_SYSTEM_CPUS,
+        v => v,
+    }
+}
+
+pub fn override_system_configuration(
+    total_memory: Option<usize>,
+    total_swap: Option<usize>,
+    nr_cpus: Option<usize>,
+) {
+    let total_memory = total_memory.unwrap_or(0);
+    let total_swap = total_swap.unwrap_or(0);
+    let nr_cpus = nr_cpus.unwrap_or(0);
+
+    TOTAL_MEMORY.store(total_memory, atomic::Ordering::Relaxed);
+    TOTAL_SWAP.store(total_swap, atomic::Ordering::Relaxed);
+    NR_CPUS.store(nr_cpus, atomic::Ordering::Relaxed);
+
+    let mut buf = String::new();
+    if total_memory > 0 {
+        write!(
+            buf,
+            " memory={}->{}",
+            format_size(*TOTAL_SYSTEM_MEMORY),
+            format_size(total_memory)
+        )
+        .unwrap();
+    }
+    if total_swap > 0 {
+        write!(
+            buf,
+            " swap={}->{}",
+            format_size(*TOTAL_SYSTEM_SWAP),
+            format_size(total_swap)
+        )
+        .unwrap();
+    }
+    if nr_cpus > 0 {
+        write!(buf, " cpus={}->{}", *NR_SYSTEM_CPUS, nr_cpus).unwrap();
+    }
+    if buf.len() > 0 {
+        info!("System configuration overrides:{}", &buf);
+    }
 }
 
 pub fn to_gb<T>(size: T) -> f64

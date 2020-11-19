@@ -2,9 +2,9 @@
 use clap::{App, AppSettings, ArgMatches};
 use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
-
-use super::DFL_PARAMS;
 use util::*;
+
+use super::Params;
 
 const HELP_BODY: &str = "\
 Resource-control demo hash daemon.
@@ -101,7 +101,6 @@ performs benchmark to determine the parameters and then starts a normal run.
 ";
 
 lazy_static! {
-    pub static ref DFL_ARGS: Args = Default::default();
     static ref ARGS_STR: String = {
         format!(
             "-t, --testfiles=[DIR]         'Testfiles directory'
@@ -126,12 +125,15 @@ lazy_static! {
                  --bench-hash-size=[SIZE]  'Use the specified hash size'
                  --bench-rps-max=[RPS]     'Use the specified RPS max'
                  --bench-log-bps=[BPS]     'Log write bps at max rps (default: {dfl_log_bps}M)'
+                 --total-memory=[SIZE]     'Override total memory detection'
+                 --total-swap=[SIZE]       'Override total swap space detection'
+                 --nr-cpus=[NR]            'Override cpu count detection'
              -v...                         'Sets the level of verbosity'",
-            dfl_size=to_gb(DFL_ARGS.size),
-            dfl_file_max_frac=DFL_ARGS.file_max_frac,
-            dfl_log_size=to_gb(DFL_ARGS.log_size),
-            dfl_log_bps=to_mb(DFL_ARGS.bench_log_bps),
-            dfl_intv=DFL_ARGS.interval)
+            dfl_size=to_gb(Args::default().size),
+            dfl_file_max_frac=Args::default().file_max_frac,
+            dfl_log_size=to_gb(Args::default().log_size),
+            dfl_log_bps=to_mb(Args::default().bench_log_bps),
+            dfl_intv=Args::default().interval)
     };
 }
 
@@ -157,6 +159,9 @@ pub struct Args {
     pub log_size: u64,
     pub interval: u32,
     pub rotational: Option<bool>,
+    pub total_memory: Option<usize>,
+    pub total_swap: Option<usize>,
+    pub nr_cpus: Option<usize>,
 
     #[serde(skip)]
     pub keep_caches: bool,
@@ -195,15 +200,18 @@ impl Default for Args {
     fn default() -> Self {
         Self {
             testfiles: None,
-            size: Self::DFL_SIZE_MULT * *TOTAL_MEMORY as u64,
+            size: Self::DFL_SIZE_MULT * total_memory() as u64,
             file_max_frac: Self::DFL_FILE_MAX_FRAC,
             compressibility: 0.0,
             params: None,
             report: None,
             log_dir: None,
-            log_size: *TOTAL_MEMORY as u64 / 2,
+            log_size: total_memory() as u64 / 2,
             interval: 10,
             rotational: None,
+            total_memory: None,
+            total_swap: None,
+            nr_cpus: None,
             clear_testfiles: false,
             keep_caches: false,
             prepare_testfiles: true,
@@ -213,7 +221,7 @@ impl Default for Args {
             bench_fake_cpu_load: false,
             bench_hash_size: 0,
             bench_rps_max: 0,
-            bench_log_bps: DFL_PARAMS.log_bps,
+            bench_log_bps: Params::default().log_bps,
             verbosity: 0,
         }
     }
@@ -241,6 +249,22 @@ impl JsonArgs for Args {
 
     fn verbosity(matches: &ArgMatches) -> u32 {
         matches.occurrences_of("v") as u32
+    }
+
+    fn system_configuration_overrides(
+        matches: &ArgMatches,
+    ) -> (Option<usize>, Option<usize>, Option<usize>) {
+        (
+            matches
+                .value_of("total-memory")
+                .map(|x| x.parse::<usize>().unwrap()),
+            matches
+                .value_of("total-swap")
+                .map(|x| x.parse::<usize>().unwrap()),
+            matches
+                .value_of("nr-cpus")
+                .map(|x| x.parse::<usize>().unwrap()),
+        )
     }
 
     fn process_cmdline(&mut self, matches: &ArgMatches) -> bool {

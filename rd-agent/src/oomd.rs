@@ -272,12 +272,12 @@ impl Oomd {
         oomd_cfg_append(&oomd_cfg_slice_senpai(
             &knobs.workload.senpai,
             Slice::Work,
-            *TOTAL_MEMORY as u64,
+            total_memory() as u64,
         ));
         oomd_cfg_append(&oomd_cfg_slice_senpai(
             &knobs.system.senpai,
             Slice::Sys,
-            *TOTAL_MEMORY as u64,
+            total_memory() as u64,
         ));
 
         if knobs.swap_enable {

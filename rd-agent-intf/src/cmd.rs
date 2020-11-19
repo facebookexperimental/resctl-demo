@@ -52,11 +52,11 @@ lazy_static! {
 //  sideloads{{}}: \"NAME\": \"DEF_ID\" pairs for active sideloads
 //
 ",
-                dfl_file_ratio = rd_hashd_intf::DFL_PARAMS.file_frac,
-                dfl_file_max_ratio = rd_hashd_intf::DFL_ARGS.file_max_frac,
-                dfl_file_addr_stdev = rd_hashd_intf::DFL_PARAMS.file_addr_stdev_ratio,
-                dfl_anon_addr_stdev = rd_hashd_intf::DFL_PARAMS.anon_addr_stdev_ratio,
-                dfl_log_bps = to_mb(rd_hashd_intf::DFL_PARAMS.log_bps),
+                dfl_file_ratio = rd_hashd_intf::Params::default().file_frac,
+                dfl_file_max_ratio = rd_hashd_intf::Args::default().file_max_frac,
+                dfl_file_addr_stdev = rd_hashd_intf::Params::default().file_addr_stdev_ratio,
+                dfl_anon_addr_stdev = rd_hashd_intf::Params::default().anon_addr_stdev_ratio,
+                dfl_log_bps = to_mb(rd_hashd_intf::Params::default().log_bps),
         )
     };
 }
@@ -85,15 +85,15 @@ impl Default for HashdCmd {
     fn default() -> Self {
         Self {
             active: false,
-            lat_target_pct: rd_hashd_intf::DFL_PARAMS.lat_target_pct,
+            lat_target_pct: rd_hashd_intf::Params::default().lat_target_pct,
             lat_target: 100.0 * MSEC,
             rps_target_ratio: 0.5,
             mem_ratio: None,
             file_addr_stdev: None,
             anon_addr_stdev: None,
-            file_ratio: rd_hashd_intf::DFL_PARAMS.file_frac,
-            file_max_ratio: rd_hashd_intf::DFL_ARGS.file_max_frac,
-            log_bps: rd_hashd_intf::DFL_PARAMS.log_bps,
+            file_ratio: rd_hashd_intf::Params::default().file_frac,
+            file_max_ratio: rd_hashd_intf::Args::default().file_max_frac,
+            log_bps: rd_hashd_intf::Params::default().log_bps,
             weight: 1.0,
         }
     }

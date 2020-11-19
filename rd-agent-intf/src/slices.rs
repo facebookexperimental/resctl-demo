@@ -108,16 +108,16 @@ impl SliceConfig {
     pub const DFL_SYS_IO_RATIO: f64 = 0.1;
 
     pub fn dfl_mem_margin() -> u64 {
-        let margin = *TOTAL_MEMORY as u64 / 4;
+        let margin = total_memory() as u64 / 4;
         if *IS_FB_PROD {
-            (margin + 2 << 30).min(*TOTAL_MEMORY as u64 / 2)
+            (margin + 2 << 30).min(total_memory() as u64 / 2)
         } else {
             margin
         }
     }
 
     pub fn bench_balloon_size() -> usize {
-        (*TOTAL_MEMORY / 8).min(512 << 20)
+        (total_memory() / 8).min(512 << 20)
     }
 
     fn default(slice: Slice) -> Self {
@@ -148,7 +148,7 @@ impl SliceConfig {
             },
             Slice::Work => Self {
                 io_weight: 500,
-                mem_low: MemoryKnob::Bytes(*TOTAL_MEMORY as u64 - Self::dfl_mem_margin()),
+                mem_low: MemoryKnob::Bytes(total_memory() as u64 - Self::dfl_mem_margin()),
                 ..Default::default()
             },
             Slice::Side => Self {
