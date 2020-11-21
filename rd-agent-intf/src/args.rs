@@ -45,6 +45,7 @@ lazy_static! {
              --force-running    'Ignore bench requirements and enter Running state'
              --prepare          'Prepare the files and directories and exit'
              --linux-tar=[FILE] 'Path to linux source tarball to be used by build sideload'
+             --bench-file=[FILE] 'Bench file name override'
              --reset            'Reset all states except for bench results, linux.tar and testfiles'
              --keep-reports     'Don't delete expired report files, also affects --reset'
              --bypass           'Skip startup and periodic health checks'
@@ -76,6 +77,8 @@ pub struct Args {
     #[serde(skip)]
     pub linux_tar: Option<String>,
     #[serde(skip)]
+    pub bench_file: Option<String>,
+    #[serde(skip)]
     pub reset: bool,
     #[serde(skip)]
     pub keep_reports: bool,
@@ -98,6 +101,7 @@ impl Default for Args {
             force_running: false,
             prepare: false,
             linux_tar: None,
+            bench_file: None,
             reset: false,
             keep_reports: false,
             bypass: false,
@@ -177,6 +181,7 @@ impl JsonArgs for Args {
         self.force_running = matches.is_present("force-running");
         self.prepare = matches.is_present("prepare");
         self.linux_tar = matches.value_of("linux-tar").map(|x| x.to_string());
+        self.bench_file = matches.value_of("bench-file").map(|x| x.to_string());
         self.reset = matches.is_present("reset");
         self.keep_reports = matches.is_present("keep-reports");
         self.bypass = matches.is_present("bypass");

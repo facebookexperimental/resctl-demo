@@ -334,6 +334,13 @@ impl Config {
         Self::prep_dir(&report_d_path);
         Self::prep_dir(&report_1min_d_path);
 
+        let bench_path = top_path.clone()
+            + "/"
+            + match args.bench_file.as_ref() {
+                None => "bench.json",
+                Some(name) => name,
+            };
+
         Self::prep_dir(&(top_path.clone() + "/hashd-A"));
         Self::prep_dir(&(top_path.clone() + "/hashd-B"));
         Self::prep_dir(&(top_path.clone() + "/oomd"));
@@ -367,7 +374,7 @@ impl Config {
             report_1min_path: top_path.clone() + "/report-1min.json",
             report_d_path,
             report_1min_d_path,
-            bench_path: top_path.clone() + "/bench.json",
+            bench_path,
             slices_path: top_path.clone() + "/slices.json",
             hashd_paths: [
                 HashdPaths {
