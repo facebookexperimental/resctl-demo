@@ -772,7 +772,7 @@ impl Config {
         }
 
         // swap configuration check
-        let swap_total = sys.get_total_swap() as usize * 1024;
+        let swap_total = total_swap();
         let swap_avail = swap_total - sys.get_used_swap() as usize * 1024;
 
         if (swap_total as f64) < (total_memory() as f64 * 0.3) {
@@ -894,7 +894,22 @@ impl Config {
             }
         }
 
-        SysReqsReport { satisfied, missed }.save(&self.sysreqs_path)?;
+        let (scr_dev_model, scr_dev_size) = match devname_to_model_and_size(&self.scr_dev) {
+            Ok(v) => v,
+            Err(e) =>
+                bail!("failed to determine model and size of {:?} ({})", &self.scr_dev, &e),
+        };
+
+        SysReqsReport {
+            satisfied,
+            missed,
+            nr_cpus: nr_cpus(),
+            total_memory: total_memory(),
+            total_swap: total_swap(),
+            scr_dev_model,
+            scr_dev_size,
+        }
+        .save(&self.sysreqs_path)?;
 
         if self.sr_failed.is_empty() {
             Ok(())
@@ -1141,9 +1156,9 @@ fn main() {
     if !cfg.bypass {
         if let Err(e) = cfg.startup_checks() {
             if args_file.data.force {
-                warn!("cfg: Ignoring startup check failures as per --force");
+                warn!("cfg: Ignoring startup check failures as per --force ({})", &e);
             } else {
-                error!("cfg: {:?}", e);
+                error!("cfg: {}", &e);
                 panic!();
             }
         }
