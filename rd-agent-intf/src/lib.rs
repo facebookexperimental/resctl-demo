@@ -28,7 +28,7 @@ pub use report::{
     SysloadReport, UsageReport,
 };
 pub use side_defs::{SideloadDefs, SideloadSpec};
-pub use slices::{DisableSeqKnobs, MemoryKnob, Slice, SliceConfig, SliceKnobs};
+pub use slices::{DisableSeqKnobs, MemoryKnob, Slice, SliceConfig, SliceKnobs, ROOT_SLICE};
 pub use sysreqs::{SysReq, SysReqsReport};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]

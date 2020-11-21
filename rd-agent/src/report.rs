@@ -27,7 +27,7 @@ use super::Config;
 use rd_agent_intf::{
     BenchHashdReport, BenchIoCostReport, HashdReport, IoCostReport, IoLatReport, Report,
     ResCtlReport, Slice, UsageReport, HASHD_A_SVC_NAME, HASHD_BENCH_SVC_NAME, HASHD_B_SVC_NAME,
-    IOCOST_BENCH_SVC_NAME,
+    IOCOST_BENCH_SVC_NAME, ROOT_SLICE,
 };
 
 #[derive(Debug, Default)]
@@ -225,7 +225,7 @@ impl UsageTracker {
             usages: HashMap::new(),
         };
 
-        us.usages.insert("-.slice".into(), Default::default());
+        us.usages.insert(ROOT_SLICE.into(), Default::default());
         for slice in Slice::into_enum_iter() {
             us.usages.insert(slice.name().into(), Default::default());
         }
@@ -243,7 +243,7 @@ impl UsageTracker {
         let mut usages = HashMap::new();
 
         let (us, cpu_total) = read_system_usage(self.devnr)?;
-        usages.insert("-.slice".into(), us);
+        usages.insert(ROOT_SLICE.into(), us);
         for slice in Slice::into_enum_iter() {
             usages.insert(
                 slice.name().to_string(),

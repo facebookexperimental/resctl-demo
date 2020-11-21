@@ -6,6 +6,8 @@ use std::collections::BTreeMap;
 use std::ops::{Index, IndexMut};
 use util::*;
 
+pub const ROOT_SLICE: &'static str = "-.slice";
+
 const SLICE_DOC: &str = "\
 //
 // rd-agent top-level systemd slice resource configurations
