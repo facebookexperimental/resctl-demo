@@ -523,7 +523,7 @@ impl Bench {
 
     fn prep_tf(&self, size: u64, why: &str) -> TestFiles {
         let size = (size as f64 * self.args_file.data.file_max_frac).ceil() as u64;
-        info!("Preparing {:.2}G testfiles for {}", to_gb(size), why);
+        let greet = format!("Preparing {:.2}G testfiles for {}", to_gb(size), why);
 
         let mut tf = TestFiles::new(
             self.args_file.data.testfiles.as_ref().unwrap(),
@@ -531,7 +531,7 @@ impl Bench {
             size,
             self.args_file.data.compressibility,
         );
-        let mut tfbar = TestFilesProgressBar::new(size, self.bar_hidden);
+        let mut tfbar = TestFilesProgressBar::new(size, &greet, self.bar_hidden);
         let mut report_file = self.report_file.lock().unwrap();
 
         report_file.data.hasher.rps = 0.0;
