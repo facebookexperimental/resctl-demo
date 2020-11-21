@@ -46,6 +46,7 @@ lazy_static! {
              --linux-tar=[FILE] 'Path to linux source tarball to be used by build sideload'
              --reset            'Reset all states except for bench results, linux.tar and testfiles'
              --keep-reports     'Don't delete expired report files, also affects --reset'
+             --bypass           'Skip startup and periodic health checks'
              --passive          'Do not make system configuration changes, implies --force'
          -v...                  'Sets the level of verbosity'",
         dfl_dir = Args::default().dir,
@@ -76,6 +77,8 @@ pub struct Args {
     #[serde(skip)]
     pub keep_reports: bool,
     #[serde(skip)]
+    pub bypass: bool,
+    #[serde(skip)]
     pub passive: bool,
 }
 
@@ -93,6 +96,7 @@ impl Default for Args {
             linux_tar: None,
             reset: false,
             keep_reports: false,
+            bypass: false,
             passive: false,
         }
     }
@@ -170,6 +174,7 @@ impl JsonArgs for Args {
         self.linux_tar = matches.value_of("linux-tar").map(|x| x.to_string());
         self.reset = matches.is_present("reset");
         self.keep_reports = matches.is_present("keep-reports");
+        self.bypass = matches.is_present("bypass");
         if matches.is_present("passive") {
             self.passive = true;
             self.force = true;

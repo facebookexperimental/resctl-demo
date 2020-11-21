@@ -175,6 +175,7 @@ pub struct Config {
 
     pub rep_retention: Option<u64>,
     pub rep_1min_retention: Option<u64>,
+    pub bypass: bool,
     pub passive: bool,
 
     pub sr_failed: HashSet<SysReq>,
@@ -419,6 +420,7 @@ impl Config {
             } else {
                 Some(args.rep_1min_retention)
             },
+            bypass: args.bypass,
             passive: args.passive,
 
             sr_failed: HashSet::new(),
@@ -1117,12 +1119,14 @@ fn main() {
         panic!();
     }
 
-    if let Err(e) = cfg.startup_checks() {
-        if args_file.data.force {
-            warn!("cfg: Ignoring startup check failures as per --force");
-        } else {
-            error!("cfg: {:?}", e);
-            panic!();
+    if !cfg.bypass {
+        if let Err(e) = cfg.startup_checks() {
+            if args_file.data.force {
+                warn!("cfg: Ignoring startup check failures as per --force");
+            } else {
+                error!("cfg: {:?}", e);
+                panic!();
+            }
         }
     }
 
