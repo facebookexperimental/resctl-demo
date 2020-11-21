@@ -195,7 +195,7 @@ impl RunnerData {
                     self.state = BenchIOCost;
                     self.force_apply = true;
                 } else if cmd.bench_hashd_seq > bench.hashd_seq {
-                    if bench.iocost_seq > 0 {
+                    if bench.iocost_seq > 0 || self.cfg.force_running {
                         if let Err(e) = self.balloon.set_size(cmd.bench_hashd_balloon_size) {
                             error!(
                                 "cmd: Failed to set balloon size to {:.2}G for hashd bench ({:?})",
@@ -220,7 +220,7 @@ impl RunnerData {
                         warn!("cmd: iocost benchmark must be run before hashd benchmark");
                         self.warned_bench = true;
                     }
-                } else if bench.hashd_seq > 0 {
+                } else if bench.hashd_seq > 0 || self.cfg.force_running {
                     info!("cmd: Transitioning to Running state");
                     self.state = Running;
                     repeat = true;

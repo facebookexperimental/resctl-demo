@@ -175,6 +175,7 @@ pub struct Config {
 
     pub rep_retention: Option<u64>,
     pub rep_1min_retention: Option<u64>,
+    pub force_running: bool,
     pub bypass: bool,
     pub passive: bool,
 
@@ -420,6 +421,7 @@ impl Config {
             } else {
                 Some(args.rep_1min_retention)
             },
+            force_running: args.force_running,
             bypass: args.bypass,
             passive: args.passive,
 

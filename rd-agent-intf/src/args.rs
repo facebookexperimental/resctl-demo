@@ -42,6 +42,7 @@ lazy_static! {
          -a, --args=[FILE]      'Load base command line arguments from FILE'
              --no-iolat         'Disable bpf-based io latency stat monitoring'
              --force            'Ignore startup check results and proceed'
+             --force-running    'Ignore bench requirements and enter Running state'
              --prepare          'Prepare the files and directories and exit'
              --linux-tar=[FILE] 'Path to linux source tarball to be used by build sideload'
              --reset            'Reset all states except for bench results, linux.tar and testfiles'
@@ -69,6 +70,8 @@ pub struct Args {
     #[serde(skip)]
     pub force: bool,
     #[serde(skip)]
+    pub force_running: bool,
+    #[serde(skip)]
     pub prepare: bool,
     #[serde(skip)]
     pub linux_tar: Option<String>,
@@ -92,6 +95,7 @@ impl Default for Args {
             rep_1min_retention: 24 * 3600,
             no_iolat: false,
             force: false,
+            force_running: false,
             prepare: false,
             linux_tar: None,
             reset: false,
@@ -170,6 +174,7 @@ impl JsonArgs for Args {
 
         self.no_iolat = matches.is_present("no-iolat");
         self.force = matches.is_present("force");
+        self.force_running = matches.is_present("force-running");
         self.prepare = matches.is_present("prepare");
         self.linux_tar = matches.value_of("linux-tar").map(|x| x.to_string());
         self.reset = matches.is_present("reset");
