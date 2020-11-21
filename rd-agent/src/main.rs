@@ -1123,9 +1123,19 @@ fn main() {
         panic!();
     }
 
-    if let Err(e) = side::prepare_sides(&cfg) {
-        error!("cfg: Failed to prepare sideloads ({:?})", &e);
+    if let Err(e) = side::prepare_side_bins(&cfg) {
+        error!("cfg: Failed to prepare sideload binaries ({:?})", &e);
         panic!();
+    }
+
+    match cfg.side_linux_tar_path.as_deref() {
+        Some("__SKIP__") => {}
+        _ => {
+            if let Err(e) = side::prepare_linux_tar(&cfg) {
+                error!("cfg: Failed to prepare linux tarball ({:?})", &e);
+                panic!();
+            }
+        }
     }
 
     if !cfg.bypass {

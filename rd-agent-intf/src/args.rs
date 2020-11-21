@@ -44,7 +44,7 @@ lazy_static! {
              --force            'Ignore startup check results and proceed'
              --force-running    'Ignore bench requirements and enter Running state'
              --prepare          'Prepare the files and directories and exit'
-             --linux-tar=[FILE] 'Path to linux source tarball to be used by build sideload'
+             --linux-tar=[FILE] 'Path to linux source tarball for compile sideload (__SKIP__ to skip)'
              --bench-file=[FILE] 'Bench file name override'
              --reset            'Reset all states except for bench results, linux.tar and testfiles'
              --keep-reports     'Don't delete expired report files, also affects --reset'
