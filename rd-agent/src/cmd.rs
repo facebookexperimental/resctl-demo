@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 use systemd::UnitState as US;
 use util::*;
 
-use rd_agent_intf::{RunnerState, Slice, SliceConfig};
+use rd_agent_intf::{RunnerState, Slice};
 
 use super::hashd::HashdSet;
 use super::side::{Balloon, SideRunner, Sideload, Sysload};
@@ -196,12 +196,10 @@ impl RunnerData {
                     self.force_apply = true;
                 } else if cmd.bench_hashd_seq > bench.hashd_seq {
                     if bench.iocost_seq > 0 {
-                        let balloon_size = SliceConfig::bench_balloon_size();
-
-                        if let Err(e) = self.balloon.set_size(balloon_size) {
+                        if let Err(e) = self.balloon.set_size(cmd.bench_hashd_balloon_size) {
                             error!(
                                 "cmd: Failed to set balloon size to {:.2}G for hashd bench ({:?})",
-                                to_gb(balloon_size),
+                                to_gb(cmd.bench_hashd_balloon_size),
                                 &e
                             );
                             panic!();

@@ -116,10 +116,6 @@ impl SliceConfig {
         }
     }
 
-    pub fn bench_balloon_size() -> usize {
-        (total_memory() / 8).min(512 << 20)
-    }
-
     fn default(slice: Slice) -> Self {
         let mut hostcrit_min = 768 << 20;
         if *IS_FB_PROD {
