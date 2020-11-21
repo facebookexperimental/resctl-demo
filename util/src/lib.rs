@@ -256,7 +256,7 @@ pub fn find_bin<N: AsRef<OsStr>, P: AsRef<OsStr>>(
     None
 }
 
-pub fn chgrp<P: AsRef<Path>>(path_in: P, gid: u32) -> Result<()> {
+pub fn chgrp<P: AsRef<Path>>(path_in: P, gid: u32) -> Result<bool> {
     let path = path_in.as_ref();
     let md = fs::metadata(path)?;
     if md.st_gid() != gid {
@@ -266,19 +266,23 @@ pub fn chgrp<P: AsRef<Path>>(path_in: P, gid: u32) -> Result<()> {
                 *libc::__errno_location()
             });
         }
+        Ok(true)
+    } else {
+        Ok(false)
     }
-    Ok(())
 }
 
-pub fn set_sgid<P: AsRef<Path>>(path_in: P) -> Result<()> {
+pub fn set_sgid<P: AsRef<Path>>(path_in: P) -> Result<bool> {
     let path = path_in.as_ref();
     let md = fs::metadata(path)?;
     let mut perm = md.permissions();
-    if perm.mode() & 0x2000 == 0 {
+    if perm.mode() & 0o2000 == 0 {
         perm.set_mode(perm.mode() | 0o2000);
         fs::set_permissions(path, perm)?;
+        Ok(true)
+    } else {
+        Ok(false)
     }
-    Ok(())
 }
 
 pub fn read_one_line<P: AsRef<Path>>(path: P) -> Result<String> {

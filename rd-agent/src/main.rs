@@ -208,17 +208,22 @@ impl Config {
             }
         }
         let group = group.ok_or(anyhow!("Failed to find administrator group"))?;
-        info!(
-            "cfg: {:?} will have SGID group {:?}",
-            top_path,
-            group.name()
-        );
-
-        chgrp(top_path, group.gid())?;
-        set_sgid(top_path)?;
+        if chgrp(top_path, group.gid())? | set_sgid(top_path)? {
+            info!(
+                "cfg: {:?} will have SGID group {:?}",
+                top_path,
+                group.name()
+            );
+        }
 
         if let Some(path) = args_path {
-            chgrp(path, group.gid())?;
+            if chgrp(path, group.gid())? {
+                info!(
+                    "cfg: {:?} will have group {:?}",
+                    path.as_ref(),
+                    group.name()
+                );
+            }
         }
         Ok(())
     }
