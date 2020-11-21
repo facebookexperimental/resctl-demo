@@ -1,5 +1,6 @@
 #!/usr/bin/python3
 #
+# @nolint
 # fmt: off
 #
 # io_latencies.py  Monitor IO latency distribution of a block device.

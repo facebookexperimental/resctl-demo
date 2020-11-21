@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 #
+# @nolint
 # fmt: off
 #
 # Copyright (C) 2019 Tejun Heo <tj@kernel.org>
