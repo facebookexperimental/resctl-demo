@@ -240,11 +240,11 @@ impl UpdateWorker {
             if running {
                 line.append_plain(format!(
                     "load:{:>5}%  lat:{:4.0}ms  cpu:{:>5}%  mem:{:>6}  io:{:>6}",
-                    format_pct(rep.load),
+                    format_pct_dashed(rep.load),
                     rep.lat.ctl * 1000.0,
-                    &format_pct(usage.cpu_usage),
-                    &format_size(usage.mem_bytes),
-                    &format_size(usage.io_rbps + usage.io_wbps),
+                    &format_pct_dashed(usage.cpu_usage),
+                    &format_size_dashed(usage.mem_bytes),
+                    &format_size_dashed(usage.io_rbps + usage.io_wbps),
                 ));
             }
         }
@@ -429,14 +429,14 @@ fn usage_top_row() -> LinearLayout {
 fn format_row_data(usage: &UsageReport) -> String {
     format!(
         "{:>6} {:>6} {:>6} {:>6} {:>6} {:>6} {:>6} {:>6}",
-        &format_pct(usage.cpu_usage),
-        &format_size(usage.mem_bytes),
-        &format_size(usage.swap_bytes),
-        &format_size(usage.io_rbps),
-        &format_size(usage.io_wbps),
-        &format_pct(usage.cpu_pressures.0),
-        &format_pct(usage.mem_pressures.1),
-        &format_pct(usage.io_pressures.1)
+        &format_pct_dashed(usage.cpu_usage),
+        &format_size_dashed(usage.mem_bytes),
+        &format_size_dashed(usage.swap_bytes),
+        &format_size_dashed(usage.io_rbps),
+        &format_size_dashed(usage.io_wbps),
+        &format_pct_dashed(usage.cpu_pressures.0),
+        &format_pct_dashed(usage.mem_pressures.1),
+        &format_pct_dashed(usage.io_pressures.1)
     )
 }
 
