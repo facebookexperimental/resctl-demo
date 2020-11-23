@@ -1,6 +1,5 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
 use chrono::prelude::*;
-use console::Term;
 use indicatif::{ProgressBar, ProgressStyle};
 use log::{debug, error, info, warn};
 use std::process::exit;
@@ -73,7 +72,7 @@ impl TestFilesProgressBar {
                 true => ProgressBar::hidden(),
             },
             greet: Some(greet.to_string()),
-            log: !hidden && !Term::stderr().is_term(),
+            log: !hidden && !console::user_attended_stderr(),
             size,
             last_at: Instant::now(),
             last_pos: 0,

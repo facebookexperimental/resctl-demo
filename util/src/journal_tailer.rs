@@ -36,6 +36,8 @@ fn parse_journal_msg(line: &str) -> Result<JournalMsg> {
     let unit = parsed["_SYSTEMD_UNIT"].as_str().unwrap_or("UNKNOWN");
     let msg = parsed["MESSAGE"].as_str().unwrap_or("UNKNOWN");
 
+    info!("{:#?}", parsed);
+
     Ok(JournalMsg {
         at: UNIX_EPOCH + Duration::from_micros(at_us),
         priority,

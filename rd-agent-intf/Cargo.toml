@@ -10,12 +10,12 @@ edition = "2018"
 [dependencies]
 rd-hashd-intf = { path = "../rd-hashd-intf" }
 
-anyhow = "1.0.26"
-clap = "2.33.0"
-chrono = { version = "0.4.10", features = ["serde"] }
-enum-iterator = "0.5.0"
-lazy_static = "1.4.0"
+anyhow = "^1.0"
+clap = "^2.33"
+chrono = { version = "^0.4", features = ["serde"] }
+enum-iterator = "^0.6"
+lazy_static = "^1.4"
 libc = "^0.2"
-log = "0.4.8"
-serde = { version = "1.0.104", features = ["derive"] }
+log = "^0.4"
+serde = { version = "^1.0", features = ["derive"] }
 util = { path = "../util" }

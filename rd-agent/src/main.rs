@@ -840,7 +840,7 @@ impl Config {
         // Gotta re-read sysinfo to avoid reading cached oomd pid from
         // before stopping it.
         let sys = sysinfo::System::new();
-        let procs = sys.get_process_list();
+        let procs = sys.get_processes();
         for (pid, proc) in procs {
             let exe = proc
                 .exe()
@@ -896,8 +896,11 @@ impl Config {
 
         let (scr_dev_model, scr_dev_size) = match devname_to_model_and_size(&self.scr_dev) {
             Ok(v) => v,
-            Err(e) =>
-                bail!("failed to determine model and size of {:?} ({})", &self.scr_dev, &e),
+            Err(e) => bail!(
+                "failed to determine model and size of {:?} ({})",
+                &self.scr_dev,
+                &e
+            ),
         };
 
         SysReqsReport {
@@ -1156,7 +1159,10 @@ fn main() {
     if !cfg.bypass {
         if let Err(e) = cfg.startup_checks() {
             if args_file.data.force {
-                warn!("cfg: Ignoring startup check failures as per --force ({})", &e);
+                warn!(
+                    "cfg: Ignoring startup check failures as per --force ({})",
+                    &e
+                );
             } else {
                 error!("cfg: {}", &e);
                 panic!();
