@@ -1,11 +1,12 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
 use anyhow::{bail, Result};
-use dbus;
-use dbus::arg::{RefArg, Variant};
-use dbus::blocking::{BlockingSender, Connection};
-use dbus::Message;
-use lazy_static::lazy_static;
 use log::{debug, info, trace, warn};
+use rustbus::{
+    client_conn,
+    message_builder::{self, MarshalledMessage},
+    params, signature, standard_messages, Conn, MessageType, RpcConn,
+};
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt;
 use std::thread::{sleep, LocalKey};
@@ -13,24 +14,111 @@ use std::thread_local;
 use std::time::{Duration, Instant};
 use std::u64;
 
-type PropMap = HashMap<String, Variant<Box<dyn RefArg>>>;
-type PropVec = Vec<(String, Variant<Box<dyn RefArg>>)>;
-
 const SD1_DST: &str = "org.freedesktop.systemd1";
 const SD1_PATH: &str = "/org/freedesktop/systemd1";
-const DBUS_TIMEOUT_MS: u64 = 15000;
+const DBUS_TIMEOUT: Duration = Duration::from_millis(15000);
+const DBUS_CONN_TIMEOUT: client_conn::Timeout = client_conn::Timeout::Duration(DBUS_TIMEOUT);
 
-lazy_static! {
-    static ref DBUS_TIMEOUT: Duration = Duration::from_millis(DBUS_TIMEOUT_MS);
+thread_local!(pub static SYS_SD_BUS: RefCell<SystemdDbus> = RefCell::new(SystemdDbus::new(false).unwrap()));
+thread_local!(pub static USR_SD_BUS: RefCell<SystemdDbus> = RefCell::new(SystemdDbus::new(true).unwrap()));
+
+// The following and the explicit error wrappings can be removed once
+// rustbus error implements std::error::Error.
+type RbResult<T> = Result<T, rustbus::client_conn::Error>;
+
+fn wrap_rustbus_result<T>(r: RbResult<T>) -> Result<T> {
+    match r {
+        Ok(r) => Ok(r),
+        Err(e) => bail!("{:?}", &e),
+    }
 }
-thread_local!(pub static SYS_SD_BUS: SystemdDbus = SystemdDbus::new(false).unwrap());
-thread_local!(pub static USR_SD_BUS: SystemdDbus = SystemdDbus::new(true).unwrap());
 
+#[derive(Debug)]
 pub enum Prop {
     U32(u32),
     U64(u64),
     Bool(bool),
     String(String),
+}
+
+fn dbus_sig(input: &str) -> signature::Type {
+    signature::Type::parse_description(input).as_ref().unwrap()[0].clone()
+}
+
+fn dbus_param_u32(v: u32) -> params::Param<'static, 'static> {
+    params::Param::Base(params::Base::Uint32(v))
+}
+
+fn dbus_param_u64(v: u64) -> params::Param<'static, 'static> {
+    params::Param::Base(params::Base::Uint64(v))
+}
+
+fn dbus_param_bool(v: bool) -> params::Param<'static, 'static> {
+    params::Param::Base(params::Base::Boolean(v))
+}
+
+fn dbus_param_string(v: String) -> params::Param<'static, 'static> {
+    params::Param::Base(params::Base::String(v))
+}
+
+fn dbus_param_struct<'a, 'e>(v: Vec<params::Param<'a, 'e>>) -> params::Param<'a, 'e> {
+    params::Param::Container(params::Container::Struct(v))
+}
+
+fn dbus_param_array<'a, 'e>(v: params::Array<'a, 'e>) -> params::Param<'a, 'e> {
+    params::Param::Container(params::Container::Array(v))
+}
+
+fn dbus_param_string_array<I>(v: I) -> params::Param<'static, 'static>
+where
+    I: std::iter::Iterator<Item = String>,
+{
+    dbus_param_array(params::Array {
+        element_sig: dbus_sig("s"),
+        values: v.map(|x| dbus_param_string(x)).collect(),
+    })
+}
+
+fn dbus_param_variant<'a, 'e>(v: params::Variant<'a, 'e>) -> params::Param<'a, 'e> {
+    params::Param::Container(params::Container::Variant(Box::new(v)))
+}
+
+fn dbus_param_variant_u32(v: u32) -> params::Param<'static, 'static> {
+    dbus_param_variant(params::Variant {
+        sig: dbus_sig("u"),
+        value: dbus_param_u32(v),
+    })
+}
+
+fn dbus_param_variant_u64(v: u64) -> params::Param<'static, 'static> {
+    dbus_param_variant(params::Variant {
+        sig: dbus_sig("t"),
+        value: dbus_param_u64(v),
+    })
+}
+
+fn dbus_param_variant_bool(v: bool) -> params::Param<'static, 'static> {
+    dbus_param_variant(params::Variant {
+        sig: dbus_sig("b"),
+        value: dbus_param_bool(v),
+    })
+}
+
+fn dbus_param_variant_string(v: String) -> params::Param<'static, 'static> {
+    dbus_param_variant(params::Variant {
+        sig: dbus_sig("s"),
+        value: dbus_param_string(v),
+    })
+}
+
+fn dbus_param_variant_string_array<I>(v: I) -> params::Param<'static, 'static>
+where
+    I: std::iter::Iterator<Item = String>,
+{
+    dbus_param_variant(params::Variant {
+        sig: dbus_sig("as"),
+        value: dbus_param_string_array(v),
+    })
 }
 
 fn escape_name(name: &str) -> String {
@@ -51,32 +139,32 @@ fn escape_name(name: &str) -> String {
     escaped
 }
 
-fn new_unit_msg(name: &str, intf: &str, method: &str) -> Result<Message> {
+fn systemd_unit_call(method: &str, intf: &str, name: &str) -> MarshalledMessage {
     let path = SD1_PATH.to_string() + "/unit/" + &escape_name(&name);
-    match Message::new_method_call(SD1_DST, &path, intf, method) {
-        Ok(v) => Ok(v),
-        Err(e) => bail!("{}", &e),
-    }
+
+    message_builder::MessageBuilder::new()
+        .call(method.into())
+        .with_interface(intf.into())
+        .on(path)
+        .at(SD1_DST.into())
+        .build()
 }
 
-fn new_sd1_msg(method: &str) -> Result<Message> {
-    match Message::new_method_call(
-        SD1_DST,
-        SD1_PATH,
-        "org.freedesktop.systemd1.Manager",
-        method,
-    ) {
-        Ok(v) => Ok(v),
-        Err(e) => bail!("{}", &e),
-    }
+fn systemd_sd1_call(method: &str) -> MarshalledMessage {
+    message_builder::MessageBuilder::new()
+        .call(method.into())
+        .with_interface("org.freedesktop.systemd1.Manager".into())
+        .on(SD1_PATH.into())
+        .at(SD1_DST.into())
+        .build()
 }
 
-fn new_start_transient_svc_msg(
+fn systemd_start_transient_svc_call(
     name: String,
     args: Vec<String>,
     envs: Vec<String>,
-    extra_props: PropVec,
-) -> Result<Message> {
+    extra_props: Vec<params::Param>,
+) -> MarshalledMessage {
     // NAME(s) JOB_MODE(s) PROPS(a(sv)) AUX_UNITS(a(s a(sv)))
     //
     // PROPS:
@@ -86,119 +174,174 @@ fn new_start_transient_svc_msg(
     // ...
     // ["Environment"] = ([ENV0]=str, [ENV1]=str...)
     // ["ExecStart"] = (args[0], (args[0], args[1], ...), false)
-    let m = new_sd1_msg("StartTransientUnit")?;
+    let mut call = systemd_sd1_call("StartTransientUnit");
 
     // name and job_mode
-    let m = m.append2(name.clone(), "fail");
+    call.body.push_param2(&name, "fail").unwrap();
 
-    // props
-    let desc = args.iter().fold(name, |mut a, i| {
+    // desc string
+    let desc = args.iter().fold(name.clone(), |mut a, i| {
         a += " ";
         a += i;
         a
     });
 
-    // props["ExecStart"]
-    let args_cont: Vec<(String, Vec<String>, bool)> = vec![(args[0].clone(), args, false)];
-
-    // props["Environment"]
-    let mut props: PropVec = vec![
-        ("Description".into(), Variant(Box::new(desc))),
-        ("Environment".into(), Variant(Box::new(envs))),
-        ("ExecStart".into(), Variant(Box::new(args_cont))),
+    let mut props = vec![
+        dbus_param_struct(vec![
+            dbus_param_string("Description".into()),
+            dbus_param_variant_string(desc),
+        ]),
+        dbus_param_struct(vec![
+            dbus_param_string("Environment".into()),
+            dbus_param_variant_string_array(envs.into_iter()),
+        ]),
+        dbus_param_struct(vec![
+            dbus_param_string("ExecStart".into()),
+            dbus_param_variant(params::Variant {
+                sig: dbus_sig("a(sasb)"),
+                value: dbus_param_array(params::Array {
+                    element_sig: dbus_sig("(sasb)"),
+                    values: vec![dbus_param_struct(vec![
+                        dbus_param_string(args[0].clone()),
+                        dbus_param_string_array(args.into_iter()),
+                        dbus_param_bool(false),
+                    ])],
+                }),
+            }),
+        ]),
     ];
-    props.extend(extra_props);
-    let m = m.append1(props);
+    for prop in extra_props.iter() {
+        props.push(prop.clone());
+    }
 
-    // No aux units
-    let aux: Vec<(String, PropVec)> = Vec::new();
-    Ok(m.append1(aux))
+    // assemble props
+    call.body
+        .push_old_param(&dbus_param_array(params::Array {
+            element_sig: dbus_sig("(sv)"),
+            values: props,
+        }))
+        .unwrap();
+
+    // no aux units
+    call.body
+        .push_old_param(&dbus_param_array(params::Array {
+            element_sig: dbus_sig("(sa(sv))"),
+            values: vec![],
+        }))
+        .unwrap();
+
+    call
 }
 
 pub struct SystemdDbus {
-    pub conn: Connection,
+    pub rpc_conn: RpcConn,
 }
 
 impl SystemdDbus {
-    pub fn new(user: bool) -> Result<Self> {
-        let conn = match user {
-            false => Connection::new_system()?,
-            true => Connection::new_session()?,
+    fn new_int(user: bool) -> RbResult<SystemdDbus> {
+        let mut rpc_conn = RpcConn::new(match user {
+            false => Conn::connect_to_bus(rustbus::get_system_bus_path()?, true)?,
+            true => Conn::connect_to_bus(rustbus::get_session_bus_path()?, true)?,
+        });
+
+        rpc_conn.set_filter(Box::new(|msg| match msg.typ {
+            MessageType::Error => true,
+            MessageType::Reply => true,
+            _ => false,
+        }));
+
+        let mut sysdbus = Self { rpc_conn };
+        sysdbus.send_msg_and_wait_int(&mut standard_messages::hello())?;
+        Ok(sysdbus)
+    }
+
+    pub fn new(user: bool) -> Result<SystemdDbus> {
+        wrap_rustbus_result(Self::new_int(user))
+    }
+
+    fn send_msg_and_wait_int(
+        &mut self,
+        msg: &mut MarshalledMessage,
+    ) -> RbResult<MarshalledMessage> {
+        let msg_serial = self.rpc_conn.send_message(msg, DBUS_CONN_TIMEOUT)?;
+        self.rpc_conn.wait_response(msg_serial, DBUS_CONN_TIMEOUT)
+    }
+
+    pub fn send_msg_and_wait(&mut self, msg: &mut MarshalledMessage) -> Result<MarshalledMessage> {
+        wrap_rustbus_result(self.send_msg_and_wait_int(msg))
+    }
+
+    pub fn daemon_reload(&mut self) -> Result<()> {
+        let mut msg = systemd_sd1_call("Reload");
+        self.send_msg_and_wait(&mut msg)?;
+        Ok(())
+    }
+
+    pub fn get_unit_props<'u>(&mut self, name: &str) -> Result<params::Param<'static, 'static>> {
+        let mut msg = systemd_unit_call("GetAll", "org.freedesktop.DBus.Properties", name);
+        msg.body.push_param("").unwrap();
+        let resp = match self.send_msg_and_wait(&mut msg)?.unmarshall_all() {
+            Ok(v) => v,
+            Err(e) => bail!("failed to unmarshall GetAll response ({:?})", &e),
         };
-        Ok(Self { conn })
+        match resp.params.into_iter().next() {
+            Some(props) => Ok(props),
+            None => bail!("GetAll response doesn't have any data"),
+        }
     }
 
-    pub fn daemon_reload(&self) -> Result<()> {
-        let m = new_sd1_msg("Reload")?;
-        self.conn.send_with_reply_and_block(m, *DBUS_TIMEOUT)?;
+    pub fn set_unit_props(&mut self, name: &str, props: &[params::Param]) -> Result<()> {
+        let mut msg = systemd_sd1_call("SetUnitProperties");
+        msg.body.push_param2(name, true).unwrap();
+        msg.body.push_old_params(props).unwrap();
+        self.send_msg_and_wait(&mut msg)?;
         Ok(())
     }
 
-    pub fn get_unit_props<'u>(&self, name: &str) -> Result<UnitProps> {
-        let m = new_unit_msg(&name, "org.freedesktop.DBus.Properties", "GetAll")?.append1("");
-        let r = self.conn.send_with_reply_and_block(m, *DBUS_TIMEOUT)?;
-        Ok(UnitProps {
-            name: name.into(),
-            props: r.read1()?,
-        })
-    }
-
-    pub fn set_unit_props(&self, name: &str, props: PropVec) -> Result<()> {
-        let m = new_sd1_msg("SetUnitProperties")?.append3(name, true, props);
-        self.conn.send_with_reply_and_block(m, *DBUS_TIMEOUT)?;
+    pub fn start_unit(&mut self, name: &str) -> Result<()> {
+        let mut msg = systemd_sd1_call("StartUnit");
+        msg.body.push_param2(&name, "fail").unwrap();
+        self.send_msg_and_wait(&mut msg)?;
         Ok(())
     }
 
-    pub fn start_unit(&self, name: &str) -> Result<()> {
-        let m = new_sd1_msg("StartUnit")?.append2(&name, "fail");
-        self.conn.send_with_reply_and_block(m, *DBUS_TIMEOUT)?;
+    pub fn stop_unit(&mut self, name: &str) -> Result<()> {
+        let mut msg = systemd_sd1_call("StopUnit");
+        msg.body.push_param2(&name, "fail").unwrap();
+        self.send_msg_and_wait(&mut msg)?;
         Ok(())
     }
 
-    pub fn stop_unit(&self, name: &str) -> Result<()> {
-        let m = new_sd1_msg("StopUnit")?.append2(&name, "fail");
-        self.conn.send_with_reply_and_block(m, *DBUS_TIMEOUT)?;
+    pub fn reset_failed_unit(&mut self, name: &str) -> Result<()> {
+        let mut msg = systemd_sd1_call("ResetFailedUnit");
+        msg.body.push_param(&name).unwrap();
+        self.send_msg_and_wait(&mut msg)?;
         Ok(())
     }
 
-    pub fn reset_failed_unit(&self, name: &str) -> Result<()> {
-        let m = new_sd1_msg("ResetFailedUnit")?.append1(&name);
-        self.conn.send_with_reply_and_block(m, *DBUS_TIMEOUT)?;
-        Ok(())
-    }
-
-    pub fn restart_unit(&self, name: &str) -> Result<()> {
-        let m = new_sd1_msg("RestartUnit")?.append2(&name, "fail");
-        self.conn.send_with_reply_and_block(m, *DBUS_TIMEOUT)?;
+    pub fn restart_unit(&mut self, name: &str) -> Result<()> {
+        let mut msg = systemd_sd1_call("RestartUnit");
+        msg.body.push_param2(&name, "fail").unwrap();
+        self.send_msg_and_wait(&mut msg)?;
         Ok(())
     }
 
     pub fn start_transient_svc(
-        &self,
+        &mut self,
         name: String,
         args: Vec<String>,
         envs: Vec<String>,
-        extra_props: PropVec,
+        extra_props: Vec<params::Param>,
     ) -> Result<()> {
-        let m = new_start_transient_svc_msg(name, args, envs, extra_props)?;
-        self.conn.send_with_reply_and_block(m, *DBUS_TIMEOUT)?;
+        let mut msg = systemd_start_transient_svc_call(name, args, envs, extra_props);
+        self.send_msg_and_wait(&mut msg)?;
         Ok(())
     }
 }
 
 pub fn daemon_reload() -> Result<()> {
-    SYS_SD_BUS.with(|s| s.daemon_reload())
+    SYS_SD_BUS.with(|s| s.borrow_mut().daemon_reload())
 }
-
-#[derive(Debug, Default)]
-pub struct UnitProps {
-    name: String,
-    props: PropMap,
-}
-
-// Force Send&Sync for the props cache. This should be safe.
-unsafe impl Send for UnitProps {}
-unsafe impl Sync for UnitProps {}
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum UnitState {
@@ -219,49 +362,82 @@ impl Default for UnitState {
     }
 }
 
+#[derive(Debug)]
+pub struct UnitProps {
+    props: HashMap<String, Prop>,
+}
+
 impl UnitProps {
-    pub fn string(&self, key: &str) -> Option<String> {
-        self.props
-            .get(key)
-            .and_then(|x| x.as_str())
-            .and_then(|x| Some(x.to_string()))
+    fn new(dict: &params::Param) -> Result<Self> {
+        let dict = match dict {
+            params::Param::Container(params::Container::Dict(dict)) => dict,
+            _ => bail!("dict type mismatch"),
+        };
+
+        let mut props = HashMap::new();
+
+        for (k, v) in dict.map.iter() {
+            if let (
+                params::Base::String(key),
+                params::Param::Container(params::Container::Variant(boxed)),
+            ) = (k, v)
+            {
+                match &boxed.value {
+                    params::Param::Base(params::Base::String(v)) => {
+                        props.insert(key.into(), Prop::String(v.into()));
+                    }
+                    params::Param::Base(params::Base::Uint32(v)) => {
+                        props.insert(key.into(), Prop::U32(*v));
+                    }
+                    params::Param::Base(params::Base::Uint64(v)) => {
+                        props.insert(key.into(), Prop::U64(*v));
+                    }
+                    params::Param::Base(params::Base::Boolean(v)) => {
+                        props.insert(key.into(), Prop::Bool(*v));
+                    }
+                    _ => {}
+                }
+            }
+        }
+        Ok(Self { props })
+    }
+
+    pub fn string<'a>(&'a self, key: &str) -> Option<&'a str> {
+        match self.props.get(key) {
+            Some(Prop::String(v)) => Some(v),
+            _ => None,
+        }
     }
 
     pub fn u64_dfl_max(&self, key: &str) -> Option<u64> {
         match self.props.get(key) {
-            Some(v) => match v.as_u64() {
-                Some(v) if v < u64::MAX => Some(v),
-                _ => None,
-            },
-            None => None,
+            Some(Prop::U64(v)) if *v < std::u64::MAX => Some(*v),
+            _ => None,
         }
     }
 
     pub fn u64_dfl_zero(&self, key: &str) -> Option<u64> {
         match self.props.get(key) {
-            Some(v) => match v.as_u64() {
-                Some(v) if v > 0 => Some(v),
-                _ => None,
-            },
-            None => None,
+            Some(Prop::U64(v)) if *v > 0 => Some(*v),
+            _ => None,
         }
     }
 
     fn state(&self) -> US {
         let v = self.string("LoadState");
-        match v.as_deref() {
+        match v {
             Some("loaded") => {}
             Some("not-found") => return US::NotFound,
-            Some(_) => return US::Other(v.unwrap()),
+            Some(_) => return US::Other(v.unwrap().into()),
             None => return US::Other("no-load-state".into()),
         };
 
         let ss = match self.string("SubState") {
-            Some(v) => v,
+            Some(v) => v.to_string(),
             None => "no-sub-state".to_string(),
         };
 
-        match self.string("ActiveState").as_deref() {
+        match self.string("ActiveState") {
             Some("active") => match ss.as_str() {
                 "running" => US::Running,
                 "exited" => US::Exited,
@@ -334,7 +510,7 @@ impl Unit {
             user,
             state: US::Other("unknown".into()),
             resctl: Default::default(),
-            props: sb.with(|s| s.get_unit_props(&name))?,
+            props: UnitProps::new(&(sb.with(|s| s.borrow_mut().get_unit_props(&name))?))?,
             quiet: false,
             name,
         };
@@ -350,7 +526,7 @@ impl Unit {
         Self::new(true, name)
     }
 
-    pub fn sd_bus(&self) -> &'static LocalKey<SystemdDbus> {
+    pub fn sd_bus(&self) -> &'static LocalKey<RefCell<SystemdDbus>> {
         match self.user {
             false => &SYS_SD_BUS,
             true => &USR_SD_BUS,
@@ -359,10 +535,13 @@ impl Unit {
 
     pub fn refresh(&mut self) -> Result<()> {
         trace!("svc: {:?} refreshing", &self.name);
-        self.props = match self.sd_bus().with(|s| s.get_unit_props(&self.name)) {
-            Ok(v) => v,
+        self.props = match self
+            .sd_bus()
+            .with(|s| s.borrow_mut().get_unit_props(&self.name))
+        {
+            Ok(props) => UnitProps::new(&props)?,
             Err(e) => {
-                warn!("Failed to refresh {} ({:?})", &self.name, &e);
+                dbg!("Failed to unmarshall response from {}, assuming gone ({:?})", &self.name, &e);
                 self.state = US::NotFound;
                 return Err(e);
             }
@@ -396,54 +575,56 @@ impl Unit {
         self.resctl.mem_max = self.props.u64_dfl_max("MemoryMax");
     }
 
-    pub fn resctl_props(&self) -> PropVec {
+    pub fn resctl_props(&self) -> Vec<params::Param<'static, 'static>> {
         vec![
-            (
-                "CPUWeight".into(),
-                Variant(Box::new(self.resctl.cpu_weight.unwrap_or(u64::MAX))),
-            ),
-            (
-                "IOWeight".into(),
-                Variant(Box::new(self.resctl.io_weight.unwrap_or(u64::MAX))),
-            ),
-            (
-                "MemoryMin".into(),
-                Variant(Box::new(self.resctl.mem_min.unwrap_or(0))),
-            ),
-            (
-                "MemoryLow".into(),
-                Variant(Box::new(self.resctl.mem_low.unwrap_or(0))),
-            ),
-            (
-                "MemoryHigh".into(),
-                Variant(Box::new(self.resctl.mem_high.unwrap_or(u64::MAX))),
-            ),
-            (
-                "MemoryMax".into(),
-                Variant(Box::new(self.resctl.mem_max.unwrap_or(u64::MAX))),
-            ),
+            dbus_param_struct(vec![
+                dbus_param_string("CPUWeight".into()),
+                dbus_param_variant_u64(self.resctl.cpu_weight.unwrap_or(u64::MAX)),
+            ]),
+            dbus_param_struct(vec![
+                dbus_param_string("IOWeight".into()),
+                dbus_param_variant_u64(self.resctl.io_weight.unwrap_or(u64::MAX)),
+            ]),
+            dbus_param_struct(vec![
+                dbus_param_string("MemoryMin".into()),
+                dbus_param_variant_u64(self.resctl.mem_min.unwrap_or(0)),
+            ]),
+            dbus_param_struct(vec![
+                dbus_param_string("MemoryLow".into()),
+                dbus_param_variant_u64(self.resctl.mem_low.unwrap_or(0)),
+            ]),
+            dbus_param_struct(vec![
+                dbus_param_string("MemoryHigh".into()),
+                dbus_param_variant_u64(self.resctl.mem_high.unwrap_or(std::u64::MAX)),
+            ]),
+            dbus_param_struct(vec![
+                dbus_param_string("MemoryMax".into()),
+                dbus_param_variant_u64(self.resctl.mem_max.unwrap_or(std::u64::MAX)),
+            ]),
         ]
     }
 
     pub fn apply(&mut self) -> Result<()> {
         trace!("svc: {:?} applying resctl", &self.name);
-        self.sd_bus()
-            .with(|s| s.set_unit_props(&self.name, self.resctl_props()))?;
+        self.sd_bus().with(|s| {
+            s.borrow_mut()
+                .set_unit_props(&self.name, &self.resctl_props())
+        })?;
         self.refresh()
     }
 
     pub fn set_prop(&mut self, key: &str, prop: Prop) -> Result<()> {
-        let props: PropVec = vec![(
-            key.to_string(),
+        let props = vec![dbus_param_struct(vec![
+            dbus_param_string(key.into()),
             match prop {
-                Prop::U32(v) => Variant(Box::new(v)),
-                Prop::U64(v) => Variant(Box::new(v)),
-                Prop::Bool(v) => Variant(Box::new(v)),
-                Prop::String(v) => Variant(Box::new(v)),
+                Prop::U32(v) => dbus_param_variant_u32(v),
+                Prop::U64(v) => dbus_param_variant_u64(v),
+                Prop::Bool(v) => dbus_param_variant_bool(v),
+                Prop::String(v) => dbus_param_variant_string(v),
             },
-        )];
+        ])];
         self.sd_bus()
-            .with(|s| s.set_unit_props(&self.name, props))?;
+            .with(|s| s.borrow_mut().set_unit_props(&self.name, &props))?;
         self.refresh()
     }
 
@@ -487,8 +668,9 @@ impl Unit {
             _ => {}
         }
 
-        self.sd_bus().with(|s| s.stop_unit(&self.name))?;
-        self.wait_transition(|x| *x != US::Running, *DBUS_TIMEOUT);
+        self.sd_bus()
+            .with(|s| s.borrow_mut().stop_unit(&self.name))?;
+        self.wait_transition(|x| *x != US::Running, DBUS_TIMEOUT);
         if !self.quiet {
             info!("svc: {:?} stopped ({:?})", &self.name, &self.state);
         }
@@ -501,8 +683,9 @@ impl Unit {
     pub fn stop_and_reset(&mut self) -> Result<()> {
         self.stop()?;
         if let US::Failed(_) = self.state {
-            self.sd_bus().with(|s| s.reset_failed_unit(&self.name))?;
-            self.wait_transition(|x| *x == US::NotFound, *DBUS_TIMEOUT);
+            self.sd_bus()
+                .with(|s| s.borrow_mut().reset_failed_unit(&self.name))?;
+            self.wait_transition(|x| *x == US::NotFound, DBUS_TIMEOUT);
         }
         match self.state {
             US::NotFound => Ok(()),
@@ -516,7 +699,8 @@ impl Unit {
 
     pub fn try_start_nowait(&mut self) -> Result<()> {
         debug!("svc: {:?} starting ({:?})", &self.name, &self.state);
-        self.sd_bus().with(|s| s.start_unit(&self.name))
+        self.sd_bus()
+            .with(|s| s.borrow_mut().start_unit(&self.name))
     }
 
     pub fn try_start(&mut self) -> Result<bool> {
@@ -526,7 +710,7 @@ impl Unit {
                 US::Running | US::Exited | US::Failed(_) => true,
                 _ => false,
             },
-            *DBUS_TIMEOUT,
+            DBUS_TIMEOUT,
         );
         if !self.quiet {
             info!("svc: {:?} started ({:?})", &self.name, &self.state);
@@ -541,7 +725,8 @@ impl Unit {
         if !self.quiet {
             info!("svc: {:?} restarting ({:?})", &self.name, &self.state);
         }
-        self.sd_bus().with(|s| s.restart_unit(&self.name))
+        self.sd_bus()
+            .with(|s| s.borrow_mut().restart_unit(&self.name))
     }
 }
 
@@ -627,14 +812,15 @@ impl TransientService {
     }
 
     fn try_start(&mut self) -> Result<bool> {
-        let mut pv: PropVec = self.unit.resctl_props();
+        let mut extra_props = self.unit.resctl_props();
         for (k, v) in self.extra_props.iter() {
-            match v {
-                Prop::U32(v) => pv.push((k.clone(), Variant(Box::new(*v)))),
-                Prop::U64(v) => pv.push((k.clone(), Variant(Box::new(*v)))),
-                Prop::Bool(v) => pv.push((k.clone(), Variant(Box::new(*v)))),
-                Prop::String(v) => pv.push((k.clone(), Variant(Box::new(v.clone())))),
-            }
+            let param = match v {
+                Prop::U32(v) => dbus_param_variant_u32(*v),
+                Prop::U64(v) => dbus_param_variant_u64(*v),
+                Prop::Bool(v) => dbus_param_variant_bool(*v),
+                Prop::String(v) => dbus_param_variant_string(v.clone()),
+            };
+            extra_props.push(dbus_param_struct(vec![dbus_param_string(k.clone()), param]));
         }
 
         debug!(
@@ -642,11 +828,11 @@ impl TransientService {
             &self.unit.name, &self.unit.state
         );
         self.unit.sd_bus().with(|s| {
-            s.start_transient_svc(
+            s.borrow_mut().start_transient_svc(
                 self.unit.name.clone(),
                 self.args.clone(),
                 self.envs.clone(),
-                pv,
+                extra_props,
             )
         })?;
 
@@ -655,7 +841,7 @@ impl TransientService {
                 US::Running | US::Exited | US::Failed(_) => true,
                 _ => false,
             },
-            *DBUS_TIMEOUT,
+            DBUS_TIMEOUT,
         );
         if !self.unit.quiet {
             info!(

@@ -1,6 +1,5 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
 use anyhow::Result;
-use dbus;
 use enum_iterator::IntoEnumIterator;
 use glob::glob;
 use log::{debug, error, info, trace, warn};
@@ -140,16 +139,10 @@ fn propagate_one_slice(slice: Slice, resctl: &systemd::UnitResCtl) -> Result<()>
         unit.resctl = resctl.clone();
         match unit.apply() {
             Ok(()) => debug!("resctl: propagated resctl config to {:?}", &unit_name),
-            Err(e) => match e.downcast_ref::<dbus::Error>() {
-                Some(de) if de.name() == Some("org.freedesktop.systemd1.NoSuchUnit") => trace!(
-                    "resctl: skipped propagating to missing unit {:?}",
-                    &unit_name
-                ),
-                _ => warn!(
-                    "resctl: Failed to propagate config to {:?} ({:?})",
-                    &unit_name, &e
-                ),
-            },
+            Err(e) => warn!(
+                "resctl: Failed to propagate config to {:?} ({:?})",
+                &unit_name, &e
+            ),
         }
     }
     Ok(())
