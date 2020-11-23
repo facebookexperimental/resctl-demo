@@ -498,6 +498,7 @@ class SysChecker:
         self.warns = []
         self.fixed = False
 
+        self.root_part = None
         self.root_dev = None
         self.root_devnr = None
         self.mem_total = 0
@@ -508,7 +509,6 @@ class SysChecker:
 
         # find the root device maj/min
         if args.dev is None:
-            self.root_part = None
             for line in read_lines("/proc/mounts"):
                 toks = line.split()
                 if toks[1] == "/":
@@ -1005,7 +1005,7 @@ def process_job_dir(jobfiles, jobs, now):
     jobids = set()
     jobs_to_kill = {}
 
-    for job in jobs:
+    for _jobid, job in jobs.items():
         if job.jobfile.ino in jobfiles:
             jobids.add(job.jobid)
         else:
@@ -1043,7 +1043,7 @@ def process_job_dir(jobfiles, jobs, now):
 
 def count_active_jobs(jobs):
     count = 0
-    for job in jobs.items:
+    for _jobid, job in jobs.items():
         if job.frozen_at is None and not job.done:
             count += 1
     return count
@@ -1051,7 +1051,7 @@ def count_active_jobs(jobs):
 
 def count_frozen_jobs(jobs):
     count = 0
-    for job in jobs:
+    for _jobid, job in jobs.items():
         if job.frozen_at is not None:
             count += 1
     return count
@@ -1228,7 +1228,7 @@ while True:
             overload_at = now
         overload_why = "resource critical"
         overload_hold = config.ov_hold_max
-        for job in jobs:
+        for _jobid, job in jobs.items():
             job.kill(f"resource critical {critical_why}")
     elif critical_at is not None:
         log("CRITICAL: end, resuming normal operation")
@@ -1266,11 +1266,11 @@ while True:
                 job.kill("frozen for too long")
     else:
         overload_hold = max(overload_hold - config.ov_hold_decay, 0)
-        for job in jobs:
+        for _jobid, job in jobs.items():
             job.update_frozen(False, now)
 
     # Process frozen timeouts
-    for job in jobs:
+    for _jboid, job in jobs.items():
         job.maybe_kill()
 
     # Configure side's cpu.max and update active state
@@ -1281,7 +1281,7 @@ while True:
     syschecker.update_active(nr_active)
 
     # Refresh service status and report
-    for job in jobs:
+    for _jobid, job in jobs.items():
         job.refresh_status(now)
 
     status = {
