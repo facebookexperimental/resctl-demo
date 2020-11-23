@@ -106,7 +106,7 @@ impl CmdState {
         let report = &af.report.data;
 
         cmd.cmd_seq += 1;
-        if self.bench_hashd_next > cmd.bench_hashd_seq {
+        if self.bench_hashd_next != cmd.bench_hashd_seq {
             cmd.bench_hashd_seq = self.bench_hashd_next;
             cmd.bench_hashd_balloon_size = Cmd::default().bench_hashd_balloon_size;
             cmd.bench_hashd_args = vec![];
