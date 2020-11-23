@@ -370,7 +370,9 @@ pub fn init_logging(verbosity: u32) {
             .set_location_level(sl::LevelFilter::Off)
             .set_target_level(sl::LevelFilter::Off)
             .set_thread_level(sl::LevelFilter::Off);
-        if let Err(_) = sl::TermLogger::init(sl_level, lcfg.build(), sl::TerminalMode::Stderr) {
+        if !console::user_attended_stderr()
+            || sl::TermLogger::init(sl_level, lcfg.build(), sl::TerminalMode::Stderr).is_err()
+        {
             sl::SimpleLogger::init(sl_level, lcfg.build()).unwrap();
         }
     }

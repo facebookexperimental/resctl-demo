@@ -1737,6 +1737,7 @@ version = "1.0.0"
 dependencies = [
  "anyhow",
  "clap",
+ "console",
  "crossbeam 0.8.0",
  "ctrlc",
  "env_logger",
