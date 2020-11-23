@@ -4,6 +4,7 @@ use crossbeam::channel::{self, select, Receiver, Sender};
 use json;
 use log::{error, info, warn};
 use std::collections::VecDeque;
+use std::os::unix::ffi::OsStrExt;
 use std::process;
 use std::sync::{Arc, Mutex};
 use std::thread::{spawn, JoinHandle};
@@ -34,9 +35,15 @@ fn parse_journal_msg(line: &str) -> Result<JournalMsg> {
         .parse()
         .unwrap_or(0);
     let unit = parsed["_SYSTEMD_UNIT"].as_str().unwrap_or("UNKNOWN");
-    let msg = parsed["MESSAGE"].as_str().unwrap_or("UNKNOWN");
 
-    info!("{:#?}", parsed);
+    let msg = match &parsed["MESSAGE"] {
+        json::JsonValue::String(v) => v.to_string(),
+        json::JsonValue::Array(ar) => {
+            let u8_ar: Vec<u8> = ar.iter().map(|x| x.as_u8().unwrap_or('?' as u8)).collect();
+            std::ffi::OsStr::from_bytes(&u8_ar).to_string_lossy().into()
+        }
+        _ => "UNKNOWN".to_string(),
+    };
 
     Ok(JournalMsg {
         at: UNIX_EPOCH + Duration::from_micros(at_us),
