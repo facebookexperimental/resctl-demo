@@ -2,9 +2,9 @@
 use clap::{App, AppSettings, ArgMatches};
 use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
-
-use super::DFL_PARAMS;
 use util::*;
+
+use super::Params;
 
 const HELP_BODY: &str = "\
 Resource-control demo hash daemon.
@@ -43,6 +43,7 @@ the changes will be applied immediately.
 If the specified --args and/or --params files don't exist, they will be
 created with the default values. Any configurations in --args can be
 overridden on the command line and the changes will be saved in the file.
+Note that only the arguments with single letter shortcuts are saved.
 --params is optional. If not specified, default parameters will be used.
 
 rd-hashd reports the current status in the optional --report file and the
@@ -100,34 +101,39 @@ performs benchmark to determine the parameters and then starts a normal run.
 ";
 
 lazy_static! {
-    pub static ref DFL_ARGS: Args = Default::default();
     static ref ARGS_STR: String = {
         format!(
-            "-t, --testfiles=[DIR]       'Testfiles directory'
-             -s, --size=[SIZE]           'Max memory footprint, affects testfiles size (default: {dfl_size:.2}G)'
-             -f, --file-max=[FRAC]       'Max fraction of page cache, affects testfiles size (default: {dfl_file_max_frac:.2})'
-             -c, --compressibility=[FRAC] 'File and anon data compressibility (default: 0)
-             -p, --params=[FILE]         'Runtime updatable parameters, will be created if non-existent'
-             -r, --report=[FILE]         'Runtime report file, FILE.staging will be used for staging'
-             -l, --log-dir=[PATH]        'Record hash results to the files in PATH'
-             -L, --log-size=[SIZE]       'Maximum log retention (default: {dfl_log_size:.2}G)'
-             -i, --interval=[SECS]       'Summary report interval, 0 to disable (default: {dfl_intv}s)'
-             -R, --rotational=[BOOL]     'Force rotational detection to either true or false'
-             -k, --keep-caches           'Don't drop caches for testfiles on startup'
-                 --clear-testfiles       'Clear testfiles before preparing them'
-                 --prepare-config        'Prepare config files and exit'
-                 --prepare               'Prepare config files and testfiles and exit'
-                 --bench                 'Benchmark and record results in args and params file'
-                 --bench-cpu             'Benchmark cpu'
-                 --bench-mem             'Benchmark memory'
-                 --bench-log-bps=[BPS]   'Log write bps at max rps (default: {dfl_log_bps}M)'
-             -a, --args=[FILE]           'Load base command line arguments from FILE'
-             -v...                       'Sets the level of verbosity'",
-            dfl_size=to_gb(DFL_ARGS.size),
-            dfl_file_max_frac=DFL_ARGS.file_max_frac,
-            dfl_log_size=to_gb(DFL_ARGS.log_size),
-            dfl_log_bps=to_mb(DFL_ARGS.bench_log_bps),
-            dfl_intv=DFL_ARGS.interval)
+            "-t, --testfiles=[DIR]         'Testfiles directory'
+             -s, --size=[SIZE]             'Max memory footprint, affects testfiles size (default: {dfl_size:.2}G)'
+             -f, --file-max=[FRAC]         'Max fraction of page cache, affects testfiles size (default: {dfl_file_max_frac:.2})'
+             -c, --compressibility=[FRAC]  'File and anon data compressibility (default: 0)
+             -p, --params=[FILE]           'Runtime updatable parameters, will be created if non-existent'
+             -r, --report=[FILE]           'Runtime report file, FILE.staging will be used for staging'
+             -l, --log-dir=[PATH]          'Record hash results to the files in PATH'
+             -L, --log-size=[SIZE]         'Maximum log retention (default: {dfl_log_size:.2}G)'
+             -i, --interval=[SECS]         'Summary report interval, 0 to disable (default: {dfl_intv}s)'
+             -R, --rotational=[BOOL]       'Force rotational detection to either true or false'
+             -a, --args=[FILE]             'Load base command line arguments from FILE'
+                 --keep-caches             'Don't drop caches for testfiles on startup'
+                 --clear-testfiles         'Clear testfiles before preparing them'
+                 --prepare-config          'Prepare config files and exit'
+                 --prepare                 'Prepare config files and testfiles and exit'
+                 --bench                   'Benchmark and record results in args and params file'
+                 --bench-cpu               'Benchmark cpu'
+                 --bench-mem               'Benchmark memory'
+                 --bench-fake-cpu-load     'Fake CPU load while benchmarking memory'
+                 --bench-hash-size=[SIZE]  'Use the specified hash size'
+                 --bench-rps-max=[RPS]     'Use the specified RPS max'
+                 --bench-log-bps=[BPS]     'Log write bps at max rps (default: {dfl_log_bps}M)'
+                 --total-memory=[SIZE]     'Override total memory detection'
+                 --total-swap=[SIZE]       'Override total swap space detection'
+                 --nr-cpus=[NR]            'Override cpu count detection'
+             -v...                         'Sets the level of verbosity'",
+            dfl_size=to_gb(Args::default().size),
+            dfl_file_max_frac=Args::default().file_max_frac,
+            dfl_log_size=to_gb(Args::default().log_size),
+            dfl_log_bps=to_mb(Args::default().bench_log_bps),
+            dfl_intv=Args::default().interval)
     };
 }
 
@@ -153,9 +159,12 @@ pub struct Args {
     pub log_size: u64,
     pub interval: u32,
     pub rotational: Option<bool>,
-    pub keep_caches: bool,
-    pub bench_log_bps: u64,
+    pub total_memory: Option<usize>,
+    pub total_swap: Option<usize>,
+    pub nr_cpus: Option<usize>,
 
+    #[serde(skip)]
+    pub keep_caches: bool,
     #[serde(skip)]
     pub clear_testfiles: bool,
     #[serde(skip)]
@@ -166,6 +175,14 @@ pub struct Args {
     pub bench_cpu: bool,
     #[serde(skip)]
     pub bench_mem: bool,
+    #[serde(skip)]
+    pub bench_fake_cpu_load: bool,
+    #[serde(skip)]
+    pub bench_hash_size: usize,
+    #[serde(skip)]
+    pub bench_rps_max: u32,
+    #[serde(skip)]
+    pub bench_log_bps: u64,
     #[serde(skip)]
     pub verbosity: u32,
 }
@@ -183,22 +200,28 @@ impl Default for Args {
     fn default() -> Self {
         Self {
             testfiles: None,
-            size: Self::DFL_SIZE_MULT * *TOTAL_MEMORY as u64,
+            size: Self::DFL_SIZE_MULT * total_memory() as u64,
             file_max_frac: Self::DFL_FILE_MAX_FRAC,
             compressibility: 0.0,
             params: None,
             report: None,
             log_dir: None,
-            log_size: *TOTAL_MEMORY as u64 / 2,
+            log_size: total_memory() as u64 / 2,
             interval: 10,
             rotational: None,
+            total_memory: None,
+            total_swap: None,
+            nr_cpus: None,
             clear_testfiles: false,
             keep_caches: false,
-            bench_log_bps: DFL_PARAMS.log_bps,
             prepare_testfiles: true,
             prepare_and_exit: false,
             bench_cpu: false,
             bench_mem: false,
+            bench_fake_cpu_load: false,
+            bench_hash_size: 0,
+            bench_rps_max: 0,
+            bench_log_bps: Params::default().log_bps,
             verbosity: 0,
         }
     }
@@ -226,6 +249,22 @@ impl JsonArgs for Args {
 
     fn verbosity(matches: &ArgMatches) -> u32 {
         matches.occurrences_of("v") as u32
+    }
+
+    fn system_configuration_overrides(
+        matches: &ArgMatches,
+    ) -> (Option<usize>, Option<usize>, Option<usize>) {
+        (
+            matches
+                .value_of("total-memory")
+                .map(|x| x.parse::<usize>().unwrap()),
+            matches
+                .value_of("total-swap")
+                .map(|x| x.parse::<usize>().unwrap()),
+            matches
+                .value_of("nr-cpus")
+                .map(|x| x.parse::<usize>().unwrap()),
+        )
     }
 
     fn process_cmdline(&mut self, matches: &ArgMatches) -> bool {
@@ -312,20 +351,8 @@ impl JsonArgs for Args {
             };
             updated_base = true;
         }
-        if self.keep_caches != matches.is_present("keep-caches") {
-            self.keep_caches = !self.keep_caches;
-            updated_base = true;
-        }
 
-        let bench_log_bps = match matches.value_of("bench-log-bps") {
-            Some(v) => v.parse::<u64>().unwrap(),
-            None => 0,
-        };
-        if self.bench_log_bps != bench_log_bps {
-            self.bench_log_bps = bench_log_bps;
-            updated_base = true;
-        }
-
+        self.keep_caches = matches.is_present("keep-caches");
         self.clear_testfiles = matches.is_present("clear-testfiles");
 
         let prep_cfg = matches.is_present("prepare-config");
@@ -348,6 +375,21 @@ impl JsonArgs for Args {
                 self.prepare_testfiles = false;
             }
         }
+
+        self.bench_fake_cpu_load = matches.is_present("bench-fake-cpu-load");
+
+        self.bench_hash_size = match matches.value_of("bench-hash-size") {
+            Some(v) => v.parse::<usize>().unwrap(),
+            None => 0,
+        };
+        self.bench_rps_max = match matches.value_of("bench-rps-max") {
+            Some(v) => v.parse::<u32>().unwrap(),
+            None => 0,
+        };
+        self.bench_log_bps = match matches.value_of("bench-log-bps") {
+            Some(v) => v.parse::<u64>().unwrap(),
+            None => 0,
+        };
 
         self.verbosity = Self::verbosity(matches);
 

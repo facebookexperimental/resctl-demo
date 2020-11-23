@@ -20,6 +20,7 @@ use std::time::{Duration, Instant};
 use rd_hashd_intf::{Latencies, Params, Stat};
 use util::*;
 
+use super::bench::{Bench, Cfg};
 use super::logger::Logger;
 use super::testfiles::TestFiles;
 use super::workqueue::WorkQueue;
@@ -29,14 +30,16 @@ pub struct Hasher {
     buf: Vec<u8>,
     off: usize,
     cpu_ratio: f64,
+    fake_cpu_load_time_per_byte: f64,
 }
 
 impl Hasher {
-    pub fn new(cpu_ratio: f64) -> Self {
+    pub fn new(cpu_ratio: f64, fake_cpu_load_time_per_byte: f64) -> Self {
         Hasher {
             buf: vec![],
             off: 0,
             cpu_ratio,
+            fake_cpu_load_time_per_byte,
         }
     }
 
@@ -52,20 +55,45 @@ impl Hasher {
         let len = self.off + input_size;
         self.buf.resize(len, 0);
 
-        f.seek(SeekFrom::Start(input_off))?;
-        f.read(&mut self.buf[self.off..len])?;
+        if self.fake_cpu_load_time_per_byte > 0.0 {
+            for idx in 0..((input_size + *PAGE_SIZE - 1) / *PAGE_SIZE) {
+                let off = idx * *PAGE_SIZE;
+                f.seek(SeekFrom::Start(input_off + off as u64))?;
+                f.read(&mut self.buf[self.off + off..self.off + off + 1])?;
+            }
+        } else {
+            f.seek(SeekFrom::Start(input_off))?;
+            f.read(&mut self.buf[self.off..len])?;
+        }
         self.off = len;
         Ok(input_size)
     }
 
     pub fn append(&mut self, data: &[u8]) {
-        self.buf.extend_from_slice(data);
+        if self.fake_cpu_load_time_per_byte > 0.0 {
+            let buf_len = self.buf.len();
+            self.buf.resize(buf_len + data.len(), 0);
+            for idx in 0..((data.len() + *PAGE_SIZE - 1) / *PAGE_SIZE) {
+                let off = idx * *PAGE_SIZE;
+                self.buf[buf_len + off] = data[off];
+            }
+        } else {
+            self.buf.extend_from_slice(data);
+        }
     }
 
     /// Calculates sha1 of self.buf * self.cpu_ratio.  Hasher exists
     /// to waste cpu and io and self.cpu_ratio controls the ratio
     /// between cpu and io.
     pub fn sha1(&mut self) -> Digest {
+        if self.fake_cpu_load_time_per_byte > 0.0 {
+            // Sleep for the equivalent duration instead of actually calculating SHA1.
+            sleep(Duration::from_secs_f64(
+                self.buf.len() as f64 * self.cpu_ratio * self.fake_cpu_load_time_per_byte,
+            ));
+            return Default::default();
+        }
+
         let mut repeat = self.cpu_ratio;
         let mut hasher = Sha1::new();
         let mut nr_bytes = 0;
@@ -243,6 +271,7 @@ struct HasherThread {
 
     sleep_dur: f64,
     cpu_ratio: f64,
+    fake_cpu_load_time_per_byte: f64,
 
     cmpl_tx: Sender<HashCompletion>,
 
@@ -307,7 +336,7 @@ impl HasherThread {
         let file_addr_normal = ClampedNormal::new(0.0, self.file_addr_stdev_ratio, -1.0, 1.0);
 
         trace!("hasher::run(): cpu_ratio={:.2}", self.cpu_ratio);
-        let mut rdh = Hasher::new(self.cpu_ratio);
+        let mut rdh = Hasher::new(self.cpu_ratio, self.fake_cpu_load_time_per_byte);
         for _ in 0..self.file_nr_chunks {
             let rel = file_addr_normal.sample(&mut rng) * self.file_addr_frac;
             let page = self.rel_to_file_page(rel);
@@ -388,6 +417,8 @@ struct DispatchThread {
     sleep_normal: ClampedNormal,
 
     // Latency percentile calculation.
+    lat_min: f64,
+    lat_max: f64,
     ckms: CKMS<f64>,
     ckms_at: Instant,
 
@@ -405,6 +436,7 @@ struct DispatchThread {
     rps: f64,
     file_addr_frac: f64,
     anon_addr_frac: f64,
+    fake_cpu_load_time_per_byte: f64,
 
     file_dist: Vec<u64>,
     anon_dist: Vec<u64>,
@@ -527,6 +559,8 @@ impl DispatchThread {
             anon_size_normal: Self::anon_size_normal(&params),
             sleep_normal: Self::sleep_normal(&params),
 
+            lat_min: std::f64::MAX,
+            lat_max: 0.0,
             ckms: CKMS::<f64>::new(Self::CKMS_ERROR),
             ckms_at: now,
             lat_pid,
@@ -534,13 +568,14 @@ impl DispatchThread {
 
             lat: Latencies::default(),
             concurrency_max: params.concurrency_max as f64,
-            concurrency: (*NR_CPUS as f64 / 2.0).max(1.0),
+            concurrency: (nr_cpus() as f64 / 2.0).max(1.0),
             nr_in_flight: 0,
             nr_done: 0,
             last_nr_done: 0,
             rps: 0.0,
             file_addr_frac: 1.0,
             anon_addr_frac: 1.0,
+            fake_cpu_load_time_per_byte: 0.0,
 
             file_dist: vec![],
             anon_dist: vec![],
@@ -551,6 +586,27 @@ impl DispatchThread {
         };
         dt.verify_params();
         dt
+    }
+
+    fn params_updated(&mut self) {
+        self.fake_cpu_load_time_per_byte = match self.params.fake_cpu_load {
+            true => {
+                let time_per_byte = Bench::calc_time_per_byte(&Cfg::default().cpu, &self.params);
+                if time_per_byte != self.fake_cpu_load_time_per_byte {
+                    warn!(
+                        "Faking CPU load ({:.3}ns per byte)",
+                        time_per_byte * 1_000_000_000.0
+                    );
+                }
+                time_per_byte
+            }
+            false => {
+                if self.fake_cpu_load_time_per_byte > 0.0 {
+                    warn!("Un-faking CPU load");
+                }
+                0.0
+            }
+        };
     }
 
     fn update_params(&mut self, new_params: Params) {
@@ -577,6 +633,7 @@ impl DispatchThread {
         }
 
         self.params_at = Instant::now();
+        self.params_updated();
     }
 
     fn launch_hashers(&mut self) {
@@ -613,6 +670,7 @@ impl DispatchThread {
 
                 sleep_dur: self.sleep_normal.sample(&mut rng),
                 cpu_ratio: self.params.cpu_ratio,
+                fake_cpu_load_time_per_byte: self.fake_cpu_load_time_per_byte,
 
                 cmpl_tx: self.cmpl_tx.clone(),
 
@@ -628,6 +686,8 @@ impl DispatchThread {
     }
 
     fn reset_lat_rps(&mut self, now: Instant) {
+        self.lat_min = std::f64::MAX;
+        self.lat_max = 0.0;
         self.ckms_at = now;
         self.ckms = CKMS::<f64>::new(Self::CKMS_ERROR);
         self.last_nr_done = self.nr_done;
@@ -644,6 +704,7 @@ impl DispatchThread {
             return false;
         }
 
+        self.lat.min = self.lat_min;
         self.lat.p01 = p01.unwrap().1;
         self.lat.p05 = self.ckms.query(0.05).unwrap().1;
         self.lat.p10 = self.ckms.query(0.10).unwrap().1;
@@ -653,6 +714,10 @@ impl DispatchThread {
         self.lat.p90 = self.ckms.query(0.90).unwrap().1;
         self.lat.p95 = self.ckms.query(0.95).unwrap().1;
         self.lat.p99 = self.ckms.query(0.99).unwrap().1;
+        self.lat.p99_9 = self.ckms.query(0.999).unwrap().1;
+        self.lat.p99_99 = self.ckms.query(0.9999).unwrap().1;
+        self.lat.p99_999 = self.ckms.query(0.99999).unwrap().1;
+        self.lat.max = self.lat_max;
         self.lat.ctl = self.ckms.query(self.params.lat_target_pct).unwrap().1;
         self.rps = (self.nr_done - self.last_nr_done) as f64 / dur.as_secs_f64();
 
@@ -726,6 +791,7 @@ impl DispatchThread {
     }
 
     pub fn run(&mut self) {
+        self.params_updated();
         loop {
             // Launch hashers to fill target concurrency.
             self.launch_hashers();
@@ -777,6 +843,8 @@ impl DispatchThread {
                             self.nr_in_flight -= 1;
                             self.nr_done += 1;
                             let dur = Instant::now().duration_since(started_at).as_secs_f64();
+                            self.lat_min = self.lat_min.min(dur);
+                            self.lat_max = self.lat_max.max(dur);
                             self.ckms.insert(dur);
                             if let Some(logger) = self.logger.as_mut() {
                                 logger.log(&format!("{} {:.2}ms",

@@ -198,34 +198,55 @@ where
 {
     fn match_cmdline() -> clap::ArgMatches<'static>;
     fn verbosity(matches: &clap::ArgMatches) -> u32;
+    fn system_configuration_overrides(
+        _matches: &clap::ArgMatches,
+    ) -> (Option<usize>, Option<usize>, Option<usize>) {
+        (None, None, None)
+    }
     fn process_cmdline(&mut self, matches: &clap::ArgMatches) -> bool;
 }
 
 pub trait JsonArgsHelper
 where
-    Self: JsonLoad + JsonSave + JsonArgs,
+    Self: JsonArgs,
 {
+    fn init_args_and_logging_nosave() -> Result<(JsonConfigFile<Self>, bool)>;
+    fn save_args(args_file: &JsonConfigFile<Self>) -> Result<()>;
     fn init_args_and_logging() -> Result<JsonConfigFile<Self>>;
 }
 
 impl<T> JsonArgsHelper for T
 where
-    T: JsonLoad + JsonSave + JsonArgs,
+    T: JsonArgs,
 {
-    fn init_args_and_logging() -> Result<JsonConfigFile<T>> {
+    fn init_args_and_logging_nosave() -> Result<(JsonConfigFile<T>, bool)> {
         let matches = T::match_cmdline();
         super::init_logging(T::verbosity(&matches));
+        let overrides = T::system_configuration_overrides(&matches);
+        super::override_system_configuration(overrides.0, overrides.1, overrides.2);
 
         let mut args_file = JsonConfigFile::<T>::load_or_create(matches.value_of("args").as_ref())?;
+        let updated = args_file.data.process_cmdline(&matches);
 
-        if args_file.data.process_cmdline(&matches) && args_file.path.is_some() {
+        Ok((args_file, updated))
+    }
+
+    fn save_args(args_file: &JsonConfigFile<T>) -> Result<()> {
+        if args_file.path.is_some() {
             info!(
                 "Updating command line arguments file {:?}",
                 &args_file.path.as_deref().unwrap()
             );
             args_file.save()?;
         }
+        Ok(())
+    }
 
+    fn init_args_and_logging() -> Result<JsonConfigFile<T>> {
+        let (args_file, updated) = Self::init_args_and_logging_nosave()?;
+        if updated {
+            Self::save_args(&args_file)?;
+        }
         Ok(args_file)
     }
 }

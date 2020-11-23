@@ -8,7 +8,8 @@ use std::process;
 use std::sync::{Arc, Mutex};
 use std::thread::{spawn, JoinHandle};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use util::*;
+
+use super::child_reader_thread;
 
 #[derive(Debug)]
 pub struct JournalMsg {

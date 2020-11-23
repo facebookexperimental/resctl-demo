@@ -71,11 +71,11 @@ impl Hashd {
 
         let file_addr_stdev = match cmd.file_addr_stdev {
             Some(v) => v,
-            None => rd_hashd_intf::DFL_PARAMS.file_addr_stdev_ratio,
+            None => rd_hashd_intf::Params::default().file_addr_stdev_ratio,
         };
         let anon_addr_stdev = match cmd.anon_addr_stdev {
             Some(v) => v,
-            None => rd_hashd_intf::DFL_PARAMS.anon_addr_stdev_ratio,
+            None => rd_hashd_intf::Params::default().anon_addr_stdev_ratio,
         };
 
         let mut params = match rd_hashd_intf::Params::load(&self.params_path) {
@@ -193,6 +193,7 @@ impl Hashd {
 
         Ok(HashdReport {
             svc: svc_r,
+            phase: hashd_r.phase,
             load: (hashd_r.hasher.rps / self.rps_max as f64).min(1.0),
             rps: hashd_r.hasher.rps,
             lat_pct: self.lat_target_pct,
@@ -214,9 +215,9 @@ impl HashdSet {
                     params_path: cfg.hashd_paths(HashdSel::A).params.clone(),
                     report_path: cfg.hashd_paths(HashdSel::A).report.clone(),
                     path_args: hashd_path_args(cfg, HashdSel::A),
-                    lat_target_pct: rd_hashd_intf::DFL_PARAMS.lat_target_pct,
+                    lat_target_pct: rd_hashd_intf::Params::default().lat_target_pct,
                     rps_max: 1,
-                    file_max_ratio: rd_hashd_intf::DFL_ARGS.file_max_frac,
+                    file_max_ratio: rd_hashd_intf::Args::default().file_max_frac,
                     svc: None,
                 },
                 Hashd {
@@ -224,9 +225,9 @@ impl HashdSet {
                     params_path: cfg.hashd_paths(HashdSel::B).params.clone(),
                     report_path: cfg.hashd_paths(HashdSel::B).report.clone(),
                     path_args: hashd_path_args(cfg, HashdSel::B),
-                    lat_target_pct: rd_hashd_intf::DFL_PARAMS.lat_target_pct,
+                    lat_target_pct: rd_hashd_intf::Params::default().lat_target_pct,
                     rps_max: 1,
-                    file_max_ratio: rd_hashd_intf::DFL_ARGS.file_max_frac,
+                    file_max_ratio: rd_hashd_intf::Args::default().file_max_frac,
                     svc: None,
                 },
             ],

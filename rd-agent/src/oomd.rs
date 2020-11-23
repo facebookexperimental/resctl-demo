@@ -233,7 +233,7 @@ impl Oomd {
             debug!("oomd: clearing {:?}", &path);
             if let Err(e) = write_one_line(&path, "max") {
                 warn!(
-                    "oomd: Failed to clear ${:?} after shutdown ({:?})",
+                    "oomd: Failed to clear {:?} after shutdown ({:?})",
                     &path, &e
                 );
             }
@@ -272,12 +272,12 @@ impl Oomd {
         oomd_cfg_append(&oomd_cfg_slice_senpai(
             &knobs.workload.senpai,
             Slice::Work,
-            *TOTAL_MEMORY as u64,
+            total_memory() as u64,
         ));
         oomd_cfg_append(&oomd_cfg_slice_senpai(
             &knobs.system.senpai,
             Slice::Sys,
-            *TOTAL_MEMORY as u64,
+            total_memory() as u64,
         ));
 
         if knobs.swap_enable {

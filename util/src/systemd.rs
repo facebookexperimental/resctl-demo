@@ -307,6 +307,7 @@ pub struct Unit {
     pub state: US,
     pub resctl: UnitResCtl,
     pub props: UnitProps,
+    pub quiet: bool,
 }
 
 impl fmt::Display for Unit {
@@ -334,6 +335,7 @@ impl Unit {
             state: US::Other("unknown".into()),
             resctl: Default::default(),
             props: sb.with(|s| s.get_unit_props(&name))?,
+            quiet: false,
             name,
         };
         svc.refresh_fields();
@@ -372,7 +374,7 @@ impl Unit {
     pub fn refresh_fields(&mut self) {
         let new_state = self.props.state();
 
-        if self.state == US::Running {
+        if !self.quiet && self.state == US::Running {
             match &new_state {
                 US::Running => {}
                 US::Exited => info!("svc: {:?} exited", &self.name),
@@ -487,7 +489,9 @@ impl Unit {
 
         self.sd_bus().with(|s| s.stop_unit(&self.name))?;
         self.wait_transition(|x| *x != US::Running, *DBUS_TIMEOUT);
-        info!("svc: {:?} stopped ({:?})", &self.name, &self.state);
+        if !self.quiet {
+            info!("svc: {:?} stopped ({:?})", &self.name, &self.state);
+        }
         match self.state {
             US::NotFound | US::Failed(_) => Ok(true),
             _ => Ok(false),
@@ -524,7 +528,9 @@ impl Unit {
             },
             *DBUS_TIMEOUT,
         );
-        info!("svc: {:?} started ({:?})", &self.name, &self.state);
+        if !self.quiet {
+            info!("svc: {:?} started ({:?})", &self.name, &self.state);
+        }
         match self.state {
             US::Running | US::Exited => Ok(true),
             _ => Ok(false),
@@ -532,7 +538,9 @@ impl Unit {
     }
 
     pub fn restart(&mut self) -> Result<()> {
-        info!("svc: {:?} restarting ({:?})", &self.name, &self.state);
+        if !self.quiet {
+            info!("svc: {:?} restarting ({:?})", &self.name, &self.state);
+        }
         self.sd_bus().with(|s| s.restart_unit(&self.name))
     }
 }
@@ -613,6 +621,11 @@ impl TransientService {
         self
     }
 
+    pub fn set_quiet(&mut self) -> &mut Self {
+        self.unit.quiet = true;
+        self
+    }
+
     fn try_start(&mut self) -> Result<bool> {
         let mut pv: PropVec = self.unit.resctl_props();
         for (k, v) in self.extra_props.iter() {
@@ -644,10 +657,12 @@ impl TransientService {
             },
             *DBUS_TIMEOUT,
         );
-        info!(
-            "svc: {:?} started ({:?})",
-            &self.unit.name, &self.unit.state
-        );
+        if !self.unit.quiet {
+            info!(
+                "svc: {:?} started ({:?})",
+                &self.unit.name, &self.unit.state
+            );
+        }
         match self.unit.state {
             US::Running | US::Exited => Ok(true),
             _ => Ok(false),

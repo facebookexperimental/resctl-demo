@@ -33,6 +33,7 @@ use rd_agent_intf::{
     Args, BenchKnobs, Cmd, CmdAck, Report, SideloadDefs, SliceKnobs, SvcReport, SvcStateReport,
     SysReq, SysReqsReport, OOMD_SVC_NAME,
 };
+use report::clear_old_report_files;
 
 const SWAPPINESS_PATH: &str = "/proc/sys/vm/swappiness";
 
@@ -138,7 +139,6 @@ pub struct IOCostPaths {
 
 #[derive(Debug)]
 pub struct Config {
-    pub passive: bool,
     pub top_path: String,
     pub scr_path: String,
     pub scr_dev: String,
@@ -156,7 +156,7 @@ pub struct Config {
     pub slices_path: String,
     pub hashd_paths: [HashdPaths; 2],
     pub misc_bin_path: String,
-    pub io_latencies_bin: Option<String>,
+    pub biolatpcts_bin: Option<String>,
     pub iocost_paths: IOCostPaths,
     pub oomd_bin: Result<String>,
     pub oomd_sys_svc: Option<String>,
@@ -172,6 +172,12 @@ pub struct Config {
     pub sys_scr_path: String,
     pub balloon_bin: String,
     pub side_linux_tar_path: Option<String>,
+
+    pub rep_retention: Option<u64>,
+    pub rep_1min_retention: Option<u64>,
+    pub force_running: bool,
+    pub bypass: bool,
+    pub passive: bool,
 
     pub sr_failed: HashSet<SysReq>,
     sr_wbt: Option<u64>,
@@ -204,17 +210,22 @@ impl Config {
             }
         }
         let group = group.ok_or(anyhow!("Failed to find administrator group"))?;
-        info!(
-            "cfg: {:?} will have SGID group {:?}",
-            top_path,
-            group.name()
-        );
-
-        chgrp(top_path, group.gid())?;
-        set_sgid(top_path)?;
+        if chgrp(top_path, group.gid())? | set_sgid(top_path)? {
+            info!(
+                "cfg: {:?} will have SGID group {:?}",
+                top_path,
+                group.name()
+            );
+        }
 
         if let Some(path) = args_path {
-            chgrp(path, group.gid())?;
+            if chgrp(path, group.gid())? {
+                info!(
+                    "cfg: {:?} will have group {:?}",
+                    path.as_ref(),
+                    group.name()
+                );
+            }
         }
         Ok(())
     }
@@ -305,10 +316,10 @@ impl Config {
         let misc_bin_path = top_path.clone() + "/misc-bin";
         Self::prep_dir(&misc_bin_path);
 
-        let io_latencies_bin = if args.no_iolat {
+        let biolatpcts_bin = if args.no_iolat {
             None
         } else {
-            Some(misc_bin_path.clone() + "/io_latencies_wrapper.sh")
+            Some(misc_bin_path.clone() + "/biolatpcts_wrapper.sh")
         };
 
         let side_bin_path = top_path.clone() + "/sideload-bin";
@@ -322,6 +333,13 @@ impl Config {
         let report_1min_d_path = top_path.clone() + "/report-1min.d";
         Self::prep_dir(&report_d_path);
         Self::prep_dir(&report_1min_d_path);
+
+        let bench_path = top_path.clone()
+            + "/"
+            + match args.bench_file.as_ref() {
+                None => "bench.json",
+                Some(name) => name,
+            };
 
         Self::prep_dir(&(top_path.clone() + "/hashd-A"));
         Self::prep_dir(&(top_path.clone() + "/hashd-B"));
@@ -345,7 +363,6 @@ impl Config {
         }
 
         Self {
-            passive: args.passive,
             scr_devnr: storage_info::devname_to_devnr(&scr_dev).unwrap(),
             scr_dev,
             scr_dev_forced: args.dev.is_some(),
@@ -357,7 +374,7 @@ impl Config {
             report_1min_path: top_path.clone() + "/report-1min.json",
             report_d_path,
             report_1min_d_path,
-            bench_path: top_path.clone() + "/bench.json",
+            bench_path,
             slices_path: top_path.clone() + "/slices.json",
             hashd_paths: [
                 HashdPaths {
@@ -378,7 +395,7 @@ impl Config {
                 },
             ],
             misc_bin_path: misc_bin_path.clone(),
-            io_latencies_bin,
+            biolatpcts_bin,
             iocost_paths: IOCostPaths {
                 bin: misc_bin_path.clone() + "/iocost_coef_gen.py",
                 working: Self::prep_dir(&(scr_path.clone() + "/iocost-coef")),
@@ -400,6 +417,20 @@ impl Config {
             side_linux_tar_path: args.linux_tar.clone(),
             top_path,
             scr_path,
+
+            rep_retention: if args.keep_reports {
+                None
+            } else {
+                Some(args.rep_retention)
+            },
+            rep_1min_retention: if args.keep_reports {
+                None
+            } else {
+                Some(args.rep_1min_retention)
+            },
+            force_running: args.force_running,
+            bypass: args.bypass,
+            passive: args.passive,
 
             sr_failed: HashSet::new(),
             sr_wbt: None,
@@ -741,22 +772,22 @@ impl Config {
         }
 
         // swap configuration check
-        let swap_total = sys.get_total_swap() as usize * 1024;
+        let swap_total = total_swap();
         let swap_avail = swap_total - sys.get_used_swap() as usize * 1024;
 
-        if (swap_total as f64) < (*TOTAL_MEMORY as f64 * 0.3) {
+        if (swap_total as f64) < (total_memory() as f64 * 0.3) {
             warn!(
                 "cfg: Swap {:.2}G is smaller than 1/3 of memory {:.2}G",
                 to_gb(swap_total),
-                to_gb(*TOTAL_MEMORY / 3)
+                to_gb(total_memory() / 3)
             );
             self.sr_failed.insert(SysReq::Swap);
         }
-        if (swap_avail as f64) < (*TOTAL_MEMORY as f64 * 0.3).min((31 << 30) as f64) {
+        if (swap_avail as f64) < (total_memory() as f64 * 0.3).min((31 << 30) as f64) {
             warn!(
                 "cfg: Available swap {:.2}G is smaller than min(1/3 of memory {:.2}G, 32G)",
                 to_gb(swap_avail),
-                to_gb(*TOTAL_MEMORY / 3)
+                to_gb(total_memory() / 3)
             );
             self.sr_failed.insert(SysReq::Swap);
         }
@@ -863,7 +894,22 @@ impl Config {
             }
         }
 
-        SysReqsReport { satisfied, missed }.save(&self.sysreqs_path)?;
+        let (scr_dev_model, scr_dev_size) = match devname_to_model_and_size(&self.scr_dev) {
+            Ok(v) => v,
+            Err(e) =>
+                bail!("failed to determine model and size of {:?} ({})", &self.scr_dev, &e),
+        };
+
+        SysReqsReport {
+            satisfied,
+            missed,
+            nr_cpus: nr_cpus(),
+            total_memory: total_memory(),
+            total_swap: total_swap(),
+            scr_dev_model,
+            scr_dev_size,
+        }
+        .save(&self.sysreqs_path)?;
 
         if self.sr_failed.is_empty() {
             Ok(())
@@ -906,14 +952,10 @@ impl Drop for Config {
 }
 
 fn reset_agent_states(cfg: &Config) {
-    for path in vec![
+    let mut paths = vec![
         &cfg.index_path,
         &cfg.sysreqs_path,
         &cfg.cmd_path,
-        &cfg.report_path,
-        &cfg.report_1min_path,
-        &cfg.report_d_path,
-        &cfg.report_1min_d_path,
         &cfg.slices_path,
         &cfg.hashd_paths[0].args,
         &cfg.hashd_paths[0].params,
@@ -929,18 +971,28 @@ fn reset_agent_states(cfg: &Config) {
         &cfg.side_bin_path,
         &cfg.side_scr_path,
         &cfg.sys_scr_path,
-    ] {
+    ];
+
+    if cfg.rep_retention.is_some() {
+        paths.append(&mut vec![&cfg.report_path, &cfg.report_d_path]);
+    }
+
+    if cfg.rep_1min_retention.is_some() {
+        paths.append(&mut vec![&cfg.report_1min_path, &cfg.report_1min_d_path]);
+    }
+
+    for path in paths {
         let path = Path::new(path);
 
         if !path.exists() {
             continue;
         }
 
+        info!("cfg: Removing {:?}", &path);
         if path.is_dir() {
             match path.read_dir() {
                 Ok(files) => {
                     for file in files.filter_map(|r| r.ok()).map(|e| e.path()) {
-                        info!("cfg: Removing {:?}", &file);
                         if let Err(e) = fs::remove_file(&file) {
                             warn!("cfg: Failed to remove {:?} ({:?})", &file, &e);
                         }
@@ -951,7 +1003,6 @@ fn reset_agent_states(cfg: &Config) {
                 }
             }
         } else {
-            info!("cfg: Removing {:?}", &path);
             if let Err(e) = fs::remove_file(&path) {
                 warn!("cfg: Failed to remove {:?} ({:?})", &path, &e);
             }
@@ -966,7 +1017,7 @@ fn reset_agent_states(cfg: &Config) {
     Command::new(hashd_args.remove(0))
         .args(hashd_args)
         .status()
-        .expect("cfg: Failed to run rd-hashd --prepare");
+        .expect("cfg: Failed to run rd-hashd --prepare-config");
     fs::copy(
         &cfg.hashd_paths(HashdSel::A).args,
         &cfg.hashd_paths(HashdSel::B).args,
@@ -1087,21 +1138,50 @@ fn main() {
         panic!();
     }
 
-    if let Err(e) = side::prepare_sides(&cfg) {
-        error!("cfg: Failed to prepare sideloads ({:?})", &e);
+    if let Err(e) = side::prepare_side_bins(&cfg) {
+        error!("cfg: Failed to prepare sideload binaries ({:?})", &e);
         panic!();
     }
 
-    if let Err(e) = cfg.startup_checks() {
-        if args_file.data.force {
-            warn!("cfg: Ignoring startup check failures as per --force");
-        } else {
-            error!("cfg: {:?}", e);
-            panic!();
+    match cfg.side_linux_tar_path.as_deref() {
+        Some("__SKIP__") => {}
+        _ => {
+            if let Err(e) = side::prepare_linux_tar(&cfg) {
+                error!("cfg: Failed to prepare linux tarball ({:?})", &e);
+                panic!();
+            }
+        }
+    }
+
+    if !cfg.bypass {
+        if let Err(e) = cfg.startup_checks() {
+            if args_file.data.force {
+                warn!("cfg: Ignoring startup check failures as per --force ({})", &e);
+            } else {
+                error!("cfg: {}", &e);
+                panic!();
+            }
         }
     }
 
     if args_file.data.prepare {
+        // ReportFiles init is responsible for clearing old report files
+        // but we aren't gonna get there. Clear them explicitly.
+        let now = unix_now();
+
+        if let Err(e) = clear_old_report_files(&cfg.report_d_path, cfg.rep_retention, now) {
+            warn!(
+                "report: Failed to clear stale per-second report files ({:?})",
+                &e
+            );
+        }
+        if let Err(e) = clear_old_report_files(&cfg.report_1min_d_path, cfg.rep_1min_retention, now)
+        {
+            warn!(
+                "report: Failed to clear stale per-minute report files ({:?})",
+                &e
+            );
+        }
         return;
     }
 

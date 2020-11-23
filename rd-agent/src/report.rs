@@ -6,6 +6,8 @@ use enum_iterator::IntoEnumIterator;
 use json;
 use linux_proc;
 use log::{debug, error, info, trace, warn};
+use nix::sys::signal::{kill, Signal};
+use nix::unistd::Pid;
 use procfs;
 use scan_fmt::scan_fmt;
 use std::collections::{BTreeMap, HashMap};
@@ -15,15 +17,17 @@ use std::io::prelude::*;
 use std::io::BufReader;
 use std::os::unix::fs::symlink;
 use std::panic;
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, Stdio};
 use std::thread::{spawn, JoinHandle};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use util::*;
 
 use super::cmd::Runner;
+use super::Config;
 use rd_agent_intf::{
-    BenchReport, HashdReport, IoCostReport, IoLatReport, Report, ResCtlReport, Slice, UsageReport,
-    HASHD_A_SVC_NAME, HASHD_B_SVC_NAME, REPORT_1MIN_RETENTION, REPORT_RETENTION,
+    BenchHashdReport, BenchIoCostReport, HashdReport, IoCostReport, IoLatReport, Report,
+    ResCtlReport, Slice, UsageReport, HASHD_A_SVC_NAME, HASHD_BENCH_SVC_NAME, HASHD_B_SVC_NAME,
+    IOCOST_BENCH_SVC_NAME, ROOT_SLICE,
 };
 
 #[derive(Debug, Default)]
@@ -206,6 +210,13 @@ pub struct UsageTracker {
 }
 
 impl UsageTracker {
+    const USAGE_SVCS: [&'static str; 4] = [
+        IOCOST_BENCH_SVC_NAME,
+        HASHD_BENCH_SVC_NAME,
+        HASHD_A_SVC_NAME,
+        HASHD_B_SVC_NAME,
+    ];
+
     fn new(devnr: (u32, u32)) -> Self {
         let mut us = Self {
             devnr,
@@ -214,14 +225,13 @@ impl UsageTracker {
             usages: HashMap::new(),
         };
 
-        us.usages.insert("-.slice".into(), Default::default());
+        us.usages.insert(ROOT_SLICE.into(), Default::default());
         for slice in Slice::into_enum_iter() {
             us.usages.insert(slice.name().into(), Default::default());
         }
-        us.usages
-            .insert(HASHD_A_SVC_NAME.into(), Default::default());
-        us.usages
-            .insert(HASHD_B_SVC_NAME.into(), Default::default());
+        for svc in Self::USAGE_SVCS.iter() {
+            us.usages.insert((*svc).into(), Default::default());
+        }
 
         if let Err(e) = us.update() {
             warn!("report: Failed to update usages ({:?})", &e);
@@ -233,14 +243,14 @@ impl UsageTracker {
         let mut usages = HashMap::new();
 
         let (us, cpu_total) = read_system_usage(self.devnr)?;
-        usages.insert("-.slice".into(), us);
+        usages.insert(ROOT_SLICE.into(), us);
         for slice in Slice::into_enum_iter() {
             usages.insert(
                 slice.name().to_string(),
                 read_cgroup_usage(slice.cgrp(), self.devnr),
             );
         }
-        for hashd in [HASHD_A_SVC_NAME, HASHD_B_SVC_NAME].iter() {
+        for hashd in Self::USAGE_SVCS.iter() {
             let cgrp = format!("{}/{}", Slice::Work.cgrp(), hashd);
             usages.insert(hashd.to_string(), read_cgroup_usage(&cgrp, self.devnr));
         }
@@ -318,7 +328,7 @@ impl UsageTracker {
 
 struct ReportFile {
     intv: u64,
-    retention: u64,
+    retention: Option<u64>,
     path: String,
     d_path: String,
     next_at: u64,
@@ -329,36 +339,46 @@ struct ReportFile {
     nr_samples: u32,
 }
 
-impl ReportFile {
-    fn clear_old_files(&self, now: u64) -> Result<()> {
-        for path in fs::read_dir(&self.d_path)?
-            .filter_map(|x| x.ok())
-            .map(|x| x.path())
-        {
-            let name = path
-                .file_name()
-                .unwrap_or_else(|| OsStr::new(""))
-                .to_str()
-                .unwrap_or("");
-            let stamp = match scan_fmt!(name, "{d}.json", u64) {
-                Ok(v) => v,
-                Err(_) => continue,
-            };
-            if stamp < now - self.retention {
-                if let Err(e) = fs::remove_file(&path) {
-                    warn!(
-                        "report: Failed to remove stale report {:?} ({:?})",
-                        &path, &e
-                    );
-                } else {
-                    debug!("report: Removed stale report {:?}", &path);
-                }
+pub fn clear_old_report_files(d_path: &str, retention: Option<u64>, now: u64) -> Result<()> {
+    for path in fs::read_dir(d_path)?
+        .filter_map(|x| x.ok())
+        .map(|x| x.path())
+    {
+        if retention.is_none() {
+            return Ok(());
+        }
+
+        let name = path
+            .file_name()
+            .unwrap_or_else(|| OsStr::new(""))
+            .to_str()
+            .unwrap_or("");
+        let stamp = match scan_fmt!(name, "{d}.json", u64) {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+        if stamp < now - retention.unwrap() {
+            if let Err(e) = fs::remove_file(&path) {
+                warn!(
+                    "report: Failed to remove stale report {:?} ({:?})",
+                    &path, &e
+                );
+            } else {
+                debug!("report: Removed stale report {:?}", &path);
             }
         }
-        Ok(())
     }
+    Ok(())
+}
 
-    fn new(intv: u64, retention: u64, path: &str, d_path: &str, devnr: (u32, u32)) -> ReportFile {
+impl ReportFile {
+    fn new(
+        intv: u64,
+        retention: Option<u64>,
+        path: &str,
+        d_path: &str,
+        devnr: (u32, u32),
+    ) -> ReportFile {
         let now = unix_now();
 
         let rf = Self {
@@ -374,7 +394,7 @@ impl ReportFile {
             nr_samples: 0,
         };
 
-        if let Err(e) = rf.clear_old_files(now) {
+        if let Err(e) = clear_old_report_files(d_path, retention, now) {
             warn!("report: Failed to clear stale report files ({:?})", &e);
         }
         rf
@@ -406,6 +426,7 @@ impl ReportFile {
             self.hashd_acc[i] /= self.nr_samples;
             report.hashd[i] = HashdReport {
                 svc: report.hashd[i].svc.clone(),
+                phase: report.hashd[i].phase,
                 ..self.hashd_acc[i].clone()
             };
         }
@@ -450,10 +471,12 @@ impl ReportFile {
         }
 
         // delete expired ones
-        for i in was_at..now {
-            let path = format!("{}/{}.json", &self.d_path, i - self.retention);
-            trace!("report: Removing expired {:?}", &path);
-            let _ = fs::remove_file(&path);
+        if let Some(retention) = self.retention {
+            for i in was_at..now {
+                let path = format!("{}/{}.json", &self.d_path, i - retention);
+                trace!("report: Removing expired {:?}", &path);
+                let _ = fs::remove_file(&path);
+            }
         }
     }
 }
@@ -464,6 +487,7 @@ struct ReportWorker {
     report_file: ReportFile,
     report_file_1min: ReportFile,
     iolat: IoLatReport,
+    iolat_cum: IoLatReport,
     iocost_devnr: (u32, u32),
 }
 
@@ -476,20 +500,21 @@ impl ReportWorker {
             term_rx,
             report_file: ReportFile::new(
                 1,
-                REPORT_RETENTION,
+                cfg.rep_retention,
                 &cfg.report_path,
                 &cfg.report_d_path,
                 cfg.scr_devnr,
             ),
             report_file_1min: ReportFile::new(
                 60,
-                REPORT_1MIN_RETENTION,
+                cfg.rep_1min_retention,
                 &cfg.report_1min_path,
                 &cfg.report_1min_d_path,
                 cfg.scr_devnr,
             ),
 
             iolat: Default::default(),
+            iolat_cum: Default::default(),
             iocost_devnr: cfg.scr_devnr,
 
             runner: {
@@ -522,9 +547,14 @@ impl ReportWorker {
 
         let mut runner = self.runner.data.lock().unwrap();
 
-        let bench_hashd = match runner.bench_hashd.as_mut() {
-            Some(svc) => super::svc_refresh_and_report(&mut svc.unit)?,
-            None => Default::default(),
+        let hashd = runner.hashd_set.report(expiration)?;
+
+        let (bench_hashd, bench_hashd_phase) = match runner.bench_hashd.as_mut() {
+            Some(svc) => (
+                super::svc_refresh_and_report(&mut svc.unit)?,
+                hashd[0].phase,
+            ),
+            None => (Default::default(), Default::default()),
         };
         let bench_iocost = match runner.bench_iocost.as_mut() {
             Some(svc) => super::svc_refresh_and_report(&mut svc.unit)?,
@@ -546,13 +576,17 @@ impl ReportWorker {
             resctl,
             oomd: runner.sobjs.oomd.report()?,
             sideloader: runner.sobjs.sideloader.report()?,
-            bench_hashd: BenchReport { svc: bench_hashd },
-            bench_iocost: BenchReport { svc: bench_iocost },
-            hashd: runner.hashd_set.report(expiration)?,
+            bench_hashd: BenchHashdReport {
+                svc: bench_hashd,
+                phase: bench_hashd_phase,
+            },
+            bench_iocost: BenchIoCostReport { svc: bench_iocost },
+            hashd,
             sysloads: runner.side_runner.report_sysloads()?,
             sideloads: runner.side_runner.report_sideloads()?,
             usages: BTreeMap::new(),
             iolat: self.iolat.clone(),
+            iolat_cum: self.iolat_cum.clone(),
             iocost,
         })
     }
@@ -584,6 +618,32 @@ impl ReportWorker {
         Ok(iolat_map)
     }
 
+    fn start_iolat(
+        cfg: &Config,
+        name: &str,
+        intv: &str,
+        tx: Sender<String>,
+    ) -> (Child, JoinHandle<()>) {
+        let mut cmd = Command::new(&cfg.biolatpcts_bin.as_ref().unwrap())
+            .arg(format!("{}:{}", cfg.scr_devnr.0, cfg.scr_devnr.1))
+            .args(&["-i", intv, "--json"])
+            .arg("-p")
+            .arg(
+                IoLatReport::PCTS
+                    .iter()
+                    .map(|x| format!("{}", x))
+                    .collect::<Vec<String>>()
+                    .join(","),
+            )
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let name = name.to_string();
+        let stdout = cmd.stdout.take().unwrap();
+        let jh = spawn(move || child_reader_thread(name, stdout, tx));
+        (cmd, jh)
+    }
+
     fn run_inner(mut self) {
         let mut next_at = unix_now() + 1;
 
@@ -592,21 +652,18 @@ impl ReportWorker {
 
         let (iolat_tx, iolat_rx) = channel::unbounded::<String>();
         let (mut iolat, mut iolat_jh) = (None, None);
-        if cfg.io_latencies_bin.is_some() {
-            iolat = Some(
-                Command::new(&cfg.io_latencies_bin.as_ref().unwrap())
-                    .arg(format!("{}:{}", cfg.scr_devnr.0, cfg.scr_devnr.1))
-                    .args(&["-i", "1", "--json"])
-                    .arg("-p")
-                    .args(IoLatReport::PCTS.iter().map(|x| format!("{}", x)))
-                    .stdout(Stdio::piped())
-                    .spawn()
-                    .unwrap(),
-            );
-            let iolat_stdout = iolat.as_mut().unwrap().stdout.take().unwrap();
-            iolat_jh = Some(spawn(move || {
-                child_reader_thread("iolat".into(), iolat_stdout, iolat_tx)
-            }));
+
+        let (iolat_cum_tx, iolat_cum_rx) = channel::unbounded::<String>();
+        let (mut iolat_cum, mut iolat_cum_jh) = (None, None);
+
+        if cfg.biolatpcts_bin.is_some() {
+            let (cmd, jh) = Self::start_iolat(cfg, "iolat", "1", iolat_tx);
+            iolat = Some(cmd);
+            iolat_jh = Some(jh);
+
+            let (cmd, jh) = Self::start_iolat(cfg, "iolat_cum", "-1", iolat_cum_tx);
+            iolat_cum = Some(cmd);
+            iolat_cum_jh = Some(jh);
         }
 
         drop(runner);
@@ -615,6 +672,11 @@ impl ReportWorker {
         'outer: loop {
             select! {
                 recv(iolat_rx) -> res => {
+                    // the cumulative instance doesn't have an interval,
+                    // kick it and run it at the same pace as the 1s one.
+                    kill(Pid::from_raw(iolat_cum.as_ref().unwrap().id() as i32),
+                         Signal::SIGUSR2).unwrap();
+
                     match res {
                         Ok(line) => {
                             match Self::parse_iolat_output(&line) {
@@ -624,6 +686,20 @@ impl ReportWorker {
                         }
                         Err(e) => {
                             warn!("report: iolat reader thread failed ({:?})", &e);
+                            break;
+                        }
+                    }
+                },
+                recv(iolat_cum_rx) -> res => {
+                    match res {
+                        Ok(line) => {
+                            match Self::parse_iolat_output(&line) {
+                                Ok(v) => self.iolat_cum = v,
+                                Err(e) => warn!("report: failed to parse iolat_cum output ({:?})", &e),
+                            }
+                        }
+                        Err(e) => {
+                            warn!("report: iolat_cum reader thread failed ({:?})", &e);
                             break;
                         }
                     }
@@ -664,11 +740,18 @@ impl ReportWorker {
         }
 
         drop(iolat_rx);
+        drop(iolat_cum_rx);
 
         if iolat.is_some() {
             let _ = iolat.as_mut().unwrap().kill();
             let _ = iolat.as_mut().unwrap().wait();
             iolat_jh.unwrap().join().unwrap();
+        }
+
+        if iolat_cum.is_some() {
+            let _ = iolat_cum.as_mut().unwrap().kill();
+            let _ = iolat_cum.as_mut().unwrap().wait();
+            iolat_cum_jh.unwrap().join().unwrap();
         }
     }
 

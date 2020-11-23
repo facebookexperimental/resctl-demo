@@ -326,10 +326,10 @@ fn verify_and_fix_cgrp_mem(path: &str, is_limit: bool, knob: MemoryKnob) -> Resu
         v => v.parse::<u64>().ok(),
     };
     if let Some(mut v) = cur {
-        // max can be mapped to either u64::MAX or *TOTAL_MEMORY, limit to
+        // max can be mapped to either u64::MAX or total_memory(), limit to
         // the latter to avoid spurious mismatches.
-        let target = knob.nr_bytes(is_limit).min(*TOTAL_MEMORY as u64);
-        v = v.min(*TOTAL_MEMORY as u64);
+        let target = knob.nr_bytes(is_limit).min(total_memory() as u64);
+        v = v.min(total_memory() as u64);
 
         if target == v || (target > 0 && ((v as f64 - target as f64) / target as f64).abs() < 0.1) {
             return Ok(());

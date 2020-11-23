@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 use systemd::UnitState as US;
 use util::*;
 
-use rd_agent_intf::{RunnerState, Slice, SliceConfig};
+use rd_agent_intf::{RunnerState, Slice};
 
 use super::hashd::HashdSet;
 use super::side::{Balloon, SideRunner, Sideload, Sysload};
@@ -195,13 +195,11 @@ impl RunnerData {
                     self.state = BenchIOCost;
                     self.force_apply = true;
                 } else if cmd.bench_hashd_seq > bench.hashd_seq {
-                    if bench.iocost_seq > 0 {
-                        let balloon_size = SliceConfig::bench_balloon_size();
-
-                        if let Err(e) = self.balloon.set_size(balloon_size) {
+                    if bench.iocost_seq > 0 || self.cfg.force_running {
+                        if let Err(e) = self.balloon.set_size(cmd.bench_hashd_balloon_size) {
                             error!(
                                 "cmd: Failed to set balloon size to {:.2}G for hashd bench ({:?})",
-                                to_gb(balloon_size),
+                                to_gb(cmd.bench_hashd_balloon_size),
                                 &e
                             );
                             panic!();
@@ -213,6 +211,7 @@ impl RunnerData {
                             &*self.cfg,
                             cmd.hashd[0].log_bps,
                             0,
+                            cmd.bench_hashd_args.clone(),
                         )?);
 
                         self.state = BenchHashd;
@@ -221,7 +220,7 @@ impl RunnerData {
                         warn!("cmd: iocost benchmark must be run before hashd benchmark");
                         self.warned_bench = true;
                     }
-                } else if bench.hashd_seq > 0 {
+                } else if bench.hashd_seq > 0 || self.cfg.force_running {
                     info!("cmd: Transitioning to Running state");
                     self.state = Running;
                     repeat = true;
@@ -260,8 +259,9 @@ impl RunnerData {
                         warn!("cmd: Failed to apply sideload changes ({:?})", &e);
                     }
 
-                    let balloon_size =
-                        ((*TOTAL_MEMORY as f64) * &self.sobjs.cmd_file.data.balloon_ratio) as usize;
+                    let balloon_size = ((total_memory() as f64)
+                        * &self.sobjs.cmd_file.data.balloon_ratio)
+                        as usize;
                     if let Err(e) = self.balloon.set_size(balloon_size) {
                         error!(
                             "cmd: Failed to set balloon size to {:.2}G ({:?})",
@@ -396,7 +396,9 @@ impl Runner {
             data = self.data.lock().unwrap();
             let now = Instant::now();
 
-            if now.duration_since(last_health_check_at) >= HEALTH_CHECK_INTV || verify_pending {
+            if !data.cfg.bypass
+                && (now.duration_since(last_health_check_at) >= HEALTH_CHECK_INTV || verify_pending)
+            {
                 let workload_senpai = data.sobjs.oomd.workload_senpai_enabled();
                 if let Err(e) = slices::verify_and_fix_slices(
                     &data.sobjs.slice_file.data,

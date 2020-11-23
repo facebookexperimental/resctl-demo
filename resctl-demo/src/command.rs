@@ -10,7 +10,7 @@ use std::time::{Duration, SystemTime};
 use util::*;
 
 use super::{agent, AGENT_FILES};
-use rd_agent_intf::{HashdCmd, MemoryKnob, Slice};
+use rd_agent_intf::{Cmd, HashdCmd, MemoryKnob, Slice};
 
 lazy_static! {
     pub static ref CMD_STATE: Mutex<CmdState> = Mutex::new(CmdState::new());
@@ -72,12 +72,12 @@ impl CmdState {
             slices[Slice::Sys].cpu_weight as f64 / slices[Slice::Work].cpu_weight as f64;
         self.sys_io_ratio =
             slices[Slice::Sys].io_weight as f64 / slices[Slice::Work].io_weight as f64;
-        self.mem_margin = (*TOTAL_MEMORY as u64
+        self.mem_margin = (total_memory() as u64
             - slices[Slice::Work]
                 .mem_low
                 .nr_bytes(false)
-                .min(*TOTAL_MEMORY as u64)) as f64
-            / *TOTAL_MEMORY as f64;
+                .min(total_memory() as u64)) as f64
+            / total_memory() as f64;
         self.balloon_ratio = cmd.balloon_ratio;
         self.cpu_headroom = cmd.sideloader.cpu_headroom;
 
@@ -106,7 +106,11 @@ impl CmdState {
         let report = &af.report.data;
 
         cmd.cmd_seq += 1;
-        cmd.bench_hashd_seq = self.bench_hashd_next;
+        if self.bench_hashd_next > cmd.bench_hashd_seq {
+            cmd.bench_hashd_seq = self.bench_hashd_next;
+            cmd.bench_hashd_balloon_size = Cmd::default().bench_hashd_balloon_size;
+            cmd.bench_hashd_args = vec![];
+        }
         cmd.bench_iocost_seq = self.bench_iocost_next;
 
         cmd.hashd = self.hashd.clone();
@@ -138,7 +142,7 @@ impl CmdState {
         slices[Slice::Sys].io_weight =
             ((self.sys_io_ratio * slices[Slice::Work].io_weight as f64).round() as u32).max(1);
         slices[Slice::Work].mem_low =
-            MemoryKnob::Bytes(((1.0 - self.mem_margin) * *TOTAL_MEMORY as f64).max(0.0) as u64);
+            MemoryKnob::Bytes(((1.0 - self.mem_margin) * total_memory() as f64).max(0.0) as u64);
 
         oomd.disable_seq = match self.oomd {
             true => 0,

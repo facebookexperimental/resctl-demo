@@ -32,22 +32,28 @@ All files used by workloads are under the scratch directory. See
 TOPDIR/index.json and TOPDIR/cmd.json.
 ";
 
-pub const DFL_TOP: &str = "/var/lib/resctl-demo";
-
 lazy_static! {
     static ref ARGS_STR: String = format!(
         "-d, --dir=[TOPDIR]     'Top-level dir for operation and scratch files (default: {dfl_dir})'
          -s, --scratch=[DIR]    'Scratch dir for workloads to use (default: $TOPDIR/scratch)'
-         -L, --no-iolat         'Disable bpf-based io latency stat monitoring'
-             --dev=[NAME]       'Override storage device autodetection (e.g. sda, nvme0n1)'
-             --force            'Ignore startup check results and proceed'
-             --prepare          'Prepare the files and directories and exit'
-             --linux-tar=[FILE] 'Path to linux source tarball to be used by build sideload'
-             --reset            'Reset all states except for bench results, linux.tar and testfiles'
-             --passive          'Make system configuration changes only when explicitly requested'
+         -D, --dev=[NAME]       'Override storage device autodetection (e.g. sda, nvme0n1)'
+         -r, --rep-retention=[SECS]      '1s report retention in seconds (default: {dfl_rep_ret:.1}h)'
+         -R, --rep-1min-retention=[SECS] '1m report retention in seconds (default: {dfl_rep_1m_ret:.1}h)'
          -a, --args=[FILE]      'Load base command line arguments from FILE'
+             --no-iolat         'Disable bpf-based io latency stat monitoring'
+             --force            'Ignore startup check results and proceed'
+             --force-running    'Ignore bench requirements and enter Running state'
+             --prepare          'Prepare the files and directories and exit'
+             --linux-tar=[FILE] 'Path to linux source tarball for compile sideload (__SKIP__ to skip)'
+             --bench-file=[FILE] 'Bench file name override'
+             --reset            'Reset all states except for bench results, linux.tar and testfiles'
+             --keep-reports     'Don't delete expired report files, also affects --reset'
+             --bypass           'Skip startup and periodic health checks'
+             --passive          'Do not make system configuration changes, implies --force'
          -v...                  'Sets the level of verbosity'",
-        dfl_dir = DFL_TOP,
+        dfl_dir = Args::default().dir,
+        dfl_rep_ret = Args::default().rep_retention as f64 / 3600.0,
+        dfl_rep_1m_ret = Args::default().rep_1min_retention as f64 / 3600.0,
     );
 }
 
@@ -57,16 +63,27 @@ pub struct Args {
     pub dir: String,
     pub scratch: Option<String>,
     pub dev: Option<String>,
-    pub no_iolat: bool,
+    pub rep_retention: u64,
+    pub rep_1min_retention: u64,
 
     #[serde(skip)]
+    pub no_iolat: bool,
+    #[serde(skip)]
     pub force: bool,
+    #[serde(skip)]
+    pub force_running: bool,
     #[serde(skip)]
     pub prepare: bool,
     #[serde(skip)]
     pub linux_tar: Option<String>,
     #[serde(skip)]
+    pub bench_file: Option<String>,
+    #[serde(skip)]
     pub reset: bool,
+    #[serde(skip)]
+    pub keep_reports: bool,
+    #[serde(skip)]
+    pub bypass: bool,
     #[serde(skip)]
     pub passive: bool,
 }
@@ -74,14 +91,20 @@ pub struct Args {
 impl Default for Args {
     fn default() -> Self {
         Self {
-            dir: DFL_TOP.into(),
+            dir: "/var/lib/resctl-demo".into(),
             scratch: None,
             dev: None,
+            rep_retention: 3600,
+            rep_1min_retention: 24 * 3600,
             no_iolat: false,
             force: false,
+            force_running: false,
             prepare: false,
             linux_tar: None,
+            bench_file: None,
             reset: false,
+            keep_reports: false,
+            bypass: false,
             passive: false,
         }
     }
@@ -107,13 +130,14 @@ impl JsonArgs for Args {
     }
 
     fn process_cmdline(&mut self, matches: &clap::ArgMatches) -> bool {
+        let dfl = Args::default();
         let mut updated_base = false;
 
         if let Some(v) = matches.value_of("dir") {
             self.dir = if v.len() > 0 {
                 v.to_string()
             } else {
-                DFL_TOP.into()
+                dfl.dir.clone()
             };
             updated_base = true;
         }
@@ -134,13 +158,37 @@ impl JsonArgs for Args {
             updated_base = true;
         }
 
-        self.no_iolat = matches.is_present("no-iolat");
+        if let Some(v) = matches.value_of("rep-retention") {
+            self.rep_retention = if v.len() > 0 {
+                v.parse::<u64>().unwrap().max(0)
+            } else {
+                dfl.rep_retention
+            };
+            updated_base = true;
+        }
 
+        if let Some(v) = matches.value_of("rep-1min-retention") {
+            self.rep_1min_retention = if v.len() > 0 {
+                v.parse::<u64>().unwrap().max(0)
+            } else {
+                dfl.rep_1min_retention
+            };
+            updated_base = true;
+        }
+
+        self.no_iolat = matches.is_present("no-iolat");
         self.force = matches.is_present("force");
+        self.force_running = matches.is_present("force-running");
         self.prepare = matches.is_present("prepare");
         self.linux_tar = matches.value_of("linux-tar").map(|x| x.to_string());
+        self.bench_file = matches.value_of("bench-file").map(|x| x.to_string());
         self.reset = matches.is_present("reset");
-        self.passive = matches.is_present("passive");
+        self.keep_reports = matches.is_present("keep-reports");
+        self.bypass = matches.is_present("bypass");
+        if matches.is_present("passive") {
+            self.passive = true;
+            self.force = true;
+        }
 
         updated_base
     }

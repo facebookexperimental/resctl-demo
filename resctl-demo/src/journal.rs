@@ -14,6 +14,7 @@ use std::collections::VecDeque;
 use std::sync::Mutex;
 use std::thread::sleep;
 use std::time::{Duration, SystemTime};
+use util::journal_tailer::{JournalMsg, JournalTailer};
 
 use rd_agent_intf::{
     AGENT_SVC_NAME, HASHD_BENCH_SVC_NAME, IOCOST_BENCH_SVC_NAME, OOMD_SVC_NAME,
@@ -21,7 +22,6 @@ use rd_agent_intf::{
 };
 
 use super::doc::{SIDELOAD_NAMES, SYSLOAD_NAMES};
-use super::journal_tailer::{JournalMsg, JournalTailer};
 use super::{get_layout, COLOR_ALERT, COLOR_DFL, COLOR_INACTIVE, SVC_NAMES, UPDATERS};
 
 const JOURNAL_RETENTION: usize = 100;

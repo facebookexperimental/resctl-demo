@@ -1,6 +1,5 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
 use anyhow::Result;
-use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
 
 use util::*;
@@ -10,10 +9,6 @@ pub struct PidParams {
     pub kp: f64,
     pub ki: f64,
     pub kd: f64,
-}
-
-lazy_static! {
-    pub static ref DFL_PARAMS: Params = Default::default();
 }
 
 const PARAMS_DOC: &str = "\
@@ -72,6 +67,7 @@ const PARAMS_DOC: &str = "\
 //  sleep_stdev_ratio: Standard deviation of sleep duration distribution
 //  cpu_ratio: CPU usage scaling - 1.0 hashes the same number of bytes as accessed
 //  log_bps: Log write bps at rps_max
+//  fake_cpu_load: Sleep equivalent time durations instead of calculating SHA1s
 //  acc_dist_slots: Access distribution report slots - 0 disables
 //  lat_pid: PID controller parameters for latency convergence
 //  rps_pid: PID controller parameters for RPS convergence
@@ -104,6 +100,7 @@ pub struct Params {
     pub sleep_stdev_ratio: f64,
     pub cpu_ratio: f64,
     pub log_bps: u64,
+    pub fake_cpu_load: bool,
     pub acc_dist_slots: usize,
     pub lat_pid: PidParams,
     pub rps_pid: PidParams,
@@ -144,6 +141,7 @@ impl Default for Params {
             sleep_stdev_ratio: 0.33,
             cpu_ratio: 1.0,
             log_bps: 16 << 20,
+            fake_cpu_load: false,
             acc_dist_slots: 0,
             lat_pid: PidParams {
                 kp: 0.1,

@@ -6,8 +6,39 @@ use std::time::UNIX_EPOCH;
 
 use util::*;
 
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Serialize,
+    Deserialize
+)]
+pub enum Phase {
+    Prep,
+    Running,
+    BenchCpuSinglePrep,
+    BenchCpuSingle,
+    BenchCpuSaturationPrep,
+    BenchCpuSaturation,
+    BenchMemPrep,
+    BenchMemUp,
+    BenchMemBisect,
+    BenchMemRefine,
+}
+
+impl Default for Phase {
+    fn default() -> Self {
+        Phase::Prep
+    }
+}
+
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Latencies {
+    pub min: f64,
     pub p01: f64,
     pub p05: f64,
     pub p10: f64,
@@ -17,11 +48,16 @@ pub struct Latencies {
     pub p90: f64,
     pub p95: f64,
     pub p99: f64,
+    pub p99_9: f64,
+    pub p99_99: f64,
+    pub p99_999: f64,
+    pub max: f64,
     pub ctl: f64,
 }
 
 impl ops::AddAssign<&Latencies> for Latencies {
     fn add_assign(&mut self, rhs: &Latencies) {
+        self.min += rhs.min;
         self.p01 += rhs.p01;
         self.p05 += rhs.p05;
         self.p10 += rhs.p10;
@@ -31,6 +67,10 @@ impl ops::AddAssign<&Latencies> for Latencies {
         self.p90 += rhs.p90;
         self.p95 += rhs.p95;
         self.p99 += rhs.p99;
+        self.p99_9 += rhs.p99_9;
+        self.p99_99 += rhs.p99_99;
+        self.p99_999 += rhs.p99_999;
+        self.max += rhs.max;
         self.ctl += rhs.ctl;
     }
 }
@@ -38,6 +78,7 @@ impl ops::AddAssign<&Latencies> for Latencies {
 impl<T: Into<f64>> ops::DivAssign<T> for Latencies {
     fn div_assign(&mut self, rhs: T) {
         let div = rhs.into();
+        self.min /= div;
         self.p01 /= div;
         self.p05 /= div;
         self.p10 /= div;
@@ -47,6 +88,10 @@ impl<T: Into<f64>> ops::DivAssign<T> for Latencies {
         self.p90 /= div;
         self.p95 /= div;
         self.p99 /= div;
+        self.p99_9 /= div;
+        self.p99_99 /= div;
+        self.p99_999 /= div;
+        self.max /= div;
         self.ctl /= div;
     }
 }
@@ -114,6 +159,7 @@ const REPORT_DOC_HEADER: &str = "\
 // rd-hashd runtime report
 //
 //  timestamp: The time this report was created at
+//  phase: The current phase
 //  rotational: Are testfiles and/or swap on hard disk drives?
 //  rotational_testfiles: Are testfiles on hard disk drives?
 //  rotational_swap: Is swap on hard disk drives?
@@ -124,6 +170,7 @@ const REPORT_DOC_HEADER: &str = "\
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Report {
     pub timestamp: DateTime<Local>,
+    pub phase: Phase,
     pub rotational: bool,
     pub rotational_testfiles: bool,
     pub rotational_swap: bool,
@@ -137,6 +184,7 @@ impl Default for Report {
     fn default() -> Self {
         Self {
             timestamp: DateTime::from(UNIX_EPOCH),
+            phase: Default::default(),
             rotational: false,
             rotational_testfiles: false,
             rotational_swap: false,

@@ -1,4 +1,5 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
+use anyhow::Result;
 use chrono::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -7,6 +8,7 @@ use std::time::UNIX_EPOCH;
 use util::*;
 
 use super::RunnerState;
+use rd_hashd_intf;
 
 const REPORT_DOC: &str = "\
 //
@@ -33,6 +35,7 @@ const REPORT_DOC: &str = "\
 //  sideloader.overload_why: the reason for critical state
 //  bench.hashd.svc.name: rd-hashd benchmark systemd service name
 //  bench.hashd.svc.state: rd-hashd benchmark systemd service state
+//  bench.hashd.phase: rd-hashd benchmark phase
 //  bench.iocost.svc.name: iocost benchmark systemd service name
 //  bench.iocost.svc.state: iocost benchmark systemd service state
 //  hashd[].svc.name: rd-hashd systemd service name
@@ -46,12 +49,10 @@ const REPORT_DOC: &str = "\
 //  sideloads{}.svc.name: Sideload systemd service name
 //  sideloads{}.svc.state: Sideload systemd service state
 //  iolat.{read|write|discard|flush}.p*: IO latency distributions
+//  iolat_cum.{read|write|discard|flush}.p*: Cumulative IO latency distributions
 //
 //
 ";
-
-pub const REPORT_RETENTION: u64 = 60 * 60;
-pub const REPORT_1MIN_RETENTION: u64 = 24 * 60 * 60;
 
 #[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SvcStateReport {
@@ -90,7 +91,13 @@ pub struct OomdReport {
 }
 
 #[derive(Clone, Serialize, Deserialize, Default)]
-pub struct BenchReport {
+pub struct BenchHashdReport {
+    pub svc: SvcReport,
+    pub phase: rd_hashd_intf::Phase,
+}
+
+#[derive(Clone, Serialize, Deserialize, Default)]
+pub struct BenchIoCostReport {
     pub svc: SvcReport,
 }
 
@@ -107,6 +114,7 @@ pub struct SideloaderReport {
 #[derive(Clone, Serialize, Deserialize, Default)]
 pub struct HashdReport {
     pub svc: SvcReport,
+    pub phase: rd_hashd_intf::Phase,
     pub load: f64,
     pub rps: f64,
     pub lat_pct: f64,
@@ -197,8 +205,9 @@ pub struct IoLatReport {
 }
 
 impl IoLatReport {
-    pub const PCTS: [&'static str; 13] = [
-        "1", "5", "10", "16", "25", "50", "75", "84", "90", "95", "99", "99.9", "100",
+    pub const PCTS: [&'static str; 16] = [
+        "00", "01", "05", "10", "16", "25", "50", "75", "84", "90", "95", "99", "99.9", "99.99",
+        "99.999", "100",
     ];
 }
 
@@ -257,13 +266,14 @@ pub struct Report {
     pub resctl: ResCtlReport,
     pub oomd: OomdReport,
     pub sideloader: SideloaderReport,
-    pub bench_hashd: BenchReport,
-    pub bench_iocost: BenchReport,
+    pub bench_hashd: BenchHashdReport,
+    pub bench_iocost: BenchIoCostReport,
     pub hashd: [HashdReport; 2],
     pub sysloads: BTreeMap<String, SysloadReport>,
     pub sideloads: BTreeMap<String, SideloadReport>,
     pub usages: BTreeMap<String, UsageReport>,
     pub iolat: IoLatReport,
+    pub iolat_cum: IoLatReport,
     pub iocost: IoCostReport,
 }
 
@@ -283,6 +293,7 @@ impl Default for Report {
             sideloads: Default::default(),
             usages: Default::default(),
             iolat: Default::default(),
+            iolat_cum: Default::default(),
             iocost: Default::default(),
         }
     }
@@ -293,5 +304,35 @@ impl JsonLoad for Report {}
 impl JsonSave for Report {
     fn preamble() -> Option<String> {
         Some(REPORT_DOC.to_string())
+    }
+}
+
+pub struct ReportIter {
+    dir: String,
+    cur: u64,
+    end: u64,
+}
+
+impl ReportIter {
+    pub fn new(dir: &str, start: u64, end: u64) -> Self {
+        Self {
+            dir: dir.into(),
+            cur: start,
+            end,
+        }
+    }
+}
+
+impl Iterator for ReportIter {
+    type Item = (Result<Report>, u64);
+    fn next(&mut self) -> Option<(Result<Report>, u64)> {
+        if self.cur == self.end {
+            return None;
+        }
+        let cur = self.cur;
+        self.cur += 1;
+
+        let path = format!("{}/{}.json", &self.dir, cur);
+        Some((Report::load(&path), cur))
     }
 }

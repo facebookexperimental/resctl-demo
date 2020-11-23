@@ -25,7 +25,6 @@ mod command;
 mod doc;
 mod graph;
 mod journal;
-mod journal_tailer;
 mod report_ring;
 mod status;
 
@@ -33,7 +32,7 @@ use agent::AGENT_FILES;
 use graph::GraphSetId;
 use journal::JournalViewId;
 use rd_agent_intf::{
-    AGENT_SVC_NAME, DFL_TOP, HASHD_A_SVC_NAME, HASHD_BENCH_SVC_NAME, HASHD_B_SVC_NAME,
+    AGENT_SVC_NAME, HASHD_A_SVC_NAME, HASHD_BENCH_SVC_NAME, HASHD_B_SVC_NAME,
     IOCOST_BENCH_SVC_NAME, OOMD_SVC_NAME, SIDELOADER_SVC_NAME, SIDELOAD_SVC_PREFIX,
     SYSLOAD_SVC_PREFIX,
 };
@@ -71,10 +70,9 @@ lazy_static! {
          -D, --dev=[DEVICE]     'Scratch device override (e.g. nvme0n1)'
          -l, --linux=[PATH]     'Path to linux.tar, downloaded automatically if not specified'
          -k, --keep             'Do not shutdown rd-agent on exit'
-         -i, --iocost-mon       'Enable drgn-based iocost stat monitoring'
          -L, --no-iolat         'Disable bpf-based io latency stat monitoring'
              --force            'Ignore startup check failures'",
-        dfl_dir = DFL_TOP,
+        dfl_dir = rd_agent_intf::Args::default().dir,
     );
     pub static ref ARGS: Mutex<Option<Args>> = Mutex::new(None);
     pub static ref TEMP_DIR: tempfile::TempDir = tempfile::tempdir().unwrap();
@@ -494,7 +492,7 @@ fn main() {
     let args = Args {
         dir: match matches.value_of("dir") {
             Some(v) => v.into(),
-            None => DFL_TOP.into(),
+            None => rd_agent_intf::Args::default().dir,
         },
         dev: matches.value_of("dev").unwrap_or("").into(),
         linux_tar: matches.value_of("linux").unwrap_or("").into(),

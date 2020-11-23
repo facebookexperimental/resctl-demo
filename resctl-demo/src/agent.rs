@@ -14,7 +14,7 @@ use std::sync::Mutex;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use util::*;
 
-use rd_agent_intf::{Slice, AGENT_SVC_NAME, DFL_TOP};
+use rd_agent_intf::{AgentFiles, Slice, AGENT_SVC_NAME};
 
 use super::journal::JournalViewId;
 use super::{
@@ -47,83 +47,6 @@ lazy_static! {
     };
 }
 
-#[derive(Default)]
-pub struct AgentFiles {
-    pub args_path: String,
-    pub index_path: String,
-    pub args: JsonConfigFile<rd_agent_intf::Args>,
-    pub index: JsonConfigFile<rd_agent_intf::Index>,
-    pub cmd: JsonConfigFile<rd_agent_intf::Cmd>,
-    pub cmd_ack: JsonConfigFile<rd_agent_intf::CmdAck>,
-    pub sysreqs: JsonConfigFile<rd_agent_intf::SysReqsReport>,
-    pub report: JsonConfigFile<rd_agent_intf::Report>,
-    pub bench: JsonConfigFile<rd_agent_intf::BenchKnobs>,
-    pub slices: JsonConfigFile<rd_agent_intf::SliceKnobs>,
-    pub oomd: JsonConfigFile<rd_agent_intf::OomdKnobs>,
-}
-
-impl AgentFiles {
-    fn new(dir: &str) -> Self {
-        Self {
-            args_path: dir.to_string() + "/args.json",
-            index_path: dir.to_string() + "/index.json",
-            ..Default::default()
-        }
-    }
-
-    fn refresh_one<T>(file: &mut JsonConfigFile<T>, path: &str) -> bool
-    where
-        T: JsonLoad + JsonSave,
-    {
-        match &file.path {
-            None => match JsonConfigFile::<T>::load(path) {
-                Ok(v) => {
-                    *file = v;
-                    true
-                }
-                Err(e) => {
-                    error!("Failed to read {:?} ({:?})", path, &e);
-                    false
-                }
-            },
-            Some(_) => match file.maybe_reload() {
-                Ok(v) => v,
-                Err(e) => {
-                    error!("Failed to reload {:?} ({:?})", path, &e);
-                    false
-                }
-            },
-        }
-    }
-
-    pub fn refresh(&mut self) {
-        Self::refresh_one(&mut self.args, &self.args_path);
-
-        if Self::refresh_one(&mut self.index, &self.index_path) {
-            self.cmd = Default::default();
-            self.cmd_ack = Default::default();
-            self.sysreqs = Default::default();
-            self.report = Default::default();
-            self.bench = Default::default();
-            self.slices = Default::default();
-            self.oomd = Default::default();
-        }
-        if let None = self.index.path {
-            return;
-        }
-
-        let index = &self.index.data;
-
-        Self::refresh_one(&mut self.cmd, &index.cmd);
-        Self::refresh_one(&mut self.cmd_ack, &index.cmd_ack);
-        Self::refresh_one(&mut self.sysreqs, &index.sysreqs);
-        Self::refresh_one(&mut self.report, &index.report);
-        Self::refresh_one(&mut self.bench, &index.bench);
-        Self::refresh_one(&mut self.slices, &index.slices);
-        Self::refresh_one(&mut self.oomd, &index.oomd);
-    }
-}
-
 pub struct AgentFilesWrapper {
     pub files: Mutex<AgentFiles>,
 }
@@ -139,6 +62,10 @@ impl AgentFilesWrapper {
 
     pub fn refresh(&self) {
         self.files.lock().unwrap().refresh();
+    }
+
+    pub fn args(&self) -> rd_agent_intf::Args {
+        self.files.lock().unwrap().args.data.clone()
     }
 
     pub fn index(&self) -> rd_agent_intf::Index {
@@ -347,7 +274,11 @@ fn update_agent_state(siv: &mut Cursive, start: bool, force: bool) {
     let mut emsg = StyledString::plain(" ");
     if start {
         let v = read_text_view(siv, "agent-arg-dir");
-        am.dir = if v.len() > 0 { v } else { DFL_TOP.into() };
+        am.dir = if v.len() > 0 {
+            v
+        } else {
+            rd_agent_intf::Args::default().dir
+        };
         am.scratch = read_text_view(siv, "agent-arg-scr");
         am.dev = read_text_view(siv, "agent-arg-dev");
         am.linux_tar = read_text_view(siv, "agent-arg-linux-tar");

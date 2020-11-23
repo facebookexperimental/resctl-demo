@@ -4,10 +4,10 @@
 #
 # Copyright (c) Facebook, Inc. and its affiliates
 
-IO_LAT="$(dirname "$0")/io_latencies.py"
+IO_LAT="$(dirname "$0")/biolatpcts.py"
 
 if command -v bcc-py >/dev/null; then
-    bcc-py "$IO_LAT" "$@"
+    exec bcc-py "$IO_LAT" "$@"
 else
-    "$IO_LAT" "$@"
+    exec "$IO_LAT" "$@"
 fi
