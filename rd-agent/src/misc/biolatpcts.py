@@ -1,7 +1,7 @@
 #!/usr/bin/python
 #
+# @nolint
 # fmt: off
-# isort:skip_file
 #
 # biolatpcts.py  Monitor IO latency distribution of a block device.
 #
