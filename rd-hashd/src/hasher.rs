@@ -968,7 +968,7 @@ mod tests {
 
         // 0 stdev should always give mean.
         println!("Testing ClampedNormal (0, 0) [-1, 1] == 0");
-        let mut n = super::ClampedNormal::new(0.0, 0.0, -1.0, 1.0);
+        let n = super::ClampedNormal::new(0.0, 0.0, -1.0, 1.0);
         for _ in 0..1024 {
             assert_eq!(n.sample(&mut rng), 0.0);
         }
@@ -976,7 +976,7 @@ mod tests {
         // Should behave like a normal distribution with strict bounds.
         println!("Testing ClampedNormal (1, 0.333333) [0, 2]");
         let mut ckms = CKMS::<f64>::new(CKMS_ERROR);
-        let mut n = super::ClampedNormal::new(1.0, 0.333333, 0.0, 2.0);
+        let n = super::ClampedNormal::new(1.0, 0.333333, 0.0, 2.0);
         for _ in 0..4096 {
             let v = n.sample(&mut rng);
             assert!(v >= 0.0 && v <= 2.0);
@@ -993,7 +993,7 @@ mod tests {
         // Should behave close to a uniform distribution.
         println!("Testing ClampedNormal (0, 10.0) [-1, 1]");
         let mut ckms = CKMS::<f64>::new(CKMS_ERROR);
-        let mut n = super::ClampedNormal::new(0.0, 10.0, -1.0, 1.0);
+        let n = super::ClampedNormal::new(0.0, 10.0, -1.0, 1.0);
         for _ in 0..4096 {
             let v = n.sample(&mut rng);
             assert!(v >= -1.0 && v <= 1.0);

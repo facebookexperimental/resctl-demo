@@ -645,7 +645,6 @@ mod tests {
     use cursive::view::Scrollable;
     use cursive::views::{Dialog, DummyView, LinearLayout, TextView};
     use log::info;
-    use util::*;
 
     #[test]
     fn test() {
