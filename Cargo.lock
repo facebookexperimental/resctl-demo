@@ -426,16 +426,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "dbus"
-version = "0.8.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5cd9e78c210146a1860f897db03412fd5091fd73100778e43ee255cca252cf32"
-dependencies = [
- "libc",
- "libdbus-sys",
-]
-
-[[package]]
 name = "dirs"
 version = "2.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -681,15 +671,6 @@ name = "libc"
 version = "0.2.80"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4d58d1b70b004888f764dfbf6a26a3b0342a1632d33968e4a179d8011c760614"
-
-[[package]]
-name = "libdbus-sys"
-version = "0.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dc12a3bc971424edbbf7edaf6e5740483444db63aa8e23d3751ff12a30f306f0"
-dependencies = [
- "pkg-config",
-]
 
 [[package]]
 name = "libflate"
@@ -1270,7 +1251,6 @@ dependencies = [
  "anyhow",
  "chrono",
  "crossbeam",
- "dbus",
  "enum-iterator",
  "glob",
  "json",
@@ -1284,6 +1264,7 @@ dependencies = [
  "rd-agent-intf",
  "rd-hashd-intf",
  "regex",
+ "rustbus",
  "scan_fmt",
  "serde",
  "serde_json",
@@ -1470,6 +1451,15 @@ dependencies = [
  "blake2b_simd",
  "constant_time_eq",
  "crossbeam-utils",
+]
+
+[[package]]
+name = "rustbus"
+version = "0.9.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5ec57ec5a2344c5aa0b7e87cc36d65f453b29f713e87c72f22bd5ff314c004fc"
+dependencies = [
+ "nix 0.17.0",
 ]
 
 [[package]]
@@ -1763,7 +1753,6 @@ dependencies = [
  "clap",
  "crossbeam",
  "ctrlc",
- "dbus",
  "env_logger",
  "glob",
  "json",
@@ -1775,6 +1764,7 @@ dependencies = [
  "page_size",
  "proc-mounts",
  "rand 0.7.3",
+ "rustbus",
  "scan_fmt",
  "serde",
  "serde_json",

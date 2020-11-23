@@ -14,7 +14,6 @@ rd-hashd-intf = { path = "../rd-hashd-intf" }
 anyhow = "1.0.26"
 chrono = { version = "0.4.10", features = ["serde"] }
 crossbeam = "0.7.3"
-dbus = "0.8.1"
 enum-iterator = "0.5.0"
 glob = "0.3.0"
 json = "0.12.1"
@@ -26,6 +25,7 @@ nix = "^0.19"
 procfs = "0.7.7"
 proc-mounts = "0.2.3"
 regex = "1.3.4"
+rustbus = "^0.9"
 scan_fmt = "0.2.4"
 serde = { version = "1.0.104", features = ["derive"] }
 serde_json = "1.0.47"
