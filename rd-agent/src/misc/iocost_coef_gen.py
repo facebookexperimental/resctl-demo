@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 #
+# @nolint
 # fmt: off
-# isort:skip_file
 #
 # Copyright (C) 2019 Tejun Heo <tj@kernel.org>
 # Copyright (C) 2019 Andy Newell <newella@fb.com>

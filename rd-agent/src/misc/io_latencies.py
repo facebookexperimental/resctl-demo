@@ -1,7 +1,7 @@
 #!/usr/bin/python3
 #
+# @nolint
 # fmt: off
-# isort:skip_file
 #
 # io_latencies.py  Monitor IO latency distribution of a block device.
 #
