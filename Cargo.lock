@@ -1455,9 +1455,9 @@ dependencies = [
 
 [[package]]
 name = "rustbus"
-version = "0.9.1"
+version = "0.9.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5ec57ec5a2344c5aa0b7e87cc36d65f453b29f713e87c72f22bd5ff314c004fc"
+checksum = "da35a95d514cb40de0ed8c45e209521fe3535fd87ab8d37f9f4c28d82be28ead"
 dependencies = [
  "nix 0.17.0",
 ]

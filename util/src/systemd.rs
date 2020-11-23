@@ -41,84 +41,21 @@ pub enum Prop {
     String(String),
 }
 
+// define the variant with a fitting marshal and unmarshal impl
+rustbus::dbus_variant_sig!(PropVariant,
+                           Bool => bool;
+                           U32 => u32;
+                           U64 => u64;
+                           String => String;
+                           StringList => Vec<String>;
+                           ExecStart => Vec<(String, Vec<String>, bool)>);
+
 fn dbus_sig(input: &str) -> signature::Type {
     signature::Type::parse_description(input).as_ref().unwrap()[0].clone()
 }
 
-fn dbus_param_u32(v: u32) -> params::Param<'static, 'static> {
-    params::Param::Base(params::Base::Uint32(v))
-}
-
-fn dbus_param_u64(v: u64) -> params::Param<'static, 'static> {
-    params::Param::Base(params::Base::Uint64(v))
-}
-
-fn dbus_param_bool(v: bool) -> params::Param<'static, 'static> {
-    params::Param::Base(params::Base::Boolean(v))
-}
-
-fn dbus_param_string(v: String) -> params::Param<'static, 'static> {
-    params::Param::Base(params::Base::String(v))
-}
-
-fn dbus_param_struct<'a, 'e>(v: Vec<params::Param<'a, 'e>>) -> params::Param<'a, 'e> {
-    params::Param::Container(params::Container::Struct(v))
-}
-
 fn dbus_param_array<'a, 'e>(v: params::Array<'a, 'e>) -> params::Param<'a, 'e> {
     params::Param::Container(params::Container::Array(v))
-}
-
-fn dbus_param_string_array<I>(v: I) -> params::Param<'static, 'static>
-where
-    I: std::iter::Iterator<Item = String>,
-{
-    dbus_param_array(params::Array {
-        element_sig: dbus_sig("s"),
-        values: v.map(|x| dbus_param_string(x)).collect(),
-    })
-}
-
-fn dbus_param_variant<'a, 'e>(v: params::Variant<'a, 'e>) -> params::Param<'a, 'e> {
-    params::Param::Container(params::Container::Variant(Box::new(v)))
-}
-
-fn dbus_param_variant_u32(v: u32) -> params::Param<'static, 'static> {
-    dbus_param_variant(params::Variant {
-        sig: dbus_sig("u"),
-        value: dbus_param_u32(v),
-    })
-}
-
-fn dbus_param_variant_u64(v: u64) -> params::Param<'static, 'static> {
-    dbus_param_variant(params::Variant {
-        sig: dbus_sig("t"),
-        value: dbus_param_u64(v),
-    })
-}
-
-fn dbus_param_variant_bool(v: bool) -> params::Param<'static, 'static> {
-    dbus_param_variant(params::Variant {
-        sig: dbus_sig("b"),
-        value: dbus_param_bool(v),
-    })
-}
-
-fn dbus_param_variant_string(v: String) -> params::Param<'static, 'static> {
-    dbus_param_variant(params::Variant {
-        sig: dbus_sig("s"),
-        value: dbus_param_string(v),
-    })
-}
-
-fn dbus_param_variant_string_array<I>(v: I) -> params::Param<'static, 'static>
-where
-    I: std::iter::Iterator<Item = String>,
-{
-    dbus_param_variant(params::Variant {
-        sig: dbus_sig("as"),
-        value: dbus_param_string_array(v),
-    })
 }
 
 fn escape_name(name: &str) -> String {
@@ -163,7 +100,7 @@ fn systemd_start_transient_svc_call(
     name: String,
     args: Vec<String>,
     envs: Vec<String>,
-    extra_props: Vec<params::Param>,
+    extra_props: Vec<(String, PropVariant)>,
 ) -> MarshalledMessage {
     // NAME(s) JOB_MODE(s) PROPS(a(sv)) AUX_UNITS(a(s a(sv)))
     //
@@ -187,40 +124,20 @@ fn systemd_start_transient_svc_call(
     });
 
     let mut props = vec![
-        dbus_param_struct(vec![
-            dbus_param_string("Description".into()),
-            dbus_param_variant_string(desc),
-        ]),
-        dbus_param_struct(vec![
-            dbus_param_string("Environment".into()),
-            dbus_param_variant_string_array(envs.into_iter()),
-        ]),
-        dbus_param_struct(vec![
-            dbus_param_string("ExecStart".into()),
-            dbus_param_variant(params::Variant {
-                sig: dbus_sig("a(sasb)"),
-                value: dbus_param_array(params::Array {
-                    element_sig: dbus_sig("(sasb)"),
-                    values: vec![dbus_param_struct(vec![
-                        dbus_param_string(args[0].clone()),
-                        dbus_param_string_array(args.into_iter()),
-                        dbus_param_bool(false),
-                    ])],
-                }),
-            }),
-        ]),
+        ("Description".to_owned(), PropVariant::String(desc)),
+        ("Environment".to_owned(), PropVariant::StringList(envs)),
+        (
+            "ExecStart".to_owned(),
+            PropVariant::ExecStart(vec![(args[0].clone(), args, false)]),
+        ),
     ];
-    for prop in extra_props.iter() {
-        props.push(prop.clone());
+
+    for prop in extra_props.into_iter() {
+        props.push(prop);
     }
 
     // assemble props
-    call.body
-        .push_old_param(&dbus_param_array(params::Array {
-            element_sig: dbus_sig("(sv)"),
-            values: props,
-        }))
-        .unwrap();
+    call.body.push_param(props).unwrap();
 
     // no aux units
     call.body
@@ -290,10 +207,9 @@ impl SystemdDbus {
         }
     }
 
-    pub fn set_unit_props(&mut self, name: &str, props: &[params::Param]) -> Result<()> {
+    pub fn set_unit_props(&mut self, name: &str, props: Vec<(String, PropVariant)>) -> Result<()> {
         let mut msg = systemd_sd1_call("SetUnitProperties");
-        msg.body.push_param2(name, true).unwrap();
-        msg.body.push_old_params(props).unwrap();
+        msg.body.push_param3(name, true, props).unwrap();
         self.send_msg_and_wait(&mut msg)?;
         Ok(())
     }
@@ -331,7 +247,7 @@ impl SystemdDbus {
         name: String,
         args: Vec<String>,
         envs: Vec<String>,
-        extra_props: Vec<params::Param>,
+        extra_props: Vec<(String, PropVariant)>,
     ) -> Result<()> {
         let mut msg = systemd_start_transient_svc_call(name, args, envs, extra_props);
         self.send_msg_and_wait(&mut msg)?;
@@ -541,7 +457,10 @@ impl Unit {
         {
             Ok(props) => UnitProps::new(&props)?,
             Err(e) => {
-                debug!("Failed to unmarshall response from {}, assuming gone ({:?})", &self.name, &e);
+                debug!(
+                    "Failed to unmarshall response from {}, assuming gone ({:?})",
+                    &self.name, &e
+                );
                 self.state = US::NotFound;
                 return Err(e);
             }
@@ -575,32 +494,32 @@ impl Unit {
         self.resctl.mem_max = self.props.u64_dfl_max("MemoryMax");
     }
 
-    pub fn resctl_props(&self) -> Vec<params::Param<'static, 'static>> {
+    pub fn resctl_props(&self) -> Vec<(String, PropVariant)> {
         vec![
-            dbus_param_struct(vec![
-                dbus_param_string("CPUWeight".into()),
-                dbus_param_variant_u64(self.resctl.cpu_weight.unwrap_or(u64::MAX)),
-            ]),
-            dbus_param_struct(vec![
-                dbus_param_string("IOWeight".into()),
-                dbus_param_variant_u64(self.resctl.io_weight.unwrap_or(u64::MAX)),
-            ]),
-            dbus_param_struct(vec![
-                dbus_param_string("MemoryMin".into()),
-                dbus_param_variant_u64(self.resctl.mem_min.unwrap_or(0)),
-            ]),
-            dbus_param_struct(vec![
-                dbus_param_string("MemoryLow".into()),
-                dbus_param_variant_u64(self.resctl.mem_low.unwrap_or(0)),
-            ]),
-            dbus_param_struct(vec![
-                dbus_param_string("MemoryHigh".into()),
-                dbus_param_variant_u64(self.resctl.mem_high.unwrap_or(std::u64::MAX)),
-            ]),
-            dbus_param_struct(vec![
-                dbus_param_string("MemoryMax".into()),
-                dbus_param_variant_u64(self.resctl.mem_max.unwrap_or(std::u64::MAX)),
-            ]),
+            (
+                "CPUWeight".into(),
+                PropVariant::U64(self.resctl.cpu_weight.unwrap_or(u64::MAX)),
+            ),
+            (
+                "IOWeight".into(),
+                PropVariant::U64(self.resctl.io_weight.unwrap_or(u64::MAX)),
+            ),
+            (
+                "MemoryMin".into(),
+                PropVariant::U64(self.resctl.mem_min.unwrap_or(0)),
+            ),
+            (
+                "MemoryLow".into(),
+                PropVariant::U64(self.resctl.mem_low.unwrap_or(0)),
+            ),
+            (
+                "MemoryHigh".into(),
+                PropVariant::U64(self.resctl.mem_high.unwrap_or(std::u64::MAX)),
+            ),
+            (
+                "MemoryMax".into(),
+                PropVariant::U64(self.resctl.mem_max.unwrap_or(std::u64::MAX)),
+            ),
         ]
     }
 
@@ -608,23 +527,22 @@ impl Unit {
         trace!("svc: {:?} applying resctl", &self.name);
         self.sd_bus().with(|s| {
             s.borrow_mut()
-                .set_unit_props(&self.name, &self.resctl_props())
+                .set_unit_props(&self.name, self.resctl_props())
         })?;
         self.refresh()
     }
 
     pub fn set_prop(&mut self, key: &str, prop: Prop) -> Result<()> {
-        let props = vec![dbus_param_struct(vec![
-            dbus_param_string(key.into()),
-            match prop {
-                Prop::U32(v) => dbus_param_variant_u32(v),
-                Prop::U64(v) => dbus_param_variant_u64(v),
-                Prop::Bool(v) => dbus_param_variant_bool(v),
-                Prop::String(v) => dbus_param_variant_string(v),
-            },
-        ])];
-        self.sd_bus()
-            .with(|s| s.borrow_mut().set_unit_props(&self.name, &props))?;
+        let props = match prop {
+            Prop::U32(v) => PropVariant::U32(v),
+            Prop::U64(v) => PropVariant::U64(v),
+            Prop::Bool(v) => PropVariant::Bool(v),
+            Prop::String(v) => PropVariant::String(v),
+        };
+        self.sd_bus().with(|s| {
+            s.borrow_mut()
+                .set_unit_props(&self.name, vec![(key.into(), props)])
+        })?;
         self.refresh()
     }
 
@@ -814,13 +732,13 @@ impl TransientService {
     fn try_start(&mut self) -> Result<bool> {
         let mut extra_props = self.unit.resctl_props();
         for (k, v) in self.extra_props.iter() {
-            let param = match v {
-                Prop::U32(v) => dbus_param_variant_u32(*v),
-                Prop::U64(v) => dbus_param_variant_u64(*v),
-                Prop::Bool(v) => dbus_param_variant_bool(*v),
-                Prop::String(v) => dbus_param_variant_string(v.clone()),
+            let variant = match v {
+                Prop::U32(v) => PropVariant::U32(*v),
+                Prop::U64(v) => PropVariant::U64(*v),
+                Prop::Bool(v) => PropVariant::Bool(*v),
+                Prop::String(v) => PropVariant::String(v.clone()),
             };
-            extra_props.push(dbus_param_struct(vec![dbus_param_string(k.clone()), param]));
+            extra_props.push((k.clone(), variant));
         }
 
         debug!(
