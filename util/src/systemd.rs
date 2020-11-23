@@ -541,7 +541,7 @@ impl Unit {
         {
             Ok(props) => UnitProps::new(&props)?,
             Err(e) => {
-                dbg!("Failed to unmarshall response from {}, assuming gone ({:?})", &self.name, &e);
+                debug!("Failed to unmarshall response from {}, assuming gone ({:?})", &self.name, &e);
                 self.state = US::NotFound;
                 return Err(e);
             }
