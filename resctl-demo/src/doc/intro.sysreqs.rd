@@ -139,8 +139,8 @@ it's currently unmet:
   restarted.
 
 * %SysReq::Dependencies%: 'python3', 'findmnt', 'dd', 'fio', 'stdbuf',
-  'gcc', 'ld', 'make', 'bison', 'flex', 'pkg-config', 'stress', 'libssl' and
-  'libelf' must be available on the system.
+  'gcc', 'ld', 'make', 'bison', 'flex', 'pkg-config', 'stress', 'bc',
+  'libssl' and 'libelf' must be available on the system.
 
   Install the needed packages.
 

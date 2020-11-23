@@ -105,7 +105,7 @@ pub fn prepare_linux_tar(cfg: &Config) -> Result<()> {
 }
 
 pub fn startup_checks(sr_failed: &mut HashSet<SysReq>) {
-    for bin in &["gcc", "ld", "make", "bison", "flex", "pkg-config", "stress"] {
+    for bin in &["gcc", "ld", "make", "bison", "flex", "pkg-config", "stress", "bc"] {
         if find_bin(bin, Option::<&str>::None).is_none() {
             warn!("side: binary dependency {:?} is missing", bin);
             sr_failed.insert(SysReq::Dependencies);
