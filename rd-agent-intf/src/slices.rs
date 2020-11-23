@@ -6,6 +6,8 @@ use std::collections::BTreeMap;
 use std::ops::{Index, IndexMut};
 use util::*;
 
+pub const ROOT_SLICE: &'static str = "-.slice";
+
 const SLICE_DOC: &str = "\
 //
 // rd-agent top-level systemd slice resource configurations
@@ -114,10 +116,6 @@ impl SliceConfig {
         } else {
             margin
         }
-    }
-
-    pub fn bench_balloon_size() -> usize {
-        (total_memory() / 8).min(512 << 20)
     }
 
     fn default(slice: Slice) -> Self {

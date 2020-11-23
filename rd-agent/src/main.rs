@@ -175,6 +175,8 @@ pub struct Config {
 
     pub rep_retention: Option<u64>,
     pub rep_1min_retention: Option<u64>,
+    pub force_running: bool,
+    pub bypass: bool,
     pub passive: bool,
 
     pub sr_failed: HashSet<SysReq>,
@@ -208,17 +210,22 @@ impl Config {
             }
         }
         let group = group.ok_or(anyhow!("Failed to find administrator group"))?;
-        info!(
-            "cfg: {:?} will have SGID group {:?}",
-            top_path,
-            group.name()
-        );
-
-        chgrp(top_path, group.gid())?;
-        set_sgid(top_path)?;
+        if chgrp(top_path, group.gid())? | set_sgid(top_path)? {
+            info!(
+                "cfg: {:?} will have SGID group {:?}",
+                top_path,
+                group.name()
+            );
+        }
 
         if let Some(path) = args_path {
-            chgrp(path, group.gid())?;
+            if chgrp(path, group.gid())? {
+                info!(
+                    "cfg: {:?} will have group {:?}",
+                    path.as_ref(),
+                    group.name()
+                );
+            }
         }
         Ok(())
     }
@@ -327,6 +334,13 @@ impl Config {
         Self::prep_dir(&report_d_path);
         Self::prep_dir(&report_1min_d_path);
 
+        let bench_path = top_path.clone()
+            + "/"
+            + match args.bench_file.as_ref() {
+                None => "bench.json",
+                Some(name) => name,
+            };
+
         Self::prep_dir(&(top_path.clone() + "/hashd-A"));
         Self::prep_dir(&(top_path.clone() + "/hashd-B"));
         Self::prep_dir(&(top_path.clone() + "/oomd"));
@@ -360,7 +374,7 @@ impl Config {
             report_1min_path: top_path.clone() + "/report-1min.json",
             report_d_path,
             report_1min_d_path,
-            bench_path: top_path.clone() + "/bench.json",
+            bench_path,
             slices_path: top_path.clone() + "/slices.json",
             hashd_paths: [
                 HashdPaths {
@@ -414,6 +428,8 @@ impl Config {
             } else {
                 Some(args.rep_1min_retention)
             },
+            force_running: args.force_running,
+            bypass: args.bypass,
             passive: args.passive,
 
             sr_failed: HashSet::new(),
@@ -756,7 +772,7 @@ impl Config {
         }
 
         // swap configuration check
-        let swap_total = sys.get_total_swap() as usize * 1024;
+        let swap_total = total_swap();
         let swap_avail = swap_total - sys.get_used_swap() as usize * 1024;
 
         if (swap_total as f64) < (total_memory() as f64 * 0.3) {
@@ -878,7 +894,22 @@ impl Config {
             }
         }
 
-        SysReqsReport { satisfied, missed }.save(&self.sysreqs_path)?;
+        let (scr_dev_model, scr_dev_size) = match devname_to_model_and_size(&self.scr_dev) {
+            Ok(v) => v,
+            Err(e) =>
+                bail!("failed to determine model and size of {:?} ({})", &self.scr_dev, &e),
+        };
+
+        SysReqsReport {
+            satisfied,
+            missed,
+            nr_cpus: nr_cpus(),
+            total_memory: total_memory(),
+            total_swap: total_swap(),
+            scr_dev_model,
+            scr_dev_size,
+        }
+        .save(&self.sysreqs_path)?;
 
         if self.sr_failed.is_empty() {
             Ok(())
@@ -1107,17 +1138,29 @@ fn main() {
         panic!();
     }
 
-    if let Err(e) = side::prepare_sides(&cfg) {
-        error!("cfg: Failed to prepare sideloads ({:?})", &e);
+    if let Err(e) = side::prepare_side_bins(&cfg) {
+        error!("cfg: Failed to prepare sideload binaries ({:?})", &e);
         panic!();
     }
 
-    if let Err(e) = cfg.startup_checks() {
-        if args_file.data.force {
-            warn!("cfg: Ignoring startup check failures as per --force");
-        } else {
-            error!("cfg: {:?}", e);
-            panic!();
+    match cfg.side_linux_tar_path.as_deref() {
+        Some("__SKIP__") => {}
+        _ => {
+            if let Err(e) = side::prepare_linux_tar(&cfg) {
+                error!("cfg: Failed to prepare linux tarball ({:?})", &e);
+                panic!();
+            }
+        }
+    }
+
+    if !cfg.bypass {
+        if let Err(e) = cfg.startup_checks() {
+            if args_file.data.force {
+                warn!("cfg: Ignoring startup check failures as per --force ({})", &e);
+            } else {
+                error!("cfg: {}", &e);
+                panic!();
+            }
         }
     }
 

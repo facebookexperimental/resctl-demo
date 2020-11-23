@@ -7,7 +7,8 @@ cd "$DIR"
 
 if ! [ -f target/release/rd-hashd ] || \
        ! [ -f target/release/rd-agent ] || \
-       ! [ -f target/release/resctl-demo ]; then
+       ! [ -f target/release/resctl-demo ] || \
+       ! [ -f target/release/resctl-bench ]; then
     echo 'Error: Binaries not ready. Run "cargo build --release".' 2>&1
     exit 1
 fi
@@ -16,7 +17,8 @@ echo "[ Creating target/resctl-demo.tar.gz ]"
 tar cvzf target/resctl-demo.tar.gz --transform 's|^.*/\([^/]*\)$|\1|' \
     target/release/rd-hashd \
     target/release/rd-agent \
-    target/release/resctl-demo
+    target/release/resctl-demo \
+    target/release/resctl-bench
 
 if [ -n "$1" ]; then
     echo "[ Installing under $1 ]"

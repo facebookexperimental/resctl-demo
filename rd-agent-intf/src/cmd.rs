@@ -33,6 +33,7 @@ lazy_static! {
 //
 //  cmd_seq: Written to cmd-ack.json once the commands are accepted
 //  bench_hashd_seq: If > bench::hashd_seq, start benchmark; otherwise, cancel
+//  bench_hashd_balloon_size: Memory balloon size during hashd benchmark, default ${dfl_bench_balloon}
 //  bench_hashd_args: Extra arguments hashd benchmark
 //  bench_iocost_seq: If > bench::iocost_seq, start benchmark; otherwise, cancel
 //  sideloader.cpu_headroom: Sideload CPU headroom ratio [0.0, 1.0]
@@ -52,6 +53,7 @@ lazy_static! {
 //  sideloads{{}}: \"NAME\": \"DEF_ID\" pairs for active sideloads
 //
 ",
+                dfl_bench_balloon = Cmd::default().bench_hashd_balloon_size,
                 dfl_file_ratio = rd_hashd_intf::Params::default().file_frac,
                 dfl_file_max_ratio = rd_hashd_intf::Args::default().file_max_frac,
                 dfl_file_addr_stdev = rd_hashd_intf::Params::default().file_addr_stdev_ratio,
@@ -104,6 +106,7 @@ impl Default for HashdCmd {
 pub struct Cmd {
     pub cmd_seq: u64,
     pub bench_hashd_seq: u64,
+    pub bench_hashd_balloon_size: usize,
     pub bench_hashd_args: Vec<String>,
     pub bench_iocost_seq: u64,
     pub sideloader: SideloaderCmd,
@@ -118,6 +121,7 @@ impl Default for Cmd {
         Self {
             cmd_seq: 0,
             bench_hashd_seq: 0,
+            bench_hashd_balloon_size: (total_memory() / 8).min(512 << 20),
             bench_hashd_args: vec![],
             bench_iocost_seq: 0,
             sideloader: SideloaderCmd { cpu_headroom: 0.2 },

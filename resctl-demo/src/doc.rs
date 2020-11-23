@@ -172,7 +172,7 @@ fn format_markup_tags(tag: &str) -> Option<StyledString> {
             }
             "BenchBalloonSize" => {
                 return Some(StyledString::plain(format_size(
-                    SliceConfig::bench_balloon_size(),
+                    Cmd::default().bench_hashd_balloon_size,
                 )));
             }
             "HashdMemSize" => {

@@ -10,7 +10,7 @@ use std::time::{Duration, SystemTime};
 use util::*;
 
 use super::{agent, AGENT_FILES};
-use rd_agent_intf::{HashdCmd, MemoryKnob, Slice};
+use rd_agent_intf::{Cmd, HashdCmd, MemoryKnob, Slice};
 
 lazy_static! {
     pub static ref CMD_STATE: Mutex<CmdState> = Mutex::new(CmdState::new());
@@ -108,6 +108,7 @@ impl CmdState {
         cmd.cmd_seq += 1;
         if self.bench_hashd_next > cmd.bench_hashd_seq {
             cmd.bench_hashd_seq = self.bench_hashd_next;
+            cmd.bench_hashd_balloon_size = Cmd::default().bench_hashd_balloon_size;
             cmd.bench_hashd_args = vec![];
         }
         cmd.bench_iocost_seq = self.bench_iocost_next;

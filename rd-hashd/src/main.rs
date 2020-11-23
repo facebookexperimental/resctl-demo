@@ -58,6 +58,7 @@ fn report_tick(rf: &mut JsonReportFile<Report>, throttle: bool) {
 
 struct TestFilesProgressBar {
     bar: ProgressBar,
+    greet: Option<String>,
     log: bool,
     size: u64,
     last_at: Instant,
@@ -65,12 +66,13 @@ struct TestFilesProgressBar {
 }
 
 impl TestFilesProgressBar {
-    fn new(size: u64, hidden: bool) -> Self {
+    fn new(size: u64, greet: &str, hidden: bool) -> Self {
         let tfbar = Self {
             bar: match hidden {
                 false => ProgressBar::new(size),
                 true => ProgressBar::hidden(),
             },
+            greet: Some(greet.to_string()),
             log: !hidden && !Term::stderr().is_term(),
             size,
             last_at: Instant::now(),
@@ -85,6 +87,13 @@ impl TestFilesProgressBar {
 
     fn progress(&mut self, pos: u64) {
         if pos < self.size {
+            if let Some(greet) = self.greet.take() {
+                if self.log {
+                    self.bar.set_message(&greet)
+                } else {
+                    info!("{}", &greet);
+                }
+            }
             self.bar.set_position(pos);
         } else {
             self.bar.finish_and_clear();
@@ -220,7 +229,7 @@ fn main() {
     }
 
     if args.prepare_testfiles {
-        info!(
+        let greet = format!(
             "Populating {} with {} {}M files ({:.2}G)",
             tf_path,
             tf.nr_files,
@@ -229,7 +238,7 @@ fn main() {
         );
 
         // Lay out the testfiles while reporting progress.
-        let mut tfbar = TestFilesProgressBar::new(args.file_max_size(), args.verbosity > 0);
+        let mut tfbar = TestFilesProgressBar::new(args.file_max_size(), &greet, args.verbosity > 0);
         tf.setup(|pos| {
             tfbar.progress(pos);
             report_file.data.testfiles_progress = pos as f64 / args.file_max_size() as f64;

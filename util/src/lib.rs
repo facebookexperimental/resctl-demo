@@ -178,15 +178,15 @@ where
     num::clamp(T::from_f64(v).unwrap(), left, right)
 }
 
-pub fn format_size<T>(size: T) -> String
+fn format_size_internal<T>(size: T, zero: &str) -> String
 where
     T: num::ToPrimitive,
 {
-    fn format_size_helper(size: u64, shift: u32, suffix: &str) -> Option<String> {
+    let format_size_helper = |size: u64, shift: u32, suffix: &str| -> Option<String> {
         let unit: u64 = 1 << shift;
 
         if size < unit {
-            Some("-".to_string())
+            Some(zero.to_string())
         } else if size < 100 * unit {
             Some(format!("{:.1}{}", size as f64 / unit as f64, suffix))
         } else if size < 1024 * unit {
@@ -194,27 +194,83 @@ where
         } else {
             None
         }
-    }
+    };
 
     let size = size.to_u64().unwrap();
 
-    format_size_helper(size, 0, "b")
-        .or_else(|| format_size_helper(size, 10, "k"))
-        .or_else(|| format_size_helper(size, 20, "m"))
-        .or_else(|| format_size_helper(size, 30, "g"))
-        .or_else(|| format_size_helper(size, 40, "p"))
-        .or_else(|| format_size_helper(size, 50, "e"))
+    format_size_helper(size, 0, "B")
+        .or_else(|| format_size_helper(size, 10, "K"))
+        .or_else(|| format_size_helper(size, 20, "M"))
+        .or_else(|| format_size_helper(size, 30, "G"))
+        .or_else(|| format_size_helper(size, 40, "P"))
+        .or_else(|| format_size_helper(size, 50, "E"))
         .unwrap_or_else(|| "INF".into())
 }
 
-pub fn format_pct(ratio: f64) -> String {
+pub fn format_size<T>(size: T) -> String
+where
+    T: num::ToPrimitive,
+{
+    format_size_internal(size, "0")
+}
+
+pub fn format_size_dashed<T>(size: T) -> String
+where
+    T: num::ToPrimitive,
+{
+    format_size_internal(size, "-")
+}
+
+fn format_duration_internal(dur: f64, zero: &str) -> String {
+    let format_nsecs_helper = |nsecs: u64, unit: u64, max: u64, suffix: &str| -> Option<String> {
+        if nsecs < unit {
+            Some(zero.to_string())
+        } else if nsecs < 100 * unit {
+            Some(format!("{:.1}{}", nsecs as f64 / unit as f64, suffix))
+        } else if nsecs < max * unit {
+            Some(format!("{:}{}", nsecs / unit, suffix))
+        } else {
+            None
+        }
+    };
+
+    let nsecs = (dur * 1_000_000_000.0).round() as u64;
+
+    format_nsecs_helper(nsecs, 10_u64.pow(0), 1000, "n")
+        .or_else(|| format_nsecs_helper(nsecs, 10_u64.pow(3), 1000, "u"))
+        .or_else(|| format_nsecs_helper(nsecs, 10_u64.pow(6), 1000, "m"))
+        .or_else(|| format_nsecs_helper(nsecs, 10_u64.pow(9), 60, "s"))
+        .or_else(|| format_nsecs_helper(nsecs, 10_u64.pow(9) * 60, 60, "M"))
+        .or_else(|| format_nsecs_helper(nsecs, 10_u64.pow(9) * 60 * 60, 24, "H"))
+        .or_else(|| format_nsecs_helper(nsecs, 10_u64.pow(9) * 60 * 60 * 24, 365, "D"))
+        .or_else(|| format_nsecs_helper(nsecs, 10_u64.pow(9) * 60 * 60 * 24 * 365, 1000, "Y"))
+        .unwrap_or_else(|| "INF".into())
+}
+
+pub fn format_duration(dur: f64) -> String {
+    format_duration_internal(dur, "0")
+}
+
+pub fn format_duration_dashed(dur: f64) -> String {
+    format_duration_internal(dur, "-")
+}
+
+fn format_pct_internal(ratio: f64, zero: &str) -> String {
     if ratio == 0.0 {
-        "-".into()
+        zero.to_string()
     } else if ratio > 0.99 {
         "100".into()
     } else {
         format!("{:.01}", ratio * 100.0)
     }
+}
+
+pub fn format_pct(ratio: f64) -> String {
+    format_pct_internal(ratio, "0")
+}
+
+pub fn format_pct_dashed(ratio: f64) -> String {
+    format_pct_internal(ratio, "-")
 }
 
 fn is_executable<P: AsRef<Path>>(path_in: P) -> bool {
@@ -256,7 +312,7 @@ pub fn find_bin<N: AsRef<OsStr>, P: AsRef<OsStr>>(
     None
 }
 
-pub fn chgrp<P: AsRef<Path>>(path_in: P, gid: u32) -> Result<()> {
+pub fn chgrp<P: AsRef<Path>>(path_in: P, gid: u32) -> Result<bool> {
     let path = path_in.as_ref();
     let md = fs::metadata(path)?;
     if md.st_gid() != gid {
@@ -266,19 +322,23 @@ pub fn chgrp<P: AsRef<Path>>(path_in: P, gid: u32) -> Result<()> {
                 *libc::__errno_location()
             });
         }
+        Ok(true)
+    } else {
+        Ok(false)
     }
-    Ok(())
 }
 
-pub fn set_sgid<P: AsRef<Path>>(path_in: P) -> Result<()> {
+pub fn set_sgid<P: AsRef<Path>>(path_in: P) -> Result<bool> {
     let path = path_in.as_ref();
     let md = fs::metadata(path)?;
     let mut perm = md.permissions();
-    if perm.mode() & 0x2000 == 0 {
+    if perm.mode() & 0o2000 == 0 {
         perm.set_mode(perm.mode() | 0o2000);
         fs::set_permissions(path, perm)?;
+        Ok(true)
+    } else {
+        Ok(false)
     }
-    Ok(())
 }
 
 pub fn read_one_line<P: AsRef<Path>>(path: P) -> Result<String> {
@@ -440,6 +500,25 @@ pub fn wait_prog_state(dur: Duration) -> ProgState {
             first = false;
         } else {
             return ProgState::Running;
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn test_format_duration() {
+        for pair in &[
+            (0.000003932, "3.9u"),
+            (0.00448, "4.5m"),
+            (0.3, "300m"),
+            (2042.0, "34.0M"),
+            (3456000.0, "40.0D"),
+            (60480000.0, "1.9Y"),
+        ] {
+            let result = super::format_duration(pair.0);
+            assert_eq!(&result, pair.1);
+            println!("{} -> {} ({})", pair.0, &result, pair.1);
         }
     }
 }

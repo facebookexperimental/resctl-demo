@@ -102,6 +102,31 @@ pub fn path_to_devname<P: AsRef<Path>>(path: P) -> Result<OsString> {
     devnr_to_devname(fs::metadata(&path_to_mountpoint(path.as_ref())?.source)?.st_rdev())
 }
 
+/// Given a device name, determine its model and size.
+pub fn devname_to_model_and_size<D: AsRef<OsStr>>(name_in: D) -> Result<(String, u64)> {
+    let mut dev_path = PathBuf::from("/sys/block");
+    dev_path.push(name_in.as_ref());
+
+    let mut model_path = dev_path.clone();
+    model_path.push("device");
+    model_path.push("model");
+
+    let mut size_path = dev_path.clone();
+    size_path.push("size");
+
+    let mut model = String::new();
+    let mut f = fs::File::open(&model_path)?;
+    f.read_to_string(&mut model)?;
+    let model = model.trim_end().to_string();
+
+    let mut size = String::new();
+    let mut f = fs::File::open(&size_path)?;
+    f.read_to_string(&mut size)?;
+    let size = size.trim().parse::<u64>()? * 512;
+
+    Ok((model, size))
+}
+
 /// Find all devices hosting swap
 pub fn swap_devnames() -> Result<Vec<OsString>> {
     let mut devnames = Vec::new();
@@ -115,7 +140,7 @@ pub fn swap_devnames() -> Result<Vec<OsString>> {
     Ok(devnames)
 }
 
-/// Given a device number, determine whether it's rotational.
+/// Given a device name, determine whether it's rotational.
 pub fn is_devname_rotational<P: AsRef<OsStr>>(devname: P) -> Result<bool> {
     let mut sysblk_path = PathBuf::from("/sys/block");
     sysblk_path.push(devname.as_ref());

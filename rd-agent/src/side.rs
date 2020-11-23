@@ -43,7 +43,7 @@ const SIDE_BINS: [(&str, &[u8]); 5] = [
     ("burn-cpus.sh", include_bytes!("side/burn-cpus.sh")),
 ];
 
-fn prepare_side_bins(cfg: &Config) -> Result<()> {
+pub fn prepare_side_bins(cfg: &Config) -> Result<()> {
     for (name, body) in &SIDE_BINS {
         prepare_bin_file(&format!("{}/{}", &cfg.side_bin_path, name), body)?;
     }
@@ -57,7 +57,7 @@ fn verify_linux_tar(path: &str) -> bool {
     }
 }
 
-fn prepare_linux_tar(cfg: &Config) -> Result<()> {
+pub fn prepare_linux_tar(cfg: &Config) -> Result<()> {
     let tar_path = cfg.scr_path.clone() + "/linux.tar";
 
     if let Some(path) = cfg.side_linux_tar_path.as_ref() {
@@ -102,11 +102,6 @@ fn prepare_linux_tar(cfg: &Config) -> Result<()> {
     fs::rename(&tmp_path, &tar_path)?;
 
     Ok(())
-}
-
-pub fn prepare_sides(cfg: &Config) -> Result<()> {
-    prepare_side_bins(cfg)?;
-    prepare_linux_tar(cfg)
 }
 
 pub fn startup_checks(sr_failed: &mut HashSet<SysReq>) {
