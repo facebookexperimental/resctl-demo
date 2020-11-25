@@ -583,8 +583,10 @@ fn main() {
         kick_refresh(siv);
     });
 
-    siv.add_global_callback(event::Event::WindowResize, move |siv| {
-        refresh_layout_and_kick(siv)
+    siv.set_global_callback(event::Event::WindowResize, move |siv| {
+        // see https://github.com/gyscos/cursive/issues/519#issuecomment-721966516
+        siv.clear();
+        refresh_layout_and_kick(siv);
     });
 
     siv.add_global_callback(event::Event::Key(event::Key::Right), |siv| {
