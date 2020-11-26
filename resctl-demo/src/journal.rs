@@ -132,7 +132,11 @@ impl UpdaterInner {
             return;
         }
 
-        let msgs = &self.tailer.as_ref().unwrap().msgs.lock().unwrap();
+        let tailer = match self.tailer.as_ref() {
+            Some(v) => v,
+            None => return,
+        };
+        let msgs = &tailer.msgs.lock().unwrap();
         let nr_new = match msgs.get(0) {
             Some(msg) => msg.seq.checked_sub(self.last_seq).unwrap_or(0),
             None => 0,
@@ -173,7 +177,6 @@ impl UpdaterInner {
     }
 }
 
-#[derive(Clone)]
 pub struct Updater {
     cb_sink: CbSink,
     inner: Arc<Mutex<UpdaterInner>>,
@@ -191,24 +194,35 @@ impl Updater {
         let inner = Arc::new(Mutex::new(UpdaterInner::new(
             name, panel_name, retention, long_fmt,
         )));
-        let updater = Self { cb_sink, inner };
 
-        let updater_copy = updater.clone();
+        let cb_sink_copy = cb_sink.clone();
+        let inner_copy = inner.clone();
         let tailer = JournalTailer::new(
             units,
             retention,
-            Box::new(move |_msgs, _flush| updater_copy.refresh()),
+            Box::new(move |_msgs, _flush| Self::refresh_helper(&cb_sink_copy, &inner_copy)),
         );
+        inner.lock().unwrap().tailer = Some(tailer);
 
-        updater.inner.lock().unwrap().tailer = Some(tailer);
-        updater
+        Self { cb_sink, inner }
+    }
+
+    fn refresh_helper(cb_sink: &CbSink, inner: &Arc<Mutex<UpdaterInner>>) {
+        let inner = inner.clone();
+        let _ = cb_sink.send(Box::new(move |siv| {
+            inner.lock().unwrap().refresh(siv);
+        }));
     }
 
     pub fn refresh(&self) {
-        let updater = self.clone();
-        let _ = self.cb_sink.send(Box::new(move |siv| {
-            updater.inner.lock().unwrap().refresh(siv);
-        }));
+        Self::refresh_helper(&self.cb_sink, &self.inner);
+    }
+}
+
+impl Drop for Updater {
+    fn drop(&mut self) {
+        let tailer = self.inner.lock().unwrap().tailer.take();
+        drop(tailer);
     }
 }
 
