@@ -8,8 +8,7 @@ use cursive::view::{
 use cursive::views::{Button, LinearLayout, NamedView, Panel, ScrollView, TextView};
 use cursive::{CbSink, Cursive};
 use log::info;
-use std::collections::VecDeque;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use rd_agent_intf::{
     AGENT_SVC_NAME, HASHD_BENCH_SVC_NAME, IOCOST_BENCH_SVC_NAME, OOMD_SVC_NAME,
@@ -88,11 +87,48 @@ fn format_journal_msg(msg: &JournalMsg, buf: &mut StyledString, long_fmt: bool) 
     buf.append_plain("\n");
 }
 
-pub struct Updater {
+struct UpdaterInner {
     name: String,
     panel_name: Option<String>,
     long_fmt: bool,
-    tailer: JournalTailer,
+    tailer: Option<JournalTailer>,
+}
+
+impl UpdaterInner {
+    pub fn new(name: &str, panel_name: Option<&str>, long_fmt: bool) -> Self {
+        Self {
+            name: name.to_string(),
+            panel_name: panel_name.map(|x| x.to_string()),
+            long_fmt,
+            tailer: None,
+        }
+    }
+
+    fn refresh(&self, siv: &mut Cursive) {
+        let msgs = &self.tailer.as_ref().unwrap().msgs.lock().unwrap();
+        let mut content = StyledString::new();
+        for msg in msgs.iter().rev() {
+            format_journal_msg(msg, &mut content, self.long_fmt);
+        }
+
+        if let Some(panel) = self.panel_name.as_ref() {
+            if !siv
+                .call_on_name(panel, |v: &mut Panel<ScrollView<NamedView<TextView>>>| {
+                    v.get_inner().is_at_bottom()
+                })
+                .unwrap_or(true)
+            {
+                return;
+            }
+        }
+        siv.call_on_name(&self.name, |v: &mut TextView| v.set_content(content));
+    }
+}
+
+#[derive(Clone)]
+pub struct Updater {
+    cb_sink: CbSink,
+    inner: Arc<Mutex<UpdaterInner>>,
 }
 
 impl Updater {
@@ -104,59 +140,26 @@ impl Updater {
         panel_name: Option<&str>,
         long_fmt: bool,
     ) -> Self {
-        let name = name.to_string();
-        let panel_name = panel_name.map(|x| x.to_string());
-        Self {
-            name: name.clone(),
-            panel_name: panel_name.clone(),
-            long_fmt,
-            tailer: JournalTailer::new(
-                units,
-                retention,
-                Box::new(move |msgs, _flush| {
-                    Self::update(&cb_sink, msgs, &name, panel_name.as_deref(), long_fmt);
-                }),
-            ),
-        }
-    }
+        let inner = Arc::new(Mutex::new(UpdaterInner::new(name, panel_name, long_fmt)));
+        let updater = Self { cb_sink, inner };
 
-    fn update(
-        cb_sink: &CbSink,
-        msgs: &VecDeque<JournalMsg>,
-        name: &str,
-        panel_name: Option<&str>,
-        long_fmt: bool,
-    ) {
-        let mut content = StyledString::new();
-        for msg in msgs.iter().rev() {
-            format_journal_msg(msg, &mut content, long_fmt);
-        }
-
-        let panel_name = panel_name.map(|x| x.to_string());
-        let name = name.to_string();
-        let _ = cb_sink.send(Box::new(move |siv| {
-            if let Some(panel) = panel_name.as_ref() {
-                if !siv
-                    .call_on_name(panel, |v: &mut Panel<ScrollView<NamedView<TextView>>>| {
-                        v.get_inner().is_at_bottom()
-                    })
-                    .unwrap_or(true)
-                {
-                    return;
-                }
-            }
-            siv.call_on_name(&name, |v: &mut TextView| v.set_content(content));
-        }));
-    }
-
-    pub fn refresh(&self, siv: &mut Cursive) {
-        Self::update(
-            siv.cb_sink(),
-            &*self.tailer.msgs.lock().unwrap(),
-            &self.name,
-            self.panel_name.as_deref(),
-            self.long_fmt,
+        let updater_copy = updater.clone();
+        let tailer = JournalTailer::new(
+            units,
+            retention,
+            Box::new(move |_msgs, _flush| updater_copy.refresh()),
         );
+
+        updater.inner.lock().unwrap().tailer = Some(tailer);
+        updater
+    }
+
+    pub fn refresh(&self) {
+        let updater = self.clone();
+        let _ = self.cb_sink.send(Box::new(move |siv| {
+            let inner = updater.inner.lock().unwrap();
+            inner.refresh(siv);
+        }));
     }
 }
 
@@ -167,7 +170,7 @@ pub enum JournalViewId {
     AgentLauncher,
 }
 
-pub fn updater_factory(cb_sink: cursive::CbSink, id: JournalViewId) -> Vec<Updater> {
+pub fn updater_factory(cb_sink: CbSink, id: JournalViewId) -> Vec<Updater> {
     match id {
         JournalViewId::Default => {
             let top_svcs = vec![AGENT_SVC_NAME, OOMD_SVC_NAME, SIDELOADER_SVC_NAME];

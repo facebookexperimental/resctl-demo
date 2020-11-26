@@ -276,11 +276,11 @@ fn refresh_layout(siv: &mut Cursive, layout: &Layout) {
     graph::post_layout(siv);
 }
 
-pub fn kick_refresh(siv: &mut Cursive) {
+pub fn kick_refresh() {
     prog_kick();
     for (_id, upds) in UPDATERS.lock().unwrap().journal.iter() {
         for upd in upds.iter() {
-            upd.refresh(siv);
+            upd.refresh();
         }
     }
 }
@@ -295,7 +295,7 @@ fn refresh_layout_and_kick(siv: &mut Cursive) {
         info!("Resized: {:?} Layout: {:?}", scr, &layout);
         refresh_layout(siv, &layout);
     }
-    kick_refresh(siv);
+    kick_refresh();
 }
 
 fn update_agent_zoomed_view(siv: &mut Cursive) {
@@ -324,7 +324,7 @@ fn update_agent_zoomed_view(siv: &mut Cursive) {
         }
     }
     add_zoomed_layer(siv);
-    kick_refresh(siv);
+    kick_refresh();
 }
 
 fn toggle_zoomed_view(siv: &mut Cursive, target: Option<ZoomedView>) {
@@ -361,7 +361,7 @@ fn toggle_zoomed_view(siv: &mut Cursive, target: Option<ZoomedView>) {
     drop(zv);
 
     add_zoomed_layer(siv);
-    kick_refresh(siv);
+    kick_refresh();
 }
 
 struct ExitGuard {}
@@ -583,13 +583,13 @@ fn main() {
     siv.add_global_callback('l', |siv| {
         toggle_zoomed_view(siv, Some(ZoomedView::Journals))
     });
-    siv.add_global_callback('t', |siv| {
+    siv.add_global_callback('t', |_siv| {
         graph::graph_intv_next();
-        kick_refresh(siv);
+        kick_refresh();
     });
-    siv.add_global_callback('T', |siv| {
+    siv.add_global_callback('T', |_siv| {
         graph::graph_intv_prev();
-        kick_refresh(siv);
+        kick_refresh();
     });
 
     siv.set_global_callback(event::Event::WindowResize, move |siv| {

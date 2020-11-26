@@ -69,13 +69,13 @@ fn refresh_main_graph_title(siv: &mut Cursive) {
 pub fn set_main_graph(siv: &mut Cursive, tag: GraphTag) {
     *GRAPH_MAIN_TAG.lock().unwrap() = tag;
     refresh_main_graph_title(siv);
-    kick_refresh(siv);
+    kick_refresh();
 }
 
 pub fn clear_main_graph(siv: &mut Cursive) {
     *GRAPH_MAIN_TAG.lock().unwrap() = GraphTag::HashdA;
     refresh_main_graph_title(siv);
-    kick_refresh(siv);
+    kick_refresh();
 }
 
 fn graph_tab_id(pos: usize) -> String {
