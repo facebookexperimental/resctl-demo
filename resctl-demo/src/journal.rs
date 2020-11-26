@@ -8,6 +8,7 @@ use cursive::view::{
 use cursive::views::{Button, LinearLayout, NamedView, Panel, ScrollView, TextView};
 use cursive::{CbSink, Cursive};
 use log::info;
+use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
 use rd_agent_intf::{
@@ -90,37 +91,85 @@ fn format_journal_msg(msg: &JournalMsg, buf: &mut StyledString, long_fmt: bool) 
 struct UpdaterInner {
     name: String,
     panel_name: String,
+    retention: usize,
     long_fmt: bool,
+    last_seq: u64,
+    nr_line_spans: VecDeque<usize>,
+    nr_lines_trimmed: usize,
     tailer: Option<JournalTailer>,
 }
 
 impl UpdaterInner {
-    pub fn new(name: &str, panel_name: &str, long_fmt: bool) -> Self {
+    pub fn new(name: &str, panel_name: &str, retention: usize, long_fmt: bool) -> Self {
         Self {
             name: name.to_string(),
             panel_name: panel_name.to_string(),
+            retention,
             long_fmt,
+            last_seq: 0,
+            nr_line_spans: Default::default(),
+            nr_lines_trimmed: 0,
             tailer: None,
         }
     }
 
-    fn refresh(&self, siv: &mut Cursive) {
-        let msgs = &self.tailer.as_ref().unwrap().msgs.lock().unwrap();
-        let mut content = StyledString::new();
-        for msg in msgs.iter().rev() {
-            format_journal_msg(msg, &mut content, self.long_fmt);
-        }
-
+    fn refresh(&mut self, siv: &mut Cursive) {
         if !siv
             .call_on_name(
                 &self.panel_name,
-                |v: &mut Panel<ScrollView<NamedView<TextView>>>| v.get_inner().is_at_bottom(),
+                |v: &mut Panel<ScrollView<NamedView<TextView>>>| {
+                    let sv = v.get_inner_mut();
+                    if sv.is_at_bottom() {
+                        sv.set_scroll_strategy(ScrollStrategy::StickToBottom);
+                        true
+                    } else {
+                        false
+                    }
+                },
             )
             .unwrap_or(true)
         {
             return;
         }
-        siv.call_on_name(&self.name, |v: &mut TextView| v.set_content(content));
+
+        let msgs = &self.tailer.as_ref().unwrap().msgs.lock().unwrap();
+        let nr_new = match msgs.get(0) {
+            Some(msg) => msg.seq.checked_sub(self.last_seq).unwrap_or(0),
+            None => 0,
+        };
+        let nr_to_skip = (msgs.len() as u64 - nr_new.min(msgs.len() as u64)) as usize;
+        self.last_seq += nr_new;
+
+        let mut new_content = StyledString::new();
+        for msg in msgs.iter().rev().skip(nr_to_skip) {
+            let nr_spans = new_content.spans().len();
+            format_journal_msg(msg, &mut new_content, self.long_fmt);
+            self.nr_line_spans
+                .push_front(new_content.spans().len() - nr_spans);
+        }
+
+        let nr_lines = self.nr_line_spans.len();
+        let nr_lines_to_trim = nr_lines.checked_sub(self.retention).unwrap_or(0);
+        let nr_spans_to_trim: usize = self
+            .nr_line_spans
+            .drain(nr_lines - nr_lines_to_trim..nr_lines)
+            .fold(0, |acc, v| acc + v);
+
+        self.nr_lines_trimmed += nr_lines_to_trim;
+        let compact = self.nr_lines_trimmed > 2 * self.retention;
+        if compact {
+            self.nr_lines_trimmed = 0;
+        }
+
+        siv.call_on_name(&self.name, |v: &mut TextView| {
+            v.get_shared_content().with_content(|content| {
+                content.append(new_content);
+                content.remove_spans(0..nr_spans_to_trim);
+                if compact {
+                    content.trim();
+                }
+            });
+        });
     }
 }
 
@@ -139,7 +188,9 @@ impl Updater {
         panel_name: &str,
         long_fmt: bool,
     ) -> Self {
-        let inner = Arc::new(Mutex::new(UpdaterInner::new(name, panel_name, long_fmt)));
+        let inner = Arc::new(Mutex::new(UpdaterInner::new(
+            name, panel_name, retention, long_fmt,
+        )));
         let updater = Self { cb_sink, inner };
 
         let updater_copy = updater.clone();
@@ -156,8 +207,7 @@ impl Updater {
     pub fn refresh(&self) {
         let updater = self.clone();
         let _ = self.cb_sink.send(Box::new(move |siv| {
-            let inner = updater.inner.lock().unwrap();
-            inner.refresh(siv);
+            updater.inner.lock().unwrap().refresh(siv);
         }));
     }
 }
