@@ -89,16 +89,16 @@ fn format_journal_msg(msg: &JournalMsg, buf: &mut StyledString, long_fmt: bool) 
 
 struct UpdaterInner {
     name: String,
-    panel_name: Option<String>,
+    panel_name: String,
     long_fmt: bool,
     tailer: Option<JournalTailer>,
 }
 
 impl UpdaterInner {
-    pub fn new(name: &str, panel_name: Option<&str>, long_fmt: bool) -> Self {
+    pub fn new(name: &str, panel_name: &str, long_fmt: bool) -> Self {
         Self {
             name: name.to_string(),
-            panel_name: panel_name.map(|x| x.to_string()),
+            panel_name: panel_name.to_string(),
             long_fmt,
             tailer: None,
         }
@@ -111,15 +111,14 @@ impl UpdaterInner {
             format_journal_msg(msg, &mut content, self.long_fmt);
         }
 
-        if let Some(panel) = self.panel_name.as_ref() {
-            if !siv
-                .call_on_name(panel, |v: &mut Panel<ScrollView<NamedView<TextView>>>| {
-                    v.get_inner().is_at_bottom()
-                })
-                .unwrap_or(true)
-            {
-                return;
-            }
+        if !siv
+            .call_on_name(
+                &self.panel_name,
+                |v: &mut Panel<ScrollView<NamedView<TextView>>>| v.get_inner().is_at_bottom(),
+            )
+            .unwrap_or(true)
+        {
+            return;
         }
         siv.call_on_name(&self.name, |v: &mut TextView| v.set_content(content));
     }
@@ -137,7 +136,7 @@ impl Updater {
         units: &[&str],
         retention: usize,
         name: &str,
-        panel_name: Option<&str>,
+        panel_name: &str,
         long_fmt: bool,
     ) -> Self {
         let inner = Arc::new(Mutex::new(UpdaterInner::new(name, panel_name, long_fmt)));
@@ -201,7 +200,7 @@ pub fn updater_factory(cb_sink: CbSink, id: JournalViewId) -> Vec<Updater> {
                     &top_svcs,
                     JOURNAL_RETENTION,
                     "journal-top",
-                    None,
+                    "journal-top-panel",
                     false,
                 ),
                 Updater::new(
@@ -209,7 +208,7 @@ pub fn updater_factory(cb_sink: CbSink, id: JournalViewId) -> Vec<Updater> {
                     &bot_svcs,
                     JOURNAL_RETENTION,
                     "journal-bot",
-                    None,
+                    "journal-bot-panel",
                     false,
                 ),
             ]
@@ -224,7 +223,7 @@ fn update_fs_journal(siv: &mut Cursive, name: &str) {
         &[name],
         JOURNAL_FS_RETENTION,
         "journal-fs",
-        Some("journal-fs-panel"),
+        "journal-fs-panel",
         true,
     );
 
@@ -268,14 +267,24 @@ pub fn layout_factory(id: JournalViewId) -> Box<dyn View> {
 
             Box::new(
                 LinearLayout::vertical()
-                    .child(Panel::new(inner_top).title("Management logs").resized(
-                        SizeConstraint::Fixed(layout.journal_top.x),
-                        SizeConstraint::Fixed(layout.journal_top.y),
-                    ))
-                    .child(Panel::new(inner_bot).title("Other logs").resized(
-                        SizeConstraint::Fixed(layout.journal_bot.x),
-                        SizeConstraint::Fixed(layout.journal_bot.y),
-                    )),
+                    .child(
+                        Panel::new(inner_top)
+                            .title("Management logs")
+                            .with_name("journal-top-panel")
+                            .resized(
+                                SizeConstraint::Fixed(layout.journal_top.x),
+                                SizeConstraint::Fixed(layout.journal_top.y),
+                            ),
+                    )
+                    .child(
+                        Panel::new(inner_bot)
+                            .title("Other logs")
+                            .with_name("journal-bot-panel")
+                            .resized(
+                                SizeConstraint::Fixed(layout.journal_bot.x),
+                                SizeConstraint::Fixed(layout.journal_bot.y),
+                            ),
+                    ),
             )
         }
         JournalViewId::FullScreen => {
