@@ -371,10 +371,8 @@ dependencies = [
  "lazy_static",
  "libc",
  "log",
- "maplit",
- "ncurses",
  "signal-hook",
- "term_size",
+ "termion",
  "unicode-segmentation",
  "unicode-width",
 ]
@@ -389,6 +387,20 @@ dependencies = [
  "cursive_core",
  "log",
  "num 0.2.1",
+]
+
+[[package]]
+name = "cursive_buffered_backend"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "75baaba7a90dc9d2f94693f28a299a652d3b8a21f49707ff5f8a2114244d4522"
+dependencies = [
+ "cursive_core",
+ "enumset",
+ "log",
+ "smallvec",
+ "unicode-segmentation",
+ "unicode-width",
 ]
 
 [[package]]
@@ -714,12 +726,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "maplit"
-version = "1.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3e2e65a1a2e43cfcb47a895c4c8b10d1f4a61097f9f254f183aee60cad9c651d"
-
-[[package]]
 name = "maybe-uninit"
 version = "2.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -748,17 +754,6 @@ checksum = "0f2d26ec3309788e423cfbf68ad1800f061638098d76a83681af979dc4eda19d"
 dependencies = [
  "adler",
  "autocfg 1.0.1",
-]
-
-[[package]]
-name = "ncurses"
-version = "5.99.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "15699bee2f37e9f8828c7b35b2bc70d13846db453f2d507713b758fabe536b82"
-dependencies = [
- "cc",
- "libc",
- "pkg-config",
 ]
 
 [[package]]
@@ -948,6 +943,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "17b02fc0ff9a9e4b35b3342880f48e896ebf69f2967921fe8646bf5b7125956a"
 
 [[package]]
+name = "numtoa"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b8f8bdf33df195859076e54ab11ee78a1b208382d3a26ec40d142ffc1ecc49ef"
+
+[[package]]
 name = "once_cell"
 version = "1.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -989,12 +990,6 @@ checksum = "5222362a342cf1f0e5bfd031177a34e3d879bdcc2d89b6a7b7e4d0c089c5de4e"
 dependencies = [
  "num-traits",
 ]
-
-[[package]]
-name = "pkg-config"
-version = "0.3.19"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3831453b3449ceb48b6d9c7ad7c96d5ea673e9b470a1dc578c2ce6521230884c"
 
 [[package]]
 name = "ppv-lite86"
@@ -1371,6 +1366,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "41cc0f7e4d5d4544e8861606a285bb08d3e70712ccc7d2b84d7c0ccfaf4b05ce"
 
 [[package]]
+name = "redox_termios"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7e891cfe48e9100a70a3b6eb652fef28920c117d366339687bd5576160db0f76"
+dependencies = [
+ "redox_syscall",
+]
+
+[[package]]
 name = "regex"
 version = "1.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1442,6 +1446,7 @@ dependencies = [
  "crossbeam 0.8.0",
  "cursive",
  "cursive-tabs",
+ "cursive_buffered_backend",
  "enum-iterator",
  "env_logger",
  "lazy_static",
@@ -1557,6 +1562,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "smallvec"
+version = "1.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7acad6f34eb9e8a259d3283d1e8c1d34d7415943d4895f65cc73813c7396fc85"
+
+[[package]]
 name = "stable_deref_trait"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1663,6 +1674,18 @@ checksum = "4bd2d183bd3fac5f5fe38ddbeb4dc9aec4a39a9d7d59e7491d900302da01cbe1"
 dependencies = [
  "libc",
  "winapi",
+]
+
+[[package]]
+name = "termion"
+version = "1.5.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c22cec9d8978d906be5ac94bceb5a010d885c626c4c8855721a4dbd20e3ac905"
+dependencies = [
+ "libc",
+ "numtoa",
+ "redox_syscall",
+ "redox_termios",
 ]
 
 [[package]]

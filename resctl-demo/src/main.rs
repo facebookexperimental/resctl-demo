@@ -521,7 +521,13 @@ fn main() {
     info!("TEMP_DIR: {:?}", TEMP_DIR.path());
     touch_units();
 
-    let mut siv = cursive::default();
+    // Use the termion backend so that resctl-demo can be built without
+    // external dependencies. The buffered backend wrapping is necessary to
+    // avoid flickering, see https://github.com/gyscos/cursive/issues/525.
+    let mut siv = Cursive::new(|| {
+        let termion_backend = cursive::backends::termion::Backend::init().unwrap();
+        Box::new(cursive_buffered_backend::BufferedBackend::new(termion_backend))
+    });
     set_cursive_theme(&mut siv);
 
     let _exit_guard = ExitGuard {};
