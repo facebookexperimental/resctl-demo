@@ -126,9 +126,9 @@ fn format_markup_tags(tag: &str) -> Option<StyledString> {
         for req in SysReq::into_enum_iter() {
             if format!("{:?}", req) == tag[8..] {
                 if sysreqs.satisfied.contains(&req) {
-                    return Some(StyledString::styled(tag, COLOR_ACTIVE));
+                    return Some(StyledString::styled(tag, *COLOR_ACTIVE));
                 } else {
-                    return Some(StyledString::styled(tag, COLOR_ALERT));
+                    return Some(StyledString::styled(tag, *COLOR_ALERT));
                 }
             }
         }

@@ -51,13 +51,13 @@ fn format_journal_msg(msg: &JournalMsg, buf: &mut StyledString, long_fmt: bool) 
     const ALERTS: &[&str] = &["Starting", "Stopped"];
 
     let unit = msg.unit.trim_end_matches(".service");
-    let mut style: Style = COLOR_DFL.into();
+    let mut style: Style = (*COLOR_DFL).into();
 
     if msg.priority < 6 {
         style = style.combine(Effect::Bold);
     }
     if msg.priority < 5 {
-        style = style.combine(COLOR_ALERT);
+        style = style.combine(*COLOR_ALERT);
     }
 
     // systemd generates a lot of the following messages for transient units.
@@ -70,7 +70,7 @@ fn format_journal_msg(msg: &JournalMsg, buf: &mut StyledString, long_fmt: bool) 
 
     for w in WARNS.iter() {
         if msg.msg.contains(w) {
-            style = style.combine(COLOR_ALERT);
+            style = style.combine(*COLOR_ALERT);
             break;
         }
     }
@@ -85,10 +85,10 @@ fn format_journal_msg(msg: &JournalMsg, buf: &mut StyledString, long_fmt: bool) 
     if long_fmt {
         buf.append_styled(
             format!("[{} {}] ", at.format("%b %d %T"), unit),
-            COLOR_INACTIVE,
+            *COLOR_INACTIVE,
         );
     } else {
-        buf.append_styled(format!("[{} {}] ", at.format("%T"), unit), COLOR_INACTIVE);
+        buf.append_styled(format!("[{} {}] ", at.format("%T"), unit), *COLOR_INACTIVE);
     }
     buf.append_styled(&msg.msg, style);
     buf.append_plain("\n");

@@ -211,9 +211,9 @@ fn parse_markup_text(input: &str) -> Option<StyledString> {
 
         let mut style: Style = match nr_stars {
             1 => Effect::Bold.into(),
-            2 => COLOR_ALERT.into(),
+            2 => (*COLOR_ALERT).into(),
             3 => *STYLE_ALERT,
-            _ => COLOR_DFL.into(),
+            _ => (*COLOR_DFL).into(),
         };
         if underline {
             style = style.combine(Effect::Underline);

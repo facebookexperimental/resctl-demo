@@ -45,26 +45,26 @@ pub const STATUS_HEIGHT: usize = 9;
 const MAIN_HORIZ_MIN_HEIGHT: usize = 40;
 const MAIN_VERT_MIN_HEIGHT: usize = 80;
 
-const COLOR_BLACK: Color = Color::Rgb(0, 0, 0);
-const COLOR_WHITE: Color = Color::Rgb(255, 255, 255);
-const COLOR_RED: Color = Color::Rgb(215, 0, 0);
-const COLOR_GREEN: Color = Color::Rgb(0, 215, 0);
-const COLOR_BLUE: Color = Color::Rgb(0, 135, 255);
-const COLOR_MAGENTA: Color = Color::Rgb(135, 95, 175);
-
-pub const COLOR_BACKGROUND: Color = COLOR_BLACK;
-pub const COLOR_DFL: Color = COLOR_WHITE;
-pub const COLOR_HIGHLIGHT: Color = COLOR_GREEN;
-pub const COLOR_HIGHLIGHT_INACTIVE: Color = COLOR_BLUE;
-
-pub const COLOR_INACTIVE: Color = COLOR_BLUE;
-pub const COLOR_ACTIVE: Color = COLOR_GREEN;
-pub const COLOR_ALERT: Color = COLOR_RED;
-pub const COLOR_GRAPH_1: Color = COLOR_GREEN;
-pub const COLOR_GRAPH_2: Color = COLOR_BLUE;
-pub const COLOR_GRAPH_3: Color = COLOR_MAGENTA;
-
 lazy_static! {
+    pub static ref COLOR_BLACK: Color = Color::from_256colors(0);
+    pub static ref COLOR_WHITE: Color = Color::from_256colors(253);
+    pub static ref COLOR_RED: Color = Color::from_256colors(202);
+    pub static ref COLOR_GREEN: Color = Color::from_256colors(40);
+    pub static ref COLOR_BLUE: Color = Color::from_256colors(38);
+    pub static ref COLOR_MAGENTA: Color = Color::from_256colors(169);
+
+    pub static ref COLOR_BACKGROUND: Color = *COLOR_BLACK;
+    pub static ref COLOR_DFL: Color = *COLOR_WHITE;
+    pub static ref COLOR_HIGHLIGHT: Color = *COLOR_GREEN;
+    pub static ref COLOR_HIGHLIGHT_INACTIVE: Color = *COLOR_BLUE;
+
+    pub static ref COLOR_INACTIVE: Color = *COLOR_BLUE;
+    pub static ref COLOR_ACTIVE: Color = *COLOR_GREEN;
+    pub static ref COLOR_ALERT: Color = *COLOR_RED;
+    pub static ref COLOR_GRAPH_1: Color = *COLOR_GREEN;
+    pub static ref COLOR_GRAPH_2: Color = *COLOR_BLUE;
+    pub static ref COLOR_GRAPH_3: Color = *COLOR_MAGENTA;
+
     static ref ARGS_STR: String = format!(
         "-d, --dir=[TOPDIR]     'Top-level dir for operation and scratch files (default: {dfl_dir})'
          -D, --dev=[DEVICE]     'Scratch device override (e.g. nvme0n1)'
@@ -81,7 +81,7 @@ lazy_static! {
     static ref ZOOMED_VIEW: Mutex<Vec<ZoomedView>> = Mutex::new(Vec::new());
     pub static ref STYLE_ALERT: Style = Style {
         effects: Effect::Bold | Effect::Reverse,
-        color: Some(COLOR_ALERT.into()),
+        color: Some((*COLOR_ALERT).into()),
     };
     pub static ref SVC_NAMES: Vec<String> = {
         // trigger DOCS init so that SIDELOAD/SYSLOAD_NAMES get initialized
@@ -410,15 +410,16 @@ fn startup_checks() -> Result<()> {
 
 fn set_cursive_theme(siv: &mut Cursive) {
     let mut theme = siv.current_theme().clone();
-    theme.palette[PaletteColor::Background] = COLOR_BACKGROUND;
-    theme.palette[PaletteColor::View] = COLOR_BACKGROUND;
-    theme.palette[PaletteColor::Primary] = COLOR_DFL;
-    theme.palette[PaletteColor::Secondary] = COLOR_DFL;
-    theme.palette[PaletteColor::Tertiary] = COLOR_DFL;
-    theme.palette[PaletteColor::Highlight] = COLOR_HIGHLIGHT;
-    theme.palette[PaletteColor::HighlightInactive] = COLOR_HIGHLIGHT_INACTIVE;
-    theme.palette[PaletteColor::TitlePrimary] = COLOR_HIGHLIGHT_INACTIVE;
-    theme.palette[PaletteColor::TitleSecondary] = COLOR_HIGHLIGHT_INACTIVE;
+    theme.palette[PaletteColor::Background] = *COLOR_BACKGROUND;
+    theme.palette[PaletteColor::View] = *COLOR_BACKGROUND;
+    theme.palette[PaletteColor::Primary] = *COLOR_DFL;
+    theme.palette[PaletteColor::Secondary] = *COLOR_DFL;
+    theme.palette[PaletteColor::Tertiary] = *COLOR_DFL;
+    theme.palette[PaletteColor::Highlight] = *COLOR_HIGHLIGHT;
+    theme.palette[PaletteColor::HighlightInactive] = *COLOR_HIGHLIGHT_INACTIVE;
+    theme.palette[PaletteColor::HighlightText] = *COLOR_BACKGROUND;
+    theme.palette[PaletteColor::TitlePrimary] = *COLOR_HIGHLIGHT_INACTIVE;
+    theme.palette[PaletteColor::TitleSecondary] = *COLOR_HIGHLIGHT_INACTIVE;
     theme.shadow = false;
     siv.set_theme(theme);
 }
@@ -521,7 +522,13 @@ fn main() {
     info!("TEMP_DIR: {:?}", TEMP_DIR.path());
     touch_units();
 
-    let mut siv = cursive::default();
+    // Use the termion backend so that resctl-demo can be built without
+    // external dependencies. The buffered backend wrapping is necessary to
+    // avoid flickering, see https://github.com/gyscos/cursive/issues/525.
+    let mut siv = Cursive::new(|| {
+        let termion_backend = cursive::backends::termion::Backend::init().unwrap();
+        Box::new(cursive_buffered_backend::BufferedBackend::new(termion_backend))
+    });
     set_cursive_theme(&mut siv);
 
     let _exit_guard = ExitGuard {};

@@ -203,9 +203,9 @@ fn plot_graph(
         }
         for c in line.chars() {
             match c {
-                '*' => graph.append_styled("*", COLOR_GRAPH_1),
-                '#' => graph.append_styled("+", COLOR_GRAPH_2),
-                '$' => graph.append_styled(".", COLOR_GRAPH_3),
+                '*' => graph.append_styled("*", *COLOR_GRAPH_1),
+                '#' => graph.append_styled("+", *COLOR_GRAPH_2),
+                '$' => graph.append_styled(".", *COLOR_GRAPH_3),
                 v => graph.append_plain(&format!("{}", v)),
             }
         }
@@ -384,7 +384,7 @@ impl UpdateWorker {
                     Ok(v) => v,
                     Err(e) => {
                         error!("Failed to plot graph ({:?})", &e);
-                        StyledString::styled("Failed to plot graph, see log '~'", COLOR_ALERT)
+                        StyledString::styled("Failed to plot graph, see log '~'", *COLOR_ALERT)
                     }
                 };
                 let tag = self.tag;
@@ -889,10 +889,10 @@ pub fn layout_factory(id: GraphSetId) -> Box<dyn View> {
             " IO ".into(),
             " iocost/psi-some ".into(),
         ];
-        let mut styles: [Style; GRAPH_NR_TABS] = [COLOR_INACTIVE.into(); GRAPH_NR_TABS];
+        let mut styles: [Style; GRAPH_NR_TABS] = [(*COLOR_INACTIVE).into(); GRAPH_NR_TABS];
 
         titles[focus] = format!("[{}]", titles[focus].trim());
-        styles[focus] = COLOR_ACTIVE.into();
+        styles[focus] = (*COLOR_ACTIVE).into();
 
         for i in 0..graph_nr_active_tabs() {
             if i > 0 {
