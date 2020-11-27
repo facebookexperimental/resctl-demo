@@ -432,11 +432,11 @@ pub fn layout_factory() -> Box<impl View> {
                     update_agent_state(siv, false, false);
                 }))
                 .child(TextView::new("] "))
-                .child(TextView::new(StyledString::styled(" [", COLOR_ALERT)))
+                .child(TextView::new(StyledString::styled(" [", *COLOR_ALERT)))
                 .child(Button::new_raw(" FORCE RESTART ", |siv| {
                     update_agent_state(siv, true, true);
                 }))
-                .child(TextView::new(StyledString::styled("]", COLOR_ALERT))),
+                .child(TextView::new(StyledString::styled("]", *COLOR_ALERT))),
         )
         .child(TextView::new(" ").with_name("agent-error"));
 

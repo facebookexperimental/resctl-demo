@@ -49,9 +49,9 @@ impl UpdateWorker {
         line.append_styled(
             format!("{:^11}", "config"),
             if nr_missed > 0 || !full_control {
-                COLOR_ALERT
+                *COLOR_ALERT
             } else {
-                COLOR_ACTIVE
+                *COLOR_ACTIVE
             },
         );
         line.append_plain("]");
@@ -60,9 +60,9 @@ impl UpdateWorker {
         line.append_styled(
             format!("  missed: {:2}", nr_missed),
             if nr_missed > 0 {
-                COLOR_ALERT
+                *COLOR_ALERT
             } else {
-                COLOR_ACTIVE
+                *COLOR_ACTIVE
             },
         );
 
@@ -70,13 +70,13 @@ impl UpdateWorker {
             line.append_plain(",");
         }
         if !rep.cpu {
-            line.append_styled(" -cpu", COLOR_ALERT);
+            line.append_styled(" -cpu", *COLOR_ALERT);
         }
         if !rep.mem {
-            line.append_styled(" -mem", COLOR_ALERT);
+            line.append_styled(" -mem", *COLOR_ALERT);
         }
         if !rep.io {
-            line.append_styled(" -io", COLOR_ALERT);
+            line.append_styled(" -io", *COLOR_ALERT);
         }
 
         siv.call_on_name("status-cfg", |v: &mut TextView| {
@@ -91,33 +91,33 @@ impl UpdateWorker {
         line.append_plain("[");
         line.append_styled(
             format!("{:^11}", "oomd"),
-            if running { COLOR_ACTIVE } else { COLOR_ALERT },
+            if running { *COLOR_ACTIVE } else { *COLOR_ALERT },
         );
         line.append_plain("]");
 
         if running {
             line.append_plain(" workload:");
             if rep.work_mem_pressure {
-                line.append_styled(" +pressure", COLOR_ACTIVE);
+                line.append_styled(" +pressure", *COLOR_ACTIVE);
             } else {
-                line.append_styled(" -pressure", COLOR_ALERT);
+                line.append_styled(" -pressure", *COLOR_ALERT);
             }
             if rep.work_senpai {
-                line.append_styled(" +senpai", COLOR_ACTIVE);
+                line.append_styled(" +senpai", *COLOR_ACTIVE);
             } else {
-                line.append_styled(" -senpai", COLOR_ALERT);
+                line.append_styled(" -senpai", *COLOR_ALERT);
             }
 
             line.append_plain("  system:");
             if rep.sys_mem_pressure {
-                line.append_styled(" +pressure", COLOR_ACTIVE);
+                line.append_styled(" +pressure", *COLOR_ACTIVE);
             } else {
-                line.append_styled(" -pressure", COLOR_ALERT);
+                line.append_styled(" -pressure", *COLOR_ALERT);
             }
             if rep.sys_senpai {
-                line.append_styled(" +senpai", COLOR_ACTIVE);
+                line.append_styled(" +senpai", *COLOR_ACTIVE);
             } else {
-                line.append_styled(" -senpai", COLOR_ALERT);
+                line.append_styled(" -senpai", *COLOR_ALERT);
             }
         }
 
@@ -137,7 +137,7 @@ impl UpdateWorker {
         line.append_plain("[");
         line.append_styled(
             format!("{:^11}", "sideload"),
-            if running { COLOR_ACTIVE } else { COLOR_ALERT },
+            if running { *COLOR_ACTIVE } else { *COLOR_ALERT },
         );
         line.append_plain("]");
 
@@ -154,9 +154,9 @@ impl UpdateWorker {
             line.append_styled(
                 format!("  failed: {:2}", nr_failed),
                 if nr_failed == 0 {
-                    COLOR_DFL
+                    *COLOR_DFL
                 } else {
-                    COLOR_ALERT
+                    *COLOR_ALERT
                 },
             );
 
@@ -164,22 +164,22 @@ impl UpdateWorker {
             line.append_styled(
                 format!("  cfg_warn: {:2}", nr_warnings),
                 if nr_warnings == 0 {
-                    COLOR_ACTIVE
+                    *COLOR_ACTIVE
                 } else {
-                    COLOR_ALERT
+                    *COLOR_ALERT
                 },
             );
 
             if rep.overload {
-                line.append_styled("  +overload", COLOR_ALERT);
+                line.append_styled("  +overload", *COLOR_ALERT);
             } else {
-                line.append_styled("  -overload", COLOR_ACTIVE);
+                line.append_styled("  -overload", *COLOR_ACTIVE);
             }
 
             if rep.critical {
-                line.append_styled(" +crit", COLOR_ALERT);
+                line.append_styled(" +crit", *COLOR_ALERT);
             } else {
-                line.append_styled(" -crit", COLOR_ACTIVE);
+                line.append_styled(" -crit", *COLOR_ACTIVE);
             }
         }
 
@@ -192,7 +192,7 @@ impl UpdateWorker {
         let mut line = StyledString::new();
 
         line.append_plain("[");
-        line.append_styled(format!("{:^11}", "sysload"), COLOR_ACTIVE);
+        line.append_styled(format!("{:^11}", "sysload"), *COLOR_ACTIVE);
         line.append_plain("]");
 
         let (mut nr_active, mut nr_failed, mut nr_other) = (0, 0, 0);
@@ -207,9 +207,9 @@ impl UpdateWorker {
         line.append_styled(
             format!("  failed: {:2}", nr_failed),
             if nr_failed == 0 {
-                COLOR_DFL
+                *COLOR_DFL
             } else {
-                COLOR_ALERT
+                *COLOR_ALERT
             },
         );
 
@@ -233,7 +233,7 @@ impl UpdateWorker {
             line.append_plain("[");
             line.append_styled(
                 format!("{:^11}", if use_ab { name } else { "workload" }),
-                if running { COLOR_ACTIVE } else { COLOR_ALERT },
+                if running { *COLOR_ACTIVE } else { *COLOR_ALERT },
             );
             line.append_plain("] ");
 
@@ -265,11 +265,11 @@ impl UpdateWorker {
         };
 
         let (state_str, state_color) = if stale {
-            ("Stale".into(), COLOR_ALERT)
+            ("Stale".into(), *COLOR_ALERT)
         } else if rep.state == RunnerState::Idle {
-            ("Idle".into(), COLOR_ALERT)
+            ("Idle".into(), *COLOR_ALERT)
         } else {
-            (format!("{:?}", rep.state), COLOR_ACTIVE)
+            (format!("{:?}", rep.state), *COLOR_ACTIVE)
         };
 
         line.append_plain("[");
@@ -278,7 +278,7 @@ impl UpdateWorker {
 
         line.append_styled(
             format!("{}", rep.timestamp.format("%F %r")),
-            if stale { COLOR_ALERT } else { COLOR_DFL },
+            if stale { *COLOR_ALERT } else { *COLOR_DFL },
         );
 
         if stale {
@@ -422,7 +422,7 @@ fn usage_top_row() -> LinearLayout {
         .child(DummyView)
         .child(TextView::new(StyledString::styled(
             "  cpu%    mem   swap   rbps   wbps  cpuP%  memP%   ioP%",
-            COLOR_INACTIVE,
+            *COLOR_INACTIVE,
         )))
 }
 
@@ -441,7 +441,7 @@ fn format_row_data(usage: &UsageReport) -> String {
 }
 
 fn usage_row(name: &str, rep: &UsageReport) -> LinearLayout {
-    let name_color = COLOR_INACTIVE;
+    let name_color = *COLOR_INACTIVE;
     LinearLayout::horizontal()
         .child(
             TextView::new(StyledString::styled(format!("{:12}", name), name_color))
