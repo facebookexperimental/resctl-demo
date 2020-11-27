@@ -1,5 +1,4 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
-use libc;
 use log::error;
 use serde::{Deserialize, Serialize};
 use std::io;

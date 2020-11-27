@@ -1,13 +1,10 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
 use anyhow::{bail, Result};
-use clap;
 use cursive::theme::{Color, Effect, PaletteColor, Style};
 use cursive::utils::markup::StyledString;
 use cursive::view::{Resizable, ScrollStrategy, Scrollable, SizeConstraint, View};
 use cursive::views::{BoxedView, Dialog, LinearLayout, TextView};
 use cursive::{event, logger, Cursive, Vec2};
-use lazy_static::lazy_static;
-use libc;
 use log::{error, info, warn};
 use std::collections::HashMap;
 use std::ffi::OsStr;
@@ -17,7 +14,6 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::thread::sleep;
 use std::time::Duration;
-use tempfile;
 use util::*;
 
 mod agent;
@@ -45,7 +41,7 @@ pub const STATUS_HEIGHT: usize = 9;
 const MAIN_HORIZ_MIN_HEIGHT: usize = 40;
 const MAIN_VERT_MIN_HEIGHT: usize = 80;
 
-lazy_static! {
+lazy_static::lazy_static! {
     pub static ref COLOR_BLACK: Color = Color::from_256colors(0);
     pub static ref COLOR_WHITE: Color = Color::from_256colors(253);
     pub static ref COLOR_RED: Color = Color::from_256colors(202);

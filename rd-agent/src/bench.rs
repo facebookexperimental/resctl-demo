@@ -3,7 +3,6 @@ use anyhow::{bail, Result};
 use chrono::prelude::*;
 use log::{debug, info, warn};
 use scan_fmt::scan_fmt;
-use serde_json;
 use std::fs;
 use std::time::SystemTime;
 

@@ -1,13 +1,11 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
 use anyhow::{anyhow, Result};
-use cursive;
 use cursive::utils::markup::StyledString;
 use cursive::view::{Nameable, Resizable, Scrollable, SizeConstraint, View};
 use cursive::views::{
     BoxedView, Button, Checkbox, Dialog, DummyView, EditView, LinearLayout, TextView,
 };
 use cursive::Cursive;
-use lazy_static::lazy_static;
 use log::{debug, error, info};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
@@ -26,7 +24,7 @@ const AGENT_START_TIMEOUT: Duration = Duration::from_secs(10);
 
 pub static AGENT_RUNNING: AtomicBool = AtomicBool::new(false);
 
-lazy_static! {
+lazy_static::lazy_static! {
     pub static ref AGENT_FILES: AgentFilesWrapper =
         AgentFilesWrapper::new(match &ARGS.lock().unwrap().as_ref() {
             Some(args) => &args.dir,
@@ -324,7 +322,7 @@ fn update_agent_state(siv: &mut Cursive, start: bool, force: bool) {
     siv.call_on_name("agent-error", |v: &mut TextView| v.set_content(emsg));
 }
 
-lazy_static! {
+lazy_static::lazy_static! {
     static ref HELP_INTRO: String = format!(
         "\
 rd-agent configures the system and manages workloads. If {agent_svc} is already \

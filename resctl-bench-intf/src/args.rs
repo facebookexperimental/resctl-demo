@@ -1,7 +1,5 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
 use anyhow::{bail, Result};
-use clap;
-use lazy_static::lazy_static;
 use log::error;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -11,7 +9,7 @@ use util::*;
 use super::JobSpec;
 use rd_agent_intf;
 
-lazy_static! {
+lazy_static::lazy_static! {
     static ref TOP_ARGS_STR: String = format!(
         "-d, --dir=[TOPDIR]     'Top-level dir for operation and scratch files (default: {dfl_dir})'
          -D, --dev=[DEVICE]     'Scratch device override (e.g. nvme0n1)'

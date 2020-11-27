@@ -2,7 +2,6 @@
 use anyhow::bail;
 use anyhow::Result;
 use glob::glob;
-use lazy_static::lazy_static;
 use log::{debug, trace, warn};
 use proc_mounts::{MountInfo, MountList, SwapIter};
 use scan_fmt::scan_fmt;
@@ -12,7 +11,7 @@ use std::io::Read;
 use std::os::linux::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 
-lazy_static! {
+lazy_static::lazy_static! {
     static ref MOUNT_LIST: Result<MountList> = Ok(MountList::new()?);
 }
 

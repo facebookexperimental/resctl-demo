@@ -9,7 +9,6 @@ use std::fs;
 use std::io::{Read, Write};
 use std::os::unix::io::AsRawFd;
 use std::path::{Path, PathBuf};
-use std::u32;
 use util::*;
 
 const DFL_PREFIX: &str = "rdh-";

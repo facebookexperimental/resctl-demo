@@ -1,6 +1,5 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
 use clap::{App, AppSettings, ArgMatches};
-use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
 use util::*;
 
@@ -100,7 +99,7 @@ performs benchmark to determine the parameters and then starts a normal run.
 [ COMMAND LINE HELP ]
 ";
 
-lazy_static! {
+lazy_static::lazy_static! {
     static ref ARGS_STR: String = {
         format!(
             "-t, --testfiles=[DIR]         'Testfiles directory'

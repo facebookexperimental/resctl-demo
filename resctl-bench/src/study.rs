@@ -4,7 +4,6 @@ use anyhow::{bail, Result};
 use log::error;
 use num_traits::cast::AsPrimitive;
 use quantiles::ckms::CKMS;
-use statistical;
 use std::collections::BTreeMap;
 use std::fmt::Write;
 use util::*;

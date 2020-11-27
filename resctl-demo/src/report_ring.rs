@@ -1,6 +1,5 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
 use anyhow::Result;
-use lazy_static::lazy_static;
 use log::{debug, info, warn};
 use std::collections::VecDeque;
 use std::fmt::Display;
@@ -14,7 +13,7 @@ use rd_agent_intf::Report;
 
 use super::AGENT_FILES;
 
-lazy_static! {
+lazy_static::lazy_static! {
     static ref REPORT_RING_SET: Arc<Mutex<ReportRingSet>> =
         Arc::new(Mutex::new(ReportRingSet::new()));
 }

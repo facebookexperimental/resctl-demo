@@ -4,10 +4,9 @@ use cursive::theme::Style;
 use cursive::utils::markup::StyledString;
 use cursive::view::{Nameable, Resizable, SizeConstraint, View};
 use cursive::views::{DummyView, LinearLayout, NamedView, Panel, ResizedView, TextView};
-use cursive::{self, Cursive};
+use cursive::Cursive;
 use cursive_tabs::TabView;
 use enum_iterator::IntoEnumIterator;
-use lazy_static::lazy_static;
 use log::error;
 use std::collections::HashMap;
 use std::fmt;
@@ -32,7 +31,7 @@ const GRAPH_X_ADJ: usize = 20;
 const GRAPH_INTVS: &[u64] = &[1, 5, 15, 30, 60];
 const GRAPH_NR_TABS: usize = 4;
 
-lazy_static! {
+lazy_static::lazy_static! {
     static ref GRAPH_INTV_IDX: Mutex<usize> = Mutex::new(0);
     static ref GRAPH_MAIN_TAG: Mutex<GraphTag> = Mutex::new(GraphTag::HashdA);
     static ref GRAPH_TAB_IDX: Mutex<usize> = Mutex::new(0);

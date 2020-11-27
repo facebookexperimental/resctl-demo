@@ -1,7 +1,6 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
 use anyhow::{anyhow, bail, Result};
 use enum_iterator::IntoEnumIterator;
-use glob::glob;
 use log::{debug, error, info, trace, warn};
 use proc_mounts::MountInfo;
 use scan_fmt::scan_fmt;
@@ -16,7 +15,6 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread::sleep;
 use std::time::Duration;
 use sysinfo::{self, ProcessExt, SystemExt};
-use users;
 use util::*;
 
 mod bench;
@@ -347,7 +345,7 @@ impl Config {
 
         let sideloader_jobs_d = top_path.clone() + "/sideloader/jobs.d";
         Self::prep_dir(&sideloader_jobs_d);
-        for path in glob(&format!("{}/*.json", &sideloader_jobs_d))
+        for path in glob::glob(&format!("{}/*.json", &sideloader_jobs_d))
             .unwrap()
             .filter_map(Result::ok)
         {
