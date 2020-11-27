@@ -114,7 +114,7 @@ impl Job for StorageJob {
         rctx.wait_cond(
             |af, progress| {
                 let rep = &af.report.data;
-                if rep.bench_hashd.phase > rd_hashd_intf::Phase::BenchMemUp {
+                if rep.bench_hashd.phase > rd_hashd_intf::Phase::BenchMemBisect {
                     true
                 } else {
                     progress.set_status(&format!(
