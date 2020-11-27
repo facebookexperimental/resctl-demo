@@ -1,5 +1,4 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
-use console;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use log::info;
 use std::thread::{spawn, JoinHandle};

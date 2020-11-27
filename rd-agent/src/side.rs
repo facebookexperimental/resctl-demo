@@ -1,10 +1,7 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
 use super::{prepare_bin_file, Config};
 use anyhow::{anyhow, bail, Result};
-use lazy_static::lazy_static;
-use libc;
 use log::{debug, error, info, warn};
-use regex;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashSet};
 use std::fs;
@@ -26,7 +23,7 @@ fn sideload_svc_name(name: &str) -> String {
     format!("{}{}.service", SIDELOAD_SVC_PREFIX, name)
 }
 
-lazy_static! {
+lazy_static::lazy_static! {
     static ref SIDE_NAME_RE: regex::Regex = regex::Regex::new("^[a-zA-Z0-9_-]+$").unwrap();
 }
 

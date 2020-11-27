@@ -2,7 +2,7 @@
 use cursive::utils::markup::StyledString;
 use cursive::view::{Nameable, Resizable, SizeConstraint, View};
 use cursive::views::{DummyView, LinearLayout, Panel, TextView};
-use cursive::{self, Cursive};
+use cursive::Cursive;
 use log::error;
 use std::collections::BTreeMap;
 use std::panic;

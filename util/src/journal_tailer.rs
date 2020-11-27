@@ -1,7 +1,6 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
 use anyhow::Result;
 use crossbeam::channel::{self, select, Receiver, Sender};
-use json;
 use log::{error, info, warn};
 use std::collections::VecDeque;
 use std::os::unix::ffi::OsStrExt;

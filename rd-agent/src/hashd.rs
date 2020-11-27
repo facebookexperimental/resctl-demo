@@ -1,6 +1,5 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
 use anyhow::{bail, Result};
-use libc;
 use log::{debug, info, warn};
 use std::io;
 use std::path::Path;

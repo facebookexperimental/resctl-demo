@@ -2,7 +2,6 @@
 use anyhow::{anyhow, Result};
 use chrono::prelude::*;
 use crossbeam::channel::{self, Receiver, Sender};
-use glob::glob;
 use log::{debug, error, info, warn};
 use scan_fmt::scan_fmt;
 use std::cmp;
@@ -91,7 +90,7 @@ impl LogWorker {
         let size = file.as_ref().unwrap().metadata()?.len();
 
         let prefix = format!("{}/{}-", &dir_path, LOG_FILENAME);
-        let mut old_logs: Vec<String> = glob(&format!("{}*", &prefix))
+        let mut old_logs: Vec<String> = glob::glob(&format!("{}*", &prefix))
             .unwrap()
             .filter_map(|x| x.ok())
             .filter_map(|x| x.to_str().map(|x| x.to_string()))

@@ -10,17 +10,17 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt;
 use std::thread::{sleep, LocalKey};
-use std::thread_local;
 use std::time::{Duration, Instant};
-use std::u64;
 
 const SD1_DST: &str = "org.freedesktop.systemd1";
 const SD1_PATH: &str = "/org/freedesktop/systemd1";
 const DBUS_TIMEOUT: Duration = Duration::from_millis(15000);
 const DBUS_CONN_TIMEOUT: client_conn::Timeout = client_conn::Timeout::Duration(DBUS_TIMEOUT);
 
-thread_local!(pub static SYS_SD_BUS: RefCell<SystemdDbus> = RefCell::new(SystemdDbus::new(false).unwrap()));
-thread_local!(pub static USR_SD_BUS: RefCell<SystemdDbus> = RefCell::new(SystemdDbus::new(true).unwrap()));
+std::thread_local!(pub static SYS_SD_BUS: RefCell<SystemdDbus> =
+                   RefCell::new(SystemdDbus::new(false).unwrap()));
+std::thread_local!(pub static USR_SD_BUS: RefCell<SystemdDbus> =
+                   RefCell::new(SystemdDbus::new(true).unwrap()));
 
 // The following and the explicit error wrappings can be removed once
 // rustbus error implements std::error::Error.

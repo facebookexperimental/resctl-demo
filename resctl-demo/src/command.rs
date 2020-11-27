@@ -1,6 +1,5 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
 use anyhow::{anyhow, Result};
-use lazy_static::lazy_static;
 use log::info;
 use std::collections::BTreeMap;
 use std::sync::atomic::Ordering;
@@ -12,7 +11,7 @@ use util::*;
 use super::{agent, AGENT_FILES};
 use rd_agent_intf::{Cmd, HashdCmd, MemoryKnob, Slice};
 
-lazy_static! {
+lazy_static::lazy_static! {
     pub static ref CMD_STATE: Mutex<CmdState> = Mutex::new(CmdState::new());
 }
 

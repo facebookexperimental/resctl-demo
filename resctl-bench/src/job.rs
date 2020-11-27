@@ -1,7 +1,6 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
 use anyhow::{bail, Result};
 use serde::{Deserialize, Serialize};
-use serde_json;
 use std::fmt::Write;
 
 use super::bench::BENCHS;

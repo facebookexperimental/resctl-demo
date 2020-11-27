@@ -1,9 +1,7 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
 use anyhow::Result;
-use clap;
 use log::info;
 use serde::{de::DeserializeOwned, Serialize};
-use serde_json;
 use std::default::Default;
 use std::fs;
 use std::io::{self, prelude::*};

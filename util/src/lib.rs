@@ -1,11 +1,8 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
 use anyhow::{anyhow, bail, Result};
 use crossbeam::channel::Sender;
-use env_logger;
 use glob::glob;
-use lazy_static::lazy_static;
 use log::{info, warn};
-use num;
 use simplelog as sl;
 use std::cell::RefCell;
 use std::env;
@@ -42,7 +39,7 @@ pub const TO_MSEC: f64 = 1000.0;
 pub const TO_PCT: f64 = 100.0;
 pub const MSEC: f64 = 1.0 / 1000.0;
 
-lazy_static! {
+lazy_static::lazy_static! {
     pub static ref TOTAL_SYSTEM_MEMORY: usize = {
         let mut sys = sysinfo::System::new();
         sys.refresh_memory();
@@ -438,7 +435,7 @@ struct GlobalProgState {
     kick_seq: u64,
 }
 
-lazy_static! {
+lazy_static::lazy_static! {
     static ref PROG_STATE: Mutex<GlobalProgState> = Mutex::new(GlobalProgState {
         exiting: false,
         kick_seq: 1

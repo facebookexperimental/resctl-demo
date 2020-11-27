@@ -5,7 +5,6 @@ use cursive::view::{Nameable, Resizable, Scrollable, SizeConstraint, View};
 use cursive::views::{Button, Checkbox, Dialog, DummyView, LinearLayout, SliderView, TextView};
 use cursive::Cursive;
 use enum_iterator::IntoEnumIterator;
-use lazy_static::lazy_static;
 use log::{error, info, warn};
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::sync::{Mutex, RwLock};
@@ -21,7 +20,7 @@ use super::{get_layout, COLOR_ACTIVE, COLOR_ALERT};
 use markup_rd::{RdCmd, RdDoc, RdKnob, RdPara, RdReset, RdSwitch};
 use rd_agent_intf::{Cmd, HashdCmd, SliceConfig, SysReq};
 
-lazy_static! {
+lazy_static::lazy_static! {
     pub static ref DOCS: BTreeMap<String, &'static str> = load_docs();
     pub static ref CUR_DOC: RwLock<RdDoc> = RwLock::new(RdDoc {
         id: "".into(),

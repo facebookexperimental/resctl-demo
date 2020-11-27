@@ -1,6 +1,4 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
-use clap;
-use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
 use util::*;
 
@@ -32,7 +30,7 @@ All files used by workloads are under the scratch directory. See
 TOPDIR/index.json and TOPDIR/cmd.json.
 ";
 
-lazy_static! {
+lazy_static::lazy_static! {
     static ref ARGS_STR: String = format!(
         "-d, --dir=[TOPDIR]     'Top-level dir for operation and scratch files (default: {dfl_dir})'
          -s, --scratch=[DIR]    'Scratch dir for workloads to use (default: $TOPDIR/scratch)'

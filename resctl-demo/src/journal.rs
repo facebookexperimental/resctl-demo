@@ -1,6 +1,5 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
 use chrono::prelude::*;
-use cursive;
 use cursive::theme::{Effect, Style};
 use cursive::utils::markup::StyledString;
 use cursive::view::{
@@ -8,7 +7,6 @@ use cursive::view::{
 };
 use cursive::views::{Button, LinearLayout, NamedView, Panel, ScrollView, TextView};
 use cursive::{CbSink, Cursive};
-use lazy_static::lazy_static;
 use log::info;
 use std::collections::VecDeque;
 use std::sync::Mutex;
@@ -29,7 +27,7 @@ const JOURNAL_PERIOD: Duration = Duration::from_millis(100);
 const JOURNAL_FS_RETENTION: usize = 512;
 const JOURNAL_FS_PERIOD: Duration = Duration::from_millis(1000);
 
-lazy_static! {
+lazy_static::lazy_static! {
     static ref FS_CUR: Mutex<String> = Mutex::new(AGENT_SVC_NAME.into());
 }
 
