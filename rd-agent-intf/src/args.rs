@@ -47,7 +47,7 @@ lazy_static::lazy_static! {
              --reset            'Reset all states except for bench results, linux.tar and testfiles'
              --keep-reports     'Don't delete expired report files, also affects --reset'
              --bypass           'Skip startup and periodic health checks'
-             --passive          'Do not make system configuration changes, implies --force'
+             --passive=[MODE]   'Avoid system config changes (MODE=all|keep-crit-mem-prot)'
          -v...                  'Sets the level of verbosity'",
         dfl_dir = Args::default().dir,
         dfl_rep_ret = Args::default().rep_retention as f64 / 3600.0,
@@ -84,6 +84,8 @@ pub struct Args {
     pub bypass: bool,
     #[serde(skip)]
     pub passive: bool,
+    #[serde(skip)]
+    pub keep_crit_mem_prot: bool,
 }
 
 impl Default for Args {
@@ -104,6 +106,7 @@ impl Default for Args {
             keep_reports: false,
             bypass: false,
             passive: false,
+            keep_crit_mem_prot: false,
         }
     }
 }
@@ -183,9 +186,16 @@ impl JsonArgs for Args {
         self.reset = matches.is_present("reset");
         self.keep_reports = matches.is_present("keep-reports");
         self.bypass = matches.is_present("bypass");
-        if matches.is_present("passive") {
+        if let Some(v) = matches.value_of("passive") {
             self.passive = true;
             self.force = true;
+            match v {
+                "all" => {}
+                "keep-crit-mem-prot" => self.keep_crit_mem_prot = true,
+                v => {
+                    panic!("Unknown --passive value {:?}", &v);
+                }
+            }
         }
 
         updated_base

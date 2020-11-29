@@ -129,7 +129,7 @@ pub fn update_iocost(knobs: &mut BenchKnobs, cfg: &Config, iocost_seq: u64) -> R
 }
 
 pub fn iocost_on_off(enable: bool, cfg: &Config) -> Result<()> {
-    if cfg.passive {
+    if !cfg.enforce.all {
         return Ok(());
     }
     write_one_line(
@@ -144,7 +144,7 @@ pub fn iocost_on_off(enable: bool, cfg: &Config) -> Result<()> {
 }
 
 pub fn apply_iocost(knobs: &BenchKnobs, cfg: &Config) -> Result<()> {
-    if cfg.passive {
+    if !cfg.enforce.all {
         return Ok(());
     }
     if knobs.iocost_seq == 0 {

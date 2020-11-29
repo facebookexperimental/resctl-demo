@@ -135,6 +135,13 @@ pub struct IOCostPaths {
     pub result: String,
 }
 
+#[derive(Debug, Clone)]
+pub struct EnforceConfig {
+    pub all: bool,
+    pub none: bool,
+    pub crit_mem_prot: bool,
+}
+
 #[derive(Debug)]
 pub struct Config {
     pub top_path: String,
@@ -175,7 +182,7 @@ pub struct Config {
     pub rep_1min_retention: Option<u64>,
     pub force_running: bool,
     pub bypass: bool,
-    pub passive: bool,
+    pub enforce: EnforceConfig,
 
     pub sr_failed: HashSet<SysReq>,
     sr_wbt: Option<u64>,
@@ -428,7 +435,11 @@ impl Config {
             },
             force_running: args.force_running,
             bypass: args.bypass,
-            passive: args.passive,
+            enforce: EnforceConfig {
+                all: !args.passive,
+                none: !args.keep_crit_mem_prot,
+                crit_mem_prot: !args.passive || args.keep_crit_mem_prot,
+            },
 
             sr_failed: HashSet::new(),
             sr_wbt: None,
@@ -581,7 +592,6 @@ impl Config {
     }
 
     fn startup_checks(&mut self) -> Result<()> {
-        let enforce = !self.passive;
         let sys = sysinfo::System::new();
 
         // check cgroup2 & controllers
@@ -593,7 +603,7 @@ impl Config {
                 }
 
                 if !mi.options.contains(&"memory_recursiveprot".to_string()) {
-                    if enforce {
+                    if self.enforce.all {
                         match Command::new("mount")
                             .arg("-o")
                             .arg("remount,memory_recursiveprot")
@@ -650,7 +660,7 @@ impl Config {
         }
 
         // IO controllers
-        self.check_iocost(enforce);
+        self.check_iocost(self.enforce.all);
         slices::check_other_io_controllers(&mut self.sr_failed);
 
         // anon memory balance
@@ -668,7 +678,11 @@ impl Config {
         }
 
         // scratch and root filesystems
-        let mi = match Self::check_one_fs(&self.scr_path.clone(), &mut self.sr_failed, enforce) {
+        let mi = match Self::check_one_fs(
+            &self.scr_path.clone(),
+            &mut self.sr_failed,
+            self.enforce.all,
+        ) {
             Ok(v) => Some(v),
             Err(e) => {
                 warn!("cfg: Scratch dir: {}", &e);
@@ -677,7 +691,7 @@ impl Config {
         };
 
         if mi.is_none() || mi.unwrap().dest != AsRef::<Path>::as_ref("/") {
-            if let Err(e) = Self::check_one_fs("/", &mut self.sr_failed, enforce) {
+            if let Err(e) = Self::check_one_fs("/", &mut self.sr_failed, self.enforce.all) {
                 warn!("cfg: Root fs: {}", &e);
             }
         }
@@ -698,7 +712,7 @@ impl Config {
         }
 
         // mq-deadline scheduler
-        if enforce {
+        if self.enforce.all {
             if let Err(e) = set_iosched(&self.scr_dev, "mq-deadline") {
                 warn!(
                     "cfg: Failed to set mq-deadline iosched on {:?} ({})",
@@ -732,7 +746,7 @@ impl Config {
         if let Ok(line) = read_one_line(&wbt_path) {
             let wbt = line.trim().parse::<u64>()?;
             if wbt != 0 {
-                if enforce {
+                if self.enforce.all {
                     info!("cfg: wbt is enabled on {:?}, disabling", &self.scr_dev);
                     if let Err(e) = write_one_line(&wbt_path, "0") {
                         warn!("cfg: failed to disable wbt on {:?} ({})", &self.scr_dev, &e);
@@ -793,7 +807,7 @@ impl Config {
         if let Ok(line) = read_one_line(SWAPPINESS_PATH) {
             let swappiness = line.trim().parse::<u32>()?;
             if swappiness < 60 {
-                if enforce {
+                if self.enforce.all {
                     info!(
                         "cfg: Swappiness {} is smaller than default 60, updating to 60",
                         swappiness
@@ -822,7 +836,7 @@ impl Config {
         // make sure oomd or earlyoom isn't gonna interfere
         if let Some(oomd_sys_svc) = &self.oomd_sys_svc {
             if let Ok(svc) = systemd::Unit::new_sys(oomd_sys_svc.clone()) {
-                if svc.state == systemd::UnitState::Running && enforce {
+                if svc.state == systemd::UnitState::Running && self.enforce.all {
                     self.sr_oomd_sys_svc = Some(svc);
                     let svc = self.sr_oomd_sys_svc.as_mut().unwrap();
                     info!("cfg: Stopping {:?} while resctl-demo is running", &svc.name);
@@ -865,7 +879,9 @@ impl Config {
 
         // hostcriticals - ones which can be restarted for relocation
         for svc_name in ["systemd-journald.service", "sshd.service", "sssd.service"].iter() {
-            if let Err(e) = Self::check_one_hostcritical_service(svc_name, true, enforce) {
+            if let Err(e) =
+                Self::check_one_hostcritical_service(svc_name, true, self.enforce.crit_mem_prot)
+            {
                 warn!("cfg: {}", &e);
                 self.sr_failed.insert(SysReq::HostCriticalServices);
             }
@@ -873,7 +889,9 @@ impl Config {
 
         // and the ones which can't
         for svc_name in ["dbus.service", "dbus-broker.service"].iter() {
-            if let Err(e) = Self::check_one_hostcritical_service(svc_name, false, enforce) {
+            if let Err(e) =
+                Self::check_one_hostcritical_service(svc_name, false, self.enforce.crit_mem_prot)
+            {
                 warn!("cfg: {}", &e);
                 self.sr_failed.insert(SysReq::HostCriticalServices);
             }
@@ -1039,6 +1057,7 @@ pub struct SysObjs {
     pub sideloader: sideloader::Sideloader,
     pub cmd_file: JsonConfigFile<Cmd>,
     pub cmd_ack_file: JsonReportFile<CmdAck>,
+    enforce_cfg: EnforceConfig,
 }
 
 impl SysObjs {
@@ -1068,6 +1087,7 @@ impl SysObjs {
             sideloader: sideloader::Sideloader::new(&cfg).unwrap(),
             cmd_file,
             cmd_ack_file,
+            enforce_cfg: cfg.enforce.clone(),
         }
     }
 }
@@ -1075,7 +1095,7 @@ impl SysObjs {
 impl Drop for SysObjs {
     fn drop(&mut self) {
         debug!("cfg: Clearing slice configurations");
-        if let Err(e) = slices::clear_slices() {
+        if let Err(e) = slices::clear_slices(&self.enforce_cfg) {
             warn!("cfg: Failed to clear slice configurations ({:?})", &e);
         }
     }
@@ -1216,13 +1236,15 @@ fn main() {
         panic!();
     }
 
-    if let Err(e) = sobjs.oomd.apply() {
+    if !cfg.enforce.all {
+        info!("cfg: Enforcement off, not starting oomd");
+    } else if let Err(e) = sobjs.oomd.apply() {
         error!("cfg: Failed to initialize oomd ({:?})", &e);
         panic!();
     }
 
-    if sobjs.slice_file.data.controlls_disabled(instance_seq()) {
-        info!("cfg: Controllers are forced off, not starting sideloader");
+    if !cfg.enforce.all || sobjs.slice_file.data.controlls_disabled(instance_seq()) {
+        info!("cfg: Enforcement or controllers off, not starting sideloader");
     } else {
         let sideloader_cmd = &sobjs.cmd_file.data.sideloader;
         let slice_knobs = &sobjs.slice_file.data;

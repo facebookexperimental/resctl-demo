@@ -32,7 +32,8 @@ struct RunCtxInner {
     need_linux_tar: bool,
     prep_testfiles: bool,
     bypass: bool,
-    passive: bool,
+    passive_all: bool,
+    passive_keep_crit_mem_prot: bool,
 
     agent_files: AgentFiles,
     agent_svc: Option<TransientService>,
@@ -56,11 +57,15 @@ impl RunCtxInner {
             args.push("--linux-tar".into());
             args.push("__SKIP__".into());
         }
+
         if self.bypass {
             args.push("--bypass".into());
         }
-        if self.passive {
-            args.push("--passive".into());
+
+        if self.passive_all {
+            args.push("--passive=all".into());
+        } else if self.passive_keep_crit_mem_prot {
+            args.push("--passive=keep-crit-mem-prot".into());
         }
 
         args.append(&mut extra_args);
@@ -117,7 +122,8 @@ impl RunCtx {
                 need_linux_tar: false,
                 prep_testfiles: false,
                 bypass: false,
-                passive: false,
+                passive_all: false,
+                passive_keep_crit_mem_prot: false,
                 agent_files: AgentFiles::new(dir),
                 agent_svc: None,
                 minder_state: MinderState::Ok,
@@ -141,8 +147,13 @@ impl RunCtx {
         self
     }
 
-    pub fn set_passive(&self) -> &Self {
-        self.inner.lock().unwrap().passive = true;
+    pub fn set_passive_all(&self) -> &Self {
+        self.inner.lock().unwrap().passive_all = true;
+        self
+    }
+
+    pub fn set_passive_keep_crit_mem_prot(&self) -> &Self {
+        self.inner.lock().unwrap().passive_keep_crit_mem_prot = true;
         self
     }
 

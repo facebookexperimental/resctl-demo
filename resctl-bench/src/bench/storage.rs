@@ -100,13 +100,19 @@ impl Iterator for MemProfileIterator {
 
 impl Job for StorageJob {
     fn sysreqs(&self) -> Vec<SysReq> {
-        vec![SysReq::SwapOnScratch, SysReq::Swap]
+        vec![
+            SysReq::SwapOnScratch,
+            SysReq::Swap,
+            SysReq::HostCriticalServices,
+        ]
     }
 
     fn run(&mut self, rctx: &mut RunCtx) -> Result<serde_json::Value> {
         // Estimate available memory by running the UP phase of rd-hashd
         // benchmark.
-        rctx.set_prep_testfiles().set_passive().start_agent();
+        rctx.set_prep_testfiles()
+            .set_passive_keep_crit_mem_prot()
+            .start_agent();
 
         info!("storage: Starting hashd bench to estimate available memory");
         rctx.start_hashd_fake_cpu_bench(0, self.log_bps, self.hash_size, self.rps_max);
@@ -176,7 +182,7 @@ impl Job for StorageJob {
         // We now know all the parameters. Let's run the actual benchmark.
         let mut mem_sizes = Vec::<f64>::new();
 
-        rctx.set_passive().start_agent();
+        rctx.start_agent();
         let main_started_at = unix_now();
 
         for i in 0..self.loops {
