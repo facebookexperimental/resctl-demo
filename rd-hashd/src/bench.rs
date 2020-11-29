@@ -690,6 +690,7 @@ impl Bench {
             1.0,
             1.0,
             1.0,
+            1.0,
         );
 
         // determine rps based on latency convergence

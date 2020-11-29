@@ -511,8 +511,8 @@ impl DispatchThread {
         );
 
         (
-            Pid::new(lat.kp, lat.ki, lat.kd, 0.1, 0.1, 0.1, 1.0),
-            Pid::new(rps.kp, rps.ki, rps.kd, 1.0, 1.0, 1.0, 1.0),
+            Pid::new(lat.kp, lat.ki, lat.kd, 0.1, 0.1, 0.1, 1.0, 1.0),
+            Pid::new(rps.kp, rps.ki, rps.kd, 1.0, 1.0, 1.0, 1.0, 1.0),
         )
     }
 
