@@ -259,7 +259,7 @@ pub fn daemon_reload() -> Result<()> {
     SYS_SD_BUS.with(|s| s.borrow_mut().daemon_reload())
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum UnitState {
     NotFound,
     Running,
