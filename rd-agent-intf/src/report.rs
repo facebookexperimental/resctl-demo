@@ -36,6 +36,7 @@ const REPORT_DOC: &str = "\
 //  bench.hashd.svc.name: rd-hashd benchmark systemd service name
 //  bench.hashd.svc.state: rd-hashd benchmark systemd service state
 //  bench.hashd.phase: rd-hashd benchmark phase
+//  bench.hashd.mem_probe_size: memory size rd-hashd benchmark is probing
 //  bench.iocost.svc.name: iocost benchmark systemd service name
 //  bench.iocost.svc.state: iocost benchmark systemd service state
 //  hashd[].svc.name: rd-hashd systemd service name
@@ -94,6 +95,7 @@ pub struct OomdReport {
 pub struct BenchHashdReport {
     pub svc: SvcReport,
     pub phase: rd_hashd_intf::Phase,
+    pub mem_probe_size: usize,
 }
 
 #[derive(Clone, Serialize, Deserialize, Default)]
@@ -119,6 +121,7 @@ pub struct HashdReport {
     pub rps: f64,
     pub lat_pct: f64,
     pub lat: rd_hashd_intf::Latencies,
+    pub mem_probe_frac: f64,
 }
 
 impl ops::AddAssign<&HashdReport> for HashdReport {

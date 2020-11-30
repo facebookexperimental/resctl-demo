@@ -41,6 +41,7 @@ pub struct Hashd {
     rps_max: u32,
     file_max_ratio: f64,
     svc: Option<TransientService>,
+    started_at: Option<SystemTime>,
 }
 
 impl Hashd {
@@ -55,6 +56,7 @@ impl Hashd {
         let mut svc = TransientService::new_sys(self.name.clone(), args, Vec::new(), Some(0o002))?;
         svc.set_slice(Slice::Work.name()).start()?;
         self.svc = Some(svc);
+        self.started_at = Some(SystemTime::now());
         Ok(())
     }
 
@@ -169,6 +171,11 @@ impl Hashd {
     }
 
     fn report(&mut self, expiration: SystemTime) -> Result<HashdReport> {
+        let expiration = match self.started_at {
+            Some(at) if at > expiration => at,
+            _ => expiration,
+        };
+
         let svc_r = match &mut self.svc {
             Some(svc) => super::svc_refresh_and_report(&mut svc.unit)?,
             None => Default::default(),
@@ -197,6 +204,7 @@ impl Hashd {
             rps: hashd_r.hasher.rps,
             lat_pct: self.lat_target_pct,
             lat: hashd_r.hasher.lat,
+            mem_probe_frac: hashd_r.mem_probe_frac,
         })
     }
 }
@@ -218,6 +226,7 @@ impl HashdSet {
                     rps_max: 1,
                     file_max_ratio: rd_hashd_intf::Args::default().file_max_frac,
                     svc: None,
+                    started_at: None,
                 },
                 Hashd {
                     name: HASHD_B_SVC_NAME.into(),
@@ -228,6 +237,7 @@ impl HashdSet {
                     rps_max: 1,
                     file_max_ratio: rd_hashd_intf::Args::default().file_max_frac,
                     svc: None,
+                    started_at: None,
                 },
             ],
         }
@@ -268,6 +278,7 @@ impl HashdSet {
         for i in 0..2 {
             if !cmd[i].active && self.hashd[i].svc.is_some() {
                 self.hashd[i].svc = None;
+                self.hashd[i].started_at = None;
             }
         }
 
@@ -308,10 +319,15 @@ impl HashdSet {
         Ok(())
     }
 
+    pub fn mark_bench_start(&mut self) {
+        self.hashd[0].started_at = Some(SystemTime::now());
+    }
+
     pub fn stop(&mut self) {
         for i in 0..2 {
             if self.hashd[i].svc.is_some() {
                 self.hashd[i].svc = None;
+                self.hashd[i].started_at = None;
             }
         }
     }

@@ -255,8 +255,10 @@ pub fn format_duration_dashed(dur: f64) -> String {
 fn format_pct_internal(ratio: f64, zero: &str) -> String {
     if ratio == 0.0 {
         zero.to_string()
-    } else if ratio > 0.99 {
-        "100".into()
+    } else if ratio > 0.99 && ratio <= 9.99 {
+        format!("{:3.0}", ratio * 100.0)
+    } else if ratio > 9.99 {
+        "INF".into()
     } else {
         format!("{:.01}", ratio * 100.0)
     }

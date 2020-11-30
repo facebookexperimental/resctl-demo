@@ -984,9 +984,9 @@ dependencies = [
 
 [[package]]
 name = "pid"
-version = "2.1.0"
+version = "3.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5222362a342cf1f0e5bfd031177a34e3d879bdcc2d89b6a7b7e4d0c089c5de4e"
+checksum = "d81764342f0ec3d969b9898925e5b0dc31c95466cb70a79a3064b33eb3b5480a"
 dependencies = [
  "num-traits",
 ]

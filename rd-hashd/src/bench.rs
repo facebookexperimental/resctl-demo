@@ -521,6 +521,10 @@ impl Bench {
         self.report_file.lock().unwrap().data.phase = phase;
     }
 
+    fn set_mem_probe_frac(&self, frac: f64) {
+        self.report_file.lock().unwrap().data.mem_probe_frac = frac;
+    }
+
     fn prep_tf(&self, size: u64, why: &str) -> TestFiles {
         let size = (size as f64 * self.args_file.data.file_max_frac).ceil() as u64;
         let greet = format!("Preparing {:.2}G testfiles for {}", to_gb(size), why);
@@ -686,6 +690,7 @@ impl Bench {
             cfg.fsz_pid.kp,
             cfg.fsz_pid.ki,
             cfg.fsz_pid.kd,
+            1.0,
             1.0,
             1.0,
             1.0,
@@ -868,6 +873,11 @@ impl Bench {
         info!("[ {} ]", buf);
     }
 
+    fn set_mem_pos(&self, cfg: &MemIoSatCfg, params: &mut Params, pos: f64) {
+        (cfg.set_pos)(params, pos);
+        self.set_mem_probe_frac(pos);
+    }
+
     fn bench_memio_saturation_bisect(&mut self, cfg: &MemIoSatCfg, th: &mut TestHasher) -> f64 {
         let mut params: Params = self.params.clone();
         params.rps_target = self.params.rps_max;
@@ -888,7 +898,7 @@ impl Bench {
                 break;
             }
             pos = next_pos.unwrap();
-            (cfg.set_pos)(&mut params, pos);
+            self.set_mem_pos(cfg, &mut params, pos);
             th.disp_hist.lock().unwrap().disp.set_params(&params);
 
             info!(
@@ -932,7 +942,7 @@ impl Bench {
                 );
                 self.show_bisection(cfg, &left, pos, &right);
 
-                (cfg.set_pos)(&mut params, pos);
+                self.set_mem_pos(cfg, &mut params, pos);
                 th.disp_hist.lock().unwrap().disp.set_params(&params);
 
                 if self.memio_bisect_round(cfg, &cfg.bisect_converge, &th) {
@@ -961,7 +971,7 @@ impl Bench {
                 }
                 pos = right[0];
             };
-            (cfg.set_pos)(&mut params, pos);
+            self.set_mem_pos(cfg, &mut params, pos);
 
             info!(
                 "[ {} saturation: re-verifying the opposite bound, {} {} ]",
@@ -1020,7 +1030,7 @@ impl Bench {
                 &(cfg.fmt_pos)(self, pos),
             );
 
-            (cfg.set_pos)(&mut params, pos);
+            self.set_mem_pos(cfg, &mut params, pos);
             th.disp_hist.lock().unwrap().disp.set_params(&params);
 
             let (rps, err) = self.memio_one_round(cfg, &cfg.refine_converge, &th, false);

@@ -113,7 +113,7 @@ impl RunnerData {
             }
         }
 
-        if re_bench || re_oomd {
+        if (re_bench || re_oomd) && self.cfg.enforce.all {
             if let Err(e) = sobjs.oomd.apply() {
                 error!("cmd: Failed to apply oomd configuration ({:?})", &e);
                 panic!();
@@ -148,7 +148,7 @@ impl RunnerData {
             apply_sideloader = true;
         }
 
-        if apply_sideloader {
+        if apply_sideloader && self.cfg.enforce.all {
             let sideloader_cmd = &sobjs.cmd_file.data.sideloader;
             let slice_knobs = &sobjs.slice_file.data;
             if let Err(e) = sobjs.sideloader.apply(sideloader_cmd, slice_knobs) {
@@ -213,6 +213,7 @@ impl RunnerData {
                             0,
                             cmd.bench_hashd_args.clone(),
                         )?);
+                        self.hashd_set.mark_bench_start();
 
                         self.state = BenchHashd;
                         self.force_apply = true;
