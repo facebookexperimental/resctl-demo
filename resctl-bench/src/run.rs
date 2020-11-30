@@ -377,6 +377,22 @@ impl RunCtx {
         );
     }
 
+    pub fn stop_hashd_bench(&self) {
+        debug!("Stopping hashd benchmark ({})", &HASHD_BENCH_SVC_NAME);
+
+        self.access_agent_files(|af| {
+            af.cmd.data.cmd_seq += 1;
+            af.cmd.data.bench_hashd_seq = af.bench.data.hashd_seq;
+            af.cmd.save().unwrap();
+        });
+
+        self.wait_cond(
+            |af, _| af.report.data.state != RunnerState::BenchHashd,
+            Some(CMD_TIMEOUT),
+            None,
+        );
+    }
+
     pub const BENCH_FAKE_CPU_HASH_SIZE: usize = 5 << 20;
     pub const BENCH_FAKE_CPU_RPS_MAX: u32 = 1000;
     pub const BENCH_FAKE_CPU_LOG_BPS: u64 = 16 << 20;

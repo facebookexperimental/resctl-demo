@@ -36,6 +36,23 @@ impl Default for Phase {
     }
 }
 
+impl Phase {
+    pub fn name(&self) -> &'static str {
+        match self {
+            Self::Prep => "prep",
+            Self::Running => "run",
+            Self::BenchCpuSinglePrep => "1cpu-prep",
+            Self::BenchCpuSingle => "1cpu",
+            Self::BenchCpuSaturationPrep => "cpu-prep",
+            Self::BenchCpuSaturation => "cpu",
+            Self::BenchMemPrep => "mem-prep",
+            Self::BenchMemUp => "mem-up",
+            Self::BenchMemBisect => "mem-bisect",
+            Self::BenchMemRefine => "mem-refine",
+        }
+    }
+}
+
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Latencies {
     pub min: f64,
