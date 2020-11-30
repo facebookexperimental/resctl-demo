@@ -98,23 +98,10 @@ impl Iterator for MemProfileIterator {
     }
 }
 
-impl Job for StorageJob {
-    fn sysreqs(&self) -> Vec<SysReq> {
-        vec![
-            SysReq::SwapOnScratch,
-            SysReq::Swap,
-            SysReq::HostCriticalServices,
-        ]
-    }
-
-    fn run(&mut self, rctx: &mut RunCtx) -> Result<serde_json::Value> {
+impl StorageJob {
+    fn determine_available_memory(&mut self, rctx: &mut RunCtx) -> usize {
         // Estimate available memory by running the UP phase of rd-hashd
         // benchmark.
-        rctx.set_prep_testfiles()
-            .set_passive_keep_crit_mem_prot()
-            .start_agent();
-
-        info!("storage: Starting hashd bench to estimate available memory");
         rctx.start_hashd_fake_cpu_bench(0, self.log_bps, self.hash_size, self.rps_max);
 
         rctx.wait_cond(
@@ -138,8 +125,10 @@ impl Job for StorageJob {
             .access_agent_files(|af| af.report.data.usages[HASHD_BENCH_SVC_NAME].mem_bytes)
             as usize;
 
-        rctx.stop_agent();
+        mem_avail
+    }
 
+    fn select_memory_profile(&self, mem_avail: usize) -> Result<(u32, usize)> {
         // Select the matching memory profile.
         let mut prof_match: Option<(u32, usize)> = None;
         match self.mem_profile.as_ref() {
@@ -169,15 +158,69 @@ impl Job for StorageJob {
                 }
             }
         }
-        let (mem_profile, mem_share) = prof_match.unwrap();
+        Ok(prof_match.unwrap())
+    }
 
+    fn determine_supportable_memory_size(
+        &mut self,
+        rctx: &RunCtx,
+        mem_avail: usize,
+        mem_share: usize,
+    ) -> usize {
+        let balloon_size = mem_avail - mem_share;
+        rctx.start_hashd_fake_cpu_bench(balloon_size, self.log_bps, self.hash_size, self.rps_max);
+        rctx.wait_cond(
+            |af, progress| {
+                let cmd = &af.cmd.data;
+                let bench = &af.bench.data;
+                let rep = &af.report.data;
+                progress.set_status(&format!(
+                    "[{:?}] rw:{:>5}/{:>5} p50:{:>5}/{:>5} p90:{:>5}/{:>5} p99:{:>5}/{:>5}",
+                    rep.bench_hashd.phase,
+                    format_size_dashed(rep.usages[ROOT_SLICE].io_rbps),
+                    format_size_dashed(rep.usages[ROOT_SLICE].io_wbps),
+                    format_duration_dashed(rep.iolat.map["read"]["50"]),
+                    format_duration_dashed(rep.iolat_cum.map["read"]["50"]),
+                    format_duration_dashed(rep.iolat.map["read"]["90"]),
+                    format_duration_dashed(rep.iolat_cum.map["read"]["90"]),
+                    format_duration_dashed(rep.iolat.map["read"]["99"]),
+                    format_duration_dashed(rep.iolat_cum.map["read"]["99"])
+                ));
+                bench.hashd_seq >= cmd.bench_hashd_seq
+            },
+            None,
+            Some(BenchProgress::new().monitor_systemd_unit(HASHD_BENCH_SVC_NAME)),
+        );
+        rctx.access_agent_files(|af| {
+            af.bench.data.hashd.mem_size as f64 * af.bench.data.hashd.mem_frac
+        }) as usize
+    }
+}
+
+impl Job for StorageJob {
+    fn sysreqs(&self) -> Vec<SysReq> {
+        vec![
+            SysReq::SwapOnScratch,
+            SysReq::Swap,
+            SysReq::HostCriticalServices,
+        ]
+    }
+
+    fn run(&mut self, rctx: &mut RunCtx) -> Result<serde_json::Value> {
+        rctx.set_prep_testfiles().set_passive_keep_crit_mem_prot();
+
+        info!("storage: Starting hashd bench to estimate available memory");
+        rctx.start_agent();
+        let mem_avail = self.determine_available_memory(rctx);
+        rctx.stop_agent();
+
+        let (mem_profile, mem_share) = self.select_memory_profile(mem_avail)?;
         info!(
             "storage: Memory profile {}G (mem_share {:.2}G, mem_avail {:.2}G)",
             mem_profile,
             to_gb(mem_share),
             to_gb(mem_avail)
         );
-        let balloon_size = mem_avail - mem_share;
 
         // We now know all the parameters. Let's run the actual benchmark.
         let mut mem_sizes = Vec::<f64>::new();
@@ -188,42 +231,11 @@ impl Job for StorageJob {
         for i in 0..self.loops {
             info!("storage: Running hashd bench to measure memory offloading and IO latencies ({}/{})",
                   i + 1, self.loops);
-
-            rctx.start_hashd_fake_cpu_bench(
-                balloon_size,
-                self.log_bps,
-                self.hash_size,
-                self.rps_max,
-            );
-            rctx.wait_cond(
-                |af, progress| {
-                    let cmd = &af.cmd.data;
-                    let bench = &af.bench.data;
-                    let rep = &af.report.data;
-                    progress.set_status(&format!(
-                        "[{:?}] rw:{:>5}/{:>5} p50:{:>5}/{:>5} p90:{:>5}/{:>5} p99:{:>5}/{:>5}",
-                        rep.bench_hashd.phase,
-                        format_size_dashed(rep.usages[ROOT_SLICE].io_rbps),
-                        format_size_dashed(rep.usages[ROOT_SLICE].io_wbps),
-                        format_duration_dashed(rep.iolat.map["read"]["50"]),
-                        format_duration_dashed(rep.iolat_cum.map["read"]["50"]),
-                        format_duration_dashed(rep.iolat.map["read"]["90"]),
-                        format_duration_dashed(rep.iolat_cum.map["read"]["90"]),
-                        format_duration_dashed(rep.iolat.map["read"]["99"]),
-                        format_duration_dashed(rep.iolat_cum.map["read"]["99"])
-                    ));
-                    bench.hashd_seq >= cmd.bench_hashd_seq
-                },
-                None,
-                Some(BenchProgress::new().monitor_systemd_unit(HASHD_BENCH_SVC_NAME)),
-            );
-
-            mem_sizes.push(rctx.access_agent_files(|af| {
-                af.bench.data.hashd.mem_size as f64 * af.bench.data.hashd.mem_frac
-            }));
+            let mem_size = self.determine_supportable_memory_size(rctx, mem_avail, mem_share);
+            mem_sizes.push(mem_size as f64);
             info!(
                 "storage: Supportable memory footprint {}",
-                format_size(*mem_sizes.iter().last().unwrap())
+                format_size(mem_size)
             );
         }
 
