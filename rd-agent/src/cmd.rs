@@ -213,6 +213,7 @@ impl RunnerData {
                             0,
                             cmd.bench_hashd_args.clone(),
                         )?);
+                        self.hashd_set.mark_bench_start();
 
                         self.state = BenchHashd;
                         self.force_apply = true;
