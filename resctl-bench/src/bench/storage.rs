@@ -58,8 +58,8 @@ impl Default for StorageJob {
             mem_sizes: vec![],
 
             mem_avail_err_max: 0.05,
-            mem_avail_inner_retries: 2,
-            mem_avail_outer_retries: 2,
+            mem_avail_inner_retries: 5,
+            mem_avail_outer_retries: 5,
         }
     }
 }
@@ -227,7 +227,9 @@ impl StorageJob {
                 // Abort early iff we go over. Memory usage may keep rising
                 // through refine stages, so we'll check for going under
                 // after run completion.
-                if mem_avail_err > self.mem_avail_err_max {
+                if mem_avail_err > self.mem_avail_err_max
+                    && rep.bench_hashd.phase > rd_hashd_intf::Phase::BenchMemBisect
+                {
                     return true;
                 }
 
