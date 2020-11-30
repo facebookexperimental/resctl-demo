@@ -29,6 +29,7 @@ struct StorageJob {
     last_mem_avail: usize,
     main_started_at: u64,
     main_ended_at: u64,
+    mem_usages: Vec<f64>,
     mem_sizes: Vec<f64>,
 
     mem_avail_err_max: f64,
@@ -53,6 +54,7 @@ impl Default for StorageJob {
             last_mem_avail: 0,
             main_started_at: unix_now(),
             main_ended_at: unix_now(),
+            mem_usages: vec![],
             mem_sizes: vec![],
 
             mem_avail_err_max: 0.05,
@@ -98,6 +100,9 @@ struct StorageResult {
     main_started_at: u64,
     main_ended_at: u64,
     mem_offload_factor: f64,
+    mem_usage_mean: usize,
+    mem_usage_stdev: usize,
+    mem_usages: Vec<usize>,
     mem_size_mean: usize,
     mem_size_stdev: usize,
     mem_sizes: Vec<usize>,
@@ -326,6 +331,7 @@ impl Job for StorageJob {
         let saved_mem_avail_inner_retries = self.mem_avail_inner_retries;
 
         'outer: loop {
+            self.mem_usages.clear();
             self.mem_sizes.clear();
             self.mem_avail_inner_retries = saved_mem_avail_inner_retries;
             self.main_started_at = unix_now();
@@ -367,6 +373,7 @@ impl Job for StorageJob {
                     self.first_try = false;
                 }
 
+                self.mem_usages.push(self.mem_usage as f64);
                 self.mem_sizes.push(mem_size as f64);
                 info!(
                     "storage: Supportable memory footprint {}",
@@ -392,6 +399,13 @@ impl Job for StorageJob {
             .add_multiple(&mut study_io_lat_pcts.studies())
             .run(rctx, self.main_started_at, self.main_ended_at);
 
+        let mem_usage_mean = statistical::mean(&self.mem_usages);
+        let mem_usage_stdev = if self.mem_usages.len() > 1 {
+            statistical::standard_deviation(&self.mem_usages, None)
+        } else {
+            0.0
+        };
+
         let mem_size_mean = statistical::mean(&self.mem_sizes);
         let mem_size_stdev = if self.mem_sizes.len() > 1 {
             statistical::standard_deviation(&self.mem_sizes, None)
@@ -405,7 +419,10 @@ impl Job for StorageJob {
             mem_share: self.mem_share,
             main_started_at: self.main_started_at,
             main_ended_at: self.main_ended_at,
-            mem_offload_factor: mem_size_mean as f64 / self.mem_share as f64,
+            mem_offload_factor: mem_size_mean as f64 / mem_usage_mean as f64,
+            mem_usage_mean: mem_usage_mean as usize,
+            mem_usage_stdev: mem_usage_stdev as usize,
+            mem_usages: self.mem_usages.iter().map(|x| *x as usize).collect(),
             mem_size_mean: mem_size_mean as usize,
             mem_size_stdev: mem_size_stdev as usize,
             mem_sizes: self.mem_sizes.iter().map(|x| *x as usize).collect(),
@@ -451,9 +468,11 @@ impl Job for StorageJob {
 
         writeln!(
             out,
-            "\nMemory offloading: factor={:.3}@{} mean={} stdev={}",
+            "\nMemory offloading: factor={:.3}@{} usage_mean:stdev={}:{} size_mean:stdev={}:{}",
             result.mem_offload_factor,
             result.mem_profile,
+            format_size(result.mem_usage_mean),
+            format_size(result.mem_usage_stdev),
             format_size(result.mem_size_mean),
             format_size(result.mem_size_stdev)
         )
