@@ -232,9 +232,10 @@ impl StorageJob {
                 }
 
                 progress.set_status(&format!(
-                    "[{}] mem: {:>5}({:+5.1}%) rw:{:>5}/{:>5} p50/90/99: {:>5}/{:>5}/{:>5}",
+                    "[{}] mem: {:>5}/{:>5}({:+5.1}%) rw:{:>5}/{:>5} p50/90/99: {:>5}/{:>5}/{:>5}",
                     rep.bench_hashd.phase.name(),
-                    format_size_dashed(self.mem_usage),
+                    format_size(rep.bench_hashd.mem_probe_size),
+                    format_size(self.mem_usage),
                     mem_avail_err * 100.0,
                     format_size_dashed(rep.usages[ROOT_SLICE].io_rbps),
                     format_size_dashed(rep.usages[ROOT_SLICE].io_wbps),
@@ -468,7 +469,7 @@ impl Job for StorageJob {
 
         writeln!(
             out,
-            "\nMemory offloading: factor={:.3}@{} usage_mean:stdev={}:{} size_mean:stdev={}:{}",
+            "\nMemory offloading: factor={:.3}@{} usage_mean/stdev={}/{} size_mean/stdev={}/{}",
             result.mem_offload_factor,
             result.mem_profile,
             format_size(result.mem_usage_mean),

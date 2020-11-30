@@ -204,6 +204,7 @@ impl Hashd {
             rps: hashd_r.hasher.rps,
             lat_pct: self.lat_target_pct,
             lat: hashd_r.hasher.lat,
+            mem_probe_frac: hashd_r.mem_probe_frac,
         })
     }
 }

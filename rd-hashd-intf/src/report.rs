@@ -182,6 +182,7 @@ const REPORT_DOC_HEADER: &str = "\
 //  rotational_swap: Is swap on hard disk drives?
 //  testfiles_progress: Testfiles preparation progress, 1.0 indicates completion
 //  params_modified: Modified timestamp of the loaded params file
+//  mem_probe_frac: Memory frac benchmark is currently probing
 ";
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -193,6 +194,7 @@ pub struct Report {
     pub rotational_swap: bool,
     pub testfiles_progress: f64,
     pub params_modified: DateTime<Local>,
+    pub mem_probe_frac: f64,
     #[serde(flatten)]
     pub hasher: Stat,
 }
@@ -207,6 +209,7 @@ impl Default for Report {
             rotational_swap: false,
             testfiles_progress: 0.0,
             params_modified: DateTime::from(UNIX_EPOCH),
+            mem_probe_frac: 0.0,
             hasher: Default::default(),
         }
     }
