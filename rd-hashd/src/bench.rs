@@ -522,7 +522,9 @@ impl Bench {
     }
 
     fn set_mem_probe_frac(&self, frac: f64) {
-        self.report_file.lock().unwrap().data.mem_probe_frac = frac;
+        let mut rep = self.report_file.lock().unwrap();
+        rep.data.mem_probe_frac = frac;
+        rep.data.mem_probe_at = chrono::Local::now();
     }
 
     fn prep_tf(&self, size: u64, why: &str) -> TestFiles {

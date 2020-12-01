@@ -183,6 +183,7 @@ const REPORT_DOC_HEADER: &str = "\
 //  testfiles_progress: Testfiles preparation progress, 1.0 indicates completion
 //  params_modified: Modified timestamp of the loaded params file
 //  mem_probe_frac: Memory frac benchmark is currently probing
+//  mem_probe_at: The timestamp this memory probing started at
 ";
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -195,6 +196,7 @@ pub struct Report {
     pub testfiles_progress: f64,
     pub params_modified: DateTime<Local>,
     pub mem_probe_frac: f64,
+    pub mem_probe_at: DateTime<Local>,
     #[serde(flatten)]
     pub hasher: Stat,
 }
@@ -210,6 +212,7 @@ impl Default for Report {
             testfiles_progress: 0.0,
             params_modified: DateTime::from(UNIX_EPOCH),
             mem_probe_frac: 0.0,
+            mem_probe_at: DateTime::from(UNIX_EPOCH),
             hasher: Default::default(),
         }
     }
