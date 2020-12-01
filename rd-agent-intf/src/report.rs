@@ -37,6 +37,7 @@ const REPORT_DOC: &str = "\
 //  bench.hashd.svc.state: rd-hashd benchmark systemd service state
 //  bench.hashd.phase: rd-hashd benchmark phase
 //  bench.hashd.mem_probe_size: memory size rd-hashd benchmark is probing
+//  bench.hashd.mem_probe_at: the timestamp this memory probing started at
 //  bench.iocost.svc.name: iocost benchmark systemd service name
 //  bench.iocost.svc.state: iocost benchmark systemd service state
 //  hashd[].svc.name: rd-hashd systemd service name
@@ -91,11 +92,23 @@ pub struct OomdReport {
     pub sys_senpai: bool,
 }
 
-#[derive(Clone, Serialize, Deserialize, Default)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct BenchHashdReport {
     pub svc: SvcReport,
     pub phase: rd_hashd_intf::Phase,
     pub mem_probe_size: usize,
+    pub mem_probe_at: DateTime<Local>,
+}
+
+impl Default for BenchHashdReport {
+    fn default() -> Self {
+        Self {
+            svc: Default::default(),
+            phase: Default::default(),
+            mem_probe_size: 0,
+            mem_probe_at: DateTime::from(UNIX_EPOCH),
+        }
+    }
 }
 
 #[derive(Clone, Serialize, Deserialize, Default)]
@@ -113,7 +126,7 @@ pub struct SideloaderReport {
     pub critical_why: String,
 }
 
-#[derive(Clone, Serialize, Deserialize, Default)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct HashdReport {
     pub svc: SvcReport,
     pub phase: rd_hashd_intf::Phase,
@@ -122,6 +135,22 @@ pub struct HashdReport {
     pub lat_pct: f64,
     pub lat: rd_hashd_intf::Latencies,
     pub mem_probe_frac: f64,
+    pub mem_probe_at: DateTime<Local>,
+}
+
+impl Default for HashdReport {
+    fn default() -> Self {
+        Self {
+            svc: Default::default(),
+            phase: Default::default(),
+            load: 0.0,
+            rps: 0.0,
+            lat_pct: 0.0,
+            lat: Default::default(),
+            mem_probe_frac: 0.0,
+            mem_probe_at: DateTime::from(UNIX_EPOCH),
+        }
+    }
 }
 
 impl ops::AddAssign<&HashdReport> for HashdReport {

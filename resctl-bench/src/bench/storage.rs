@@ -26,9 +26,12 @@ struct StorageJob {
     mem_share: usize,
     mem_profile: u32,
     mem_usage: usize,
-    last_mem_avail: usize,
+    mem_probe_at: u64,
+    prev_mem_avail: usize,
+
     main_started_at: u64,
     main_ended_at: u64,
+    final_mem_probe_periods: Vec<(u64, u64)>,
     mem_usages: Vec<f64>,
     mem_sizes: Vec<f64>,
 
@@ -51,9 +54,12 @@ impl Default for StorageJob {
             mem_share: 0,
             mem_profile: 0,
             mem_usage: 0,
-            last_mem_avail: 0,
-            main_started_at: unix_now(),
-            main_ended_at: unix_now(),
+            prev_mem_avail: 0,
+            mem_probe_at: 0,
+
+            main_started_at: 0,
+            main_ended_at: 0,
+            final_mem_probe_periods: vec![],
             mem_usages: vec![],
             mem_sizes: vec![],
 
@@ -106,8 +112,11 @@ struct StorageResult {
     mem_size_mean: usize,
     mem_size_stdev: usize,
     mem_sizes: Vec<usize>,
-    rbps_mean: usize,
-    wbps_mean: usize,
+    rbps_all: usize,
+    wbps_all: usize,
+    rbps_final: usize,
+    wbps_final: usize,
+    final_mem_probe_periods: Vec<(u64, u64)>,
     io_lat_pcts: BTreeMap<String, BTreeMap<String, f64>>,
 }
 
@@ -220,6 +229,7 @@ impl StorageJob {
                 mem_usages.push_front(Self::hashd_mem_usage_rep(rep));
                 mem_usages.truncate(NR_MEM_USAGES);
                 self.mem_usage = mem_usages.iter().fold(0, |max, u| max.max(*u));
+                self.mem_probe_at = rep.bench_hashd.mem_probe_at.timestamp() as u64;
 
                 mem_avail_err =
                     (self.mem_usage as f64 - self.mem_share as f64) / self.mem_share as f64;
@@ -267,7 +277,7 @@ impl StorageJob {
 
     fn process_retry(&mut self) -> Result<bool> {
         let cur_mem_avail = self.mem_avail + self.mem_usage - self.mem_share;
-        let consistent = ((cur_mem_avail - self.last_mem_avail) as f64).abs()
+        let consistent = ((cur_mem_avail - self.prev_mem_avail) as f64).abs()
             < self.mem_avail_err_max * cur_mem_avail as f64;
 
         let retry_outer = match (self.first_try, consistent, self.mem_avail_inner_retries > 0) {
@@ -308,7 +318,7 @@ impl StorageJob {
             }
         }
 
-        self.last_mem_avail = cur_mem_avail;
+        self.prev_mem_avail = cur_mem_avail;
         self.first_try = false;
 
         Ok(retry_outer)
@@ -334,6 +344,7 @@ impl Job for StorageJob {
         let saved_mem_avail_inner_retries = self.mem_avail_inner_retries;
 
         'outer: loop {
+            self.final_mem_probe_periods.clear();
             self.mem_usages.clear();
             self.mem_sizes.clear();
             self.mem_avail_inner_retries = saved_mem_avail_inner_retries;
@@ -372,10 +383,12 @@ impl Job for StorageJob {
                         continue 'inner;
                     }
                 } else {
-                    self.last_mem_avail = 0;
+                    self.prev_mem_avail = 0;
                     self.first_try = false;
                 }
 
+                self.final_mem_probe_periods
+                    .push((self.mem_probe_at, unix_now()));
                 self.mem_usages.push(self.mem_usage as f64);
                 self.mem_sizes.push(mem_size as f64);
                 info!(
@@ -391,14 +404,34 @@ impl Job for StorageJob {
         self.main_ended_at = unix_now();
 
         // Study and record the results.
-        let mut study_rbps_mean = StudyAvg::new(|rep| Some(rep.usages[ROOT_SLICE].io_rbps));
-        let mut study_wbps_mean = StudyAvg::new(|rep| Some(rep.usages[ROOT_SLICE].io_wbps));
+        let in_final = |rep: &rd_agent_intf::Report| {
+            let at = rep.timestamp.timestamp() as u64;
+            for (start, end) in self.final_mem_probe_periods.iter() {
+                if *start <= at && at <= *end {
+                    return true;
+                }
+            }
+            false
+        };
+
+        let mut study_rbps_all = StudyAvg::new(|rep| Some(rep.usages[ROOT_SLICE].io_rbps));
+        let mut study_wbps_all = StudyAvg::new(|rep| Some(rep.usages[ROOT_SLICE].io_wbps));
+        let mut study_rbps_final = StudyAvg::new(|rep| match in_final(rep) {
+            true => Some(rep.usages[ROOT_SLICE].io_rbps),
+            false => None,
+        });
+        let mut study_wbps_final = StudyAvg::new(|rep| match in_final(rep) {
+            true => Some(rep.usages[ROOT_SLICE].io_wbps),
+            false => None,
+        });
         let mut study_io_lat_pcts = StudyIoLatPcts::new("read", None);
 
         let mut studies = Studies::new();
         studies
-            .add(&mut study_rbps_mean)
-            .add(&mut study_wbps_mean)
+            .add(&mut study_rbps_all)
+            .add(&mut study_wbps_all)
+            .add(&mut study_rbps_final)
+            .add(&mut study_wbps_final)
             .add_multiple(&mut study_io_lat_pcts.studies())
             .run(rctx, self.main_started_at, self.main_ended_at);
 
@@ -429,8 +462,11 @@ impl Job for StorageJob {
             mem_size_mean: mem_size_mean as usize,
             mem_size_stdev: mem_size_stdev as usize,
             mem_sizes: self.mem_sizes.iter().map(|x| *x as usize).collect(),
-            rbps_mean: study_rbps_mean.result().0 as usize,
-            wbps_mean: study_wbps_mean.result().0 as usize,
+            rbps_all: study_rbps_all.result().0 as usize,
+            wbps_all: study_wbps_all.result().0 as usize,
+            rbps_final: study_rbps_final.result().0 as usize,
+            wbps_final: study_wbps_final.result().0 as usize,
+            final_mem_probe_periods: self.final_mem_probe_periods.clone(),
             io_lat_pcts: study_io_lat_pcts.result(rctx, None),
         };
 
@@ -460,9 +496,11 @@ impl Job for StorageJob {
 
         writeln!(
             out,
-            "\nMean BPS: read={} write={}",
-            format_size(result.rbps_mean),
-            format_size(result.wbps_mean)
+            "\nIO BPS: read_final={} write_final={} read_all={} write_all={}",
+            format_size(result.rbps_final),
+            format_size(result.wbps_final),
+            format_size(result.rbps_all),
+            format_size(result.wbps_all)
         )
         .unwrap();
 

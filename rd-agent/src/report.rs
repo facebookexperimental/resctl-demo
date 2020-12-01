@@ -550,16 +550,13 @@ impl ReportWorker {
 
         let hashd = runner.hashd_set.report(expiration)?;
 
-        let (bench_hashd, bench_hashd_phase, bench_hashd_mem_probe_size) =
-            match runner.bench_hashd.as_mut() {
-                Some(svc) => (
-                    super::svc_refresh_and_report(&mut svc.unit)?,
-                    hashd[0].phase,
-                    (runner.sobjs.bench_file.data.hashd.mem_size as f64 * hashd[0].mem_probe_frac)
-                        as usize,
-                ),
-                None => (Default::default(), Default::default(), Default::default()),
-            };
+        let (bench_hashd, bench_hashd_phase) = match runner.bench_hashd.as_mut() {
+            Some(svc) => (
+                super::svc_refresh_and_report(&mut svc.unit)?,
+                hashd[0].phase,
+            ),
+            None => (Default::default(), Default::default()),
+        };
         let bench_iocost = match runner.bench_iocost.as_mut() {
             Some(svc) => super::svc_refresh_and_report(&mut svc.unit)?,
             None => Default::default(),
@@ -583,7 +580,10 @@ impl ReportWorker {
             bench_hashd: BenchHashdReport {
                 svc: bench_hashd,
                 phase: bench_hashd_phase,
-                mem_probe_size: bench_hashd_mem_probe_size,
+                mem_probe_size: (hashd[0].mem_probe_frac
+                    * runner.sobjs.bench_file.data.hashd.mem_size as f64)
+                    as usize,
+                mem_probe_at: hashd[0].mem_probe_at,
             },
             bench_iocost: BenchIoCostReport { svc: bench_iocost },
             hashd,
