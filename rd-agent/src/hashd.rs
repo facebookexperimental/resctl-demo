@@ -188,7 +188,12 @@ impl Hashd {
                 {
                     rep
                 } else {
-                    Default::default()
+                    rd_hashd_intf::Report {
+                        // retain fields which don't need explicit expiration
+                        mem_probe_frac: rep.mem_probe_frac,
+                        mem_probe_at: rep.mem_probe_at,
+                        ..Default::default()
+                    }
                 }
             }
             Err(e) => match e.downcast_ref::<io::Error>() {
