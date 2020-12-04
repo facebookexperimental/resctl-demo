@@ -494,16 +494,6 @@ impl Job for StorageJob {
         )
         .unwrap();
 
-        writeln!(
-            out,
-            "\nIO BPS: read_final={} write_final={} read_all={} write_all={}",
-            format_size(result.rbps_final),
-            format_size(result.wbps_final),
-            format_size(result.rbps_all),
-            format_size(result.wbps_all)
-        )
-        .unwrap();
-
         writeln!(out, "\nIO latency distribution:\n").unwrap();
         StudyIoLatPcts::format_table(&mut out, &result.io_lat_pcts, None);
 
@@ -522,6 +512,16 @@ impl Job for StorageJob {
             format_duration(result.io_lat_pcts["100"]["avg"]),
             format_duration(result.io_lat_pcts["100"]["stdev"]),
             format_duration(result.io_lat_pcts["100"]["100"]),
+        )
+        .unwrap();
+
+        writeln!(
+            out,
+            "\nIO BPS: read_final={} write_final={} read_all={} write_all={}",
+            format_size(result.rbps_final),
+            format_size(result.wbps_final),
+            format_size(result.rbps_all),
+            format_size(result.wbps_all)
         )
         .unwrap();
 
