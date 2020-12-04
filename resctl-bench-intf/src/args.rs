@@ -15,7 +15,7 @@ lazy_static::lazy_static! {
          -D, --dev=[DEVICE]     'Scratch device override (e.g. nvme0n1)'
          -l, --linux=[PATH]     'Path to linux.tar, downloaded automatically if not specified'
          -r, --result=[PATH]    'Record the bench results into the specified json file'
-         -r, --rep-retention=[SECS] '1s report retention in seconds (default: {dfl_rep_ret:.1}h)'
+         -R, --rep-retention=[SECS] '1s report retention in seconds (default: {dfl_rep_ret:.1}h)'
          -a, --args=[FILE]      'Load base command line arguments from FILE'
              --clear-reports    'Remove existing report files'
              --keep-reports     'Don't delete expired report files'

@@ -509,6 +509,24 @@ impl Job for StorageJob {
 
         writeln!(
             out,
+            "\nIO latency: p50={}:{}/{} p90={}:{}/{} p99={}:{}/{} max={}:{}/{}",
+            format_duration(result.io_lat_pcts["50"]["avg"]),
+            format_duration(result.io_lat_pcts["50"]["stdev"]),
+            format_duration(result.io_lat_pcts["50"]["100"]),
+            format_duration(result.io_lat_pcts["90"]["avg"]),
+            format_duration(result.io_lat_pcts["90"]["stdev"]),
+            format_duration(result.io_lat_pcts["90"]["100"]),
+            format_duration(result.io_lat_pcts["99"]["avg"]),
+            format_duration(result.io_lat_pcts["99"]["stdev"]),
+            format_duration(result.io_lat_pcts["99"]["100"]),
+            format_duration(result.io_lat_pcts["100"]["avg"]),
+            format_duration(result.io_lat_pcts["100"]["stdev"]),
+            format_duration(result.io_lat_pcts["100"]["100"]),
+        )
+        .unwrap();
+
+        writeln!(
+            out,
             "\nMemory offloading: factor={:.3}@{} usage_mean/stdev={}/{} size_mean/stdev={}/{}",
             result.mem_offload_factor,
             result.mem_profile,
