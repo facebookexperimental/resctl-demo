@@ -89,14 +89,66 @@ fn format_output(jctx: &JobCtx) -> String {
     let sysreqs = jctx.sysreqs.as_ref().unwrap();
     writeln!(
         buf,
-        "System info: nr_cpus={} memory={} swap={} scr_dev=\"{}\" ({})\n",
+        "System info: nr_cpus={} memory={} swap={}\n",
         sysreqs.nr_cpus,
         format_size(sysreqs.total_memory),
-        format_size(sysreqs.total_swap),
-        sysreqs.scr_dev_model,
+        format_size(sysreqs.total_swap)
+    )
+    .unwrap();
+
+    writeln!(
+        buf,
+        "IO info: dev={}({}:{}) model=\"{}\" size={}",
+        &sysreqs.scr_dev,
+        sysreqs.scr_devnr.0,
+        sysreqs.scr_devnr.1,
+        &sysreqs.scr_dev_model,
         format_size(sysreqs.scr_dev_size)
     )
     .unwrap();
+
+    writeln!(
+        buf,
+        "         iosched={} wbt={} iocost={} other={}",
+        &sysreqs.scr_dev_iosched,
+        match jctx.missed_sysreqs.contains(&SysReq::NoWbt) {
+            true => "on",
+            false => "off",
+        },
+        match jctx.iocost.qos.enable > 0 {
+            true => "on",
+            false => "off",
+        },
+        match jctx.missed_sysreqs.contains(&SysReq::NoOtherIoControllers) {
+            true => "on",
+            false => "off",
+        },
+    )
+    .unwrap();
+
+    if jctx.iocost.qos.enable > 0 {
+        let model = &jctx.iocost.model;
+        let qos = &jctx.iocost.qos;
+        writeln!(
+            buf,
+            "         iocost model: rbps={} rseqiops={} rrandiops={}",
+            model.rbps, model.rseqiops, model.rrandiops
+        )
+        .unwrap();
+        writeln!(
+            buf,
+            "                       wbps={} wseqiops={} wrandiops={}",
+            model.wbps, model.wseqiops, model.wrandiops
+        )
+        .unwrap();
+        writeln!(
+            buf,
+            "         iocost QoS: rpct={:.2} rlat={} wpct={:.2} wlat={} min={:.2} max={:.2}",
+            qos.rpct, qos.rlat, qos.wpct, qos.wlat, qos.min, qos.max
+        )
+        .unwrap();
+    }
+    writeln!(buf, "").unwrap();
 
     if jctx.missed_sysreqs.len() > 0 {
         writeln!(
@@ -234,6 +286,9 @@ fn main() {
                     .filter(|x| missed_set.contains(*x))
                     .cloned()
                     .collect();
+                if let Some(rep) = rctx.first_report() {
+                    jctx.iocost = rep.iocost.clone();
+                }
                 jctx.result = Some(result);
                 print!("\n{}\n", &format_output(jctx));
             }

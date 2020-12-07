@@ -24,6 +24,7 @@ pub struct JobCtx {
     pub required_sysreqs: Vec<SysReq>,
     pub sysreqs: Option<SysReqsReport>,
     pub missed_sysreqs: Vec<SysReq>,
+    pub iocost: rd_agent_intf::IoCostReport,
     pub result: Option<serde_json::Value>,
 }
 
@@ -50,6 +51,7 @@ pub fn process_job_spec(spec: &JobSpec) -> Result<JobCtx> {
                     sysreqs: None,
                     required_sysreqs: vec![],
                     missed_sysreqs: vec![],
+                    iocost: Default::default(),
                     result: None,
                 })
             }

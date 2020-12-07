@@ -39,6 +39,8 @@ struct RunCtxInner {
     agent_svc: Option<TransientService>,
     minder_state: MinderState,
     minder_jh: Option<JoinHandle<()>>,
+
+    first_rep: Option<Arc<rd_agent_intf::Report>>,
 }
 
 impl RunCtxInner {
@@ -128,6 +130,7 @@ impl RunCtx {
                 agent_svc: None,
                 minder_state: MinderState::Ok,
                 minder_jh: None,
+                first_rep: None,
             })),
         }
     }
@@ -259,10 +262,16 @@ impl RunCtx {
         drop(ctx);
 
         let started_at = unix_now() as i64;
+        let mut first_rep = None;
         if let Err(e) = self.wait_cond_fallible(
             |af, _| {
-                af.report.data.timestamp.timestamp() >= started_at
-                    && af.report.data.state == RunnerState::Running
+                let rep = &af.report.data;
+                if rep.timestamp.timestamp() >= started_at && rep.state == RunnerState::Running {
+                    first_rep = Some(Arc::new(rep.clone()));
+                    true
+                } else {
+                    false
+                }
             },
             Some(Duration::from_secs(30)),
             None,
@@ -270,6 +279,13 @@ impl RunCtx {
             self.stop_agent();
             bail!("rd-agent failed to report back after startup ({})", &e);
         }
+
+        // capture the report after the initial agent startup
+        let mut ctx = self.inner.lock().unwrap();
+        if ctx.first_rep.is_none() {
+            ctx.first_rep = first_rep;
+        }
+        drop(ctx);
 
         Ok(())
     }
@@ -413,6 +429,11 @@ impl RunCtx {
                 format!("--bench-rps-max={}", rps_max),
             ],
         );
+    }
+
+    pub fn first_report(&self) -> Option<Arc<rd_agent_intf::Report>> {
+        let ctx = self.inner.lock().unwrap();
+        return ctx.first_rep.clone();
     }
 
     pub fn report_iter(&self, start: u64, end: u64) -> ReportIter {

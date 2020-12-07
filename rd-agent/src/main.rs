@@ -473,7 +473,7 @@ impl Config {
             return;
         }
 
-        match report::read_cgroup_nested_keyed_file("/sys/fs/cgroup/io.stat") {
+        match read_cgroup_nested_keyed_file("/sys/fs/cgroup/io.stat") {
             Ok(is) => {
                 if let Some(stat) = is.get(&format!("{}:{}", self.scr_devnr.0, self.scr_devnr.1)) {
                     if let None = stat.get("cost.usage") {
@@ -664,7 +664,7 @@ impl Config {
         slices::check_other_io_controllers(&mut self.sr_failed);
 
         // anon memory balance
-        match report::read_cgroup_flat_keyed_file("/proc/vmstat") {
+        match read_cgroup_flat_keyed_file("/proc/vmstat") {
             Ok(stat) => {
                 if let None = stat.get("pgscan_anon") {
                     warn!("cfg: /proc/vmstat doesn't contain pgscan_anon");
@@ -720,26 +720,28 @@ impl Config {
                 );
                 self.sr_failed.insert(SysReq::IoSched);
             }
-        } else {
-            match read_iosched(&self.scr_dev) {
-                Ok(v) => {
-                    if v != "mq-deadline" {
-                        warn!(
-                            "cfg: iosched on {:?} is {} instead of mq-deadline",
-                            &self.scr_dev, v
-                        );
-                        self.sr_failed.insert(SysReq::IoSched);
-                    }
-                }
-                Err(e) => {
+        }
+
+        let scr_dev_iosched = match read_iosched(&self.scr_dev) {
+            Ok(v) => {
+                if v != "mq-deadline" {
                     warn!(
-                        "cfg: Failed to read iosched for {:?} ({})",
-                        &self.scr_dev, &e
+                        "cfg: iosched on {:?} is {} instead of mq-deadline",
+                        &self.scr_dev, v
                     );
                     self.sr_failed.insert(SysReq::IoSched);
                 }
+                v
             }
-        }
+            Err(e) => {
+                warn!(
+                    "cfg: Failed to read iosched for {:?} ({})",
+                    &self.scr_dev, &e
+                );
+                self.sr_failed.insert(SysReq::IoSched);
+                "UNKNOWN".into()
+            }
+        };
 
         // wbt should be disabled
         let wbt_path = format!("/sys/block/{}/queue/wbt_lat_usec", &self.scr_dev);
@@ -925,8 +927,11 @@ impl Config {
             nr_cpus: nr_cpus(),
             total_memory: total_memory(),
             total_swap: total_swap(),
+            scr_dev: self.scr_dev.clone(),
+            scr_devnr: self.scr_devnr,
             scr_dev_model,
             scr_dev_size,
+            scr_dev_iosched,
         }
         .save(&self.sysreqs_path)?;
 

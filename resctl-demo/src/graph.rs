@@ -672,7 +672,7 @@ fn plot_spec_factory(id: PlotId) -> PlotSpec {
         PlotId::WriteLatP90 => io_lat_spec("write", "90"),
         PlotId::WriteLatP99 => io_lat_spec("write", "99"),
         PlotId::IoCostVrate => PlotSpec {
-            sel: Box::new(move |rep: &Report| rep.iocost.vrate * 100.0),
+            sel: Box::new(move |rep: &Report| rep.iocost.vrate),
             aggr: PlotDataAggr::AVG,
             title: Box::new(move || "vrate%".into()),
             min: Box::new(|| 0.0),

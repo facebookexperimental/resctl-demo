@@ -63,41 +63,6 @@ fn read_stalls(path: &str) -> Result<(f64, f64)> {
     Ok((some.unwrap_or(0.0), full.unwrap_or(0.0)))
 }
 
-pub fn read_cgroup_flat_keyed_file(path: &str) -> Result<HashMap<String, u64>> {
-    let f = fs::OpenOptions::new().read(true).open(path)?;
-    let r = BufReader::new(f);
-    let mut map = HashMap::new();
-
-    for line in r.lines().filter_map(Result::ok) {
-        if let Ok((key, val)) = scan_fmt!(&line, "{} {d}", String, u64) {
-            map.insert(key, val);
-        }
-    }
-    Ok(map)
-}
-
-pub fn read_cgroup_nested_keyed_file(
-    path: &str,
-) -> Result<HashMap<String, HashMap<String, String>>> {
-    let f = fs::OpenOptions::new().read(true).open(path)?;
-    let r = BufReader::new(f);
-    let mut top_map = HashMap::new();
-
-    for line in r.lines().filter_map(Result::ok) {
-        let mut split = line.split_whitespace();
-        let top_key = split.next().unwrap();
-
-        let mut map = HashMap::new();
-        for tok in split {
-            if let Ok((key, val)) = scan_fmt!(tok, "{}={}", String, String) {
-                map.insert(key, val);
-            }
-        }
-        top_map.insert(top_key.into(), map);
-    }
-    Ok(top_map)
-}
-
 fn read_system_usage(devnr: (u32, u32)) -> Result<(Usage, f64)> {
     let kstat = procfs::KernelStats::new()?;
     let cpu = &kstat.total;
@@ -525,26 +490,9 @@ impl ReportWorker {
         })
     }
 
-    fn read_iocost(&mut self) -> Result<IoCostReport> {
-        let mut rep = IoCostReport { vrate: 0.0 };
-
-        if let Ok(is) = read_cgroup_nested_keyed_file("/sys/fs/cgroup/io.stat") {
-            if let Some(stat) = is.get(&format!("{}:{}", self.iocost_devnr.0, self.iocost_devnr.1))
-            {
-                if let Some(val) = stat.get("cost.vrate") {
-                    rep.vrate = scan_fmt!(&val, "{}", f64).unwrap_or(0.0) / 100.0;
-                }
-            }
-        }
-
-        Ok(rep)
-    }
-
     fn base_report(&mut self) -> Result<Report> {
         let now = SystemTime::now();
         let expiration = now - Duration::from_secs(3);
-
-        let iocost = self.read_iocost()?;
 
         let mut runner = self.runner.data.lock().unwrap();
 
@@ -592,7 +540,7 @@ impl ReportWorker {
             usages: BTreeMap::new(),
             iolat: self.iolat.clone(),
             iolat_cum: self.iolat_cum.clone(),
-            iocost,
+            iocost: IoCostReport::read(self.iocost_devnr)?,
         })
     }
 
