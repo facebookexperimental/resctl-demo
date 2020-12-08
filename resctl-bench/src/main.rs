@@ -288,7 +288,7 @@ fn main() {
                 jctx.ended_at = unix_now();
                 jctx.sysreqs = Some((*rctx.sysreqs_report().unwrap()).clone());
                 jctx.missed_sysreqs = rctx.missed_sysreqs();
-                if let Some(rep) = rctx.first_report() {
+                if let Some(rep) = rctx.report_sample() {
                     jctx.iocost = rep.iocost.clone();
                 }
                 jctx.result = Some(result);

@@ -2,7 +2,7 @@
 #![allow(dead_code)]
 use anyhow::{anyhow, bail, Result};
 use log::{debug, error, warn};
-use std::collections::HashSet;
+use std::collections::{HashSet, VecDeque};
 use std::iter::FromIterator;
 use std::process::Command;
 use std::sync::{Arc, Mutex};
@@ -19,6 +19,8 @@ use rd_agent_intf::{
 
 const MINDER_AGENT_TIMEOUT: Duration = Duration::from_secs(30);
 const CMD_TIMEOUT: Duration = Duration::from_secs(10);
+const REP_RECORD_CADENCE: u64 = 10;
+const REP_RECORD_RETENTION: usize = 3;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MinderState {
@@ -46,7 +48,9 @@ struct RunCtxInner {
     minder_jh: Option<JoinHandle<()>>,
 
     sysreqs_rep: Option<Arc<rd_agent_intf::SysReqsReport>>,
-    first_rep: Option<Arc<rd_agent_intf::Report>>,
+
+    reports: VecDeque<rd_agent_intf::Report>,
+    report_sample: Option<Arc<rd_agent_intf::Report>>,
 }
 
 impl RunCtxInner {
@@ -114,6 +118,20 @@ impl RunCtxInner {
 
         Ok(())
     }
+
+    fn record_rep(&mut self, start: bool) {
+        if let Some(rep) = self.reports.get(0) {
+            if (rep.timestamp.timestamp() as u64 + REP_RECORD_CADENCE) < unix_now() {
+                return;
+            }
+        } else if !start {
+            return;
+        }
+
+        self.reports
+            .push_front(self.agent_files.report.data.clone());
+        self.reports.truncate(REP_RECORD_RETENTION);
+    }
 }
 
 pub struct RunCtx {
@@ -144,7 +162,8 @@ impl RunCtx {
                 minder_state: MinderState::Ok,
                 minder_jh: None,
                 sysreqs_rep: None,
-                first_rep: None,
+                reports: VecDeque::new(),
+                report_sample: None,
             })),
         }
     }
@@ -276,16 +295,10 @@ impl RunCtx {
         drop(ctx);
 
         let started_at = unix_now() as i64;
-        let mut first_rep = None;
         if let Err(e) = self.wait_cond_fallible(
             |af, _| {
                 let rep = &af.report.data;
-                if rep.timestamp.timestamp() >= started_at && rep.state == RunnerState::Running {
-                    first_rep = Some(Arc::new(rep.clone()));
-                    true
-                } else {
-                    false
-                }
+                rep.timestamp.timestamp() >= started_at && rep.state == RunnerState::Running
             },
             Some(Duration::from_secs(30)),
             None,
@@ -295,11 +308,6 @@ impl RunCtx {
         }
 
         let mut ctx = self.inner.lock().unwrap();
-
-        // capture the report after the initial agent startup
-        if ctx.first_rep.is_none() {
-            ctx.first_rep = first_rep;
-        }
 
         // record and warn about missing sysreqs
         ctx.sysreqs_rep = Some(Arc::new(ctx.agent_files.sysreqs.data.clone()));
@@ -322,6 +330,9 @@ impl RunCtx {
                     .join(", ")
             );
         }
+
+        // start recording reports
+        ctx.record_rep(true);
 
         drop(ctx);
 
@@ -369,10 +380,14 @@ impl RunCtx {
         };
 
         loop {
-            let ctx = self.inner.lock().unwrap();
+            let mut ctx = self.inner.lock().unwrap();
+
+            ctx.record_rep(false);
+
             if cond(&ctx.agent_files, &mut progress) {
                 return Ok(());
             }
+
             if ctx.minder_state != MinderState::Ok {
                 bail!("agent error ({:?})", ctx.minder_state);
             }
@@ -513,8 +528,13 @@ impl RunCtx {
         self.inner.lock().unwrap().missed_sysreqs.clone()
     }
 
-    pub fn first_report(&self) -> Option<Arc<rd_agent_intf::Report>> {
-        self.inner.lock().unwrap().first_rep.clone()
+    pub fn report_sample(&self) -> Option<Arc<rd_agent_intf::Report>> {
+        let mut ctx = self.inner.lock().unwrap();
+        if ctx.report_sample.is_none() && ctx.reports.len() > 0 {
+            ctx.report_sample = Some(Arc::new(ctx.reports.pop_back().unwrap()));
+            ctx.reports.clear();
+        }
+        ctx.report_sample.clone()
     }
 
     pub fn report_iter(&self, start: u64, end: u64) -> ReportIter {
