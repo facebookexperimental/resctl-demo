@@ -39,12 +39,9 @@ impl Job for IoCostParamsJob {
                 let rep = &af.report.data;
 
                 progress.set_status(&format!(
-                    "rw:{:>5}/{:>5} p50/90/99: {:>5}/{:>5}/{:>5}",
+                    "rw:{:>5}/{:>5}",
                     format_size_dashed(rep.usages[ROOT_SLICE].io_rbps),
                     format_size_dashed(rep.usages[ROOT_SLICE].io_wbps),
-                    format_duration_dashed(rep.iolat.map["read"]["50"]),
-                    format_duration_dashed(rep.iolat.map["read"]["90"]),
-                    format_duration_dashed(rep.iolat.map["read"]["99"]),
                 ));
 
                 bench.iocost_seq >= cmd.bench_iocost_seq
