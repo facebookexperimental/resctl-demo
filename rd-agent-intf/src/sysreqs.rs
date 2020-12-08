@@ -54,8 +54,11 @@ pub struct SysReqsReport {
     pub nr_cpus: usize,
     pub total_memory: usize,
     pub total_swap: usize,
+    pub scr_dev: String,
+    pub scr_devnr: (u32, u32),
     pub scr_dev_model: String,
     pub scr_dev_size: u64,
+    pub scr_dev_iosched: String,
 }
 
 impl JsonLoad for SysReqsReport {}

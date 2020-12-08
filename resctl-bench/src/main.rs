@@ -2,11 +2,9 @@
 use anyhow::{bail, Result};
 use chrono::{DateTime, Local};
 use log::error;
-use std::collections::HashSet;
 use std::fmt::Write as FmtWrite;
 use std::fs;
 use std::io::{Read, Write};
-use std::iter::FromIterator;
 use std::path::Path;
 use std::process::{exit, Command};
 use std::time::{Duration, UNIX_EPOCH};
@@ -89,14 +87,66 @@ fn format_output(jctx: &JobCtx) -> String {
     let sysreqs = jctx.sysreqs.as_ref().unwrap();
     writeln!(
         buf,
-        "System info: nr_cpus={} memory={} swap={} scr_dev=\"{}\" ({})\n",
+        "System info: nr_cpus={} memory={} swap={}\n",
         sysreqs.nr_cpus,
         format_size(sysreqs.total_memory),
-        format_size(sysreqs.total_swap),
-        sysreqs.scr_dev_model,
+        format_size(sysreqs.total_swap)
+    )
+    .unwrap();
+
+    writeln!(
+        buf,
+        "IO info: dev={}({}:{}) model=\"{}\" size={}",
+        &sysreqs.scr_dev,
+        sysreqs.scr_devnr.0,
+        sysreqs.scr_devnr.1,
+        &sysreqs.scr_dev_model,
         format_size(sysreqs.scr_dev_size)
     )
     .unwrap();
+
+    writeln!(
+        buf,
+        "         iosched={} wbt={} iocost={} other={}",
+        &sysreqs.scr_dev_iosched,
+        match jctx.missed_sysreqs.contains(&SysReq::NoWbt) {
+            true => "on",
+            false => "off",
+        },
+        match jctx.iocost.qos.enable > 0 {
+            true => "on",
+            false => "off",
+        },
+        match jctx.missed_sysreqs.contains(&SysReq::NoOtherIoControllers) {
+            true => "on",
+            false => "off",
+        },
+    )
+    .unwrap();
+
+    if jctx.iocost.qos.enable > 0 {
+        let model = &jctx.iocost.model;
+        let qos = &jctx.iocost.qos;
+        writeln!(
+            buf,
+            "         iocost model: rbps={} rseqiops={} rrandiops={}",
+            model.rbps, model.rseqiops, model.rrandiops
+        )
+        .unwrap();
+        writeln!(
+            buf,
+            "                       wbps={} wseqiops={} wrandiops={}",
+            model.wbps, model.wseqiops, model.wrandiops
+        )
+        .unwrap();
+        writeln!(
+            buf,
+            "         iocost QoS: rpct={:.2} rlat={} wpct={:.2} wlat={} min={:.2} max={:.2}",
+            qos.rpct, qos.rlat, qos.wpct, qos.wlat, qos.min, qos.max
+        )
+        .unwrap();
+    }
+    writeln!(buf, "").unwrap();
 
     if jctx.missed_sysreqs.len() > 0 {
         writeln!(
@@ -217,23 +267,25 @@ fn main() {
     }
 
     for jctx in job_ctxs.iter_mut() {
-        let mut rctx = RunCtx::new(&args.dir, args.dev.as_deref(), args.linux_tar.as_deref());
         let job = jctx.job.as_mut().unwrap();
         jctx.required_sysreqs = job.sysreqs();
         jctx.started_at = unix_now();
+
+        let mut rctx = RunCtx::new(
+            &args.dir,
+            args.dev.as_deref(),
+            args.linux_tar.as_deref(),
+            jctx.required_sysreqs.clone(),
+        );
+
         match job.run(&mut rctx) {
             Ok(result) => {
                 jctx.ended_at = unix_now();
-                jctx.sysreqs = Some(rctx.access_agent_files(|af| af.sysreqs.data.clone()));
-                let missed_set = HashSet::<SysReq>::from_iter(
-                    jctx.sysreqs.as_ref().unwrap().missed.iter().cloned(),
-                );
-                jctx.missed_sysreqs = jctx
-                    .required_sysreqs
-                    .iter()
-                    .filter(|x| missed_set.contains(*x))
-                    .cloned()
-                    .collect();
+                jctx.sysreqs = Some((*rctx.sysreqs_report().unwrap()).clone());
+                jctx.missed_sysreqs = rctx.missed_sysreqs();
+                if let Some(rep) = rctx.first_report() {
+                    jctx.iocost = rep.iocost.clone();
+                }
                 jctx.result = Some(result);
                 print!("\n{}\n", &format_output(jctx));
             }

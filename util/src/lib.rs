@@ -3,8 +3,10 @@ use anyhow::{anyhow, bail, Result};
 use crossbeam::channel::Sender;
 use glob::glob;
 use log::{info, warn};
+use scan_fmt::scan_fmt;
 use simplelog as sl;
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::env;
 use std::ffi::{CString, OsStr, OsString};
 use std::fmt::Write as FmtWrite;
@@ -430,6 +432,41 @@ pub fn fill_area_with_random<T, R: rand::Rng + ?Sized>(area: &mut [T], comp: f64
     if area[0] == last_first {
         area[0] += 1;
     }
+}
+
+pub fn read_cgroup_flat_keyed_file(path: &str) -> Result<HashMap<String, u64>> {
+    let f = fs::OpenOptions::new().read(true).open(path)?;
+    let r = BufReader::new(f);
+    let mut map = HashMap::new();
+
+    for line in r.lines().filter_map(Result::ok) {
+        if let Ok((key, val)) = scan_fmt!(&line, "{} {d}", String, u64) {
+            map.insert(key, val);
+        }
+    }
+    Ok(map)
+}
+
+pub fn read_cgroup_nested_keyed_file(
+    path: &str,
+) -> Result<HashMap<String, HashMap<String, String>>> {
+    let f = fs::OpenOptions::new().read(true).open(path)?;
+    let r = BufReader::new(f);
+    let mut top_map = HashMap::new();
+
+    for line in r.lines().filter_map(Result::ok) {
+        let mut split = line.split_whitespace();
+        let top_key = split.next().unwrap();
+
+        let mut map = HashMap::new();
+        for tok in split {
+            if let Ok((key, val)) = scan_fmt!(tok, "{}={}", String, String) {
+                map.insert(key, val);
+            }
+        }
+        top_map.insert(top_key.into(), map);
+    }
+    Ok(top_map)
 }
 
 struct GlobalProgState {

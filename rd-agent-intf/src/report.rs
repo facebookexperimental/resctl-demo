@@ -1,5 +1,5 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use chrono::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -50,6 +50,8 @@ const REPORT_DOC: &str = "\
 //  sysloads{}.svc.state: Sysload systemd service state
 //  sideloads{}.svc.name: Sideload systemd service name
 //  sideloads{}.svc.state: Sideload systemd service state
+//  iocost.model: iocost model parameters currently in effect
+//  iocost.qos: iocost QoS parameters currently in effect
 //  iolat.{read|write|discard|flush}.p*: IO latency distributions
 //  iolat_cum.{read|write|discard|flush}.p*: Cumulative IO latency distributions
 //
@@ -272,14 +274,114 @@ impl Default for IoLatReport {
     }
 }
 
+#[derive(Clone, Serialize, Deserialize)]
+pub struct IoCostModelReport {
+    pub ctrl: String,
+    pub model: String,
+    pub rbps: u64,
+    pub rseqiops: u64,
+    pub rrandiops: u64,
+    pub wbps: u64,
+    pub wseqiops: u64,
+    pub wrandiops: u64,
+}
+
+impl Default for IoCostModelReport {
+    fn default() -> Self {
+        Self {
+            ctrl: "".into(),
+            model: "".into(),
+            rbps: 0,
+            rseqiops: 0,
+            rrandiops: 0,
+            wbps: 0,
+            wseqiops: 0,
+            wrandiops: 0,
+        }
+    }
+}
+
+impl IoCostModelReport {
+    pub fn read(devnr: (u32, u32)) -> Result<Self> {
+        let kf = read_cgroup_nested_keyed_file("/sys/fs/cgroup/io.cost.model")?;
+        let map = match kf.get(&format!("{}:{}", devnr.0, devnr.1)) {
+            Some(v) => v,
+            None => return Ok(Default::default()),
+        };
+        let kerr = "missing key in io.cost.model";
+        Ok(Self {
+            ctrl: map.get("ctrl").ok_or(anyhow!(kerr))?.clone(),
+            model: map.get("model").ok_or(anyhow!(kerr))?.clone(),
+            rbps: map.get("rbps").ok_or(anyhow!(kerr))?.parse::<u64>()?,
+            rseqiops: map.get("rseqiops").ok_or(anyhow!(kerr))?.parse::<u64>()?,
+            rrandiops: map.get("rrandiops").ok_or(anyhow!(kerr))?.parse::<u64>()?,
+            wbps: map.get("wbps").ok_or(anyhow!(kerr))?.parse::<u64>()?,
+            wseqiops: map.get("wseqiops").ok_or(anyhow!(kerr))?.parse::<u64>()?,
+            wrandiops: map.get("wrandiops").ok_or(anyhow!(kerr))?.parse::<u64>()?,
+        })
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct IoCostQoSReport {
+    pub enable: u32,
+    pub ctrl: String,
+    pub rpct: f64,
+    pub rlat: u64,
+    pub wpct: f64,
+    pub wlat: u64,
+    pub min: f64,
+    pub max: f64,
+}
+
+impl IoCostQoSReport {
+    pub fn read(devnr: (u32, u32)) -> Result<Self> {
+        let kf = read_cgroup_nested_keyed_file("/sys/fs/cgroup/io.cost.qos")?;
+        let map = match kf.get(&format!("{}:{}", devnr.0, devnr.1)) {
+            Some(v) => v,
+            None => return Ok(Default::default()),
+        };
+        let kerr = "missing key in io.cost.qos";
+        Ok(Self {
+            enable: map.get("enable").ok_or(anyhow!(kerr))?.parse::<u32>()?,
+            ctrl: map.get("ctrl").ok_or(anyhow!(kerr))?.clone(),
+            rpct: map.get("rpct").ok_or(anyhow!(kerr))?.parse::<f64>()?,
+            rlat: map.get("rlat").ok_or(anyhow!(kerr))?.parse::<u64>()?,
+            wpct: map.get("wpct").ok_or(anyhow!(kerr))?.parse::<f64>()?,
+            wlat: map.get("wlat").ok_or(anyhow!(kerr))?.parse::<u64>()?,
+            min: map.get("min").ok_or(anyhow!(kerr))?.parse::<f64>()?,
+            max: map.get("max").ok_or(anyhow!(kerr))?.parse::<f64>()?,
+        })
+    }
+}
+
+impl Default for IoCostQoSReport {
+    fn default() -> Self {
+        Self {
+            enable: 0,
+            ctrl: "".into(),
+            rpct: 0.0,
+            rlat: 0,
+            wpct: 0.0,
+            wlat: 0,
+            min: 0.0,
+            max: 0.0,
+        }
+    }
+}
+
 #[derive(Clone, Default, Serialize, Deserialize)]
 pub struct IoCostReport {
     pub vrate: f64,
+    pub model: IoCostModelReport,
+    pub qos: IoCostQoSReport,
 }
 
 impl ops::AddAssign<&IoCostReport> for IoCostReport {
     fn add_assign(&mut self, rhs: &IoCostReport) {
-        self.vrate += rhs.vrate;
+        let base_vrate = self.vrate;
+        *self = rhs.clone();
+        self.vrate += base_vrate;
     }
 }
 
@@ -287,6 +389,24 @@ impl<T: Into<f64>> ops::DivAssign<T> for IoCostReport {
     fn div_assign(&mut self, rhs: T) {
         let div = rhs.into();
         self.vrate /= div;
+    }
+}
+
+impl IoCostReport {
+    pub fn read(devnr: (u32, u32)) -> Result<Self> {
+        let kf = read_cgroup_nested_keyed_file("/sys/fs/cgroup/io.stat")?;
+        let vrate = match kf.get(&format!("{}:{}", devnr.0, devnr.1)) {
+            Some(map) => map
+                .get("cost.vrate")
+                .ok_or(anyhow!("missing key in io.stat"))?
+                .parse::<f64>()?,
+            None => 0.0,
+        };
+        Ok(Self {
+            vrate: vrate,
+            model: IoCostModelReport::read(devnr)?,
+            qos: IoCostQoSReport::read(devnr)?,
+        })
     }
 }
 

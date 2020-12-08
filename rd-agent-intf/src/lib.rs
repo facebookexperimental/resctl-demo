@@ -22,9 +22,9 @@ pub use cmd_ack::CmdAck;
 pub use index::Index;
 pub use oomd::{OomdKnobs, OomdSliceMemPressureKnobs, OomdSliceSenpaiKnobs};
 pub use report::{
-    BenchHashdReport, BenchIoCostReport, HashdReport, IoCostReport, IoLatReport, OomdReport,
-    Report, ReportIter, ResCtlReport, SideloadReport, SideloaderReport, SvcReport, SvcStateReport,
-    SysloadReport, UsageReport,
+    BenchHashdReport, BenchIoCostReport, HashdReport, IoCostModelReport, IoCostQoSReport,
+    IoCostReport, IoLatReport, OomdReport, Report, ReportIter, ResCtlReport, SideloadReport,
+    SideloaderReport, SvcReport, SvcStateReport, SysloadReport, UsageReport,
 };
 pub use side_defs::{SideloadDefs, SideloadSpec};
 pub use slices::{DisableSeqKnobs, MemoryKnob, Slice, SliceConfig, SliceKnobs, ROOT_SLICE};
