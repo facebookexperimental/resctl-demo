@@ -2,6 +2,8 @@
 #![allow(dead_code)]
 use anyhow::{anyhow, bail, Result};
 use log::{debug, error, warn};
+use std::collections::HashSet;
+use std::iter::FromIterator;
 use std::process::Command;
 use std::sync::{Arc, Mutex};
 use std::thread::{spawn, JoinHandle};
@@ -11,7 +13,7 @@ use util::*;
 use super::progress::BenchProgress;
 use super::{rd_agent_base_args, AGENT_BIN};
 use rd_agent_intf::{
-    AgentFiles, ReportIter, RunnerState, Slice, AGENT_SVC_NAME, HASHD_BENCH_SVC_NAME,
+    AgentFiles, ReportIter, RunnerState, Slice, SysReq, AGENT_SVC_NAME, HASHD_BENCH_SVC_NAME,
 };
 
 const MINDER_AGENT_TIMEOUT: Duration = Duration::from_secs(30);
@@ -29,6 +31,8 @@ struct RunCtxInner {
     dir: String,
     dev: Option<String>,
     linux_tar: Option<String>,
+    required_sysreqs: Vec<SysReq>,
+    missed_sysreqs: Vec<SysReq>,
     need_linux_tar: bool,
     prep_testfiles: bool,
     bypass: bool,
@@ -40,6 +44,7 @@ struct RunCtxInner {
     minder_state: MinderState,
     minder_jh: Option<JoinHandle<()>>,
 
+    sysreqs_rep: Option<Arc<rd_agent_intf::SysReqsReport>>,
     first_rep: Option<Arc<rd_agent_intf::Report>>,
 }
 
@@ -115,12 +120,19 @@ pub struct RunCtx {
 }
 
 impl RunCtx {
-    pub fn new(dir: &str, dev: Option<&str>, linux_tar: Option<&str>) -> Self {
+    pub fn new(
+        dir: &str,
+        dev: Option<&str>,
+        linux_tar: Option<&str>,
+        required_sysreqs: Vec<SysReq>,
+    ) -> Self {
         Self {
             inner: Arc::new(Mutex::new(RunCtxInner {
                 dir: dir.into(),
                 dev: dev.map(Into::into),
                 linux_tar: linux_tar.map(Into::into),
+                required_sysreqs,
+                missed_sysreqs: vec![],
                 need_linux_tar: false,
                 prep_testfiles: false,
                 bypass: false,
@@ -130,6 +142,7 @@ impl RunCtx {
                 agent_svc: None,
                 minder_state: MinderState::Ok,
                 minder_jh: None,
+                sysreqs_rep: None,
                 first_rep: None,
             })),
         }
@@ -280,11 +293,35 @@ impl RunCtx {
             bail!("rd-agent failed to report back after startup ({})", &e);
         }
 
-        // capture the report after the initial agent startup
         let mut ctx = self.inner.lock().unwrap();
+
+        // capture the report after the initial agent startup
         if ctx.first_rep.is_none() {
             ctx.first_rep = first_rep;
         }
+
+        // record and warn about missing sysreqs
+        ctx.sysreqs_rep = Some(Arc::new(ctx.agent_files.sysreqs.data.clone()));
+        let missed_set =
+            HashSet::<SysReq>::from_iter(ctx.sysreqs_rep.as_ref().unwrap().missed.iter().cloned());
+        ctx.missed_sysreqs = ctx
+            .required_sysreqs
+            .iter()
+            .filter(|x| missed_set.contains(*x))
+            .cloned()
+            .collect();
+        if ctx.missed_sysreqs.len() > 0 {
+            error!(
+                "Failed to meet {} bench system requirements, see help: {}",
+                ctx.missed_sysreqs.len(),
+                ctx.missed_sysreqs
+                    .iter()
+                    .map(|x| format!("{:?}", x))
+                    .collect::<Vec<String>>()
+                    .join(", ")
+            );
+        }
+
         drop(ctx);
 
         Ok(())
@@ -431,9 +468,16 @@ impl RunCtx {
         );
     }
 
+    pub fn sysreqs_report(&self) -> Option<Arc<rd_agent_intf::SysReqsReport>> {
+        self.inner.lock().unwrap().sysreqs_rep.clone()
+    }
+
+    pub fn missed_sysreqs(&self) -> Vec<SysReq> {
+        self.inner.lock().unwrap().missed_sysreqs.clone()
+    }
+
     pub fn first_report(&self) -> Option<Arc<rd_agent_intf::Report>> {
-        let ctx = self.inner.lock().unwrap();
-        return ctx.first_rep.clone();
+        self.inner.lock().unwrap().first_rep.clone()
     }
 
     pub fn report_iter(&self, start: u64, end: u64) -> ReportIter {

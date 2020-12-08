@@ -2,11 +2,9 @@
 use anyhow::{bail, Result};
 use chrono::{DateTime, Local};
 use log::error;
-use std::collections::HashSet;
 use std::fmt::Write as FmtWrite;
 use std::fs;
 use std::io::{Read, Write};
-use std::iter::FromIterator;
 use std::path::Path;
 use std::process::{exit, Command};
 use std::time::{Duration, UNIX_EPOCH};
@@ -269,23 +267,22 @@ fn main() {
     }
 
     for jctx in job_ctxs.iter_mut() {
-        let mut rctx = RunCtx::new(&args.dir, args.dev.as_deref(), args.linux_tar.as_deref());
         let job = jctx.job.as_mut().unwrap();
         jctx.required_sysreqs = job.sysreqs();
         jctx.started_at = unix_now();
+
+        let mut rctx = RunCtx::new(
+            &args.dir,
+            args.dev.as_deref(),
+            args.linux_tar.as_deref(),
+            jctx.required_sysreqs.clone(),
+        );
+
         match job.run(&mut rctx) {
             Ok(result) => {
                 jctx.ended_at = unix_now();
-                jctx.sysreqs = Some(rctx.access_agent_files(|af| af.sysreqs.data.clone()));
-                let missed_set = HashSet::<SysReq>::from_iter(
-                    jctx.sysreqs.as_ref().unwrap().missed.iter().cloned(),
-                );
-                jctx.missed_sysreqs = jctx
-                    .required_sysreqs
-                    .iter()
-                    .filter(|x| missed_set.contains(*x))
-                    .cloned()
-                    .collect();
+                jctx.sysreqs = Some((*rctx.sysreqs_report().unwrap()).clone());
+                jctx.missed_sysreqs = rctx.missed_sysreqs();
                 if let Some(rep) = rctx.first_report() {
                     jctx.iocost = rep.iocost.clone();
                 }
