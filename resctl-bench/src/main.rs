@@ -36,7 +36,7 @@ pub fn rd_agent_base_args(dir: &str, dev: Option<&str>) -> Result<Vec<String>> {
         "--dir".into(),
         dir.into(),
         "--bench-file".into(),
-        "rd-bench.json".into(),
+        "rb-bench.json".into(),
         "--force".into(),
         "--force-running".into(),
     ];

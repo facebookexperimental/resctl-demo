@@ -20,7 +20,7 @@ const REPORT_DOC: &str = "\
 //
 //  timestamp: When this report was generated
 //  seq: Incremented on each execution, used for temporary settings
-//  state: Idle, Running, BenchHashd or BenchIOCost
+//  state: Idle, Running, BenchHashd or BenchIoCost
 //  oomd.svc.name: OOMD systemd service name
 //  oomd.svc.state: OOMD systemd service state
 //  oomd.work_mem_pressure: Memory pressure based kill enabled in workload.slice
@@ -385,7 +385,8 @@ impl IoCostReport {
         let vrate = match kf.get(&format!("{}:{}", devnr.0, devnr.1)) {
             Some(map) => map
                 .get("cost.vrate")
-                .ok_or(anyhow!("missing key in io.stat"))?
+                .map(String::as_str)
+                .unwrap_or("0.0")
                 .parse::<f64>()?,
             None => 0.0,
         };

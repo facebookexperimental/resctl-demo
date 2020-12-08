@@ -14,6 +14,7 @@ use super::progress::BenchProgress;
 use super::{rd_agent_base_args, AGENT_BIN};
 use rd_agent_intf::{
     AgentFiles, ReportIter, RunnerState, Slice, SysReq, AGENT_SVC_NAME, HASHD_BENCH_SVC_NAME,
+    IOCOST_BENCH_SVC_NAME,
 };
 
 const MINDER_AGENT_TIMEOUT: Duration = Duration::from_secs(30);
@@ -404,6 +405,42 @@ impl RunCtx {
         let mut ctx = self.inner.lock().unwrap();
         let af = &mut ctx.agent_files;
         func(af)
+    }
+
+    pub fn start_iocost_bench(&self) {
+        debug!("Starting iocost benchmark ({})", &IOCOST_BENCH_SVC_NAME);
+
+        let mut next_seq = 0;
+        self.access_agent_files(|af| {
+            next_seq = af.bench.data.iocost_seq + 1;
+            af.cmd.data.bench_iocost_seq = next_seq;
+            af.cmd.save().unwrap();
+        });
+
+        self.wait_cond(
+            |af, _| {
+                af.report.data.state == RunnerState::BenchIoCost
+                    || af.bench.data.iocost_seq >= next_seq
+            },
+            Some(CMD_TIMEOUT),
+            None,
+        );
+    }
+
+    pub fn stop_iocost_bench(&self) {
+        debug!("Stopping iocost benchmark ({})", &IOCOST_BENCH_SVC_NAME);
+
+        self.access_agent_files(|af| {
+            af.cmd.data.cmd_seq += 1;
+            af.cmd.data.bench_iocost_seq = af.bench.data.iocost_seq;
+            af.cmd.save().unwrap();
+        });
+
+        self.wait_cond(
+            |af, _| af.report.data.state != RunnerState::BenchIoCost,
+            Some(CMD_TIMEOUT),
+            None,
+        );
     }
 
     pub fn start_hashd_bench(&self, ballon_size: usize, log_bps: u64, extra_args: Vec<String>) {

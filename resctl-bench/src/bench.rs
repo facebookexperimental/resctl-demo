@@ -30,7 +30,9 @@ fn register_bench(bench: Box<dyn Bench>) -> () {
 }
 
 mod storage;
+mod iocost_params;
 
 pub fn init_benchs() -> () {
     register_bench(Box::new(storage::StorageBench {}));
+    register_bench(Box::new(iocost_params::IoCostParamsBench {}));
 }

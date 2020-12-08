@@ -129,7 +129,7 @@ pub struct HashdPaths {
 }
 
 #[derive(Debug)]
-pub struct IOCostPaths {
+pub struct IoCostPaths {
     pub bin: String,
     pub working: String,
     pub result: String,
@@ -162,7 +162,7 @@ pub struct Config {
     pub hashd_paths: [HashdPaths; 2],
     pub misc_bin_path: String,
     pub biolatpcts_bin: Option<String>,
-    pub iocost_paths: IOCostPaths,
+    pub iocost_paths: IoCostPaths,
     pub oomd_bin: Result<String>,
     pub oomd_sys_svc: Option<String>,
     pub oomd_cfg_path: String,
@@ -401,7 +401,7 @@ impl Config {
             ],
             misc_bin_path: misc_bin_path.clone(),
             biolatpcts_bin,
-            iocost_paths: IOCostPaths {
+            iocost_paths: IoCostPaths {
                 bin: misc_bin_path.clone() + "/iocost_coef_gen.py",
                 working: Self::prep_dir(&(scr_path.clone() + "/iocost-coef")),
                 result: scr_path.clone() + "/iocost-coef/iocost-coef.json",

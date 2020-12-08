@@ -35,7 +35,7 @@ pub enum RunnerState {
     Idle,
     Running,
     BenchHashd,
-    BenchIOCost,
+    BenchIoCost,
 }
 
 pub const AGENT_SVC_NAME: &str = "rd-agent.service";
