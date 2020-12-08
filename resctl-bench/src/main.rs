@@ -130,19 +130,24 @@ fn format_output(jctx: &JobCtx) -> String {
         writeln!(
             buf,
             "         iocost model: rbps={} rseqiops={} rrandiops={}",
-            model.rbps, model.rseqiops, model.rrandiops
+            model.knobs.rbps, model.knobs.rseqiops, model.knobs.rrandiops
         )
         .unwrap();
         writeln!(
             buf,
             "                       wbps={} wseqiops={} wrandiops={}",
-            model.wbps, model.wseqiops, model.wrandiops
+            model.knobs.wbps, model.knobs.wseqiops, model.knobs.wrandiops
         )
         .unwrap();
         writeln!(
             buf,
             "         iocost QoS: rpct={:.2} rlat={} wpct={:.2} wlat={} min={:.2} max={:.2}",
-            qos.rpct, qos.rlat, qos.wpct, qos.wlat, qos.min, qos.max
+            qos.knobs.rpct,
+            qos.knobs.rlat,
+            qos.knobs.wpct,
+            qos.knobs.wlat,
+            qos.knobs.min,
+            qos.knobs.max
         )
         .unwrap();
     }

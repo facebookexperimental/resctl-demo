@@ -40,7 +40,7 @@ impl HashdKnobs {
 
 #[derive(Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
-pub struct IOCostModelKnobs {
+pub struct IoCostModelKnobs {
     pub rbps: u64,
     pub rseqiops: u64,
     pub rrandiops: u64,
@@ -51,20 +51,20 @@ pub struct IOCostModelKnobs {
 
 #[derive(Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
-pub struct IOCostQoSKnobs {
-    pub rpct: u64,
+pub struct IoCostQoSKnobs {
+    pub rpct: f64,
     pub rlat: u64,
-    pub wpct: u64,
+    pub wpct: f64,
     pub wlat: u64,
-    pub min: u64,
-    pub max: u64,
+    pub min: f64,
+    pub max: f64,
 }
 
 #[derive(Clone, Default, Serialize, Deserialize)]
 pub struct IoCostKnobs {
     pub devnr: String,
-    pub model: IOCostModelKnobs,
-    pub qos: IOCostQoSKnobs,
+    pub model: IoCostModelKnobs,
+    pub qos: IoCostQoSKnobs,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
