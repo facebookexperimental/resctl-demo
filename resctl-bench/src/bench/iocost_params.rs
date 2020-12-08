@@ -29,7 +29,7 @@ impl Job for IoCostParamsJob {
     }
 
     fn run(&mut self, rctx: &mut RunCtx) -> Result<serde_json::Value> {
-        rctx.start_agent();
+        rctx.set_commit_bench().start_agent();
         info!("iocost-params: Estimating iocost parameters");
         rctx.start_iocost_bench();
         rctx.wait_cond(

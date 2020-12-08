@@ -41,6 +41,7 @@ struct RunCtxInner {
     bypass: bool,
     passive_all: bool,
     passive_keep_crit_mem_prot: bool,
+    commit_bench: bool,
 
     agent_files: AgentFiles,
     agent_svc: Option<TransientService>,
@@ -157,6 +158,7 @@ impl RunCtx {
                 bypass: false,
                 passive_all: false,
                 passive_keep_crit_mem_prot: false,
+                commit_bench: false,
                 agent_files: AgentFiles::new(dir),
                 agent_svc: None,
                 minder_state: MinderState::Ok,
@@ -191,6 +193,15 @@ impl RunCtx {
     pub fn set_passive_keep_crit_mem_prot(&self) -> &Self {
         self.inner.lock().unwrap().passive_keep_crit_mem_prot = true;
         self
+    }
+
+    pub fn set_commit_bench(&self) -> &Self {
+        self.inner.lock().unwrap().commit_bench = true;
+        self
+    }
+
+    pub fn is_commit_bench_set(&self) -> bool {
+        self.inner.lock().unwrap().commit_bench
     }
 
     fn minder(inner: Arc<Mutex<RunCtxInner>>) {

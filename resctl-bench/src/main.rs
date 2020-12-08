@@ -1,7 +1,7 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
 use anyhow::{bail, Result};
 use chrono::{DateTime, Local};
-use log::error;
+use log::{error, info};
 use std::fmt::Write as FmtWrite;
 use std::fs;
 use std::io::{Read, Write};
@@ -292,6 +292,17 @@ fn main() {
                     jctx.iocost = rep.iocost.clone();
                 }
                 jctx.result = Some(result);
+
+                if rctx.is_commit_bench_set() {
+                    info!("Committing bench results to {:?}", &base_bench_path);
+                    if let Err(e) = fs::copy(&bench_path, &base_bench_path) {
+                        panic!(
+                            "Failed to copy {} to {} ({})",
+                            &base_bench_path, &bench_path, &e
+                        );
+                    }
+                }
+
                 print!("\n{}\n", &format_output(jctx));
             }
             Err(e) => {
