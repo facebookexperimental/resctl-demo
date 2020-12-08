@@ -1,18 +1,7 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
-use anyhow::{bail, Result};
-use log::{info, warn};
-use resctl_bench_intf::JobSpec;
-use serde::{Deserialize, Serialize};
-use serde_json;
-use statistical;
-use std::collections::{BTreeMap, VecDeque};
-use std::fmt::Write;
-use util::*;
-
 use super::*;
-
 use rd_agent_intf::{HASHD_BENCH_SVC_NAME, ROOT_SLICE};
-use rd_hashd_intf;
+use std::collections::{BTreeMap, VecDeque};
 
 struct StorageJob {
     hash_size: usize,

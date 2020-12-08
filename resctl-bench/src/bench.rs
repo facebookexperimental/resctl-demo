@@ -1,5 +1,11 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
-use anyhow::Result;
+
+// The individual bench implementations under bench/ inherits all uses from
+// this file. Make common stuff available.
+use anyhow::{bail, Result};
+use log::{info, warn};
+use serde::{Deserialize, Serialize};
+use std::fmt::Write;
 use std::sync::{Arc, Mutex};
 
 use super::job::Job;
@@ -8,6 +14,8 @@ use super::run::RunCtx;
 use super::study::*;
 use rd_agent_intf::SysReq;
 use resctl_bench_intf::JobSpec;
+
+use util::*;
 
 lazy_static::lazy_static! {
     pub static ref BENCHS: Arc<Mutex<Vec<Box<dyn Bench>>>> = Arc::new(Mutex::new(vec![]));
