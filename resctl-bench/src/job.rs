@@ -116,15 +116,16 @@ impl JobCtx {
 
     pub fn format(&self) -> String {
         let mut buf = String::new();
-        write!(buf, "[{} bench result] ", self.spec.kind).unwrap();
+        write!(buf, "[{} result] ", self.spec.kind).unwrap();
         if let Some(id) = self.spec.id.as_ref() {
-            write!(buf, "({}) ", id).unwrap();
+            write!(buf, "\"{}\" ", id).unwrap();
         }
         writeln!(
             buf,
             "{} - {}\n",
-            DateTime::<Local>::from(UNIX_EPOCH + Duration::from_secs(self.started_at)),
-            DateTime::<Local>::from(UNIX_EPOCH + Duration::from_secs(self.ended_at))
+            DateTime::<Local>::from(UNIX_EPOCH + Duration::from_secs(self.started_at))
+                .format("%Y-%m-%d %T"),
+            DateTime::<Local>::from(UNIX_EPOCH + Duration::from_secs(self.ended_at)).format("%T")
         )
         .unwrap();
 

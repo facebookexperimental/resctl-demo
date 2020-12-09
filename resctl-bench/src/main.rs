@@ -167,7 +167,7 @@ fn main() {
         }
 
         if jctx.run || nr_to_run == 0 {
-            print!("\n{}\n", &jctx.format());
+            println!("{}\n\n{}", "=".repeat(90), &jctx.format());
         }
     }
 
