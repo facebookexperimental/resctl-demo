@@ -39,8 +39,6 @@ pub struct Args {
     pub keep_reports: bool,
     #[serde(skip)]
     pub clear_reports: bool,
-    #[serde(skip)]
-    pub format_mode: bool,
 }
 
 impl Default for Args {
@@ -54,7 +52,6 @@ impl Default for Args {
             rep_retention: 24 * 3600,
             keep_reports: false,
             clear_reports: false,
-            format_mode: false,
         }
     }
 }
@@ -126,10 +123,6 @@ impl JsonArgs for Args {
                             .multiple(true)
                             .help("Benchmark job spec - \"BENCH_TYPE[:KEY=VAL...]\""),
                     ),
-            )
-            .subcommand(
-                clap::SubCommand::with_name("format")
-                    .about("Format bench results in the --result file"),
             )
             .get_matches()
     }
@@ -231,9 +224,6 @@ impl JsonArgs for Args {
                     }
                     updated = true;
                 }
-            }
-            ("format", _) => {
-                self.format_mode = true;
             }
             _ => {}
         }

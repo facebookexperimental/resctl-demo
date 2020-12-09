@@ -34,7 +34,7 @@ struct RunCtxInner {
     dir: String,
     dev: Option<String>,
     linux_tar: Option<String>,
-    required_sysreqs: Vec<SysReq>,
+    sysreqs: Vec<SysReq>,
     missed_sysreqs: Vec<SysReq>,
     need_linux_tar: bool,
     prep_testfiles: bool,
@@ -140,18 +140,13 @@ pub struct RunCtx {
 }
 
 impl RunCtx {
-    pub fn new(
-        dir: &str,
-        dev: Option<&str>,
-        linux_tar: Option<&str>,
-        required_sysreqs: Vec<SysReq>,
-    ) -> Self {
+    pub fn new(dir: &str, dev: Option<&str>, linux_tar: Option<&str>) -> Self {
         Self {
             inner: Arc::new(Mutex::new(RunCtxInner {
                 dir: dir.into(),
                 dev: dev.map(Into::into),
                 linux_tar: linux_tar.map(Into::into),
-                required_sysreqs,
+                sysreqs: vec![],
                 missed_sysreqs: vec![],
                 need_linux_tar: false,
                 prep_testfiles: false,
@@ -168,6 +163,11 @@ impl RunCtx {
                 report_sample: None,
             })),
         }
+    }
+
+    pub fn add_sysreqs(&self, mut sysreqs: Vec<SysReq>) -> &Self {
+        self.inner.lock().unwrap().sysreqs.append(&mut sysreqs);
+        self
     }
 
     pub fn set_need_linux_tar(&self) -> &Self {
@@ -325,7 +325,7 @@ impl RunCtx {
         let missed_set =
             HashSet::<SysReq>::from_iter(ctx.sysreqs_rep.as_ref().unwrap().missed.iter().cloned());
         ctx.missed_sysreqs = ctx
-            .required_sysreqs
+            .sysreqs
             .iter()
             .filter(|x| missed_set.contains(*x))
             .cloned()
