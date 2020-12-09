@@ -342,7 +342,7 @@ impl Config {
         let bench_path = top_path.clone()
             + "/"
             + match args.bench_file.as_ref() {
-                None => "bench.json",
+                None => rd_agent_intf::BENCH_FILENAME,
                 Some(name) => name,
             };
 

@@ -18,6 +18,8 @@ mod study;
 use job::JobCtx;
 use run::RunCtx;
 
+const RB_BENCH_FILENAME: &str = "rb-bench.json";
+
 lazy_static::lazy_static! {
     pub static ref AGENT_BIN: String =
         find_bin("rd-agent", exe_dir().ok())
@@ -32,7 +34,7 @@ pub fn rd_agent_base_args(dir: &str, dev: Option<&str>) -> Result<Vec<String>> {
         "--dir".into(),
         dir.into(),
         "--bench-file".into(),
-        "rb-bench.json".into(),
+        RB_BENCH_FILENAME.into(),
         "--force".into(),
         "--force-running".into(),
     ];
@@ -124,33 +126,31 @@ fn main() {
     }
     let args = &args_file.data;
 
-    // Use alternate bench file to avoid clobbering resctl-demo bench
-    // results w/ e.g. fake_cpu_load ones.
-    let base_bench_path = args.dir.clone() + "/bench.json";
-    let bench_path = args.dir.clone() + "/rb-bench.json";
-
-    if nr_to_run > 0 {
-        if !args.keep_reports {
-            if let Err(e) = clean_up_report_files(args) {
-                error!("Failed to clean up report files ({})", &e);
-                exit(1);
-            }
-        }
-
-        if Path::new(&base_bench_path).exists() {
-            if let Err(e) = fs::copy(&base_bench_path, &bench_path) {
-                error!(
-                    "Failed to copy {} to {} ({})",
-                    &base_bench_path, &bench_path, &e
-                );
-                exit(1);
-            }
+    if nr_to_run > 0 && !args.keep_reports {
+        if let Err(e) = clean_up_report_files(args) {
+            error!("Failed to clean up report files ({})", &e);
+            exit(1);
         }
     }
+
+    // Use alternate bench file to avoid clobbering resctl-demo bench
+    // results w/ e.g. fake_cpu_load ones.
+    let base_bench_path = args.dir.clone() + "/" + rd_agent_intf::BENCH_FILENAME;
+    let bench_path = args.dir.clone() + "/" + RB_BENCH_FILENAME;
 
     // Run the benches and print out the results.
     for jctx in job_ctxs.iter_mut() {
         if jctx.run {
+            // Always start with a fresh committed bench file.
+            if Path::new(&base_bench_path).exists() {
+                if let Err(e) = fs::copy(&base_bench_path, &bench_path) {
+                    panic!(
+                        "Failed to copy {} to {} ({})",
+                        &base_bench_path, &bench_path, &e
+                    );
+                }
+            }
+
             let mut rctx = RunCtx::new(&args.dir, args.dev.as_deref(), args.linux_tar.as_deref());
 
             jctx.run(&mut rctx).unwrap();

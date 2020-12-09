@@ -4,6 +4,8 @@ use serde::{Deserialize, Serialize};
 use std::time::SystemTime;
 use util::*;
 
+pub const BENCH_FILENAME: &str = "bench.json";
+
 const BENCH_DOC: &str = "\
 //
 // rd-agent benchmark results
