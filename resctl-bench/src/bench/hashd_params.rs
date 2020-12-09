@@ -41,13 +41,16 @@ impl Bench for HashdParamsBench {
 }
 
 impl Job for HashdParamsJob {
-    fn sysreqs(&self) -> Vec<SysReq> {
-        vec![
-            SysReq::AnonBalance,
-            SysReq::SwapOnScratch,
-            SysReq::Swap,
-            SysReq::HostCriticalServices,
-        ]
+    fn sysreqs(&self) -> HashSet<SysReq> {
+        FromIterator::from_iter(
+            vec![
+                SysReq::AnonBalance,
+                SysReq::SwapOnScratch,
+                SysReq::Swap,
+                SysReq::HostCriticalServices,
+            ]
+            .into_iter(),
+        )
     }
 
     fn run(&mut self, rctx: &mut RunCtx) -> Result<serde_json::Value> {

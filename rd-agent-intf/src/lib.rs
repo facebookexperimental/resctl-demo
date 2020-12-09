@@ -28,7 +28,7 @@ pub use report::{
 };
 pub use side_defs::{SideloadDefs, SideloadSpec};
 pub use slices::{DisableSeqKnobs, MemoryKnob, Slice, SliceConfig, SliceKnobs, ROOT_SLICE};
-pub use sysreqs::{SysReq, SysReqsReport};
+pub use sysreqs::{SysReq, SysReqsReport, ALL_SYSREQS_SET};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum RunnerState {

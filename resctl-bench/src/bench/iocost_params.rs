@@ -24,8 +24,8 @@ impl Bench for IoCostParamsBench {
 }
 
 impl Job for IoCostParamsJob {
-    fn sysreqs(&self) -> Vec<SysReq> {
-        vec![]
+    fn sysreqs(&self) -> HashSet<SysReq> {
+        Default::default()
     }
 
     fn run(&mut self, rctx: &mut RunCtx) -> Result<serde_json::Value> {

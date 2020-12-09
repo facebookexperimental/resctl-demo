@@ -2,6 +2,7 @@
 use anyhow::{bail, Result};
 use chrono::{DateTime, Local};
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use std::fmt::Write;
 use std::fs;
 use std::io::Read;
@@ -14,7 +15,7 @@ use rd_agent_intf::{SysReq, SysReqsReport};
 use resctl_bench_intf::JobSpec;
 
 pub trait Job {
-    fn sysreqs(&self) -> Vec<SysReq>;
+    fn sysreqs(&self) -> HashSet<SysReq>;
     fn run(&mut self, rctx: &mut RunCtx) -> Result<serde_json::Value>;
     fn format<'a>(&self, out: Box<dyn Write + 'a>, result: &serde_json::Value);
 }
@@ -30,8 +31,8 @@ pub struct JobCtx {
 
     pub started_at: u64,
     pub ended_at: u64,
-    pub sysreqs: Vec<SysReq>,
-    pub missed_sysreqs: Vec<SysReq>,
+    pub sysreqs: HashSet<SysReq>,
+    pub missed_sysreqs: HashSet<SysReq>,
     pub sysreqs_report: Option<SysReqsReport>,
     pub iocost: rd_agent_intf::IoCostReport,
     pub result: Option<serde_json::Value>,
@@ -60,8 +61,8 @@ impl JobCtx {
                         run: false,
                         started_at: 0,
                         ended_at: 0,
-                        sysreqs: vec![],
-                        missed_sysreqs: vec![],
+                        sysreqs: Default::default(),
+                        missed_sysreqs: Default::default(),
                         sysreqs_report: None,
                         iocost: Default::default(),
                         result: None,

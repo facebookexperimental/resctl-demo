@@ -3,7 +3,6 @@
 use anyhow::{anyhow, bail, Result};
 use log::{debug, error, warn};
 use std::collections::{HashSet, VecDeque};
-use std::iter::FromIterator;
 use std::process::Command;
 use std::sync::{Arc, Mutex};
 use std::thread::{spawn, JoinHandle};
@@ -34,8 +33,8 @@ struct RunCtxInner {
     dir: String,
     dev: Option<String>,
     linux_tar: Option<String>,
-    sysreqs: Vec<SysReq>,
-    missed_sysreqs: Vec<SysReq>,
+    sysreqs: HashSet<SysReq>,
+    missed_sysreqs: HashSet<SysReq>,
     need_linux_tar: bool,
     prep_testfiles: bool,
     bypass: bool,
@@ -147,8 +146,8 @@ impl RunCtx {
                 dir: dir.into(),
                 dev: dev.map(Into::into),
                 linux_tar: linux_tar.map(Into::into),
-                sysreqs: vec![],
-                missed_sysreqs: vec![],
+                sysreqs: Default::default(),
+                missed_sysreqs: Default::default(),
                 need_linux_tar: false,
                 prep_testfiles: false,
                 bypass: false,
@@ -167,8 +166,12 @@ impl RunCtx {
         }
     }
 
-    pub fn add_sysreqs(&self, mut sysreqs: Vec<SysReq>) -> &Self {
-        self.inner.lock().unwrap().sysreqs.append(&mut sysreqs);
+    pub fn add_sysreqs(&self, sysreqs: HashSet<SysReq>) -> &Self {
+        self.inner
+            .lock()
+            .unwrap()
+            .sysreqs
+            .extend(sysreqs.into_iter());
         self
     }
 
@@ -320,14 +323,7 @@ impl RunCtx {
 
         // record and warn about missing sysreqs
         ctx.sysreqs_rep = Some(Arc::new(ctx.agent_files.sysreqs.data.clone()));
-        let missed_set =
-            HashSet::<SysReq>::from_iter(ctx.sysreqs_rep.as_ref().unwrap().missed.iter().cloned());
-        ctx.missed_sysreqs = ctx
-            .sysreqs
-            .iter()
-            .filter(|x| missed_set.contains(*x))
-            .cloned()
-            .collect();
+        ctx.missed_sysreqs = &ctx.sysreqs & &ctx.sysreqs_rep.as_ref().unwrap().missed;
         if ctx.missed_sysreqs.len() > 0 {
             error!(
                 "Failed to meet {} bench system requirements, see help: {}",
@@ -533,7 +529,7 @@ impl RunCtx {
         self.inner.lock().unwrap().sysreqs_rep.clone()
     }
 
-    pub fn missed_sysreqs(&self) -> Vec<SysReq> {
+    pub fn missed_sysreqs(&self) -> HashSet<SysReq> {
         self.inner.lock().unwrap().missed_sysreqs.clone()
     }
 

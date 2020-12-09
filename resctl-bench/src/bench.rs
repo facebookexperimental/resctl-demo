@@ -5,7 +5,9 @@
 use anyhow::{bail, Result};
 use log::{info, warn};
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use std::fmt::Write;
+use std::iter::FromIterator;
 use std::sync::{Arc, Mutex};
 
 use super::job::Job;
@@ -29,9 +31,9 @@ fn register_bench(bench: Box<dyn Bench>) -> () {
     BENCHS.lock().unwrap().push(bench);
 }
 
-mod storage;
-mod iocost_params;
 mod hashd_params;
+mod iocost_params;
+mod storage;
 
 pub fn init_benchs() -> () {
     register_bench(Box::new(storage::StorageBench {}));

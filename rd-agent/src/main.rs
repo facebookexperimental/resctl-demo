@@ -1,6 +1,5 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
 use anyhow::{anyhow, bail, Result};
-use enum_iterator::IntoEnumIterator;
 use log::{debug, error, info, trace, warn};
 use proc_mounts::MountInfo;
 use scan_fmt::scan_fmt;
@@ -29,7 +28,7 @@ mod slices;
 
 use rd_agent_intf::{
     Args, BenchKnobs, Cmd, CmdAck, Report, SideloadDefs, SliceKnobs, SvcReport, SvcStateReport,
-    SysReq, SysReqsReport, OOMD_SVC_NAME,
+    SysReq, SysReqsReport, ALL_SYSREQS_SET, OOMD_SVC_NAME,
 };
 use report::clear_old_report_files;
 
@@ -902,16 +901,6 @@ impl Config {
         // sideload checks
         side::startup_checks(&mut self.sr_failed);
 
-        // Done, report
-        let (mut satisfied, mut missed) = (Vec::new(), Vec::new());
-        for req in SysReq::into_enum_iter() {
-            if self.sr_failed.contains(&req) {
-                missed.push(req);
-            } else {
-                satisfied.push(req);
-            }
-        }
-
         let (scr_dev_model, scr_dev_size) = match devname_to_model_and_size(&self.scr_dev) {
             Ok(v) => v,
             Err(e) => bail!(
@@ -922,8 +911,8 @@ impl Config {
         };
 
         SysReqsReport {
-            satisfied,
-            missed,
+            satisfied: &*ALL_SYSREQS_SET ^ &self.sr_failed,
+            missed: self.sr_failed.clone(),
             nr_cpus: nr_cpus(),
             total_memory: total_memory(),
             total_swap: total_swap(),
