@@ -751,7 +751,7 @@ impl Config {
                 if self.enforce.all {
                     info!("cfg: wbt is enabled on {:?}, disabling", &self.scr_dev);
                     if let Err(e) = write_one_line(&wbt_path, "0") {
-                        warn!("cfg: failed to disable wbt on {:?} ({})", &self.scr_dev, &e);
+                        warn!("cfg: Failed to disable wbt on {:?} ({})", &self.scr_dev, &e);
                         self.sr_failed.insert(SysReq::NoWbt);
                     }
                     self.sr_wbt = Some(wbt);

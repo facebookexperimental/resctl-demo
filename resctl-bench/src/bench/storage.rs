@@ -317,6 +317,7 @@ impl StorageJob {
 impl Job for StorageJob {
     fn sysreqs(&self) -> Vec<SysReq> {
         vec![
+            SysReq::AnonBalance,
             SysReq::SwapOnScratch,
             SysReq::Swap,
             SysReq::HostCriticalServices,
