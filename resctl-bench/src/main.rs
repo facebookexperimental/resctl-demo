@@ -152,10 +152,11 @@ fn main() {
             }
 
             let mut rctx = RunCtx::new(&args.dir, args.dev.as_deref(), args.linux_tar.as_deref());
+            rctx.prev_result = jctx.result.take();
 
             jctx.run(&mut rctx).unwrap();
 
-            if rctx.is_commit_bench_set() {
+            if rctx.commit_bench {
                 info!("Committing bench results to {:?}", &base_bench_path);
                 if let Err(e) = fs::copy(&bench_path, &base_bench_path) {
                     panic!(
