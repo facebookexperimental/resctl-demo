@@ -316,15 +316,7 @@ impl StorageJob {
 
 impl Job for StorageJob {
     fn sysreqs(&self) -> HashSet<SysReq> {
-        FromIterator::from_iter(
-            vec![
-                SysReq::AnonBalance,
-                SysReq::SwapOnScratch,
-                SysReq::Swap,
-                SysReq::HostCriticalServices,
-            ]
-            .into_iter(),
-        )
+        HASHD_SYSREQS.clone()
     }
 
     fn run(&mut self, rctx: &mut RunCtx) -> Result<serde_json::Value> {

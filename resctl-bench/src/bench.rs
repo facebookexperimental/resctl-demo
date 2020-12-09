@@ -20,6 +20,17 @@ use resctl_bench_intf::JobSpec;
 use util::*;
 
 lazy_static::lazy_static! {
+    pub static ref HASHD_SYSREQS: HashSet<SysReq> = FromIterator::from_iter(
+        vec![
+                SysReq::AnonBalance,
+                SysReq::SwapOnScratch,
+                SysReq::Swap,
+                SysReq::HostCriticalServices,
+        ]
+    );
+}
+
+lazy_static::lazy_static! {
     pub static ref BENCHS: Arc<Mutex<Vec<Box<dyn Bench>>>> = Arc::new(Mutex::new(vec![]));
 }
 
