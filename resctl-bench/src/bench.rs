@@ -44,10 +44,12 @@ fn register_bench(bench: Box<dyn Bench>) -> () {
 
 mod hashd_params;
 mod iocost_params;
+mod iocost_qos;
 mod storage;
 
 pub fn init_benchs() -> () {
     register_bench(Box::new(storage::StorageBench {}));
     register_bench(Box::new(iocost_params::IoCostParamsBench {}));
     register_bench(Box::new(hashd_params::HashdParamsBench {}));
+    register_bench(Box::new(iocost_qos::IoCostQoSBench {}));
 }

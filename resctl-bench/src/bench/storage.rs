@@ -3,7 +3,7 @@ use super::*;
 use rd_agent_intf::{HASHD_BENCH_SVC_NAME, ROOT_SLICE};
 use std::collections::{BTreeMap, VecDeque};
 
-struct StorageJob {
+pub struct StorageJob {
     hash_size: usize,
     rps_max: u32,
     log_bps: u64,
@@ -88,7 +88,7 @@ impl Bench for StorageBench {
 }
 
 #[derive(Serialize, Deserialize)]
-struct StorageResult {
+pub struct StorageResult {
     mem_avail: usize,
     mem_profile: u32,
     mem_share: usize,
