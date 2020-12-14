@@ -8,18 +8,18 @@ struct IoCostParamsJob {}
 pub struct IoCostParamsBench {}
 
 impl Bench for IoCostParamsBench {
-    fn parse(&self, spec: &JobSpec) -> Result<Option<Box<dyn Job>>> {
-        if spec.kind != "iocost-params" {
-            return Ok(None);
-        }
+    fn desc(&self) -> BenchDesc {
+        BenchDesc::new("iocost-params")
+    }
 
-        for (k, _v) in spec.properties.iter() {
+    fn parse(&self, spec: &JobSpec) -> Result<Box<dyn Job>> {
+        for (k, _v) in spec.properties[0].iter() {
             match k.as_str() {
                 k => bail!("unknown property key {:?}", k),
             }
         }
 
-        Ok(Some(Box::new(IoCostParamsJob {})))
+        Ok(Box::new(IoCostParamsJob {}))
     }
 }
 

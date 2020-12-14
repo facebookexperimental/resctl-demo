@@ -53,22 +53,19 @@ impl JobCtx {
         let benchs = BENCHS.lock().unwrap();
 
         for bench in benchs.iter() {
-            match bench.parse(spec)? {
-                Some(job) => {
-                    return Ok(Self {
-                        spec: spec.clone(),
-                        job: Some(job),
-                        run: false,
-                        started_at: 0,
-                        ended_at: 0,
-                        sysreqs: Default::default(),
-                        missed_sysreqs: Default::default(),
-                        sysreqs_report: None,
-                        iocost: Default::default(),
-                        result: None,
-                    })
-                }
-                None => (),
+            if spec.kind == bench.desc().kind {
+                return Ok(Self {
+                    spec: spec.clone(),
+                    job: Some(bench.parse(spec)?),
+                    run: false,
+                    started_at: 0,
+                    ended_at: 0,
+                    sysreqs: Default::default(),
+                    missed_sysreqs: Default::default(),
+                    sysreqs_report: None,
+                    iocost: Default::default(),
+                    result: None,
+                });
             }
         }
 

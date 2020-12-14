@@ -62,14 +62,14 @@ impl Default for StorageJob {
 pub struct StorageBench {}
 
 impl Bench for StorageBench {
-    fn parse(&self, spec: &JobSpec) -> Result<Option<Box<dyn Job>>> {
-        if spec.kind != "storage" {
-            return Ok(None);
-        }
+    fn desc(&self) -> BenchDesc {
+        BenchDesc::new("storage")
+    }
 
+    fn parse(&self, spec: &JobSpec) -> Result<Box<dyn Job>> {
         let mut job = StorageJob::default();
 
-        for (k, v) in spec.properties.iter() {
+        for (k, v) in spec.properties[0].iter() {
             match k.as_str() {
                 "hash-size" => job.hash_size = v.parse::<usize>()?,
                 "rps-max" => job.rps_max = v.parse::<u32>()?,
@@ -83,7 +83,7 @@ impl Bench for StorageBench {
             }
         }
 
-        Ok(Some(Box::new(job)))
+        Ok(Box::new(job))
     }
 }
 

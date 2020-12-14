@@ -21,14 +21,14 @@ impl Default for HashdParamsJob {
 pub struct HashdParamsBench {}
 
 impl Bench for HashdParamsBench {
-    fn parse(&self, spec: &JobSpec) -> Result<Option<Box<dyn Job>>> {
-        if spec.kind != "hashd-params" {
-            return Ok(None);
-        }
+    fn desc(&self) -> BenchDesc {
+        BenchDesc::new("hashd-params")
+    }
 
+    fn parse(&self, spec: &JobSpec) -> Result<Box<dyn Job>> {
         let mut job = HashdParamsJob::default();
 
-        for (k, v) in spec.properties.iter() {
+        for (k, v) in spec.properties[0].iter() {
             match k.as_str() {
                 "balloon" => job.balloon_size = v.parse::<usize>()?,
                 "log-bps" => job.log_bps = v.parse::<u64>()?,
@@ -36,7 +36,7 @@ impl Bench for HashdParamsBench {
             }
         }
 
-        Ok(Some(Box::new(job)))
+        Ok(Box::new(job))
     }
 }
 

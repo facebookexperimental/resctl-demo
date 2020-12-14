@@ -66,20 +66,30 @@ impl Args {
         };
 
         let mut id = None;
-        let mut properties = BTreeMap::<String, String>::new();
+        let mut properties: Vec<BTreeMap<String, String>> = vec![Default::default()];
 
         for tok in toks {
             let kv = tok.splitn(2, '=').collect::<Vec<&str>>();
             if kv.len() < 2 {
-                bail!("invalid key=val pair {:?} in {:?}", tok, spec);
+                if properties.last().unwrap().len() > 0 {
+                    properties.push(Default::default());
+                }
+                continue;
             }
 
             match kv[0] {
                 "id" => id = Some(kv[1]),
                 key => {
-                    properties.insert(key.into(), kv[1].into());
+                    properties
+                        .last_mut()
+                        .unwrap()
+                        .insert(key.into(), kv[1].into());
                 }
             }
+        }
+
+        if properties.len() > 1 && properties.last().unwrap().len() == 0 {
+            properties.pop();
         }
 
         Ok(JobSpec::new(

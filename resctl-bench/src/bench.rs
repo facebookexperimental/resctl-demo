@@ -34,8 +34,28 @@ lazy_static::lazy_static! {
     pub static ref BENCHS: Arc<Mutex<Vec<Box<dyn Bench>>>> = Arc::new(Mutex::new(vec![]));
 }
 
+pub struct BenchDesc {
+    pub kind: String,
+    pub takes_propsets: bool,
+}
+
+impl BenchDesc {
+    pub fn new(kind: &str) -> Self {
+        Self {
+            kind: kind.into(),
+            takes_propsets: false,
+        }
+    }
+
+    pub fn takes_propsets(mut self) -> Self {
+        self.takes_propsets = true;
+        self
+    }
+}
+
 pub trait Bench: Send + Sync {
-    fn parse(&self, spec: &JobSpec) -> Result<Option<Box<dyn Job>>>;
+    fn desc(&self) -> BenchDesc;
+    fn parse(&self, spec: &JobSpec) -> Result<Box<dyn Job>>;
 }
 
 fn register_bench(bench: Box<dyn Bench>) -> () {
