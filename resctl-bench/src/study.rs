@@ -159,7 +159,7 @@ where
 }
 
 //
-// Calculate mean, min, max and percentiles.
+// Calculate mean and percentiles.
 //
 pub struct StudyMeanPcts<T, F>
 where
@@ -198,7 +198,7 @@ where
 }
 
 pub trait StudyMeanPctsTrait: Study {
-    fn result(&self, pcts: &[&str]) -> (f64, f64, f64, f64, BTreeMap<String, f64>);
+    fn result(&self, pcts: &[&str]) -> (f64, f64, BTreeMap<String, f64>);
 }
 
 impl<T, F> StudyMeanPctsTrait for StudyMeanPcts<T, F>
@@ -206,10 +206,10 @@ where
     T: AsPrimitive<f64>,
     F: Fn(&Report) -> Option<T> + Clone,
 {
-    fn result(&self, pcts: &[&str]) -> (f64, f64, f64, f64, BTreeMap<String, f64>) {
-        let (mean, stdev, min, max) = self.study_mean.result();
+    fn result(&self, pcts: &[&str]) -> (f64, f64, BTreeMap<String, f64>) {
+        let (mean, stdev, _, _) = self.study_mean.result();
         let pcts = self.study_pcts.result(pcts);
-        (mean, stdev, min, max, pcts)
+        (mean, stdev, pcts)
     }
 }
 
@@ -256,7 +256,7 @@ impl StudyIoLatPcts {
     ) -> BTreeMap<String, BTreeMap<String, f64>> {
         let mut result = BTreeMap::<String, BTreeMap<String, f64>>::new();
         for (lat_pct, study) in Self::LAT_PCTS.iter().zip(self.studies.iter()) {
-            let (mean, stdev, _, _, mut pcts) = study.result(&time_pcts.unwrap_or(&Self::TIME_PCTS));
+            let (mean, stdev, mut pcts) = study.result(&time_pcts.unwrap_or(&Self::TIME_PCTS));
             pcts.insert("mean".to_string(), mean);
             pcts.insert("stdev".to_string(), stdev);
             result.insert(lat_pct.to_string(), pcts);
