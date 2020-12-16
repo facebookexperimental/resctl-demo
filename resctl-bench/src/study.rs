@@ -34,7 +34,7 @@ pub fn sel_factory_iolat(io_type: &str, pct: &str) -> impl Fn(&Report) -> Option
 //
 // Calculate average, min and max.
 //
-pub struct StudyAvg<T, F>
+pub struct StudyMean<T, F>
 where
     T: AsPrimitive<f64>,
     F: Fn(&Report) -> Option<T>,
@@ -43,7 +43,7 @@ where
     data: Vec<f64>,
 }
 
-impl<T, F> StudyAvg<T, F>
+impl<T, F> StudyMean<T, F>
 where
     T: AsPrimitive<f64>,
     F: Fn(&Report) -> Option<T>,
@@ -53,7 +53,7 @@ where
     }
 }
 
-impl<T, F> Study for StudyAvg<T, F>
+impl<T, F> Study for StudyMean<T, F>
 where
     T: AsPrimitive<f64>,
     F: Fn(&Report) -> Option<T>,
@@ -70,11 +70,11 @@ where
     }
 }
 
-pub trait StudyAvgTrait: Study {
+pub trait StudyMeanTrait: Study {
     fn result(&self) -> (f64, f64, f64, f64);
 }
 
-impl<T, F> StudyAvgTrait for StudyAvg<T, F>
+impl<T, F> StudyMeanTrait for StudyMean<T, F>
 where
     T: AsPrimitive<f64>,
     F: Fn(&Report) -> Option<T>,
@@ -159,18 +159,18 @@ where
 }
 
 //
-// Calculate avg, min, max and percentiles.
+// Calculate mean, min, max and percentiles.
 //
-pub struct StudyAvgPcts<T, F>
+pub struct StudyMeanPcts<T, F>
 where
     T: AsPrimitive<f64>,
     F: Fn(&Report) -> Option<T>,
 {
-    study_avg: StudyAvg<T, F>,
+    study_mean: StudyMean<T, F>,
     study_pcts: StudyPcts<T, F>,
 }
 
-impl<T, F> StudyAvgPcts<T, F>
+impl<T, F> StudyMeanPcts<T, F>
 where
     T: AsPrimitive<f64>,
     F: Fn(&Report) -> Option<T> + Clone,
@@ -178,18 +178,18 @@ where
     pub fn new(sel: F, error: Option<f64>) -> Self {
         Self {
             study_pcts: StudyPcts::<T, F>::new(sel.clone(), error),
-            study_avg: StudyAvg::<T, F>::new(sel),
+            study_mean: StudyMean::<T, F>::new(sel),
         }
     }
 }
 
-impl<T, F> Study for StudyAvgPcts<T, F>
+impl<T, F> Study for StudyMeanPcts<T, F>
 where
     T: AsPrimitive<f64>,
     F: Fn(&Report) -> Option<T> + Clone,
 {
     fn study(&mut self, rep: &Report) -> Result<()> {
-        self.study_avg.study(rep).and(self.study_pcts.study(rep))
+        self.study_mean.study(rep).and(self.study_pcts.study(rep))
     }
 
     fn as_study_mut(&mut self) -> &mut dyn Study {
@@ -197,19 +197,19 @@ where
     }
 }
 
-pub trait StudyAvgPctsTrait: Study {
+pub trait StudyMeanPctsTrait: Study {
     fn result(&self, pcts: &[&str]) -> (f64, f64, f64, f64, BTreeMap<String, f64>);
 }
 
-impl<T, F> StudyAvgPctsTrait for StudyAvgPcts<T, F>
+impl<T, F> StudyMeanPctsTrait for StudyMeanPcts<T, F>
 where
     T: AsPrimitive<f64>,
     F: Fn(&Report) -> Option<T> + Clone,
 {
     fn result(&self, pcts: &[&str]) -> (f64, f64, f64, f64, BTreeMap<String, f64>) {
-        let (avg, stdev, min, max) = self.study_avg.result();
+        let (mean, stdev, min, max) = self.study_mean.result();
         let pcts = self.study_pcts.result(pcts);
-        (avg, stdev, min, max, pcts)
+        (mean, stdev, min, max, pcts)
     }
 }
 
@@ -218,7 +218,7 @@ where
 //
 pub struct StudyIoLatPcts {
     io_type: String,
-    studies: Vec<Box<dyn StudyAvgPctsTrait>>,
+    studies: Vec<Box<dyn StudyMeanPctsTrait>>,
 }
 
 impl StudyIoLatPcts {
@@ -235,8 +235,8 @@ impl StudyIoLatPcts {
             studies: Self::LAT_PCTS
                 .iter()
                 .map(|pct| {
-                    Box::new(StudyAvgPcts::new(sel_factory_iolat(io_type, pct), error))
-                        as Box<dyn StudyAvgPctsTrait>
+                    Box::new(StudyMeanPcts::new(sel_factory_iolat(io_type, pct), error))
+                        as Box<dyn StudyMeanPctsTrait>
                 })
                 .collect(),
         }
@@ -256,8 +256,8 @@ impl StudyIoLatPcts {
     ) -> BTreeMap<String, BTreeMap<String, f64>> {
         let mut result = BTreeMap::<String, BTreeMap<String, f64>>::new();
         for (lat_pct, study) in Self::LAT_PCTS.iter().zip(self.studies.iter()) {
-            let (avg, stdev, _, _, mut pcts) = study.result(&time_pcts.unwrap_or(&Self::TIME_PCTS));
-            pcts.insert("avg".to_string(), avg);
+            let (mean, stdev, _, _, mut pcts) = study.result(&time_pcts.unwrap_or(&Self::TIME_PCTS));
+            pcts.insert("mean".to_string(), mean);
             pcts.insert("stdev".to_string(), stdev);
             result.insert(lat_pct.to_string(), pcts);
         }
@@ -282,7 +282,7 @@ impl StudyIoLatPcts {
             .unwrap_or(&Self::TIME_FORMAT_PCTS)
             .iter()
             .chain(Some("cum").iter())
-            .chain(Some("avg").iter())
+            .chain(Some("mean").iter())
             .chain(Some("stdev").iter());
         write!(out, "       ").unwrap();
 
@@ -293,7 +293,7 @@ impl StudyIoLatPcts {
 
         let fmt_pct = |pct: &str| -> String {
             match pct {
-                "cum" | "avg" | "stdev" => pct.to_string(),
+                "cum" | "mean" | "stdev" => pct.to_string(),
                 pct => {
                     let pctf = pct.parse::<f64>().unwrap();
                     if pctf == 0.0 {

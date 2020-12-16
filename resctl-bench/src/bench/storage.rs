@@ -87,7 +87,7 @@ impl Bench for StorageBench {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct StorageResult {
     mem_avail: usize,
     mem_profile: u32,
@@ -399,13 +399,13 @@ impl Job for StorageJob {
             false
         };
 
-        let mut study_rbps_all = StudyAvg::new(|rep| Some(rep.usages[ROOT_SLICE].io_rbps));
-        let mut study_wbps_all = StudyAvg::new(|rep| Some(rep.usages[ROOT_SLICE].io_wbps));
-        let mut study_rbps_final = StudyAvg::new(|rep| match in_final(rep) {
+        let mut study_rbps_all = StudyMean::new(|rep| Some(rep.usages[ROOT_SLICE].io_rbps));
+        let mut study_wbps_all = StudyMean::new(|rep| Some(rep.usages[ROOT_SLICE].io_wbps));
+        let mut study_rbps_final = StudyMean::new(|rep| match in_final(rep) {
             true => Some(rep.usages[ROOT_SLICE].io_rbps),
             false => None,
         });
-        let mut study_wbps_final = StudyAvg::new(|rep| match in_final(rep) {
+        let mut study_wbps_final = StudyMean::new(|rep| match in_final(rep) {
             true => Some(rep.usages[ROOT_SLICE].io_wbps),
             false => None,
         });
@@ -485,16 +485,16 @@ impl Job for StorageJob {
         writeln!(
             out,
             "\nIO latency: p50={}:{}/{} p90={}:{}/{} p99={}:{}/{} max={}:{}/{}",
-            format_duration(result.io_lat_pcts["50"]["avg"]),
+            format_duration(result.io_lat_pcts["50"]["mean"]),
             format_duration(result.io_lat_pcts["50"]["stdev"]),
             format_duration(result.io_lat_pcts["50"]["100"]),
-            format_duration(result.io_lat_pcts["90"]["avg"]),
+            format_duration(result.io_lat_pcts["90"]["mean"]),
             format_duration(result.io_lat_pcts["90"]["stdev"]),
             format_duration(result.io_lat_pcts["90"]["100"]),
-            format_duration(result.io_lat_pcts["99"]["avg"]),
+            format_duration(result.io_lat_pcts["99"]["mean"]),
             format_duration(result.io_lat_pcts["99"]["stdev"]),
             format_duration(result.io_lat_pcts["99"]["100"]),
-            format_duration(result.io_lat_pcts["100"]["avg"]),
+            format_duration(result.io_lat_pcts["100"]["mean"]),
             format_duration(result.io_lat_pcts["100"]["stdev"]),
             format_duration(result.io_lat_pcts["100"]["100"]),
         )
