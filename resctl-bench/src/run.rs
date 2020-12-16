@@ -119,12 +119,14 @@ impl RunCtxInner {
     }
 
     fn record_rep(&mut self, start: bool) {
+        if start {
+            self.reports.clear();
+        }
+
         if let Some(rep) = self.reports.get(0) {
             if (rep.timestamp.timestamp() as u64 + REP_RECORD_CADENCE) < unix_now() {
                 return;
             }
-        } else if !start {
-            return;
         }
 
         self.reports
@@ -203,6 +205,10 @@ impl RunCtx {
     pub fn set_commit_bench(&mut self) -> &Self {
         self.commit_bench = true;
         self
+    }
+
+    pub fn prev_result(&mut self) -> Option<serde_json::Value> {
+        self.prev_result.take()
     }
 
     fn minder(inner: Arc<Mutex<RunCtxInner>>) {
