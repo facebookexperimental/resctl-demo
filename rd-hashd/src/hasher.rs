@@ -59,11 +59,11 @@ impl Hasher {
             for idx in 0..((input_size + *PAGE_SIZE - 1) / *PAGE_SIZE) {
                 let off = idx * *PAGE_SIZE;
                 f.seek(SeekFrom::Start(input_off + off as u64))?;
-                f.read(&mut self.buf[self.off + off..self.off + off + 1])?;
+                f.read_exact(&mut self.buf[self.off + off..self.off + off + 1])?;
             }
         } else {
             f.seek(SeekFrom::Start(input_off))?;
-            f.read(&mut self.buf[self.off..len])?;
+            f.read_exact(&mut self.buf[self.off..len])?;
         }
         self.off = len;
         Ok(input_size)

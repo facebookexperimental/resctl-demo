@@ -91,7 +91,7 @@ impl TestFiles {
         let path = path_in.as_ref();
         let mut f = fs::File::open(path)?;
         let mut buf = [0u8; 8];
-        f.read(&mut buf)?;
+        f.read_exact(&mut buf)?;
         Ok(f64::from_le_bytes(buf))
     }
 
