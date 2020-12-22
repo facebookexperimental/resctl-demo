@@ -167,7 +167,9 @@ fn main() {
                 jctx.result.take(),
             );
 
-            jctx.run(&mut rctx).unwrap();
+            if let Err(e) = jctx.run(&mut rctx) {
+                panic!("Failed to run {} ({})", &jctx.spec, &e);
+            }
 
             if rctx.commit_bench {
                 info!("Committing bench results to {:?}", &base_bench_path);
