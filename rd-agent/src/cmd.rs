@@ -82,7 +82,7 @@ impl RunnerData {
         // Configs are controlled by benchmarks while they're running, don't
         // reload.
         let (re_bench, re_slice, _re_side, re_oomd) = match self.state {
-            BenchIOCost | BenchHashd => (false, false, false, false),
+            BenchIoCost | BenchHashd => (false, false, false, false),
             _ => {
                 let force = self.force_apply;
                 self.force_apply = false;
@@ -192,7 +192,7 @@ impl RunnerData {
             Idle => {
                 if cmd.bench_iocost_seq > bench.iocost_seq {
                     self.bench_iocost = Some(bench::start_iocost_bench(&*self.cfg)?);
-                    self.state = BenchIOCost;
+                    self.state = BenchIoCost;
                     self.force_apply = true;
                 } else if cmd.bench_hashd_seq > bench.hashd_seq {
                     if bench.iocost_seq > 0 || self.cfg.force_running {
@@ -279,7 +279,7 @@ impl RunnerData {
                     self.become_idle();
                 }
             }
-            BenchIOCost => {
+            BenchIoCost => {
                 if cmd.bench_iocost_seq <= bench.iocost_seq {
                     info!("cmd: Canceling iocost benchmark");
                     self.become_idle();
@@ -295,7 +295,7 @@ impl RunnerData {
 
     fn check_completions(&mut self) -> Result<()> {
         match self.state {
-            BenchHashd | BenchIOCost => {
+            BenchHashd | BenchIoCost => {
                 let svc = if self.state == BenchHashd {
                     self.bench_hashd.as_mut().unwrap()
                 } else {
@@ -410,7 +410,7 @@ impl Runner {
                 }
 
                 let iosched = match data.state {
-                    BenchIOCost => "none",
+                    BenchIoCost => "none",
                     _ => "mq-deadline",
                 };
                 if let Err(e) = super::set_iosched(&data.cfg.scr_dev, iosched) {

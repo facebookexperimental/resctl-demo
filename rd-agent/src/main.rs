@@ -1,6 +1,5 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
 use anyhow::{anyhow, bail, Result};
-use enum_iterator::IntoEnumIterator;
 use log::{debug, error, info, trace, warn};
 use proc_mounts::MountInfo;
 use scan_fmt::scan_fmt;
@@ -29,7 +28,7 @@ mod slices;
 
 use rd_agent_intf::{
     Args, BenchKnobs, Cmd, CmdAck, Report, SideloadDefs, SliceKnobs, SvcReport, SvcStateReport,
-    SysReq, SysReqsReport, OOMD_SVC_NAME,
+    SysReq, SysReqsReport, ALL_SYSREQS_SET, OOMD_SVC_NAME,
 };
 use report::clear_old_report_files;
 
@@ -129,7 +128,7 @@ pub struct HashdPaths {
 }
 
 #[derive(Debug)]
-pub struct IOCostPaths {
+pub struct IoCostPaths {
     pub bin: String,
     pub working: String,
     pub result: String,
@@ -162,7 +161,7 @@ pub struct Config {
     pub hashd_paths: [HashdPaths; 2],
     pub misc_bin_path: String,
     pub biolatpcts_bin: Option<String>,
-    pub iocost_paths: IOCostPaths,
+    pub iocost_paths: IoCostPaths,
     pub oomd_bin: Result<String>,
     pub oomd_sys_svc: Option<String>,
     pub oomd_cfg_path: String,
@@ -342,7 +341,7 @@ impl Config {
         let bench_path = top_path.clone()
             + "/"
             + match args.bench_file.as_ref() {
-                None => "bench.json",
+                None => rd_agent_intf::BENCH_FILENAME,
                 Some(name) => name,
             };
 
@@ -401,7 +400,7 @@ impl Config {
             ],
             misc_bin_path: misc_bin_path.clone(),
             biolatpcts_bin,
-            iocost_paths: IOCostPaths {
+            iocost_paths: IoCostPaths {
                 bin: misc_bin_path.clone() + "/iocost_coef_gen.py",
                 working: Self::prep_dir(&(scr_path.clone() + "/iocost-coef")),
                 result: scr_path.clone() + "/iocost-coef/iocost-coef.json",
@@ -751,7 +750,7 @@ impl Config {
                 if self.enforce.all {
                     info!("cfg: wbt is enabled on {:?}, disabling", &self.scr_dev);
                     if let Err(e) = write_one_line(&wbt_path, "0") {
-                        warn!("cfg: failed to disable wbt on {:?} ({})", &self.scr_dev, &e);
+                        warn!("cfg: Failed to disable wbt on {:?} ({})", &self.scr_dev, &e);
                         self.sr_failed.insert(SysReq::NoWbt);
                     }
                     self.sr_wbt = Some(wbt);
@@ -902,16 +901,6 @@ impl Config {
         // sideload checks
         side::startup_checks(&mut self.sr_failed);
 
-        // Done, report
-        let (mut satisfied, mut missed) = (Vec::new(), Vec::new());
-        for req in SysReq::into_enum_iter() {
-            if self.sr_failed.contains(&req) {
-                missed.push(req);
-            } else {
-                satisfied.push(req);
-            }
-        }
-
         let (scr_dev_model, scr_dev_size) = match devname_to_model_and_size(&self.scr_dev) {
             Ok(v) => v,
             Err(e) => bail!(
@@ -922,8 +911,8 @@ impl Config {
         };
 
         SysReqsReport {
-            satisfied,
-            missed,
+            satisfied: &*ALL_SYSREQS_SET ^ &self.sr_failed,
+            missed: self.sr_failed.clone(),
             nr_cpus: nr_cpus(),
             total_memory: total_memory(),
             total_swap: total_swap(),

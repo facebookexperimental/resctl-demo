@@ -2,8 +2,7 @@
 #![allow(dead_code)]
 use anyhow::{anyhow, bail, Result};
 use log::{debug, error, warn};
-use std::collections::HashSet;
-use std::iter::FromIterator;
+use std::collections::{HashSet, VecDeque};
 use std::process::Command;
 use std::sync::{Arc, Mutex};
 use std::thread::{spawn, JoinHandle};
@@ -14,10 +13,13 @@ use super::progress::BenchProgress;
 use super::{rd_agent_base_args, AGENT_BIN};
 use rd_agent_intf::{
     AgentFiles, ReportIter, RunnerState, Slice, SysReq, AGENT_SVC_NAME, HASHD_BENCH_SVC_NAME,
+    IOCOST_BENCH_SVC_NAME,
 };
 
 const MINDER_AGENT_TIMEOUT: Duration = Duration::from_secs(30);
 const CMD_TIMEOUT: Duration = Duration::from_secs(10);
+const REP_RECORD_CADENCE: u64 = 10;
+const REP_RECORD_RETENTION: usize = 3;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MinderState {
@@ -31,8 +33,8 @@ struct RunCtxInner {
     dir: String,
     dev: Option<String>,
     linux_tar: Option<String>,
-    required_sysreqs: Vec<SysReq>,
-    missed_sysreqs: Vec<SysReq>,
+    sysreqs: HashSet<SysReq>,
+    missed_sysreqs: HashSet<SysReq>,
     need_linux_tar: bool,
     prep_testfiles: bool,
     bypass: bool,
@@ -45,7 +47,9 @@ struct RunCtxInner {
     minder_jh: Option<JoinHandle<()>>,
 
     sysreqs_rep: Option<Arc<rd_agent_intf::SysReqsReport>>,
-    first_rep: Option<Arc<rd_agent_intf::Report>>,
+
+    reports: VecDeque<rd_agent_intf::Report>,
+    report_sample: Option<Arc<rd_agent_intf::Report>>,
 }
 
 impl RunCtxInner {
@@ -90,7 +94,7 @@ impl RunCtxInner {
             bail!("already running");
         }
 
-        // prepare testfiles synchronously for better progress report
+        // Prepare testfiles synchronously for better progress report.
         if self.prep_testfiles {
             let hashd_bin =
                 find_bin("rd-hashd", exe_dir().ok()).ok_or(anyhow!("can't find rd-hashd"))?;
@@ -107,16 +111,36 @@ impl RunCtxInner {
             }
         }
 
-        // start agent
+        // Start agent.
         let svc = self.start_agent_svc(extra_args)?;
         self.agent_svc.replace(svc);
 
         Ok(())
     }
+
+    fn record_rep(&mut self, start: bool) {
+        if start {
+            self.reports.clear();
+        }
+
+        if let Some(rep) = self.reports.get(0) {
+            if (rep.timestamp.timestamp() as u64 + REP_RECORD_CADENCE) < unix_now() {
+                return;
+            }
+        }
+
+        self.reports
+            .push_front(self.agent_files.report.data.clone());
+        self.reports.truncate(REP_RECORD_RETENTION);
+    }
 }
 
 pub struct RunCtx {
     inner: Arc<Mutex<RunCtxInner>>,
+    base_bench_path: String,
+    agent_init_fns: Vec<Box<dyn FnOnce(&mut RunCtx)>>,
+    prev_result: Option<serde_json::Value>,
+    pub commit_bench: bool,
 }
 
 impl RunCtx {
@@ -124,15 +148,16 @@ impl RunCtx {
         dir: &str,
         dev: Option<&str>,
         linux_tar: Option<&str>,
-        required_sysreqs: Vec<SysReq>,
+        base_bench_path: &str,
+        prev_result: Option<serde_json::Value>,
     ) -> Self {
         Self {
             inner: Arc::new(Mutex::new(RunCtxInner {
                 dir: dir.into(),
                 dev: dev.map(Into::into),
                 linux_tar: linux_tar.map(Into::into),
-                required_sysreqs,
-                missed_sysreqs: vec![],
+                sysreqs: Default::default(),
+                missed_sysreqs: Default::default(),
                 need_linux_tar: false,
                 prep_testfiles: false,
                 bypass: false,
@@ -143,34 +168,69 @@ impl RunCtx {
                 minder_state: MinderState::Ok,
                 minder_jh: None,
                 sysreqs_rep: None,
-                first_rep: None,
+                reports: VecDeque::new(),
+                report_sample: None,
             })),
+            base_bench_path: base_bench_path.into(),
+            agent_init_fns: vec![],
+            prev_result,
+            commit_bench: false,
         }
     }
 
-    pub fn set_need_linux_tar(&self) -> &Self {
+    pub fn add_sysreqs(&mut self, sysreqs: HashSet<SysReq>) -> &mut Self {
+        self.inner
+            .lock()
+            .unwrap()
+            .sysreqs
+            .extend(sysreqs.into_iter());
+        self
+    }
+
+    pub fn add_agent_init_fn<F>(&mut self, init_fn: F) -> &mut Self
+    where
+        F: FnOnce(&mut RunCtx) + 'static,
+    {
+        self.agent_init_fns.push(Box::new(init_fn));
+        self
+    }
+
+    pub fn set_need_linux_tar(&mut self) -> &mut Self {
         self.inner.lock().unwrap().need_linux_tar = true;
         self
     }
 
-    pub fn set_prep_testfiles(&self) -> &Self {
+    pub fn set_prep_testfiles(&mut self) -> &mut Self {
         self.inner.lock().unwrap().prep_testfiles = true;
         self
     }
 
-    pub fn set_bypass(&self) -> &Self {
+    pub fn set_bypass(&mut self) -> &mut Self {
         self.inner.lock().unwrap().bypass = true;
         self
     }
 
-    pub fn set_passive_all(&self) -> &Self {
+    pub fn set_passive_all(&mut self) -> &mut Self {
         self.inner.lock().unwrap().passive_all = true;
         self
     }
 
-    pub fn set_passive_keep_crit_mem_prot(&self) -> &Self {
+    pub fn set_passive_keep_crit_mem_prot(&mut self) -> &mut Self {
         self.inner.lock().unwrap().passive_keep_crit_mem_prot = true;
         self
+    }
+
+    pub fn set_commit_bench(&mut self) -> &mut Self {
+        self.commit_bench = true;
+        self
+    }
+
+    pub fn prev_result(&mut self) -> Option<serde_json::Value> {
+        self.prev_result.take()
+    }
+
+    pub fn base_bench_path(&self) -> &str {
+        &self.base_bench_path
     }
 
     fn minder(inner: Arc<Mutex<RunCtxInner>>) {
@@ -263,28 +323,37 @@ impl RunCtx {
         prog_kick();
     }
 
-    pub fn start_agent_fallible(&self, extra_args: Vec<String>) -> Result<()> {
+    fn cmd_barrier(&self) -> Result<()> {
+        let next_seq = self.access_agent_files(|af| {
+            let next_seq = af.cmd.data.cmd_seq + 1;
+            af.cmd.data.cmd_seq = next_seq;
+            af.cmd.save().unwrap();
+            next_seq
+        });
+
+        self.wait_cond_fallible(
+            |af, _| af.cmd_ack.data.cmd_seq >= next_seq,
+            Some(CMD_TIMEOUT),
+            None,
+        )
+    }
+
+    pub fn start_agent_fallible(&mut self, extra_args: Vec<String>) -> Result<()> {
         let mut ctx = self.inner.lock().unwrap();
 
         ctx.start_agent(extra_args)?;
 
-        // start minder and wait for the agent to become Running
+        // Start minder and wait for the agent to become Running.
         let inner = self.inner.clone();
         ctx.minder_jh = Some(spawn(move || Self::minder(inner)));
 
         drop(ctx);
 
         let started_at = unix_now() as i64;
-        let mut first_rep = None;
         if let Err(e) = self.wait_cond_fallible(
             |af, _| {
                 let rep = &af.report.data;
-                if rep.timestamp.timestamp() >= started_at && rep.state == RunnerState::Running {
-                    first_rep = Some(Arc::new(rep.clone()));
-                    true
-                } else {
-                    false
-                }
+                rep.timestamp.timestamp() > started_at && rep.state == RunnerState::Running
             },
             Some(Duration::from_secs(30)),
             None,
@@ -295,21 +364,9 @@ impl RunCtx {
 
         let mut ctx = self.inner.lock().unwrap();
 
-        // capture the report after the initial agent startup
-        if ctx.first_rep.is_none() {
-            ctx.first_rep = first_rep;
-        }
-
-        // record and warn about missing sysreqs
+        // Record and warn about missing sysreqs.
         ctx.sysreqs_rep = Some(Arc::new(ctx.agent_files.sysreqs.data.clone()));
-        let missed_set =
-            HashSet::<SysReq>::from_iter(ctx.sysreqs_rep.as_ref().unwrap().missed.iter().cloned());
-        ctx.missed_sysreqs = ctx
-            .required_sysreqs
-            .iter()
-            .filter(|x| missed_set.contains(*x))
-            .cloned()
-            .collect();
+        ctx.missed_sysreqs = &ctx.sysreqs & &ctx.sysreqs_rep.as_ref().unwrap().missed;
         if ctx.missed_sysreqs.len() > 0 {
             error!(
                 "Failed to meet {} bench system requirements, see help: {}",
@@ -324,10 +381,26 @@ impl RunCtx {
 
         drop(ctx);
 
+        // Run init functions.
+        if self.agent_init_fns.len() > 0 {
+            let mut init_fns: Vec<Box<dyn FnOnce(&mut RunCtx)>> = vec![];
+            init_fns.append(&mut self.agent_init_fns);
+            for init_fn in init_fns.into_iter() {
+                init_fn(self);
+            }
+            if let Err(e) = self.cmd_barrier() {
+                self.stop_agent();
+                bail!("rd-agent failed after running init functions ({})", &e);
+            }
+        }
+
+        // Start recording reports.
+        self.inner.lock().unwrap().record_rep(true);
+
         Ok(())
     }
 
-    pub fn start_agent(&self) {
+    pub fn start_agent(&mut self) {
         if let Err(e) = self.start_agent_fallible(vec![]) {
             error!("Failed to start rd-agent ({})", &e);
             panic!();
@@ -368,10 +441,14 @@ impl RunCtx {
         };
 
         loop {
-            let ctx = self.inner.lock().unwrap();
+            let mut ctx = self.inner.lock().unwrap();
+
+            ctx.record_rep(false);
+
             if cond(&ctx.agent_files, &mut progress) {
                 return Ok(());
             }
+
             if ctx.minder_state != MinderState::Ok {
                 bail!("agent error ({:?})", ctx.minder_state);
             }
@@ -404,6 +481,42 @@ impl RunCtx {
         let mut ctx = self.inner.lock().unwrap();
         let af = &mut ctx.agent_files;
         func(af)
+    }
+
+    pub fn start_iocost_bench(&self) {
+        debug!("Starting iocost benchmark ({})", &IOCOST_BENCH_SVC_NAME);
+
+        let mut next_seq = 0;
+        self.access_agent_files(|af| {
+            next_seq = af.bench.data.iocost_seq + 1;
+            af.cmd.data.bench_iocost_seq = next_seq;
+            af.cmd.save().unwrap();
+        });
+
+        self.wait_cond(
+            |af, _| {
+                af.report.data.state == RunnerState::BenchIoCost
+                    || af.bench.data.iocost_seq >= next_seq
+            },
+            Some(CMD_TIMEOUT),
+            None,
+        );
+    }
+
+    pub fn stop_iocost_bench(&self) {
+        debug!("Stopping iocost benchmark ({})", &IOCOST_BENCH_SVC_NAME);
+
+        self.access_agent_files(|af| {
+            af.cmd.data.cmd_seq += 1;
+            af.cmd.data.bench_iocost_seq = af.bench.data.iocost_seq;
+            af.cmd.save().unwrap();
+        });
+
+        self.wait_cond(
+            |af, _| af.report.data.state != RunnerState::BenchIoCost,
+            Some(CMD_TIMEOUT),
+            None,
+        );
     }
 
     pub fn start_hashd_bench(&self, ballon_size: usize, log_bps: u64, extra_args: Vec<String>) {
@@ -472,12 +585,17 @@ impl RunCtx {
         self.inner.lock().unwrap().sysreqs_rep.clone()
     }
 
-    pub fn missed_sysreqs(&self) -> Vec<SysReq> {
+    pub fn missed_sysreqs(&self) -> HashSet<SysReq> {
         self.inner.lock().unwrap().missed_sysreqs.clone()
     }
 
-    pub fn first_report(&self) -> Option<Arc<rd_agent_intf::Report>> {
-        self.inner.lock().unwrap().first_rep.clone()
+    pub fn report_sample(&self) -> Option<Arc<rd_agent_intf::Report>> {
+        let mut ctx = self.inner.lock().unwrap();
+        if ctx.report_sample.is_none() && ctx.reports.len() > 0 {
+            ctx.report_sample = Some(Arc::new(ctx.reports.pop_back().unwrap()));
+            ctx.reports.clear();
+        }
+        ctx.report_sample.clone()
     }
 
     pub fn report_iter(&self, start: u64, end: u64) -> ReportIter {

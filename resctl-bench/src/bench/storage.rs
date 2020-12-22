@@ -1,20 +1,10 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
-use anyhow::{bail, Result};
-use log::{info, warn};
-use resctl_bench_intf::JobSpec;
-use serde::{Deserialize, Serialize};
-use serde_json;
-use statistical;
-use std::collections::{BTreeMap, VecDeque};
-use std::fmt::Write;
-use util::*;
-
 use super::*;
-
 use rd_agent_intf::{HASHD_BENCH_SVC_NAME, ROOT_SLICE};
-use rd_hashd_intf;
+use std::collections::{BTreeMap, VecDeque};
 
-struct StorageJob {
+#[derive(Clone)]
+pub struct StorageJob {
     hash_size: usize,
     rps_max: u32,
     log_bps: u64,
@@ -38,6 +28,7 @@ struct StorageJob {
     mem_avail_err_max: f64,
     mem_avail_inner_retries: u32,
     mem_avail_outer_retries: u32,
+    active: bool,
 }
 
 impl Default for StorageJob {
@@ -66,6 +57,7 @@ impl Default for StorageJob {
             mem_avail_err_max: 0.05,
             mem_avail_inner_retries: 5,
             mem_avail_outer_retries: 5,
+            active: false,
         }
     }
 }
@@ -73,51 +65,35 @@ impl Default for StorageJob {
 pub struct StorageBench {}
 
 impl Bench for StorageBench {
-    fn parse(&self, spec: &JobSpec) -> Result<Option<Box<dyn Job>>> {
-        if spec.kind != "storage" {
-            return Ok(None);
-        }
+    fn desc(&self) -> BenchDesc {
+        BenchDesc::new("storage")
+    }
 
-        let mut job = StorageJob::default();
-
-        for (k, v) in spec.properties.iter() {
-            match k.as_str() {
-                "hash-size" => job.hash_size = v.parse::<usize>()?,
-                "rps-max" => job.rps_max = v.parse::<u32>()?,
-                "log-bps" => job.log_bps = v.parse::<u64>()?,
-                "loops" => job.loops = v.parse::<u32>()?,
-                "mem-profile" => job.mem_profile_ask = Some(v.parse::<u32>()?),
-                "mem-avail-err-max" => job.mem_avail_err_max = v.parse::<f64>()?,
-                "mem-avail-inner-tries" => job.mem_avail_inner_retries = v.parse::<u32>()?,
-                "mem-avail-outer-tries" => job.mem_avail_outer_retries = v.parse::<u32>()?,
-                k => bail!("unknown property key {:?}", k),
-            }
-        }
-
-        Ok(Some(Box::new(job)))
+    fn parse(&self, spec: &JobSpec) -> Result<Box<dyn Job>> {
+        Ok(Box::new(StorageJob::parse(spec)?))
     }
 }
 
-#[derive(Serialize, Deserialize)]
-struct StorageResult {
-    mem_avail: usize,
-    mem_profile: u32,
-    mem_share: usize,
-    main_started_at: u64,
-    main_ended_at: u64,
-    mem_offload_factor: f64,
-    mem_usage_mean: usize,
-    mem_usage_stdev: usize,
-    mem_usages: Vec<usize>,
-    mem_size_mean: usize,
-    mem_size_stdev: usize,
-    mem_sizes: Vec<usize>,
-    rbps_all: usize,
-    wbps_all: usize,
-    rbps_final: usize,
-    wbps_final: usize,
-    final_mem_probe_periods: Vec<(u64, u64)>,
-    io_lat_pcts: BTreeMap<String, BTreeMap<String, f64>>,
+#[derive(Clone, Serialize, Deserialize)]
+pub struct StorageResult {
+    pub mem_avail: usize,
+    pub mem_profile: u32,
+    pub mem_share: usize,
+    pub main_started_at: u64,
+    pub main_ended_at: u64,
+    pub mem_offload_factor: f64,
+    pub mem_usage_mean: usize,
+    pub mem_usage_stdev: usize,
+    pub mem_usages: Vec<usize>,
+    pub mem_size_mean: usize,
+    pub mem_size_stdev: usize,
+    pub mem_sizes: Vec<usize>,
+    pub rbps_all: usize,
+    pub wbps_all: usize,
+    pub rbps_final: usize,
+    pub wbps_final: usize,
+    pub final_mem_probe_periods: Vec<(u64, u64)>,
+    pub io_lat_pcts: BTreeMap<String, BTreeMap<String, f64>>,
 }
 
 struct MemProfileIterator {
@@ -144,6 +120,26 @@ impl Iterator for MemProfileIterator {
 }
 
 impl StorageJob {
+    pub fn parse(spec: &JobSpec) -> Result<StorageJob> {
+        let mut job = StorageJob::default();
+
+        for (k, v) in spec.properties[0].iter() {
+            match k.as_str() {
+                "hash-size" => job.hash_size = v.parse::<usize>()?,
+                "rps-max" => job.rps_max = v.parse::<u32>()?,
+                "log-bps" => job.log_bps = v.parse::<u64>()?,
+                "loops" => job.loops = v.parse::<u32>()?,
+                "mem-profile" => job.mem_profile_ask = Some(v.parse::<u32>()?),
+                "mem-avail-err-max" => job.mem_avail_err_max = v.parse::<f64>()?,
+                "mem-avail-inner-tries" => job.mem_avail_inner_retries = v.parse::<u32>()?,
+                "mem-avail-outer-tries" => job.mem_avail_outer_retries = v.parse::<u32>()?,
+                "active" => job.active = true,
+                k => bail!("unknown property key {:?}", k),
+            }
+        }
+        Ok(job)
+    }
+
     fn hashd_mem_usage_rep(rep: &rd_agent_intf::Report) -> usize {
         rep.usages[HASHD_BENCH_SVC_NAME].mem_bytes as usize
     }
@@ -323,21 +319,113 @@ impl StorageJob {
 
         Ok(retry_outer)
     }
+
+    pub fn format_header<'a>(&self, out: &mut Box<dyn Write + 'a>, result: &StorageResult) {
+        writeln!(
+            out,
+            "Params: hash_size={} rps_max={} log_bps={} loops={}",
+            format_size(self.hash_size),
+            self.rps_max,
+            format_size(self.log_bps),
+            self.loops
+        )
+        .unwrap();
+        writeln!(
+            out,
+            "        mem_profile={} mem_avail={} mem_share={}",
+            result.mem_profile,
+            format_size(result.mem_avail),
+            format_size(result.mem_share)
+        )
+        .unwrap();
+    }
+
+    pub fn format_lat_dist<'a>(&self, out: &mut Box<dyn Write + 'a>, result: &StorageResult) {
+        writeln!(out, "IO latency distribution:\n").unwrap();
+        StudyIoLatPcts::format_table(out, &result.io_lat_pcts, None);
+    }
+
+    pub fn format_lat_summary<'a>(&self, out: &mut Box<dyn Write + 'a>, result: &StorageResult) {
+        writeln!(
+            out,
+            "IO latency: p50={}:{}/{} p90={}:{}/{} p99={}:{}/{} max={}:{}/{}",
+            format_duration(result.io_lat_pcts["50"]["mean"]),
+            format_duration(result.io_lat_pcts["50"]["stdev"]),
+            format_duration(result.io_lat_pcts["50"]["100"]),
+            format_duration(result.io_lat_pcts["90"]["mean"]),
+            format_duration(result.io_lat_pcts["90"]["stdev"]),
+            format_duration(result.io_lat_pcts["90"]["100"]),
+            format_duration(result.io_lat_pcts["99"]["mean"]),
+            format_duration(result.io_lat_pcts["99"]["stdev"]),
+            format_duration(result.io_lat_pcts["99"]["100"]),
+            format_duration(result.io_lat_pcts["100"]["mean"]),
+            format_duration(result.io_lat_pcts["100"]["stdev"]),
+            format_duration(result.io_lat_pcts["100"]["100"]),
+        )
+        .unwrap();
+    }
+
+    pub fn format_io_summary<'a>(&self, out: &mut Box<dyn Write + 'a>, result: &StorageResult) {
+        writeln!(
+            out,
+            "IO BPS: read_final={} write_final={} read_all={} write_all={}",
+            format_size(result.rbps_final),
+            format_size(result.wbps_final),
+            format_size(result.rbps_all),
+            format_size(result.wbps_all)
+        )
+        .unwrap();
+    }
+
+    pub fn format_mem_summary<'a>(&self, out: &mut Box<dyn Write + 'a>, result: &StorageResult) {
+        write!(
+            out,
+            "Memory offloading: factor={:.3}@{} ",
+            result.mem_offload_factor, result.mem_profile
+        )
+        .unwrap();
+        if self.loops > 1 {
+            writeln!(
+                out,
+                "usage_mean/stdev={}/{} size_mean/stdev={}/{}",
+                format_size(result.mem_usage_mean),
+                format_size(result.mem_usage_stdev),
+                format_size(result.mem_size_mean),
+                format_size(result.mem_size_stdev)
+            )
+            .unwrap();
+        } else {
+            writeln!(
+                out,
+                "usage={} size={}",
+                format_size(result.mem_usage_mean),
+                format_size(result.mem_size_mean)
+            )
+            .unwrap();
+        }
+    }
+
+    pub fn format_summaries<'a>(&self, out: &mut Box<dyn Write + 'a>, result: &StorageResult) {
+        self.format_lat_summary(out, result);
+
+        writeln!(out, "").unwrap();
+        self.format_io_summary(out, result);
+
+        writeln!(out, "").unwrap();
+        self.format_mem_summary(out, result);
+    }
 }
 
 impl Job for StorageJob {
-    fn sysreqs(&self) -> Vec<SysReq> {
-        vec![
-            SysReq::SwapOnScratch,
-            SysReq::Swap,
-            SysReq::HostCriticalServices,
-        ]
+    fn sysreqs(&self) -> HashSet<SysReq> {
+        HASHD_SYSREQS.clone()
     }
 
     fn run(&mut self, rctx: &mut RunCtx) -> Result<serde_json::Value> {
-        rctx.set_prep_testfiles()
-            .set_passive_keep_crit_mem_prot()
-            .start_agent();
+        if !self.active {
+            rctx.set_passive_keep_crit_mem_prot();
+        }
+        rctx.set_prep_testfiles().start_agent();
 
         info!("storage: Estimating available memory");
         self.mem_avail = self.estimate_available_memory(rctx);
@@ -414,13 +502,13 @@ impl Job for StorageJob {
             false
         };
 
-        let mut study_rbps_all = StudyAvg::new(|rep| Some(rep.usages[ROOT_SLICE].io_rbps));
-        let mut study_wbps_all = StudyAvg::new(|rep| Some(rep.usages[ROOT_SLICE].io_wbps));
-        let mut study_rbps_final = StudyAvg::new(|rep| match in_final(rep) {
+        let mut study_rbps_all = StudyMean::new(|rep| Some(rep.usages[ROOT_SLICE].io_rbps));
+        let mut study_wbps_all = StudyMean::new(|rep| Some(rep.usages[ROOT_SLICE].io_wbps));
+        let mut study_rbps_final = StudyMean::new(|rep| match in_final(rep) {
             true => Some(rep.usages[ROOT_SLICE].io_rbps),
             false => None,
         });
-        let mut study_wbps_final = StudyAvg::new(|rep| match in_final(rep) {
+        let mut study_wbps_final = StudyMean::new(|rep| match in_final(rep) {
             true => Some(rep.usages[ROOT_SLICE].io_wbps),
             false => None,
         });
@@ -476,65 +564,10 @@ impl Job for StorageJob {
     fn format<'a>(&self, mut out: Box<dyn Write + 'a>, result: &serde_json::Value) {
         let result = serde_json::from_value::<StorageResult>(result.to_owned()).unwrap();
 
-        writeln!(
-            out,
-            "Params: hash_size={} rps_max={} log_bps={} loops={}",
-            format_size(self.hash_size),
-            self.rps_max,
-            format_size(self.log_bps),
-            self.loops
-        )
-        .unwrap();
-        writeln!(
-            out,
-            "        mem_profile={} mem_avail={} mem_share={}",
-            result.mem_profile,
-            format_size(result.mem_avail),
-            format_size(result.mem_share)
-        )
-        .unwrap();
-
-        writeln!(out, "\nIO latency distribution:\n").unwrap();
-        StudyIoLatPcts::format_table(&mut out, &result.io_lat_pcts, None);
-
-        writeln!(
-            out,
-            "\nIO latency: p50={}:{}/{} p90={}:{}/{} p99={}:{}/{} max={}:{}/{}",
-            format_duration(result.io_lat_pcts["50"]["avg"]),
-            format_duration(result.io_lat_pcts["50"]["stdev"]),
-            format_duration(result.io_lat_pcts["50"]["100"]),
-            format_duration(result.io_lat_pcts["90"]["avg"]),
-            format_duration(result.io_lat_pcts["90"]["stdev"]),
-            format_duration(result.io_lat_pcts["90"]["100"]),
-            format_duration(result.io_lat_pcts["99"]["avg"]),
-            format_duration(result.io_lat_pcts["99"]["stdev"]),
-            format_duration(result.io_lat_pcts["99"]["100"]),
-            format_duration(result.io_lat_pcts["100"]["avg"]),
-            format_duration(result.io_lat_pcts["100"]["stdev"]),
-            format_duration(result.io_lat_pcts["100"]["100"]),
-        )
-        .unwrap();
-
-        writeln!(
-            out,
-            "\nIO BPS: read_final={} write_final={} read_all={} write_all={}",
-            format_size(result.rbps_final),
-            format_size(result.wbps_final),
-            format_size(result.rbps_all),
-            format_size(result.wbps_all)
-        )
-        .unwrap();
-
-        writeln!(
-            out,
-            "\nMemory offloading: factor={:.3}@{} usage_mean/stdev={}/{} size_mean/stdev={}/{}",
-            result.mem_offload_factor,
-            result.mem_profile,
-            format_size(result.mem_usage_mean),
-            format_size(result.mem_usage_stdev),
-            format_size(result.mem_size_mean),
-            format_size(result.mem_size_stdev)
-        )
-        .unwrap();
+        self.format_header(&mut out, &result);
+        writeln!(out, "").unwrap();
+        self.format_lat_dist(&mut out, &result);
+        writeln!(out, "").unwrap();
+        self.format_summaries(&mut out, &result);
     }
 }

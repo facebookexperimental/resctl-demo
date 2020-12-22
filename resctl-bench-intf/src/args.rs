@@ -17,6 +17,7 @@ lazy_static::lazy_static! {
          -r, --result=[PATH]    'Record the bench results into the specified json file'
          -R, --rep-retention=[SECS] '1s report retention in seconds (default: {dfl_rep_ret:.1}h)'
          -a, --args=[FILE]      'Load base command line arguments from FILE'
+         -I, --incremental      'Run incremental benchmarks if supported (see bench helps)'
              --clear-reports    'Remove existing report files'
              --keep-reports     'Don't delete expired report files'
          -v...                  'Sets the level of verbosity'",
@@ -36,11 +37,11 @@ pub struct Args {
     pub job_specs: Vec<JobSpec>,
 
     #[serde(skip)]
+    pub incremental: bool,
+    #[serde(skip)]
     pub keep_reports: bool,
     #[serde(skip)]
     pub clear_reports: bool,
-    #[serde(skip)]
-    pub format_mode: bool,
 }
 
 impl Default for Args {
@@ -52,9 +53,9 @@ impl Default for Args {
             result: None,
             job_specs: Default::default(),
             rep_retention: 24 * 3600,
+            incremental: false,
             keep_reports: false,
             clear_reports: false,
-            format_mode: false,
         }
     }
 }
@@ -69,20 +70,38 @@ impl Args {
         };
 
         let mut id = None;
-        let mut properties = BTreeMap::<String, String>::new();
+        let mut properties: Vec<BTreeMap<String, String>> = vec![Default::default()];
 
         for tok in toks {
-            let kv = tok.splitn(2, '=').collect::<Vec<&str>>();
-            if kv.len() < 2 {
-                bail!("invalid key=val pair {:?} in {:?}", tok, spec);
+            if tok.len() == 0 {
+                // "::" separates property groups. Allow only the first
+                // group, which contains options which apply to all
+                // following groups, to be empty.
+                if properties.len() == 1 || properties.last().unwrap().len() > 0 {
+                    properties.push(Default::default());
+                }
+                continue;
+            }
+
+            // Allow empty key and/or value.
+            let mut kv = tok.splitn(2, '=').collect::<Vec<&str>>();
+            while kv.len() < 2 {
+                kv.push("");
             }
 
             match kv[0] {
                 "id" => id = Some(kv[1]),
                 key => {
-                    properties.insert(key.into(), kv[1].into());
+                    properties
+                        .last_mut()
+                        .unwrap()
+                        .insert(key.into(), kv[1].into());
                 }
             }
+        }
+
+        if properties.len() > 1 && properties.last().unwrap().len() == 0 {
+            properties.pop();
         }
 
         Ok(JobSpec::new(
@@ -126,10 +145,6 @@ impl JsonArgs for Args {
                             .multiple(true)
                             .help("Benchmark job spec - \"BENCH_TYPE[:KEY=VAL...]\""),
                     ),
-            )
-            .subcommand(
-                clap::SubCommand::with_name("format")
-                    .about("Format bench results in the --result file"),
             )
             .get_matches()
     }
@@ -183,6 +198,7 @@ impl JsonArgs for Args {
             updated = true;
         }
 
+        self.incremental = matches.is_present("incremental");
         self.keep_reports = matches.is_present("keep-reports");
         self.clear_reports = matches.is_present("clear-reports");
 
@@ -231,9 +247,6 @@ impl JsonArgs for Args {
                     }
                     updated = true;
                 }
-            }
-            ("format", _) => {
-                self.format_mode = true;
             }
             _ => {}
         }

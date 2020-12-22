@@ -7,6 +7,7 @@ use std::ops;
 use std::time::UNIX_EPOCH;
 use util::*;
 
+use super::bench::{IoCostModelKnobs, IoCostQoSKnobs};
 use super::RunnerState;
 use rd_hashd_intf;
 
@@ -19,7 +20,7 @@ const REPORT_DOC: &str = "\
 //
 //  timestamp: When this report was generated
 //  seq: Incremented on each execution, used for temporary settings
-//  state: Idle, Running, BenchHashd or BenchIOCost
+//  state: Idle, Running, BenchHashd or BenchIoCost
 //  oomd.svc.name: OOMD systemd service name
 //  oomd.svc.state: OOMD systemd service state
 //  oomd.work_mem_pressure: Memory pressure based kill enabled in workload.slice
@@ -278,12 +279,8 @@ impl Default for IoLatReport {
 pub struct IoCostModelReport {
     pub ctrl: String,
     pub model: String,
-    pub rbps: u64,
-    pub rseqiops: u64,
-    pub rrandiops: u64,
-    pub wbps: u64,
-    pub wseqiops: u64,
-    pub wrandiops: u64,
+    #[serde(flatten)]
+    pub knobs: IoCostModelKnobs,
 }
 
 impl Default for IoCostModelReport {
@@ -291,12 +288,7 @@ impl Default for IoCostModelReport {
         Self {
             ctrl: "".into(),
             model: "".into(),
-            rbps: 0,
-            rseqiops: 0,
-            rrandiops: 0,
-            wbps: 0,
-            wseqiops: 0,
-            wrandiops: 0,
+            knobs: Default::default(),
         }
     }
 }
@@ -312,12 +304,14 @@ impl IoCostModelReport {
         Ok(Self {
             ctrl: map.get("ctrl").ok_or(anyhow!(kerr))?.clone(),
             model: map.get("model").ok_or(anyhow!(kerr))?.clone(),
-            rbps: map.get("rbps").ok_or(anyhow!(kerr))?.parse::<u64>()?,
-            rseqiops: map.get("rseqiops").ok_or(anyhow!(kerr))?.parse::<u64>()?,
-            rrandiops: map.get("rrandiops").ok_or(anyhow!(kerr))?.parse::<u64>()?,
-            wbps: map.get("wbps").ok_or(anyhow!(kerr))?.parse::<u64>()?,
-            wseqiops: map.get("wseqiops").ok_or(anyhow!(kerr))?.parse::<u64>()?,
-            wrandiops: map.get("wrandiops").ok_or(anyhow!(kerr))?.parse::<u64>()?,
+            knobs: IoCostModelKnobs {
+                rbps: map.get("rbps").ok_or(anyhow!(kerr))?.parse::<u64>()?,
+                rseqiops: map.get("rseqiops").ok_or(anyhow!(kerr))?.parse::<u64>()?,
+                rrandiops: map.get("rrandiops").ok_or(anyhow!(kerr))?.parse::<u64>()?,
+                wbps: map.get("wbps").ok_or(anyhow!(kerr))?.parse::<u64>()?,
+                wseqiops: map.get("wseqiops").ok_or(anyhow!(kerr))?.parse::<u64>()?,
+                wrandiops: map.get("wrandiops").ok_or(anyhow!(kerr))?.parse::<u64>()?,
+            },
         })
     }
 }
@@ -326,12 +320,8 @@ impl IoCostModelReport {
 pub struct IoCostQoSReport {
     pub enable: u32,
     pub ctrl: String,
-    pub rpct: f64,
-    pub rlat: u64,
-    pub wpct: f64,
-    pub wlat: u64,
-    pub min: f64,
-    pub max: f64,
+    #[serde(flatten)]
+    pub knobs: IoCostQoSKnobs,
 }
 
 impl IoCostQoSReport {
@@ -345,12 +335,14 @@ impl IoCostQoSReport {
         Ok(Self {
             enable: map.get("enable").ok_or(anyhow!(kerr))?.parse::<u32>()?,
             ctrl: map.get("ctrl").ok_or(anyhow!(kerr))?.clone(),
-            rpct: map.get("rpct").ok_or(anyhow!(kerr))?.parse::<f64>()?,
-            rlat: map.get("rlat").ok_or(anyhow!(kerr))?.parse::<u64>()?,
-            wpct: map.get("wpct").ok_or(anyhow!(kerr))?.parse::<f64>()?,
-            wlat: map.get("wlat").ok_or(anyhow!(kerr))?.parse::<u64>()?,
-            min: map.get("min").ok_or(anyhow!(kerr))?.parse::<f64>()?,
-            max: map.get("max").ok_or(anyhow!(kerr))?.parse::<f64>()?,
+            knobs: IoCostQoSKnobs {
+                rpct: map.get("rpct").ok_or(anyhow!(kerr))?.parse::<f64>()?,
+                rlat: map.get("rlat").ok_or(anyhow!(kerr))?.parse::<u64>()?,
+                wpct: map.get("wpct").ok_or(anyhow!(kerr))?.parse::<f64>()?,
+                wlat: map.get("wlat").ok_or(anyhow!(kerr))?.parse::<u64>()?,
+                min: map.get("min").ok_or(anyhow!(kerr))?.parse::<f64>()?,
+                max: map.get("max").ok_or(anyhow!(kerr))?.parse::<f64>()?,
+            },
         })
     }
 }
@@ -360,12 +352,7 @@ impl Default for IoCostQoSReport {
         Self {
             enable: 0,
             ctrl: "".into(),
-            rpct: 0.0,
-            rlat: 0,
-            wpct: 0.0,
-            wlat: 0,
-            min: 0.0,
-            max: 0.0,
+            knobs: Default::default(),
         }
     }
 }
@@ -398,7 +385,8 @@ impl IoCostReport {
         let vrate = match kf.get(&format!("{}:{}", devnr.0, devnr.1)) {
             Some(map) => map
                 .get("cost.vrate")
-                .ok_or(anyhow!("missing key in io.stat"))?
+                .map(String::as_str)
+                .unwrap_or("0.0")
                 .parse::<f64>()?,
             None => 0.0,
         };

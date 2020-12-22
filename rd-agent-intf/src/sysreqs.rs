@@ -1,6 +1,7 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
 use enum_iterator::IntoEnumIterator;
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use util::*;
 
 const SYSREQ_DOC: &str = "\
@@ -15,17 +16,11 @@ const SYSREQ_DOC: &str = "\
 //
 ";
 
-#[derive(
-    Debug,
-    Clone,
-    Copy,
-    PartialEq,
-    Eq,
-    Hash,
-    IntoEnumIterator,
-    Serialize,
-    Deserialize
-)]
+lazy_static::lazy_static! {
+    pub static ref ALL_SYSREQS_SET: HashSet<SysReq> = SysReq::into_enum_iter().collect();
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, IntoEnumIterator, Serialize, Deserialize)]
 pub enum SysReq {
     Controllers,
     Freezer,
@@ -49,8 +44,8 @@ pub enum SysReq {
 
 #[derive(Clone, Default, Serialize, Deserialize)]
 pub struct SysReqsReport {
-    pub satisfied: Vec<SysReq>,
-    pub missed: Vec<SysReq>,
+    pub satisfied: HashSet<SysReq>,
+    pub missed: HashSet<SysReq>,
     pub nr_cpus: usize,
     pub total_memory: usize,
     pub total_swap: usize,

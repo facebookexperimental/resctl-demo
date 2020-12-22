@@ -6,11 +6,16 @@ use std::collections::BTreeMap;
 pub struct JobSpec {
     pub kind: String,
     pub id: Option<String>,
-    pub properties: BTreeMap<String, String>,
+    pub properties: Vec<BTreeMap<String, String>>,
 }
 
 impl JobSpec {
-    pub fn new(kind: String, id: Option<String>, properties: BTreeMap<String, String>) -> Self {
+    pub fn new(
+        kind: String,
+        id: Option<String>,
+        properties: Vec<BTreeMap<String, String>>,
+    ) -> Self {
+        assert!(properties.len() > 0);
         Self {
             kind,
             id,

@@ -16,7 +16,9 @@ pub mod slices;
 pub mod sysreqs;
 
 pub use args::Args;
-pub use bench::{BenchKnobs, HashdKnobs, IoCostKnobs};
+pub use bench::{
+    BenchKnobs, HashdKnobs, IoCostKnobs, IoCostModelKnobs, IoCostQoSKnobs, BENCH_FILENAME,
+};
 pub use cmd::{Cmd, HashdCmd, SideloaderCmd};
 pub use cmd_ack::CmdAck;
 pub use index::Index;
@@ -28,14 +30,14 @@ pub use report::{
 };
 pub use side_defs::{SideloadDefs, SideloadSpec};
 pub use slices::{DisableSeqKnobs, MemoryKnob, Slice, SliceConfig, SliceKnobs, ROOT_SLICE};
-pub use sysreqs::{SysReq, SysReqsReport};
+pub use sysreqs::{SysReq, SysReqsReport, ALL_SYSREQS_SET};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum RunnerState {
     Idle,
     Running,
     BenchHashd,
-    BenchIOCost,
+    BenchIoCost,
 }
 
 pub const AGENT_SVC_NAME: &str = "rd-agent.service";
