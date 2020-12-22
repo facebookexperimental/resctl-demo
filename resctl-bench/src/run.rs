@@ -138,6 +138,7 @@ impl RunCtxInner {
 pub struct RunCtx {
     inner: Arc<Mutex<RunCtxInner>>,
     base_bench_path: String,
+    agent_init_fns: Vec<Box<dyn FnOnce(&mut RunCtx)>>,
     prev_result: Option<serde_json::Value>,
     pub commit_bench: bool,
 }
@@ -171,6 +172,7 @@ impl RunCtx {
                 report_sample: None,
             })),
             base_bench_path: base_bench_path.into(),
+            agent_init_fns: vec![],
             prev_result,
             commit_bench: false,
         }
@@ -182,6 +184,14 @@ impl RunCtx {
             .unwrap()
             .sysreqs
             .extend(sysreqs.into_iter());
+        self
+    }
+
+    pub fn add_agent_init_fn<F>(&mut self, init_fn: F) -> &mut Self
+    where
+        F: FnOnce(&mut RunCtx) + 'static,
+    {
+        self.agent_init_fns.push(Box::new(init_fn));
         self
     }
 
@@ -313,7 +323,22 @@ impl RunCtx {
         prog_kick();
     }
 
-    pub fn start_agent_fallible(&self, extra_args: Vec<String>) -> Result<()> {
+    fn cmd_barrier(&self) -> Result<()> {
+        let next_seq = self.access_agent_files(|af| {
+            let next_seq = af.cmd.data.cmd_seq + 1;
+            af.cmd.data.cmd_seq = next_seq;
+            af.cmd.save().unwrap();
+            next_seq
+        });
+
+        self.wait_cond_fallible(
+            |af, _| af.cmd_ack.data.cmd_seq >= next_seq,
+            Some(CMD_TIMEOUT),
+            None,
+        )
+    }
+
+    pub fn start_agent_fallible(&mut self, extra_args: Vec<String>) -> Result<()> {
         let mut ctx = self.inner.lock().unwrap();
 
         ctx.start_agent(extra_args)?;
@@ -354,15 +379,28 @@ impl RunCtx {
             );
         }
 
-        // start recording reports
-        ctx.record_rep(true);
-
         drop(ctx);
+
+        // Run init functions.
+        if self.agent_init_fns.len() > 0 {
+            let mut init_fns: Vec<Box<dyn FnOnce(&mut RunCtx)>> = vec![];
+            init_fns.append(&mut self.agent_init_fns);
+            for init_fn in init_fns.into_iter() {
+                init_fn(self);
+            }
+            if let Err(e) = self.cmd_barrier() {
+                self.stop_agent();
+                bail!("rd-agent failed after running init functions ({})", &e);
+            }
+        }
+
+        // Start recording reports.
+        self.inner.lock().unwrap().record_rep(true);
 
         Ok(())
     }
 
-    pub fn start_agent(&self) {
+    pub fn start_agent(&mut self) {
         if let Err(e) = self.start_agent_fallible(vec![]) {
             error!("Failed to start rd-agent ({})", &e);
             panic!();
