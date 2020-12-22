@@ -76,14 +76,18 @@ fn main() {
         error!("Failed to process args file ({})", &e);
         exit(1);
     });
+    let args = &args_file.data;
 
     let mut job_ctxs = vec![];
 
     // Load existing result file into job_ctxs.
-    if let Some(path) = args_file.data.result.as_ref() {
+    if let Some(path) = args.result.as_ref() {
         if Path::new(path).exists() {
             match JobCtx::load_result_file(path) {
-                Ok(mut results) => job_ctxs.append(&mut results),
+                Ok(mut results) => {
+                    debug!("Loaded {} entries from result file", results.len());
+                    job_ctxs.append(&mut results);
+                }
                 Err(e) => {
                     error!("Failed to load existing result file {:?} ({})", path, &e);
                     exit(1);
@@ -94,13 +98,14 @@ fn main() {
 
     // Combine new jobs to run into job_ctxs.
     let mut nr_to_run = 0;
-    'next: for spec in args_file.data.job_specs.iter() {
+    'next: for spec in args.job_specs.iter() {
         match JobCtx::process_job_spec(spec) {
             Ok(mut new) => {
                 new.run = true;
                 nr_to_run += 1;
                 for jctx in job_ctxs.iter_mut() {
                     if jctx.spec.kind == new.spec.kind && jctx.spec.id == new.spec.id {
+                        debug!("{} has a matching entry in the result file", &new.spec);
                         *jctx = new;
                         continue 'next;
                     }
@@ -124,7 +129,6 @@ fn main() {
             exit(1);
         }
     }
-    let args = &args_file.data;
 
     if nr_to_run > 0 && !args.keep_reports {
         if let Err(e) = clean_up_report_files(args) {

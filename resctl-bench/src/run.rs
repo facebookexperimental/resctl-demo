@@ -94,7 +94,7 @@ impl RunCtxInner {
             bail!("already running");
         }
 
-        // prepare testfiles synchronously for better progress report
+        // Prepare testfiles synchronously for better progress report.
         if self.prep_testfiles {
             let hashd_bin =
                 find_bin("rd-hashd", exe_dir().ok()).ok_or(anyhow!("can't find rd-hashd"))?;
@@ -111,7 +111,7 @@ impl RunCtxInner {
             }
         }
 
-        // start agent
+        // Start agent.
         let svc = self.start_agent_svc(extra_args)?;
         self.agent_svc.replace(svc);
 
@@ -168,7 +168,7 @@ impl RunCtx {
         }
     }
 
-    pub fn add_sysreqs(&self, sysreqs: HashSet<SysReq>) -> &Self {
+    pub fn add_sysreqs(&mut self, sysreqs: HashSet<SysReq>) -> &mut Self {
         self.inner
             .lock()
             .unwrap()
@@ -177,32 +177,32 @@ impl RunCtx {
         self
     }
 
-    pub fn set_need_linux_tar(&self) -> &Self {
+    pub fn set_need_linux_tar(&mut self) -> &mut Self {
         self.inner.lock().unwrap().need_linux_tar = true;
         self
     }
 
-    pub fn set_prep_testfiles(&self) -> &Self {
+    pub fn set_prep_testfiles(&mut self) -> &mut Self {
         self.inner.lock().unwrap().prep_testfiles = true;
         self
     }
 
-    pub fn set_bypass(&self) -> &Self {
+    pub fn set_bypass(&mut self) -> &mut Self {
         self.inner.lock().unwrap().bypass = true;
         self
     }
 
-    pub fn set_passive_all(&self) -> &Self {
+    pub fn set_passive_all(&mut self) -> &mut Self {
         self.inner.lock().unwrap().passive_all = true;
         self
     }
 
-    pub fn set_passive_keep_crit_mem_prot(&self) -> &Self {
+    pub fn set_passive_keep_crit_mem_prot(&mut self) -> &mut Self {
         self.inner.lock().unwrap().passive_keep_crit_mem_prot = true;
         self
     }
 
-    pub fn set_commit_bench(&mut self) -> &Self {
+    pub fn set_commit_bench(&mut self) -> &mut Self {
         self.commit_bench = true;
         self
     }
@@ -306,7 +306,7 @@ impl RunCtx {
 
         ctx.start_agent(extra_args)?;
 
-        // start minder and wait for the agent to become Running
+        // Start minder and wait for the agent to become Running.
         let inner = self.inner.clone();
         ctx.minder_jh = Some(spawn(move || Self::minder(inner)));
 
@@ -316,7 +316,7 @@ impl RunCtx {
         if let Err(e) = self.wait_cond_fallible(
             |af, _| {
                 let rep = &af.report.data;
-                rep.timestamp.timestamp() >= started_at && rep.state == RunnerState::Running
+                rep.timestamp.timestamp() > started_at && rep.state == RunnerState::Running
             },
             Some(Duration::from_secs(30)),
             None,
@@ -327,7 +327,7 @@ impl RunCtx {
 
         let mut ctx = self.inner.lock().unwrap();
 
-        // record and warn about missing sysreqs
+        // Record and warn about missing sysreqs.
         ctx.sysreqs_rep = Some(Arc::new(ctx.agent_files.sysreqs.data.clone()));
         ctx.missed_sysreqs = &ctx.sysreqs & &ctx.sysreqs_rep.as_ref().unwrap().missed;
         if ctx.missed_sysreqs.len() > 0 {
