@@ -137,12 +137,17 @@ impl RunCtxInner {
 
 pub struct RunCtx {
     inner: Arc<Mutex<RunCtxInner>>,
+    prev_result: Option<serde_json::Value>,
     pub commit_bench: bool,
-    pub prev_result: Option<serde_json::Value>,
 }
 
 impl RunCtx {
-    pub fn new(dir: &str, dev: Option<&str>, linux_tar: Option<&str>) -> Self {
+    pub fn new(
+        dir: &str,
+        dev: Option<&str>,
+        linux_tar: Option<&str>,
+        prev_result: Option<serde_json::Value>,
+    ) -> Self {
         Self {
             inner: Arc::new(Mutex::new(RunCtxInner {
                 dir: dir.into(),
@@ -163,8 +168,8 @@ impl RunCtx {
                 reports: VecDeque::new(),
                 report_sample: None,
             })),
+            prev_result,
             commit_bench: false,
-            prev_result: None,
         }
     }
 

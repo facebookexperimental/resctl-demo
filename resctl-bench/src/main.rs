@@ -106,7 +106,11 @@ fn main() {
                 for jctx in job_ctxs.iter_mut() {
                     if jctx.spec.kind == new.spec.kind && jctx.spec.id == new.spec.id {
                         debug!("{} has a matching entry in the result file", &new.spec);
-                        *jctx = new;
+                        let result = match args.incremental {
+                            true => jctx.result.take(),
+                            false => None,
+                        };
+                        *jctx = JobCtx { result, ..new };
                         continue 'next;
                     }
                 }
@@ -155,8 +159,12 @@ fn main() {
                 }
             }
 
-            let mut rctx = RunCtx::new(&args.dir, args.dev.as_deref(), args.linux_tar.as_deref());
-            rctx.prev_result = jctx.result.take();
+            let mut rctx = RunCtx::new(
+                &args.dir,
+                args.dev.as_deref(),
+                args.linux_tar.as_deref(),
+                jctx.result.take(),
+            );
 
             jctx.run(&mut rctx).unwrap();
 
