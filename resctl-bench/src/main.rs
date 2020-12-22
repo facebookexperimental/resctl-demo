@@ -163,6 +163,7 @@ fn main() {
                 &args.dir,
                 args.dev.as_deref(),
                 args.linux_tar.as_deref(),
+                &base_bench_path,
                 jctx.result.take(),
             );
 

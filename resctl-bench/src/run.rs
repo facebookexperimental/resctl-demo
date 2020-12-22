@@ -137,6 +137,7 @@ impl RunCtxInner {
 
 pub struct RunCtx {
     inner: Arc<Mutex<RunCtxInner>>,
+    base_bench_path: String,
     prev_result: Option<serde_json::Value>,
     pub commit_bench: bool,
 }
@@ -146,6 +147,7 @@ impl RunCtx {
         dir: &str,
         dev: Option<&str>,
         linux_tar: Option<&str>,
+        base_bench_path: &str,
         prev_result: Option<serde_json::Value>,
     ) -> Self {
         Self {
@@ -168,6 +170,7 @@ impl RunCtx {
                 reports: VecDeque::new(),
                 report_sample: None,
             })),
+            base_bench_path: base_bench_path.into(),
             prev_result,
             commit_bench: false,
         }
@@ -214,6 +217,10 @@ impl RunCtx {
 
     pub fn prev_result(&mut self) -> Option<serde_json::Value> {
         self.prev_result.take()
+    }
+
+    pub fn base_bench_path(&self) -> &str {
+        &self.base_bench_path
     }
 
     fn minder(inner: Arc<Mutex<RunCtxInner>>) {
