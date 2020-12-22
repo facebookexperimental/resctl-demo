@@ -116,7 +116,11 @@ impl ReportRingSet {
             sec_ring: ReportRing::new(
                 Box::new(|| {
                     let path = AGENT_FILES.index().report_d;
-                    if path.len() > 0 { Some(path) } else { None }
+                    if path.len() > 0 {
+                        Some(path)
+                    } else {
+                        None
+                    }
                 }),
                 1,
                 60,
@@ -125,7 +129,11 @@ impl ReportRingSet {
             min_ring: ReportRing::new(
                 Box::new(|| {
                     let path = AGENT_FILES.index().report_1min_d;
-                    if path.len() > 0 { Some(path) } else { None }
+                    if path.len() > 0 {
+                        Some(path)
+                    } else {
+                        None
+                    }
                 }),
                 60,
                 60,
