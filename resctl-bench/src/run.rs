@@ -16,7 +16,7 @@ use rd_agent_intf::{
     IOCOST_BENCH_SVC_NAME,
 };
 
-const MINDER_AGENT_TIMEOUT: Duration = Duration::from_secs(30);
+const MINDER_AGENT_TIMEOUT: Duration = Duration::from_secs(60);
 const CMD_TIMEOUT: Duration = Duration::from_secs(10);
 const REP_RECORD_CADENCE: u64 = 10;
 const REP_RECORD_RETENTION: usize = 3;
@@ -264,10 +264,34 @@ impl RunCtx {
 
             let mut nr_tries = 3;
             'status: loop {
-                if let Err(e) = svc.unit.refresh() {
-                    if SystemTime::now().duration_since(last_status_at).unwrap()
-                        > MINDER_AGENT_TIMEOUT
-                    {
+                match svc.unit.refresh() {
+                    Ok(()) => {
+                        last_status_at = SystemTime::now();
+                        if svc.unit.state == systemd::UnitState::Running {
+                            break 'status;
+                        }
+
+                        if nr_tries > 0 {
+                            warn!(
+                                "minder: agent status != running ({:?}), re-verifying...",
+                                &svc.unit.state
+                            );
+                            nr_tries -= 1;
+                            continue 'status;
+                        }
+
+                        error!("minder: agent is not running ({:?})", &svc.unit.state);
+                        ctx.minder_state = MinderState::AgentNotRunning(svc.unit.state.clone());
+                        break 'outer;
+                    }
+                    Err(e) => {
+                        if SystemTime::now().duration_since(last_status_at).unwrap()
+                            <= MINDER_AGENT_TIMEOUT
+                        {
+                            warn!("minder: failed to refresh agent status ({})", &e);
+                            break 'status;
+                        }
+
                         error!(
                             "minder: failed to update agent status for over {}s, giving up ({})",
                             MINDER_AGENT_TIMEOUT.as_secs(),
@@ -276,26 +300,7 @@ impl RunCtx {
                         ctx.minder_state = MinderState::AgentTimeout;
                         break 'outer;
                     }
-                    warn!("minder: failed to refresh agent status ({})", &e);
                 }
-                last_status_at = SystemTime::now();
-
-                if svc.unit.state != systemd::UnitState::Running {
-                    if nr_tries > 0 {
-                        warn!(
-                            "minder: agent status != running ({:?}), re-verifying...",
-                            &svc.unit.state
-                        );
-                        nr_tries -= 1;
-                        continue 'status;
-                    } else {
-                        error!("minder: agent is not running ({:?})", &svc.unit.state);
-                        ctx.minder_state = MinderState::AgentNotRunning(svc.unit.state.clone());
-                        break 'outer;
-                    }
-                }
-
-                break 'status;
             }
 
             ctx.agent_files.refresh();
