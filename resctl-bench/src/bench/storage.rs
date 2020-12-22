@@ -3,6 +3,7 @@ use super::*;
 use rd_agent_intf::{HASHD_BENCH_SVC_NAME, ROOT_SLICE};
 use std::collections::{BTreeMap, VecDeque};
 
+#[derive(Clone)]
 pub struct StorageJob {
     hash_size: usize,
     rps_max: u32,
@@ -27,6 +28,7 @@ pub struct StorageJob {
     mem_avail_err_max: f64,
     mem_avail_inner_retries: u32,
     mem_avail_outer_retries: u32,
+    active: bool,
 }
 
 impl Default for StorageJob {
@@ -55,6 +57,7 @@ impl Default for StorageJob {
             mem_avail_err_max: 0.05,
             mem_avail_inner_retries: 5,
             mem_avail_outer_retries: 5,
+            active: false,
         }
     }
 }
@@ -79,6 +82,7 @@ impl Bench for StorageBench {
                 "mem-avail-err-max" => job.mem_avail_err_max = v.parse::<f64>()?,
                 "mem-avail-inner-tries" => job.mem_avail_inner_retries = v.parse::<u32>()?,
                 "mem-avail-outer-tries" => job.mem_avail_outer_retries = v.parse::<u32>()?,
+                "active" => job.active = true,
                 k => bail!("unknown property key {:?}", k),
             }
         }
@@ -320,9 +324,10 @@ impl Job for StorageJob {
     }
 
     fn run(&mut self, rctx: &mut RunCtx) -> Result<serde_json::Value> {
-        rctx.set_prep_testfiles()
-            .set_passive_keep_crit_mem_prot()
-            .start_agent();
+        if !self.active {
+            rctx.set_passive_keep_crit_mem_prot();
+        }
+        rctx.set_prep_testfiles().start_agent();
 
         info!("storage: Estimating available memory");
         self.mem_avail = self.estimate_available_memory(rctx);
