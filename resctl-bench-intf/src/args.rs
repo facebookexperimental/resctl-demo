@@ -69,12 +69,20 @@ impl Args {
         let mut properties: Vec<BTreeMap<String, String>> = vec![Default::default()];
 
         for tok in toks {
-            let kv = tok.splitn(2, '=').collect::<Vec<&str>>();
-            if kv.len() < 2 {
-                if properties.last().unwrap().len() > 0 {
+            if tok.len() == 0 {
+                // "::" separates property groups. Allow only the first
+                // group, which contains options which apply to all
+                // following groups, to be empty.
+                if properties.len() == 1 || properties.last().unwrap().len() > 0 {
                     properties.push(Default::default());
                 }
                 continue;
+            }
+
+            // Allow empty key and/or value.
+            let mut kv = tok.splitn(2, '=').collect::<Vec<&str>>();
+            while kv.len() < 2 {
+                kv.push("");
             }
 
             match kv[0] {
