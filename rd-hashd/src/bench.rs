@@ -11,7 +11,7 @@ use std::thread::{sleep, spawn, JoinHandle};
 use std::time::{Duration, Instant};
 use std::u32;
 
-use rd_hashd_intf::{params::PidParams, Params, Phase, Report};
+use rd_hashd_intf::{params::PidParams, Params, Phase, Report, Stat};
 use util::*;
 
 use super::hasher;
@@ -196,12 +196,12 @@ impl Default for Cfg {
 
 struct DispHist {
     disp: hasher::Dispatch,
+    stat: Stat,
     hist: VecDeque<[f64; 2]>, // [Lat, Rps]
 }
 
 struct TestHasher {
     disp_hist: Arc<Mutex<DispHist>>,
-    report_file: Arc<Mutex<JsonReportFile<Report>>>,
     term_tx: Option<Sender<()>>,
     updater_jh: Option<JoinHandle<()>>,
     verbose: bool,
@@ -223,6 +223,7 @@ impl TestHasher {
                     let stat = &mut rep.data.hasher;
 
                     *stat = dh.disp.get_stat();
+                    dh.stat = stat.clone();
                     if stat.rps > 0.0 {
                         dh.hist.push_front([stat.lat.ctl, stat.rps]);
                         dh.hist.truncate(hist_max);
@@ -252,15 +253,17 @@ impl TestHasher {
             disp.fill_anon();
         }
         let hist = VecDeque::new();
-        let disp_hist = Arc::new(Mutex::new(DispHist { disp, hist }));
+        let disp_hist = Arc::new(Mutex::new(DispHist {
+            disp,
+            stat: Default::default(),
+            hist,
+        }));
         let dh_copy = disp_hist.clone();
         let (term_tx, term_rx) = channel::unbounded();
-        let report_file_copy = report_file.clone();
         let updater_jh =
-            spawn(move || Self::updater_thread(dh_copy, hist_max, report_file_copy, term_rx));
+            spawn(move || Self::updater_thread(dh_copy, hist_max, report_file, term_rx));
         Self {
             disp_hist,
-            report_file,
             term_tx: Some(term_tx),
             updater_jh: Some(updater_jh),
             verbose,
@@ -437,17 +440,15 @@ impl TestHasher {
                 verdict_str
             );
             if self.verbose {
-                let rep = self.report_file.lock().unwrap();
-                let stat = &rep.data.hasher;
                 write!(
                     buf,
                     " con:{:.1}/{:.1} infl:{} workers:{}/{} done:{}",
-                    stat.concurrency,
-                    stat.concurrency_max,
-                    stat.nr_in_flight,
-                    stat.nr_workers - stat.nr_idle_workers,
-                    stat.nr_workers,
-                    stat.nr_done,
+                    dh.stat.concurrency,
+                    dh.stat.concurrency_max,
+                    dh.stat.nr_in_flight,
+                    dh.stat.nr_workers - dh.stat.nr_idle_workers,
+                    dh.stat.nr_workers,
+                    dh.stat.nr_done,
                 )
                 .unwrap();
             }
