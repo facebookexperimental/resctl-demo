@@ -16,8 +16,8 @@ use rd_agent_intf::{
     IOCOST_BENCH_SVC_NAME,
 };
 
-const MINDER_AGENT_TIMEOUT: Duration = Duration::from_secs(60);
-const CMD_TIMEOUT: Duration = Duration::from_secs(10);
+const MINDER_AGENT_TIMEOUT: Duration = Duration::from_secs(120);
+const CMD_TIMEOUT: Duration = Duration::from_secs(30);
 const REP_RECORD_CADENCE: u64 = 10;
 const REP_RECORD_RETENTION: usize = 3;
 
