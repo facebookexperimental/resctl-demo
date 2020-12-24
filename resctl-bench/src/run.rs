@@ -33,6 +33,7 @@ struct RunCtxInner {
     dir: String,
     dev: Option<String>,
     linux_tar: Option<String>,
+    verbosity: u32,
     sysreqs: HashSet<SysReq>,
     missed_sysreqs: HashSet<SysReq>,
     need_linux_tar: bool,
@@ -77,6 +78,10 @@ impl RunCtxInner {
             args.push("--passive=all".into());
         } else if self.passive_keep_crit_mem_prot {
             args.push("--passive=keep-crit-mem-prot".into());
+        }
+
+        if self.verbosity > 0 {
+            args.push("-".to_string() + &"v".repeat(self.verbosity as usize));
         }
 
         args.append(&mut extra_args);
@@ -150,12 +155,14 @@ impl RunCtx {
         linux_tar: Option<&str>,
         base_bench_path: &str,
         prev_result: Option<serde_json::Value>,
+        verbosity: u32,
     ) -> Self {
         Self {
             inner: Arc::new(Mutex::new(RunCtxInner {
                 dir: dir.into(),
                 dev: dev.map(Into::into),
                 linux_tar: linux_tar.map(Into::into),
+                verbosity,
                 sysreqs: Default::default(),
                 missed_sysreqs: Default::default(),
                 need_linux_tar: false,

@@ -14,8 +14,7 @@ use super::HashdSel;
 
 pub fn hashd_path_args(cfg: &Config, sel: HashdSel) -> Vec<String> {
     let paths = &cfg.hashd_paths[sel as usize];
-
-    vec![
+    let mut args = vec![
         paths.bin.clone(),
         "--args".into(),
         paths.args.clone(),
@@ -29,7 +28,11 @@ pub fn hashd_path_args(cfg: &Config, sel: HashdSel) -> Vec<String> {
         paths.log_dir.clone(),
         "--interval".into(),
         "1".into(),
-    ]
+    ];
+    if cfg.verbosity > 0 {
+        args.push("-".to_string() + &"v".repeat(cfg.verbosity as usize));
+    }
+    args
 }
 
 pub struct Hashd {

@@ -181,6 +181,7 @@ pub struct Config {
     pub rep_1min_retention: Option<u64>,
     pub force_running: bool,
     pub bypass: bool,
+    pub verbosity: u32,
     pub enforce: EnforceConfig,
 
     pub sr_failed: HashSet<SysReq>,
@@ -434,6 +435,7 @@ impl Config {
             },
             force_running: args.force_running,
             bypass: args.bypass,
+            verbosity: args.verbosity,
             enforce: EnforceConfig {
                 all: !args.passive,
                 none: !args.keep_crit_mem_prot,

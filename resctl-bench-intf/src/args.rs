@@ -42,6 +42,8 @@ pub struct Args {
     pub keep_reports: bool,
     #[serde(skip)]
     pub clear_reports: bool,
+    #[serde(skip)]
+    pub verbosity: u32,
 }
 
 impl Default for Args {
@@ -56,6 +58,7 @@ impl Default for Args {
             incremental: false,
             keep_reports: false,
             clear_reports: false,
+            verbosity: 0,
         }
     }
 }
@@ -201,6 +204,7 @@ impl JsonArgs for Args {
         self.incremental = matches.is_present("incremental");
         self.keep_reports = matches.is_present("keep-reports");
         self.clear_reports = matches.is_present("clear-reports");
+        self.verbosity = Self::verbosity(matches);
 
         match matches.subcommand() {
             ("run", Some(subm)) => {

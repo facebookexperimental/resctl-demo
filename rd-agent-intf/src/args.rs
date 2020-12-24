@@ -86,6 +86,8 @@ pub struct Args {
     pub passive: bool,
     #[serde(skip)]
     pub keep_crit_mem_prot: bool,
+    #[serde(skip)]
+    pub verbosity: u32,
 }
 
 impl Default for Args {
@@ -107,6 +109,7 @@ impl Default for Args {
             bypass: false,
             passive: false,
             keep_crit_mem_prot: false,
+            verbosity: 0,
         }
     }
 }
@@ -185,6 +188,7 @@ impl JsonArgs for Args {
         self.bench_file = matches.value_of("bench-file").map(|x| x.to_string());
         self.reset = matches.is_present("reset");
         self.keep_reports = matches.is_present("keep-reports");
+        self.verbosity = Self::verbosity(&matches);
         self.bypass = matches.is_present("bypass");
         if let Some(v) = matches.value_of("passive") {
             self.passive = true;

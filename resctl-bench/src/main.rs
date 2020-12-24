@@ -165,6 +165,7 @@ fn main() {
                 args.linux_tar.as_deref(),
                 &base_bench_path,
                 jctx.result.take(),
+                args.verbosity,
             );
 
             if let Err(e) = jctx.run(&mut rctx) {
