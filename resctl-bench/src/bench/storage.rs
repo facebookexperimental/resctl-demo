@@ -111,10 +111,9 @@ impl Iterator for MemProfileIterator {
     fn next(&mut self) -> Option<Self::Item> {
         let v = self.cur;
         self.cur *= 2;
-        if v <= 8 {
-            Some((v, ((v as usize) << 30) / 2))
-        } else {
-            Some((v, ((v as usize) - 6) << 30))
+        match v {
+            v if v <= 8 => Some((v, ((v as usize) << 30) / 2)),
+            v => Some((v, ((v as usize) - 8) << 30)),
         }
     }
 }
@@ -208,7 +207,7 @@ impl StorageJob {
     }
 
     fn measure_supportable_memory_size(&mut self, rctx: &RunCtx) -> (usize, f64) {
-        let balloon_size = self.mem_avail - self.mem_share;
+        let balloon_size = self.mem_avail.saturating_sub(self.mem_share);
         rctx.start_hashd_fake_cpu_bench(balloon_size, self.log_bps, self.hash_size, self.rps_max);
 
         const NR_MEM_USAGES: usize = 10;
