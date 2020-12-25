@@ -3,7 +3,7 @@
 // The individual bench implementations under bench/ inherits all uses from
 // this file. Make common stuff available.
 use anyhow::{bail, Result};
-use log::{info, warn};
+use log::{error, info, warn};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::fmt::Write;
