@@ -426,6 +426,16 @@ impl Job for StorageJob {
         }
         rctx.set_prep_testfiles().start_agent();
 
+        // Depending on mem-profile, we might be using a large balloon which
+        // can push down available memory below workload's memory.low
+        // cratering memory reclaim. Make sure memory protection is off
+        // regardless of @active. We aren't testing memory protection
+        // anyway.
+        rctx.access_agent_files(|af| {
+            af.slices.data.disable_seqs.mem = af.report.data.seq;
+            af.slices.save().unwrap();
+        });
+
         info!("storage: Estimating available memory");
         self.mem_avail = self.estimate_available_memory(rctx);
         let saved_mem_avail_inner_retries = self.mem_avail_inner_retries;
