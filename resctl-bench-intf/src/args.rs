@@ -17,7 +17,7 @@ lazy_static::lazy_static! {
          -r, --result=[PATH]    'Record the bench results into the specified json file'
          -R, --rep-retention=[SECS] '1s report retention in seconds (default: {dfl_rep_ret:.1}h)'
          -a, --args=[FILE]      'Load base command line arguments from FILE'
-         -I, --incremental      'Run incremental benchmarks if supported (see bench helps)'
+         -i, --incremental      'Run incremental benchmarks if supported (see bench helps)'
              --clear-reports    'Remove existing report files'
              --keep-reports     'Don't delete expired report files'
          -v...                  'Sets the level of verbosity'",
@@ -65,46 +65,42 @@ impl Default for Args {
 
 impl Args {
     fn parse_job_spec(spec: &str) -> Result<JobSpec> {
-        let mut toks = spec.split(':');
+        let mut groups = spec.split(':');
 
-        let kind = match toks.next() {
+        let kind = match groups.next() {
             Some(v) => v,
             None => bail!("invalid job type"),
         };
 
+        let mut properties = vec![];
         let mut id = None;
-        let mut properties: Vec<BTreeMap<String, String>> = vec![Default::default()];
 
-        for tok in toks {
-            if tok.len() == 0 {
-                // "::" separates property groups. Allow only the first
-                // group, which contains options which apply to all
-                // following groups, to be empty.
-                if properties.len() == 1 || properties.last().unwrap().len() > 0 {
-                    properties.push(Default::default());
+        for group in groups {
+            let mut props = BTreeMap::<String, String>::new();
+            for tok in group.split(',') {
+                if tok.len() == 0 {
+                    continue;
                 }
-                continue;
-            }
 
-            // Allow empty key and/or value.
-            let mut kv = tok.splitn(2, '=').collect::<Vec<&str>>();
-            while kv.len() < 2 {
-                kv.push("");
-            }
+                // Allow key-only properties.
+                let mut kv = tok.splitn(2, '=').collect::<Vec<&str>>();
+                while kv.len() < 2 {
+                    kv.push("");
+                }
 
-            match kv[0] {
-                "id" => id = Some(kv[1]),
-                key => {
-                    properties
-                        .last_mut()
-                        .unwrap()
-                        .insert(key.into(), kv[1].into());
+                match kv[0] {
+                    "id" => id = Some(kv[1]),
+                    key => {
+                        props.insert(key.into(), kv[1].into());
+                    }
                 }
             }
+            properties.push(props);
         }
 
-        if properties.len() > 1 && properties.last().unwrap().len() == 0 {
-            properties.pop();
+        // Make sure there always is the first group.
+        if properties.len() == 0 {
+            properties.push(Default::default());
         }
 
         Ok(JobSpec::new(

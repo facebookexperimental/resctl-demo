@@ -56,7 +56,6 @@ impl Bench for IoCostQoSBench {
             let mut ovr = IoCostQoSOvr::default();
             for (k, v) in props.iter() {
                 match k.as_str() {
-                    "default" => ovr = Default::default(),
                     "rpct" => ovr.rpct = Some(v.parse::<f64>()?),
                     "rlat" => ovr.rlat = Some(v.parse::<u64>()?),
                     "wpct" => ovr.wpct = Some(v.parse::<f64>()?),
