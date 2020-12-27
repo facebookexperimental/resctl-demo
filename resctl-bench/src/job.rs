@@ -94,22 +94,16 @@ impl JobCtx {
         rctx.add_sysreqs(self.sysreqs.clone());
 
         self.started_at = unix_now();
+        let result = job.run(rctx)?;
+        self.ended_at = unix_now();
 
-        match job.run(rctx) {
-            Ok(result) => {
-                self.ended_at = unix_now();
-                self.sysreqs_report = Some((*rctx.sysreqs_report().unwrap()).clone());
-                self.missed_sysreqs = rctx.missed_sysreqs();
-                if let Some(rep) = rctx.report_sample() {
-                    self.iocost = rep.iocost.clone();
-                }
-                self.result = Some(result);
-                Ok(())
-            }
-            Err(e) => {
-                bail!("Failed to run {} ({})", self.spec, &e);
-            }
+        self.sysreqs_report = Some((*rctx.sysreqs_report().unwrap()).clone());
+        self.missed_sysreqs = rctx.missed_sysreqs();
+        if let Some(rep) = rctx.report_sample() {
+            self.iocost = rep.iocost.clone();
         }
+        self.result = Some(result);
+        Ok(())
     }
 
     pub fn format(&self) -> String {

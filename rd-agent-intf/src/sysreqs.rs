@@ -11,6 +11,7 @@ const SYSREQ_DOC: &str = "\
 // satisfied: List of satifised system requirements
 // missed: List of missed system requirements
 // scr_dev_model: Scratch storage device model string
+// scr_dev_fwrev: Scratch storage device firmware revision string
 // scr_dev_size: Scratch storage device size
 // swap_size: Swap size
 //
@@ -52,6 +53,7 @@ pub struct SysReqsReport {
     pub scr_dev: String,
     pub scr_devnr: (u32, u32),
     pub scr_dev_model: String,
+    pub scr_dev_fwrev: String,
     pub scr_dev_size: u64,
     pub scr_dev_iosched: String,
 }

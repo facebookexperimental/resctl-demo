@@ -107,22 +107,26 @@ pub fn update_iocost(knobs: &mut BenchKnobs, cfg: &Config, iocost_seq: u64) -> R
 
     let iocost: IoCostKnobs = serde_json::from_reader(f)?;
 
-    let (e_maj, e_min) = devname_to_devnr(&cfg.scr_dev)?;
-    let (maj, min) = match scan_fmt!(&iocost.devnr, "{}:{}", u32, u32) {
+    let devnr = match scan_fmt!(&iocost.devnr, "{}:{}", u32, u32) {
         Ok(v) => v,
         Err(_) => bail!("iocost bench reported invalid devnr {:?}", &iocost.devnr),
     };
-    if maj != e_maj || min != e_min {
+    if devnr != cfg.scr_devnr {
         bail!(
             "iocost bench result is on the wrong device {}:{}, expected {}:{}",
-            maj,
-            min,
-            e_maj,
-            e_min
+            devnr.0,
+            devnr.1,
+            cfg.scr_devnr.0,
+            cfg.scr_devnr.1
         );
     }
 
+    let (dev_model, dev_fwrev, dev_size) = devname_to_model_fwrev_size(&cfg.scr_dev)?;
+
     knobs.iocost = iocost;
+    knobs.iocost_dev_model = dev_model;
+    knobs.iocost_dev_fwrev = dev_fwrev;
+    knobs.iocost_dev_size = dev_size;
     knobs.iocost_seq = iocost_seq;
     knobs.timestamp = DateTime::from(SystemTime::now());
     Ok(())

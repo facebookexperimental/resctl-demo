@@ -296,18 +296,10 @@ impl Job for IoCostQoSJob {
     }
 
     fn run(&mut self, rctx: &mut RunCtx) -> Result<serde_json::Value> {
-        let bench = match JsonConfigFile::<BenchKnobs>::load(rctx.base_bench_path()) {
-            Ok(v) => v.data,
-            Err(e) => bail!(
-                "iocost-qos: Failed to open {:?}, run iocost-params first ({})",
-                rctx.base_bench_path(),
-                &e
-            ),
-        };
-        if bench.iocost_seq == 0 {
-            bail!("iocost-qos: iocost parameters missing, run iocost-params first");
+        let bench = rctx.base_bench().clone();
+        if rctx.base_bench().iocost_seq == 0 {
+            bail!("iocost-qos: iocost parameters missing, run iocost-params first or use --iocost-from-sys");
         }
-
         let prev_result = self.verify_prev_result(rctx.prev_result(), &bench);
         if prev_result.is_some() {
             self.mem_profile = prev_result.as_ref().unwrap().results[0].storage.mem_profile;
@@ -462,7 +454,7 @@ impl Job for IoCostQoSJob {
                 i,
                 Self::format_qos_ovr(ovr.as_ref(), &result.base_qos)
             )
-                .unwrap();
+            .unwrap();
             if ovr.is_none() {
                 writeln!(out, " mem_profile={}", baseline.mem_profile).unwrap();
             } else {

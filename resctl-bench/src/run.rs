@@ -142,8 +142,8 @@ impl RunCtxInner {
 
 pub struct RunCtx {
     inner: Arc<Mutex<RunCtxInner>>,
-    base_bench_path: String,
     agent_init_fns: Vec<Box<dyn FnOnce(&mut RunCtx)>>,
+    base_bench: rd_agent_intf::BenchKnobs,
     prev_result: Option<serde_json::Value>,
     pub commit_bench: bool,
 }
@@ -153,7 +153,7 @@ impl RunCtx {
         dir: &str,
         dev: Option<&str>,
         linux_tar: Option<&str>,
-        base_bench_path: &str,
+        base_bench: &rd_agent_intf::BenchKnobs,
         prev_result: Option<serde_json::Value>,
         verbosity: u32,
     ) -> Self {
@@ -178,7 +178,7 @@ impl RunCtx {
                 reports: VecDeque::new(),
                 report_sample: None,
             })),
-            base_bench_path: base_bench_path.into(),
+            base_bench: base_bench.clone(),
             agent_init_fns: vec![],
             prev_result,
             commit_bench: false,
@@ -236,8 +236,8 @@ impl RunCtx {
         self.prev_result.take()
     }
 
-    pub fn base_bench_path(&self) -> &str {
-        &self.base_bench_path
+    pub fn base_bench(&self) -> &rd_agent_intf::BenchKnobs {
+        &self.base_bench
     }
 
     fn minder(inner: Arc<Mutex<RunCtxInner>>) {

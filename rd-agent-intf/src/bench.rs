@@ -86,6 +86,9 @@ pub struct BenchKnobs {
     pub iocost_seq: u64,
     pub hashd: HashdKnobs,
     pub iocost: IoCostKnobs,
+    pub iocost_dev_model: String,
+    pub iocost_dev_fwrev: String,
+    pub iocost_dev_size: u64,
 }
 
 impl Default for BenchKnobs {
@@ -96,6 +99,9 @@ impl Default for BenchKnobs {
             iocost_seq: 0,
             hashd: Default::default(),
             iocost: Default::default(),
+            iocost_dev_model: String::new(),
+            iocost_dev_fwrev: String::new(),
+            iocost_dev_size: 0,
         }
     }
 }

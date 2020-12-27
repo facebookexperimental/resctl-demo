@@ -1416,6 +1416,7 @@ dependencies = [
  "rd-agent-intf",
  "rd-hashd-intf",
  "resctl-bench-intf",
+ "scan_fmt",
  "serde",
  "serde_json",
  "statistical",

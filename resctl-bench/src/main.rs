@@ -1,6 +1,6 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
-use anyhow::{bail, Result};
-use log::{debug, error, info};
+use anyhow::{anyhow, bail, Result};
+use log::{debug, error, warn};
 use std::fs;
 use std::io::Write;
 use std::path::Path;
@@ -66,6 +66,98 @@ fn clean_up_report_files(args: &Args) -> Result<()> {
     }
 
     Ok(())
+}
+
+fn prep_base_bench(args: &Args) -> Result<(rd_agent_intf::BenchKnobs, String, String)> {
+    let scr_path = args.dir.clone() + "/scratch";
+    let devname = path_to_devname(&scr_path)
+        .map_err(|e| anyhow!("failed to resolve device for {:?} ({})", &scr_path, &e))?;
+    let devnr = devname_to_devnr(&devname).map_err(|e| {
+        anyhow!(
+            "failed to resolve device number for {:?} ({})",
+            &devname,
+            &e
+        )
+    })?;
+    let (dev_model, dev_fwrev, dev_size) = devname_to_model_fwrev_size(&devname).map_err(|e| {
+        anyhow!(
+            "failed to resolve model/fwrev/size for {:?} ({})",
+            &devname,
+            &e
+        )
+    })?;
+
+    let demo_bench_path = args.dir.clone() + "/" + rd_agent_intf::BENCH_FILENAME;
+    let bench_path = args.dir.clone() + "/" + RB_BENCH_FILENAME;
+
+    let mut bench = match rd_agent_intf::BenchKnobs::load(&demo_bench_path) {
+        Ok(v) => v,
+        Err(e) => {
+            warn!("Failed to load {:?} ({})", &demo_bench_path, &e);
+            Default::default()
+        }
+    };
+
+    if bench.iocost_dev_model.len() > 0 && bench.iocost_dev_model != dev_model {
+        bail!(
+            "benchfile device model {:?} doesn't match detected {:?}",
+            &bench.iocost_dev_model,
+            &dev_model
+        );
+    }
+    if bench.iocost_dev_fwrev.len() > 0 && bench.iocost_dev_fwrev != dev_fwrev {
+        bail!(
+            "benchfile device firmware revision {:?} doesn't match detected {:?}",
+            &bench.iocost_dev_fwrev,
+            &dev_fwrev
+        );
+    }
+    if bench.iocost_dev_size > 0 && bench.iocost_dev_size != dev_size {
+        bail!(
+            "benchfile device size {} doesn't match detected {}",
+            bench.iocost_dev_size,
+            dev_size
+        );
+    }
+
+    bench.iocost_dev_model = dev_model;
+    bench.iocost_dev_fwrev = dev_fwrev;
+    bench.iocost_dev_size = dev_size;
+
+    if args.iocost_from_sys {
+        let model = read_cgroup_nested_keyed_file("/sys/fs/cgroup/io.cost.model")
+            .map_err(|e| anyhow!("failed to read io.cost.model ({})", &e))?;
+        let qos = read_cgroup_nested_keyed_file("/sys/fs/cgroup/io.cost.qos")
+            .map_err(|e| anyhow!("failed to read io.cost.model ({})", &e))?;
+        let devnr_str = format!("{}:{}", devnr.0, devnr.1);
+
+        let model = model.get(&devnr_str).ok_or(anyhow!(
+            "io.cost.model doesn't contain entry for {:?}",
+            &devnr_str
+        ))?;
+        let qos = qos.get(&devnr_str).ok_or(anyhow!(
+            "io.cost.qos doesn't contain entry for {:?}",
+            &devnr_str
+        ))?;
+
+        bench.iocost_seq = 1;
+
+        bench.iocost.model.rbps = model["rbps"].parse::<u64>()?;
+        bench.iocost.model.rseqiops = model["rseqiops"].parse::<u64>()?;
+        bench.iocost.model.rrandiops = model["rrandiops"].parse::<u64>()?;
+        bench.iocost.model.wbps = model["wbps"].parse::<u64>()?;
+        bench.iocost.model.wseqiops = model["wseqiops"].parse::<u64>()?;
+        bench.iocost.model.wrandiops = model["wrandiops"].parse::<u64>()?;
+
+        bench.iocost.qos.rpct = qos["rpct"].parse::<f64>()?;
+        bench.iocost.qos.rlat = qos["rlat"].parse::<u64>()?;
+        bench.iocost.qos.wpct = qos["wpct"].parse::<f64>()?;
+        bench.iocost.qos.wlat = qos["wlat"].parse::<u64>()?;
+        bench.iocost.qos.min = qos["min"].parse::<f64>()?;
+        bench.iocost.qos.max = qos["max"].parse::<f64>()?;
+    }
+
+    Ok((bench, demo_bench_path, bench_path))
 }
 
 fn main() {
@@ -143,42 +235,41 @@ fn main() {
 
     // Use alternate bench file to avoid clobbering resctl-demo bench
     // results w/ e.g. fake_cpu_load ones.
-    let base_bench_path = args.dir.clone() + "/" + rd_agent_intf::BENCH_FILENAME;
-    let bench_path = args.dir.clone() + "/" + RB_BENCH_FILENAME;
+    let (mut base_bench, demo_bench_path, bench_path) =
+        prep_base_bench(args).expect("Failed to prepare bench files");
 
     // Run the benches and print out the results.
     for jctx in job_ctxs.iter_mut() {
         if jctx.run {
-            // Always start with a fresh committed bench file.
-            if Path::new(&base_bench_path).exists() {
-                if let Err(e) = fs::copy(&base_bench_path, &bench_path) {
-                    panic!(
-                        "Failed to copy {} to {} ({})",
-                        &base_bench_path, &bench_path, &e
-                    );
-                }
+            // Always start with a fresh bench file.
+            if let Err(e) = base_bench.save(&bench_path) {
+                error!("Failed to set up {:?} ({})", &bench_path, &e);
+                panic!();
             }
 
             let mut rctx = RunCtx::new(
                 &args.dir,
                 args.dev.as_deref(),
                 args.linux_tar.as_deref(),
-                &base_bench_path,
+                &base_bench,
                 jctx.result.take(),
                 args.verbosity,
             );
 
             if let Err(e) = jctx.run(&mut rctx) {
-                panic!("Failed to run {} ({})", &jctx.spec, &e);
+                error!("Failed to run {} ({})", &jctx.spec, &e);
+                panic!();
             }
 
             if rctx.commit_bench {
-                info!("Committing bench results to {:?}", &base_bench_path);
-                if let Err(e) = fs::copy(&bench_path, &base_bench_path) {
-                    panic!(
-                        "Failed to copy {} to {} ({})",
-                        &base_bench_path, &bench_path, &e
+                base_bench = rd_agent_intf::BenchKnobs::load(&bench_path)
+                    .expect(&format!("Failed to load {:?}", &bench_path));
+                if let Err(e) = base_bench.save(&demo_bench_path) {
+                    error!(
+                        "Failed to commit bench result to {:?} ({})",
+                        &demo_bench_path, &e
                     );
+                    panic!();
                 }
             }
         }
