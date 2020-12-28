@@ -59,11 +59,11 @@ impl Hasher {
             for idx in 0..((input_size + *PAGE_SIZE - 1) / *PAGE_SIZE) {
                 let off = idx * *PAGE_SIZE;
                 f.seek(SeekFrom::Start(input_off + off as u64))?;
-                f.read(&mut self.buf[self.off + off..self.off + off + 1])?;
+                f.read_exact(&mut self.buf[self.off + off..self.off + off + 1])?;
             }
         } else {
             f.seek(SeekFrom::Start(input_off))?;
-            f.read(&mut self.buf[self.off..len])?;
+            f.read_exact(&mut self.buf[self.off..len])?;
         }
         self.off = len;
         Ok(input_size)
@@ -699,26 +699,36 @@ impl DispatchThread {
             return false;
         }
 
-        let p01 = self.ckms.query(0.01);
-        if p01.is_none() {
-            return false;
+        if self.nr_done > self.last_nr_done {
+            self.lat.min = self.lat_min;
+            self.lat.p01 = self.ckms.query(0.01).unwrap().1;
+            self.lat.p05 = self.ckms.query(0.05).unwrap().1;
+            self.lat.p10 = self.ckms.query(0.10).unwrap().1;
+            self.lat.p16 = self.ckms.query(0.16).unwrap().1;
+            self.lat.p50 = self.ckms.query(0.50).unwrap().1;
+            self.lat.p84 = self.ckms.query(0.84).unwrap().1;
+            self.lat.p90 = self.ckms.query(0.90).unwrap().1;
+            self.lat.p95 = self.ckms.query(0.95).unwrap().1;
+            self.lat.p99 = self.ckms.query(0.99).unwrap().1;
+            self.lat.p99_9 = self.ckms.query(0.999).unwrap().1;
+            self.lat.p99_99 = self.ckms.query(0.9999).unwrap().1;
+            self.lat.p99_999 = self.ckms.query(0.99999).unwrap().1;
+            self.lat.max = self.lat_max;
+            self.lat.ctl = self.ckms.query(self.params.lat_target_pct).unwrap().1;
+        } else {
+            self.lat = Default::default();
+            if self.nr_in_flight > 0 {
+                warn!(
+                    "No completion in {} with {} requests in flight, con={:.1}/{:.1}",
+                    format_duration(self.params.control_period),
+                    self.nr_in_flight,
+                    self.concurrency,
+                    self.concurrency_max
+                );
+                // Slam on the brakes.
+                self.lat.ctl = self.params.lat_target * 10.0;
+            }
         }
-
-        self.lat.min = self.lat_min;
-        self.lat.p01 = p01.unwrap().1;
-        self.lat.p05 = self.ckms.query(0.05).unwrap().1;
-        self.lat.p10 = self.ckms.query(0.10).unwrap().1;
-        self.lat.p16 = self.ckms.query(0.16).unwrap().1;
-        self.lat.p50 = self.ckms.query(0.50).unwrap().1;
-        self.lat.p84 = self.ckms.query(0.84).unwrap().1;
-        self.lat.p90 = self.ckms.query(0.90).unwrap().1;
-        self.lat.p95 = self.ckms.query(0.95).unwrap().1;
-        self.lat.p99 = self.ckms.query(0.99).unwrap().1;
-        self.lat.p99_9 = self.ckms.query(0.999).unwrap().1;
-        self.lat.p99_99 = self.ckms.query(0.9999).unwrap().1;
-        self.lat.p99_999 = self.ckms.query(0.99999).unwrap().1;
-        self.lat.max = self.lat_max;
-        self.lat.ctl = self.ckms.query(self.params.lat_target_pct).unwrap().1;
         self.rps = (self.nr_done - self.last_nr_done) as f64 / dur.as_secs_f64();
 
         self.reset_lat_rps(now);
@@ -812,8 +822,10 @@ impl DispatchThread {
                             ch.send(Stat { lat: self.lat.clone(),
                                            rps: self.rps,
                                            concurrency: self.concurrency,
+                                           concurrency_max: self.concurrency_max,
                                            file_addr_frac: self.file_addr_frac,
                                            anon_addr_frac: self.anon_addr_frac,
+                                           nr_in_flight: self.nr_in_flight,
                                            nr_done: self.nr_done,
                                            nr_workers: self.wq.nr_workers(),
                                            nr_idle_workers: self.wq.nr_idle_workers(),

@@ -6,17 +6,7 @@ use std::time::UNIX_EPOCH;
 
 use util::*;
 
-#[derive(
-    Clone,
-    Copy,
-    Debug,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Serialize,
-    Deserialize
-)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum Phase {
     Prep,
     Running,
@@ -116,8 +106,10 @@ impl<T: Into<f64>> ops::DivAssign<T> for Latencies {
 const STAT_DOC: &str = "\
 //  rps: Request per second in the last control period
 //  concurrency: Current number of active worker threads
+//  concurrency_max: Current concurrency max from latency target
 //  file_addr_frac: Current file footprint fraction
 //  anon_addr_frac: Current anon footprint fraction
+//  nr_in_flight: The number of requests in flight
 //  nr_done: Total number of hashes calculated
 //  nr_workers: Number of worker threads
 //  nr_idle_workers: Number of idle workers
@@ -129,8 +121,10 @@ const STAT_DOC: &str = "\
 pub struct Stat {
     pub rps: f64,
     pub concurrency: f64,
+    pub concurrency_max: f64,
     pub file_addr_frac: f64,
     pub anon_addr_frac: f64,
+    pub nr_in_flight: u32,
     pub nr_done: u64,
     pub nr_workers: usize,
     pub nr_idle_workers: usize,
@@ -146,8 +140,10 @@ impl ops::AddAssign<&Stat> for Stat {
     fn add_assign(&mut self, rhs: &Stat) {
         self.rps += rhs.rps;
         self.concurrency += rhs.concurrency;
+        self.concurrency_max += rhs.concurrency_max;
         self.file_addr_frac += rhs.file_addr_frac;
         self.anon_addr_frac += rhs.anon_addr_frac;
+        self.nr_in_flight += rhs.nr_in_flight;
         self.nr_done += rhs.nr_done;
         self.nr_workers += rhs.nr_workers;
         self.nr_idle_workers += rhs.nr_idle_workers;
@@ -163,8 +159,11 @@ impl Stat {
         let divf64 = div.into();
         self.rps /= divf64;
         self.concurrency /= divf64;
+        self.concurrency_max /= divf64;
         self.file_addr_frac /= divf64;
         self.anon_addr_frac /= divf64;
+        self.nr_in_flight = (self.nr_in_flight as f64 / divf64).round() as u32;
+        self.nr_done = (self.nr_done as f64 / divf64).round() as u64;
         self.nr_workers = (self.nr_workers as f64 / divf64).round() as usize;
         self.nr_idle_workers = (self.nr_idle_workers as f64 / divf64).round() as usize;
         self.lat /= divf64;

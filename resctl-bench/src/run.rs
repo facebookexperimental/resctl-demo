@@ -16,8 +16,8 @@ use rd_agent_intf::{
     IOCOST_BENCH_SVC_NAME,
 };
 
-const MINDER_AGENT_TIMEOUT: Duration = Duration::from_secs(30);
-const CMD_TIMEOUT: Duration = Duration::from_secs(10);
+const MINDER_AGENT_TIMEOUT: Duration = Duration::from_secs(120);
+const CMD_TIMEOUT: Duration = Duration::from_secs(30);
 const REP_RECORD_CADENCE: u64 = 10;
 const REP_RECORD_RETENTION: usize = 3;
 
@@ -33,6 +33,7 @@ struct RunCtxInner {
     dir: String,
     dev: Option<String>,
     linux_tar: Option<String>,
+    verbosity: u32,
     sysreqs: HashSet<SysReq>,
     missed_sysreqs: HashSet<SysReq>,
     need_linux_tar: bool,
@@ -77,6 +78,10 @@ impl RunCtxInner {
             args.push("--passive=all".into());
         } else if self.passive_keep_crit_mem_prot {
             args.push("--passive=keep-crit-mem-prot".into());
+        }
+
+        if self.verbosity > 0 {
+            args.push("-".to_string() + &"v".repeat(self.verbosity as usize));
         }
 
         args.append(&mut extra_args);
@@ -137,8 +142,8 @@ impl RunCtxInner {
 
 pub struct RunCtx {
     inner: Arc<Mutex<RunCtxInner>>,
-    base_bench_path: String,
     agent_init_fns: Vec<Box<dyn FnOnce(&mut RunCtx)>>,
+    base_bench: rd_agent_intf::BenchKnobs,
     prev_result: Option<serde_json::Value>,
     pub commit_bench: bool,
 }
@@ -148,14 +153,16 @@ impl RunCtx {
         dir: &str,
         dev: Option<&str>,
         linux_tar: Option<&str>,
-        base_bench_path: &str,
+        base_bench: &rd_agent_intf::BenchKnobs,
         prev_result: Option<serde_json::Value>,
+        verbosity: u32,
     ) -> Self {
         Self {
             inner: Arc::new(Mutex::new(RunCtxInner {
                 dir: dir.into(),
                 dev: dev.map(Into::into),
                 linux_tar: linux_tar.map(Into::into),
+                verbosity,
                 sysreqs: Default::default(),
                 missed_sysreqs: Default::default(),
                 need_linux_tar: false,
@@ -171,7 +178,7 @@ impl RunCtx {
                 reports: VecDeque::new(),
                 report_sample: None,
             })),
-            base_bench_path: base_bench_path.into(),
+            base_bench: base_bench.clone(),
             agent_init_fns: vec![],
             prev_result,
             commit_bench: false,
@@ -229,8 +236,8 @@ impl RunCtx {
         self.prev_result.take()
     }
 
-    pub fn base_bench_path(&self) -> &str {
-        &self.base_bench_path
+    pub fn base_bench(&self) -> &rd_agent_intf::BenchKnobs {
+        &self.base_bench
     }
 
     fn minder(inner: Arc<Mutex<RunCtxInner>>) {
@@ -264,10 +271,34 @@ impl RunCtx {
 
             let mut nr_tries = 3;
             'status: loop {
-                if let Err(e) = svc.unit.refresh() {
-                    if SystemTime::now().duration_since(last_status_at).unwrap()
-                        > MINDER_AGENT_TIMEOUT
-                    {
+                match svc.unit.refresh() {
+                    Ok(()) => {
+                        last_status_at = SystemTime::now();
+                        if svc.unit.state == systemd::UnitState::Running {
+                            break 'status;
+                        }
+
+                        if nr_tries > 0 {
+                            warn!(
+                                "minder: agent status != running ({:?}), re-verifying...",
+                                &svc.unit.state
+                            );
+                            nr_tries -= 1;
+                            continue 'status;
+                        }
+
+                        error!("minder: agent is not running ({:?})", &svc.unit.state);
+                        ctx.minder_state = MinderState::AgentNotRunning(svc.unit.state.clone());
+                        break 'outer;
+                    }
+                    Err(e) => {
+                        if SystemTime::now().duration_since(last_status_at).unwrap()
+                            <= MINDER_AGENT_TIMEOUT
+                        {
+                            warn!("minder: failed to refresh agent status ({})", &e);
+                            break 'status;
+                        }
+
                         error!(
                             "minder: failed to update agent status for over {}s, giving up ({})",
                             MINDER_AGENT_TIMEOUT.as_secs(),
@@ -276,26 +307,7 @@ impl RunCtx {
                         ctx.minder_state = MinderState::AgentTimeout;
                         break 'outer;
                     }
-                    warn!("minder: failed to refresh agent status ({})", &e);
                 }
-                last_status_at = SystemTime::now();
-
-                if svc.unit.state != systemd::UnitState::Running {
-                    if nr_tries > 0 {
-                        warn!(
-                            "minder: agent status != running ({:?}), re-verifying...",
-                            &svc.unit.state
-                        );
-                        nr_tries -= 1;
-                        continue 'status;
-                    } else {
-                        error!("minder: agent is not running ({:?})", &svc.unit.state);
-                        ctx.minder_state = MinderState::AgentNotRunning(svc.unit.state.clone());
-                        break 'outer;
-                    }
-                }
-
-                break 'status;
             }
 
             ctx.agent_files.refresh();

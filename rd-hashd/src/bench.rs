@@ -5,12 +5,13 @@ use log::{debug, info, warn};
 use num::Integer;
 use pid::Pid;
 use std::collections::VecDeque;
+use std::fmt::Write;
 use std::sync::{Arc, Mutex};
 use std::thread::{sleep, spawn, JoinHandle};
 use std::time::{Duration, Instant};
 use std::u32;
 
-use rd_hashd_intf::{params::PidParams, Params, Phase, Report};
+use rd_hashd_intf::{params::PidParams, Params, Phase, Report, Stat};
 use util::*;
 
 use super::hasher;
@@ -195,6 +196,7 @@ impl Default for Cfg {
 
 struct DispHist {
     disp: hasher::Dispatch,
+    stat: Stat,
     hist: VecDeque<[f64; 2]>, // [Lat, Rps]
 }
 
@@ -202,6 +204,7 @@ struct TestHasher {
     disp_hist: Arc<Mutex<DispHist>>,
     term_tx: Option<Sender<()>>,
     updater_jh: Option<JoinHandle<()>>,
+    verbose: bool,
 }
 
 impl TestHasher {
@@ -220,6 +223,7 @@ impl TestHasher {
                     let stat = &mut rep.data.hasher;
 
                     *stat = dh.disp.get_stat();
+                    dh.stat = stat.clone();
                     if stat.rps > 0.0 {
                         dh.hist.push_front([stat.lat.ctl, stat.rps]);
                         dh.hist.truncate(hist_max);
@@ -242,13 +246,18 @@ impl TestHasher {
         hist_max: usize,
         report_file: Arc<Mutex<JsonReportFile<Report>>>,
         fill_anon: bool,
+        verbose: bool,
     ) -> Self {
         let disp = hasher::Dispatch::new(max_size, tf, params, comp, logger);
         if fill_anon {
             disp.fill_anon();
         }
         let hist = VecDeque::new();
-        let disp_hist = Arc::new(Mutex::new(DispHist { disp, hist }));
+        let disp_hist = Arc::new(Mutex::new(DispHist {
+            disp,
+            stat: Default::default(),
+            hist,
+        }));
         let dh_copy = disp_hist.clone();
         let (term_tx, term_rx) = channel::unbounded();
         let updater_jh =
@@ -257,6 +266,7 @@ impl TestHasher {
             disp_hist,
             term_tx: Some(term_tx),
             updater_jh: Some(updater_jh),
+            verbose,
         }
     }
 
@@ -419,7 +429,7 @@ impl TestHasher {
                     ""
                 }
             };
-            info!(
+            let mut buf = format!(
                 "[{}/{}] lat:{:5.1} rps:{:6.1} slope:{:+6.2}% error_slope:{:+6.2}%{}",
                 nr_converges,
                 target_converges,
@@ -429,6 +439,20 @@ impl TestHasher {
                 e_slope * TO_PCT,
                 verdict_str
             );
+            if self.verbose {
+                write!(
+                    buf,
+                    " con:{:.1}/{:.1} infl:{} workers:{}/{} done:{}",
+                    dh.stat.concurrency,
+                    dh.stat.concurrency_max,
+                    dh.stat.nr_in_flight,
+                    dh.stat.nr_workers - dh.stat.nr_idle_workers,
+                    dh.stat.nr_workers,
+                    dh.stat.nr_done,
+                )
+                .unwrap();
+            }
+            info!("{}", buf);
 
             if let Some((lat, rps)) = should_end(nr_slots, streak, (lat, rps)) {
                 return (lat, rps);
@@ -513,7 +537,7 @@ impl Bench {
             params_file,
             report_file: Arc::new(Mutex::new(report_file)),
             params: p,
-            bar_hidden: verbosity > 0,
+            bar_hidden: verbosity > 1,
         }
     }
 
@@ -555,19 +579,18 @@ impl Bench {
         max_size: u64,
         tf: TestFiles,
         params: &Params,
-        comp: f64,
-        report_file: Arc<Mutex<JsonReportFile<Report>>>,
         fill_anon: bool,
     ) -> TestHasher {
         TestHasher::new(
             max_size,
             tf,
             params,
-            comp,
+            self.args_file.data.compressibility,
             create_logger(&self.args_file.data, params),
             HIST_MAX,
-            report_file,
+            self.report_file.clone(),
             fill_anon,
+            self.args_file.data.verbosity > 0,
         )
     }
 
@@ -680,14 +703,7 @@ impl Bench {
         }
         params.file_size_mean = (params.file_size_mean as f64 * 1.05) as usize;
 
-        let th = self.create_test_hasher(
-            max_size,
-            tf,
-            &params,
-            self.args_file.data.compressibility,
-            self.report_file.clone(),
-            true,
-        );
+        let th = self.create_test_hasher(max_size, tf, &params, true);
         let mut pid = Pid::new(
             cfg.fsz_pid.kp,
             cfg.fsz_pid.ki,
@@ -743,14 +759,7 @@ impl Bench {
         params.anon_addr_stdev_ratio = 100.0;
         params.rps_target = u32::MAX;
 
-        let th = self.create_test_hasher(
-            cfg.size,
-            tf,
-            &params,
-            self.args_file.data.compressibility,
-            self.report_file.clone(),
-            true,
-        );
+        let th = self.create_test_hasher(cfg.size, tf, &params, true);
         let mut last_rps = 1.0;
 
         while nr_rounds < cfg.rounds {
@@ -1099,14 +1108,7 @@ impl Bench {
             self.set_phase(Phase::BenchMemPrep);
             let tf = self.prep_tf(max_size, "Memory saturation bench");
 
-            let mut th = self.create_test_hasher(
-                max_size,
-                tf,
-                &self.params,
-                self.args_file.data.compressibility,
-                self.report_file.clone(),
-                false,
-            );
+            let mut th = self.create_test_hasher(max_size, tf, &self.params, false);
 
             self.params.mem_frac = self.bench_memio_saturation_bisect(&cfg.mem_sat, &mut th);
             let (fsize, asize) = self.mem_sizes(self.params.mem_frac);

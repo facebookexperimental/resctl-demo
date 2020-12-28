@@ -2,6 +2,7 @@
 use chrono::prelude::*;
 use indicatif::{ProgressBar, ProgressStyle};
 use log::{debug, error, info, warn};
+use std::fmt::Write;
 use std::process::exit;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::sleep;
@@ -237,7 +238,7 @@ fn main() {
         );
 
         // Lay out the testfiles while reporting progress.
-        let mut tfbar = TestFilesProgressBar::new(args.file_max_size(), &greet, args.verbosity > 0);
+        let mut tfbar = TestFilesProgressBar::new(args.file_max_size(), &greet, args.verbosity > 1);
         tf.setup(|pos| {
             tfbar.progress(pos);
             report_file.data.testfiles_progress = pos as f64 / args.file_max_size() as f64;
@@ -313,7 +314,7 @@ fn main() {
         {
             stat_sum.avg(nr_sums);
 
-            info!(
+            let mut buf = format!(
                 "p50:{:5.1} p84:{:5.1} p90:{:5.1} p99:{:5.1} rps:{:6.1} con:{:5.1}",
                 stat_sum.lat.p50 * TO_MSEC,
                 stat_sum.lat.p84 * TO_MSEC,
@@ -322,6 +323,19 @@ fn main() {
                 stat_sum.rps,
                 stat.concurrency
             );
+            if args.verbosity > 0 {
+                write!(
+                    buf,
+                    "/{:.1} infl:{} workers:{}/{} done:{}",
+                    stat.concurrency_max,
+                    stat.nr_in_flight,
+                    stat.nr_workers - stat.nr_idle_workers,
+                    stat.nr_workers,
+                    stat.nr_done,
+                )
+                .unwrap();
+            }
+            info!("{}", buf);
 
             stat_sum = Default::default();
             nr_sums = 0;

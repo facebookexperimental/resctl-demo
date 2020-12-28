@@ -181,6 +181,7 @@ pub struct Config {
     pub rep_1min_retention: Option<u64>,
     pub force_running: bool,
     pub bypass: bool,
+    pub verbosity: u32,
     pub enforce: EnforceConfig,
 
     pub sr_failed: HashSet<SysReq>,
@@ -434,6 +435,7 @@ impl Config {
             },
             force_running: args.force_running,
             bypass: args.bypass,
+            verbosity: args.verbosity,
             enforce: EnforceConfig {
                 all: !args.passive,
                 none: !args.keep_crit_mem_prot,
@@ -901,14 +903,15 @@ impl Config {
         // sideload checks
         side::startup_checks(&mut self.sr_failed);
 
-        let (scr_dev_model, scr_dev_size) = match devname_to_model_and_size(&self.scr_dev) {
-            Ok(v) => v,
-            Err(e) => bail!(
-                "failed to determine model and size of {:?} ({})",
-                &self.scr_dev,
-                &e
-            ),
-        };
+        let (scr_dev_model, scr_dev_fwrev, scr_dev_size) =
+            match devname_to_model_fwrev_size(&self.scr_dev) {
+                Ok(v) => v,
+                Err(e) => bail!(
+                    "failed to determine model, fwrev and size of {:?} ({})",
+                    &self.scr_dev,
+                    &e
+                ),
+            };
 
         SysReqsReport {
             satisfied: &*ALL_SYSREQS_SET ^ &self.sr_failed,
@@ -919,6 +922,7 @@ impl Config {
             scr_dev: self.scr_dev.clone(),
             scr_devnr: self.scr_devnr,
             scr_dev_model,
+            scr_dev_fwrev,
             scr_dev_size,
             scr_dev_iosched,
         }
@@ -1168,7 +1172,9 @@ fn main() {
         }
     }
 
+    let mut _iocost_sys_save = None;
     if !cfg.bypass {
+        _iocost_sys_save = Some(IoCostSysSave::read_from_sys(cfg.scr_devnr));
         if let Err(e) = cfg.startup_checks() {
             if args_file.data.force {
                 warn!(

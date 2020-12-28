@@ -523,7 +523,9 @@ fn main() {
     // avoid flickering, see https://github.com/gyscos/cursive/issues/525.
     let mut siv = Cursive::new(|| {
         let termion_backend = cursive::backends::termion::Backend::init().unwrap();
-        Box::new(cursive_buffered_backend::BufferedBackend::new(termion_backend))
+        Box::new(cursive_buffered_backend::BufferedBackend::new(
+            termion_backend,
+        ))
     });
     set_cursive_theme(&mut siv);
 

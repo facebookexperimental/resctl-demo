@@ -25,11 +25,13 @@ use std::thread_local;
 use std::time::{Duration, UNIX_EPOCH};
 use sysinfo::{self, SystemExt};
 
+pub mod iocost;
 pub mod journal_tailer;
 pub mod json_file;
 pub mod storage_info;
 pub mod systemd;
 
+pub use iocost::{IoCostModelParams, IoCostQoSParams, IoCostSysSave};
 pub use journal_tailer::*;
 pub use json_file::{
     JsonArgs, JsonArgsHelper, JsonConfigFile, JsonLoad, JsonRawFile, JsonReportFile, JsonSave,
@@ -362,8 +364,8 @@ pub fn init_logging(verbosity: u32) {
         env_logger::init();
     } else {
         let sl_level = match verbosity {
-            0 => sl::LevelFilter::Info,
-            1 => sl::LevelFilter::Debug,
+            0 | 1 => sl::LevelFilter::Info,
+            2 => sl::LevelFilter::Debug,
             _ => sl::LevelFilter::Trace,
         };
         let mut lcfg = sl::ConfigBuilder::new();

@@ -17,7 +17,8 @@ lazy_static::lazy_static! {
          -r, --result=[PATH]    'Record the bench results into the specified json file'
          -R, --rep-retention=[SECS] '1s report retention in seconds (default: {dfl_rep_ret:.1}h)'
          -a, --args=[FILE]      'Load base command line arguments from FILE'
-         -I, --incremental      'Run incremental benchmarks if supported (see bench helps)'
+         -i, --incremental      'Run incremental benchmarks if supported (see bench helps)'
+         -c, --iocost-from-sys  'Use iocost parameters from io.cost.{{model,qos}} instead of bench.json'
              --clear-reports    'Remove existing report files'
              --keep-reports     'Don't delete expired report files'
          -v...                  'Sets the level of verbosity'",
@@ -39,9 +40,13 @@ pub struct Args {
     #[serde(skip)]
     pub incremental: bool,
     #[serde(skip)]
+    pub iocost_from_sys: bool,
+    #[serde(skip)]
     pub keep_reports: bool,
     #[serde(skip)]
     pub clear_reports: bool,
+    #[serde(skip)]
+    pub verbosity: u32,
 }
 
 impl Default for Args {
@@ -54,54 +59,52 @@ impl Default for Args {
             job_specs: Default::default(),
             rep_retention: 24 * 3600,
             incremental: false,
+            iocost_from_sys: false,
             keep_reports: false,
             clear_reports: false,
+            verbosity: 0,
         }
     }
 }
 
 impl Args {
     fn parse_job_spec(spec: &str) -> Result<JobSpec> {
-        let mut toks = spec.split(':');
+        let mut groups = spec.split(':');
 
-        let kind = match toks.next() {
+        let kind = match groups.next() {
             Some(v) => v,
             None => bail!("invalid job type"),
         };
 
+        let mut properties = vec![];
         let mut id = None;
-        let mut properties: Vec<BTreeMap<String, String>> = vec![Default::default()];
 
-        for tok in toks {
-            if tok.len() == 0 {
-                // "::" separates property groups. Allow only the first
-                // group, which contains options which apply to all
-                // following groups, to be empty.
-                if properties.len() == 1 || properties.last().unwrap().len() > 0 {
-                    properties.push(Default::default());
+        for group in groups {
+            let mut props = BTreeMap::<String, String>::new();
+            for tok in group.split(',') {
+                if tok.len() == 0 {
+                    continue;
                 }
-                continue;
-            }
 
-            // Allow empty key and/or value.
-            let mut kv = tok.splitn(2, '=').collect::<Vec<&str>>();
-            while kv.len() < 2 {
-                kv.push("");
-            }
+                // Allow key-only properties.
+                let mut kv = tok.splitn(2, '=').collect::<Vec<&str>>();
+                while kv.len() < 2 {
+                    kv.push("");
+                }
 
-            match kv[0] {
-                "id" => id = Some(kv[1]),
-                key => {
-                    properties
-                        .last_mut()
-                        .unwrap()
-                        .insert(key.into(), kv[1].into());
+                match kv[0] {
+                    "id" => id = Some(kv[1]),
+                    key => {
+                        props.insert(key.into(), kv[1].into());
+                    }
                 }
             }
+            properties.push(props);
         }
 
-        if properties.len() > 1 && properties.last().unwrap().len() == 0 {
-            properties.pop();
+        // Make sure there always is the first group.
+        if properties.len() == 0 {
+            properties.push(Default::default());
         }
 
         Ok(JobSpec::new(
@@ -199,8 +202,10 @@ impl JsonArgs for Args {
         }
 
         self.incremental = matches.is_present("incremental");
+        self.iocost_from_sys = matches.is_present("iocost-from-sys");
         self.keep_reports = matches.is_present("keep-reports");
         self.clear_reports = matches.is_present("clear-reports");
+        self.verbosity = Self::verbosity(matches);
 
         match matches.subcommand() {
             ("run", Some(subm)) => {

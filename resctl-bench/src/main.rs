@@ -1,10 +1,10 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
-use anyhow::{bail, Result};
-use log::{debug, error, info};
+use anyhow::{anyhow, bail, Result};
+use log::{debug, error, info, warn};
 use std::fs;
 use std::io::Write;
 use std::path::Path;
-use std::process::{exit, Command};
+use std::process::Command;
 use util::*;
 
 use resctl_bench_intf::Args;
@@ -68,13 +68,85 @@ fn clean_up_report_files(args: &Args) -> Result<()> {
     Ok(())
 }
 
+fn prep_base_bench(
+    args: &Args,
+    scr_devname: &str,
+    iocost_sys_save: &IoCostSysSave,
+) -> Result<(rd_agent_intf::BenchKnobs, String, String)> {
+    let (dev_model, dev_fwrev, dev_size) =
+        devname_to_model_fwrev_size(&scr_devname).map_err(|e| {
+            anyhow!(
+                "failed to resolve model/fwrev/size for {:?} ({})",
+                &scr_devname,
+                &e
+            )
+        })?;
+
+    let demo_bench_path = args.dir.clone() + "/" + rd_agent_intf::BENCH_FILENAME;
+    let bench_path = args.dir.clone() + "/" + RB_BENCH_FILENAME;
+
+    let mut bench = match rd_agent_intf::BenchKnobs::load(&demo_bench_path) {
+        Ok(v) => v,
+        Err(e) => {
+            match e.downcast_ref::<std::io::Error>() {
+                Some(e) if e.raw_os_error() == Some(libc::ENOENT) => (),
+                _ => warn!("Failed to load {:?} ({})", &demo_bench_path, &e),
+            }
+            Default::default()
+        }
+    };
+
+    if bench.iocost_dev_model.len() > 0 && bench.iocost_dev_model != dev_model {
+        bail!(
+            "benchfile device model {:?} doesn't match detected {:?}",
+            &bench.iocost_dev_model,
+            &dev_model
+        );
+    }
+    if bench.iocost_dev_fwrev.len() > 0 && bench.iocost_dev_fwrev != dev_fwrev {
+        bail!(
+            "benchfile device firmware revision {:?} doesn't match detected {:?}",
+            &bench.iocost_dev_fwrev,
+            &dev_fwrev
+        );
+    }
+    if bench.iocost_dev_size > 0 && bench.iocost_dev_size != dev_size {
+        bail!(
+            "benchfile device size {} doesn't match detected {}",
+            bench.iocost_dev_size,
+            dev_size
+        );
+    }
+
+    bench.iocost_dev_model = dev_model;
+    bench.iocost_dev_fwrev = dev_fwrev;
+    bench.iocost_dev_size = dev_size;
+
+    if args.iocost_from_sys {
+        if !iocost_sys_save.enable {
+            bail!(
+                "--iocost-from-sys specified but iocost is disabled for {:?}",
+                &scr_devname
+            );
+        }
+        bench.iocost_seq = 1;
+        bench.iocost.model = iocost_sys_save.model.clone();
+        bench.iocost.qos = iocost_sys_save.qos.clone();
+        info!("Using iocost parameters from \"/sys/fs/cgroup/io.cost.model,qos\"");
+    } else {
+        info!("Using iocost parameters from {:?}", &demo_bench_path);
+    }
+
+    Ok((bench, demo_bench_path, bench_path))
+}
+
 fn main() {
     setup_prog_state();
     bench::init_benchs();
 
     let (args_file, updated) = Args::init_args_and_logging_nosave().unwrap_or_else(|e| {
         error!("Failed to process args file ({})", &e);
-        exit(1);
+        panic!();
     });
     let args = &args_file.data;
 
@@ -90,7 +162,7 @@ fn main() {
                 }
                 Err(e) => {
                     error!("Failed to load existing result file {:?} ({})", path, &e);
-                    exit(1);
+                    panic!();
                 }
             }
         }
@@ -118,7 +190,7 @@ fn main() {
             }
             Err(e) => {
                 error!("{}: {}", spec, &e);
-                exit(1);
+                panic!();
             }
         }
     }
@@ -130,52 +202,70 @@ fn main() {
     if updated {
         if let Err(e) = Args::save_args(&args_file) {
             error!("Failed to update args file ({})", &e);
-            exit(1);
+            panic!();
         }
     }
 
     if nr_to_run > 0 && !args.keep_reports {
         if let Err(e) = clean_up_report_files(args) {
             error!("Failed to clean up report files ({})", &e);
-            exit(1);
+            panic!();
         }
     }
 
     // Use alternate bench file to avoid clobbering resctl-demo bench
     // results w/ e.g. fake_cpu_load ones.
-    let base_bench_path = args.dir.clone() + "/" + rd_agent_intf::BENCH_FILENAME;
-    let bench_path = args.dir.clone() + "/" + RB_BENCH_FILENAME;
+    let scr_path = args.dir.clone() + "/scratch";
+    let scr_devname = path_to_devname(&scr_path)
+        .expect("failed to resolve device for scratch path")
+        .into_string()
+        .unwrap();
+    let scr_devnr =
+        devname_to_devnr(&scr_devname).expect("failed to resolve device number for scratch device");
+    let iocost_sys_save =
+        IoCostSysSave::read_from_sys(scr_devnr).expect("failed to read iocost.model,qos");
+
+    let (mut base_bench, demo_bench_path, bench_path) =
+        match prep_base_bench(args, &scr_devname, &iocost_sys_save) {
+            Ok(v) => v,
+            Err(e) => {
+                error!("Failed to prepare bench files ({})", &e);
+                panic!();
+            }
+        };
 
     // Run the benches and print out the results.
     for jctx in job_ctxs.iter_mut() {
         if jctx.run {
-            // Always start with a fresh committed bench file.
-            if Path::new(&base_bench_path).exists() {
-                if let Err(e) = fs::copy(&base_bench_path, &bench_path) {
-                    panic!(
-                        "Failed to copy {} to {} ({})",
-                        &base_bench_path, &bench_path, &e
-                    );
-                }
+            // Always start with a fresh bench file.
+            if let Err(e) = base_bench.save(&bench_path) {
+                error!("Failed to set up {:?} ({})", &bench_path, &e);
+                panic!();
             }
 
             let mut rctx = RunCtx::new(
                 &args.dir,
                 args.dev.as_deref(),
                 args.linux_tar.as_deref(),
-                &base_bench_path,
+                &base_bench,
                 jctx.result.take(),
+                args.verbosity,
             );
 
-            jctx.run(&mut rctx).unwrap();
+            if let Err(e) = jctx.run(&mut rctx) {
+                error!("Failed to run {} ({})", &jctx.spec, &e);
+                panic!();
+            }
 
             if rctx.commit_bench {
-                info!("Committing bench results to {:?}", &base_bench_path);
-                if let Err(e) = fs::copy(&bench_path, &base_bench_path) {
-                    panic!(
-                        "Failed to copy {} to {} ({})",
-                        &base_bench_path, &bench_path, &e
+                base_bench = rd_agent_intf::BenchKnobs::load(&bench_path)
+                    .expect(&format!("Failed to load {:?}", &bench_path));
+                if let Err(e) = base_bench.save(&demo_bench_path) {
+                    error!(
+                        "Failed to commit bench result to {:?} ({})",
+                        &demo_bench_path, &e
                     );
+                    panic!();
                 }
             }
         }

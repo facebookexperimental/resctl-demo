@@ -5,14 +5,18 @@ use std::collections::{BTreeMap, VecDeque};
 
 #[derive(Clone)]
 pub struct StorageJob {
-    hash_size: usize,
-    rps_max: u32,
-    log_bps: u64,
-    loops: u32,
-    mem_profile_ask: Option<u32>,
+    pub hash_size: usize,
+    pub rps_max: u32,
+    pub log_bps: u64,
+    pub loops: u32,
+    pub mem_profile_ask: Option<u32>,
+    pub mem_avail_err_max: f64,
+    pub mem_avail_inner_retries: u32,
+    pub mem_avail_outer_retries: u32,
+    pub mem_avail: usize,
+    pub active: bool,
 
     first_try: bool,
-    mem_avail: usize,
     mem_share: usize,
     mem_profile: u32,
     mem_usage: usize,
@@ -24,11 +28,6 @@ pub struct StorageJob {
     final_mem_probe_periods: Vec<(u64, u64)>,
     mem_usages: Vec<f64>,
     mem_sizes: Vec<f64>,
-
-    mem_avail_err_max: f64,
-    mem_avail_inner_retries: u32,
-    mem_avail_outer_retries: u32,
-    active: bool,
 }
 
 impl Default for StorageJob {
@@ -39,6 +38,10 @@ impl Default for StorageJob {
             log_bps: RunCtx::BENCH_FAKE_CPU_LOG_BPS,
             loops: 5,
             mem_profile_ask: None,
+            mem_avail_err_max: 0.1,
+            mem_avail_inner_retries: 5,
+            mem_avail_outer_retries: 5,
+            active: false,
 
             first_try: true,
             mem_avail: 0,
@@ -53,11 +56,6 @@ impl Default for StorageJob {
             final_mem_probe_periods: vec![],
             mem_usages: vec![],
             mem_sizes: vec![],
-
-            mem_avail_err_max: 0.05,
-            mem_avail_inner_retries: 5,
-            mem_avail_outer_retries: 5,
-            active: false,
         }
     }
 }
@@ -111,10 +109,9 @@ impl Iterator for MemProfileIterator {
     fn next(&mut self) -> Option<Self::Item> {
         let v = self.cur;
         self.cur *= 2;
-        if v <= 8 {
-            Some((v, ((v as usize) << 30) / 2))
-        } else {
-            Some((v, ((v as usize) - 6) << 30))
+        match v {
+            v if v <= 8 => Some((v, ((v as usize) << 30) / 2)),
+            v => Some((v, ((v as usize) - 8) << 30)),
         }
     }
 }
@@ -133,7 +130,6 @@ impl StorageJob {
                 "mem-avail-err-max" => job.mem_avail_err_max = v.parse::<f64>()?,
                 "mem-avail-inner-tries" => job.mem_avail_inner_retries = v.parse::<u32>()?,
                 "mem-avail-outer-tries" => job.mem_avail_outer_retries = v.parse::<u32>()?,
-                "active" => job.active = true,
                 k => bail!("unknown property key {:?}", k),
             }
         }
@@ -159,7 +155,8 @@ impl StorageJob {
                     true
                 } else {
                     progress.set_status(&format!(
-                        "Estimating available memory... {}",
+                        "[{}] Estimating available memory... {}",
+                        rep.bench_hashd.phase.name(),
                         format_size(Self::hashd_mem_usage_rep(rep))
                     ));
                     false
@@ -208,7 +205,7 @@ impl StorageJob {
     }
 
     fn measure_supportable_memory_size(&mut self, rctx: &RunCtx) -> (usize, f64) {
-        let balloon_size = self.mem_avail - self.mem_share;
+        let balloon_size = self.mem_avail.saturating_sub(self.mem_share);
         rctx.start_hashd_fake_cpu_bench(balloon_size, self.log_bps, self.hash_size, self.rps_max);
 
         const NR_MEM_USAGES: usize = 10;
@@ -273,7 +270,7 @@ impl StorageJob {
 
     fn process_retry(&mut self) -> Result<bool> {
         let cur_mem_avail = self.mem_avail + self.mem_usage - self.mem_share;
-        let consistent = ((cur_mem_avail - self.prev_mem_avail) as f64).abs()
+        let consistent = (cur_mem_avail as f64 - self.prev_mem_avail as f64).abs()
             < self.mem_avail_err_max * cur_mem_avail as f64;
 
         let retry_outer = match (self.first_try, consistent, self.mem_avail_inner_retries > 0) {
@@ -298,8 +295,10 @@ impl StorageJob {
             }
             (false, false, true) => {
                 warn!(
-                    "storage: Retrying without updating mem_avail {}",
-                    format_size(self.mem_avail)
+                    "storage: Retrying without updating mem_avail {} (prev {}, cur {})",
+                    format_size(self.mem_avail),
+                    format_size(self.prev_mem_avail),
+                    format_size(cur_mem_avail)
                 );
                 self.mem_avail_inner_retries -= 1;
                 false
@@ -427,8 +426,26 @@ impl Job for StorageJob {
         }
         rctx.set_prep_testfiles().start_agent();
 
-        info!("storage: Estimating available memory");
-        self.mem_avail = self.estimate_available_memory(rctx);
+        // Depending on mem-profile, we might be using a large balloon which
+        // can push down available memory below workload's memory.low
+        // cratering memory reclaim. Make sure memory protection is off
+        // regardless of @active. We aren't testing memory protection
+        // anyway.
+        rctx.access_agent_files(|af| {
+            af.slices.data.disable_seqs.mem = af.report.data.seq;
+            af.slices.save().unwrap();
+        });
+
+        if self.mem_avail == 0 {
+            info!("storage: Estimating available memory");
+            self.mem_avail = self.estimate_available_memory(rctx);
+        } else {
+            info!(
+                "storage: Starting with the specified available memory {}",
+                format_size(self.mem_avail)
+            );
+        }
+
         let saved_mem_avail_inner_retries = self.mem_avail_inner_retries;
 
         'outer: loop {

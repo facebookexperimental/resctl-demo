@@ -101,8 +101,8 @@ pub fn path_to_devname<P: AsRef<Path>>(path: P) -> Result<OsString> {
     devnr_to_devname(fs::metadata(&path_to_mountpoint(path.as_ref())?.source)?.st_rdev())
 }
 
-/// Given a device name, determine its model and size.
-pub fn devname_to_model_and_size<D: AsRef<OsStr>>(name_in: D) -> Result<(String, u64)> {
+/// Given a device name, determine its model, firmware version and size.
+pub fn devname_to_model_fwrev_size<D: AsRef<OsStr>>(name_in: D) -> Result<(String, String, u64)> {
     let mut dev_path = PathBuf::from("/sys/block");
     dev_path.push(name_in.as_ref());
 
@@ -110,20 +110,34 @@ pub fn devname_to_model_and_size<D: AsRef<OsStr>>(name_in: D) -> Result<(String,
     model_path.push("device");
     model_path.push("model");
 
-    let mut size_path = dev_path.clone();
-    size_path.push("size");
-
     let mut model = String::new();
     let mut f = fs::File::open(&model_path)?;
     f.read_to_string(&mut model)?;
     let model = model.trim_end().to_string();
+
+    let mut fwrev = String::new();
+    let mut fwrev_path = dev_path.clone();
+    fwrev_path.push("device");
+    fwrev_path.push("firmware_rev");
+    if fwrev_path.exists() {
+        f.read_to_string(&mut fwrev)?;
+    } else {
+        fwrev_path.pop();
+        fwrev_path.push("rev");
+        if fwrev_path.exists() {
+            f.read_to_string(&mut fwrev)?;
+        }
+    }
+
+    let mut size_path = dev_path.clone();
+    size_path.push("size");
 
     let mut size = String::new();
     let mut f = fs::File::open(&size_path)?;
     f.read_to_string(&mut size)?;
     let size = size.trim().parse::<u64>()? * 512;
 
-    Ok((model, size))
+    Ok((model, fwrev, size))
 }
 
 /// Find all devices hosting swap

@@ -502,9 +502,10 @@ fn refresh_toggles(siv: &mut Cursive, doc: &RdDoc, cs: &CmdState) {
 fn refresh_one_knob(siv: &mut Cursive, knob: &RdKnob, cnt: u32, mut val: f64) {
     val = val.max(0.0).min(1.0);
     for idx in 0..cnt {
-        siv.call_on_name(&format!("{:?}[{}]-digit", &knob, idx), |t: &mut TextView| {
-            t.set_content(format_knob_val(&knob, val))
-        });
+        siv.call_on_name(
+            &format!("{:?}[{}]-digit", &knob, idx),
+            |t: &mut TextView| t.set_content(format_knob_val(&knob, val)),
+        );
         siv.call_on_name(
             &format!("{:?}[{}]-slider", &knob, idx),
             |s: &mut SliderView| {
