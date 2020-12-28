@@ -2,7 +2,7 @@
 use super::*;
 
 use super::storage::{StorageJob, StorageResult};
-use rd_agent_intf::{BenchKnobs, IoCostModelKnobs, IoCostQoSKnobs};
+use rd_agent_intf::BenchKnobs;
 use std::collections::BTreeMap;
 
 // Gonna run storage bench multiple times with different parameters. Let's
@@ -98,7 +98,7 @@ impl Bench for IoCostQoSBench {
 
 #[derive(Clone, Serialize, Deserialize)]
 struct IoCostQoSRun {
-    qos: Option<IoCostQoSKnobs>,
+    qos: Option<IoCostQoSParams>,
     vrate_mean: f64,
     vrate_stdev: f64,
     vrate_pcts: BTreeMap<String, f64>,
@@ -107,8 +107,8 @@ struct IoCostQoSRun {
 
 #[derive(Serialize, Deserialize)]
 struct IoCostQoSResult {
-    model: IoCostModelKnobs,
-    base_qos: IoCostQoSKnobs,
+    model: IoCostModelParams,
+    base_qos: IoCostQoSParams,
     results: Vec<IoCostQoSRun>,
 }
 
@@ -141,7 +141,7 @@ impl IoCostQoSJob {
         Some(pr)
     }
 
-    fn apply_qos_ovr(ovr: Option<&IoCostQoSOvr>, qos: &IoCostQoSKnobs) -> IoCostQoSKnobs {
+    fn apply_qos_ovr(ovr: Option<&IoCostQoSOvr>, qos: &IoCostQoSParams) -> IoCostQoSParams {
         let mut qos = qos.clone();
         if ovr.is_none() {
             return qos;
@@ -169,7 +169,7 @@ impl IoCostQoSJob {
         qos
     }
 
-    fn format_qos_ovr(ovr: Option<&IoCostQoSOvr>, qos: &IoCostQoSKnobs) -> String {
+    fn format_qos_ovr(ovr: Option<&IoCostQoSOvr>, qos: &IoCostQoSParams) -> String {
         if ovr.is_none() {
             return "iocost=off".into();
         }
@@ -204,7 +204,7 @@ impl IoCostQoSJob {
 
     fn find_matching_result<'a>(
         ovr: Option<&IoCostQoSOvr>,
-        qos: &IoCostQoSKnobs,
+        qos: &IoCostQoSParams,
         prev_result: Option<&'a IoCostQoSResult>,
     ) -> Option<&'a IoCostQoSRun> {
         if prev_result.is_none() {

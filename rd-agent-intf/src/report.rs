@@ -7,7 +7,6 @@ use std::ops;
 use std::time::UNIX_EPOCH;
 use util::*;
 
-use super::bench::{IoCostModelKnobs, IoCostQoSKnobs};
 use super::RunnerState;
 use rd_hashd_intf;
 
@@ -280,7 +279,7 @@ pub struct IoCostModelReport {
     pub ctrl: String,
     pub model: String,
     #[serde(flatten)]
-    pub knobs: IoCostModelKnobs,
+    pub knobs: IoCostModelParams,
 }
 
 impl Default for IoCostModelReport {
@@ -304,7 +303,7 @@ impl IoCostModelReport {
         Ok(Self {
             ctrl: map.get("ctrl").ok_or(anyhow!(kerr))?.clone(),
             model: map.get("model").ok_or(anyhow!(kerr))?.clone(),
-            knobs: IoCostModelKnobs {
+            knobs: IoCostModelParams {
                 rbps: map.get("rbps").ok_or(anyhow!(kerr))?.parse::<u64>()?,
                 rseqiops: map.get("rseqiops").ok_or(anyhow!(kerr))?.parse::<u64>()?,
                 rrandiops: map.get("rrandiops").ok_or(anyhow!(kerr))?.parse::<u64>()?,
@@ -321,7 +320,7 @@ pub struct IoCostQoSReport {
     pub enable: u32,
     pub ctrl: String,
     #[serde(flatten)]
-    pub knobs: IoCostQoSKnobs,
+    pub knobs: IoCostQoSParams,
 }
 
 impl IoCostQoSReport {
@@ -335,7 +334,7 @@ impl IoCostQoSReport {
         Ok(Self {
             enable: map.get("enable").ok_or(anyhow!(kerr))?.parse::<u32>()?,
             ctrl: map.get("ctrl").ok_or(anyhow!(kerr))?.clone(),
-            knobs: IoCostQoSKnobs {
+            knobs: IoCostQoSParams {
                 rpct: map.get("rpct").ok_or(anyhow!(kerr))?.parse::<f64>()?,
                 rlat: map.get("rlat").ok_or(anyhow!(kerr))?.parse::<u64>()?,
                 wpct: map.get("wpct").ok_or(anyhow!(kerr))?.parse::<f64>()?,

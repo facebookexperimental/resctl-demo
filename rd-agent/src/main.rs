@@ -1172,7 +1172,9 @@ fn main() {
         }
     }
 
+    let mut _iocost_sys_save = None;
     if !cfg.bypass {
+        _iocost_sys_save = Some(IoCostSysSave::read_from_sys(cfg.scr_devnr));
         if let Err(e) = cfg.startup_checks() {
             if args_file.data.force {
                 warn!(

@@ -41,42 +41,10 @@ impl HashdKnobs {
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
-#[serde(default)]
-pub struct IoCostModelKnobs {
-    pub rbps: u64,
-    pub rseqiops: u64,
-    pub rrandiops: u64,
-    pub wbps: u64,
-    pub wseqiops: u64,
-    pub wrandiops: u64,
-}
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
-#[serde(default)]
-pub struct IoCostQoSKnobs {
-    pub rpct: f64,
-    pub rlat: u64,
-    pub wpct: f64,
-    pub wlat: u64,
-    pub min: f64,
-    pub max: f64,
-}
-
-impl std::fmt::Display for IoCostQoSKnobs {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "rpct={:.2} rlat={} wpct={:.2} wlat={} min={:.2} max={:.2}",
-            self.rpct, self.rlat, self.wpct, self.wlat, self.min, self.max
-        )
-    }
-}
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct IoCostKnobs {
     pub devnr: String,
-    pub model: IoCostModelKnobs,
-    pub qos: IoCostQoSKnobs,
+    pub model: IoCostModelParams,
+    pub qos: IoCostQoSParams,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
