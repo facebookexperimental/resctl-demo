@@ -3,6 +3,8 @@ use anyhow::{anyhow, Result};
 use chrono::prelude::*;
 use crossbeam::channel::{self, Receiver, Sender};
 use log::{debug, error, info, warn};
+use rand::rngs::SmallRng;
+use rand::{Rng, SeedableRng};
 use scan_fmt::scan_fmt;
 use std::cmp;
 use std::collections::VecDeque;
@@ -24,7 +26,7 @@ struct LogWorker {
     padding: Arc<AtomicU64>,
     unit_size: u64,
     nr_to_keep: usize,
-    buf: Vec<u8>,
+    rng: SmallRng,
     file: Option<File>,
     size: u64,
     old_logs: VecDeque<String>,
@@ -48,28 +50,6 @@ impl LogWorker {
         )
     }
 
-    fn set_no_compression(path: &str) {
-        let output = match Command::new("btrfs")
-            .args(&["property", "set", path, "compression", ""])
-            .output()
-        {
-            Ok(v) => v,
-            Err(e) => {
-                warn!(
-                    "logger: Failed to disable btrfs compression on ${} ({:?})",
-                    path, &e
-                );
-                return;
-            }
-        };
-        if !output.status.success() {
-            warn!(
-                "logger: Failed to disable btrfs compression on ${} ({:?})",
-                path, &output
-            );
-        }
-    }
-
     fn new(
         dir_path: String,
         padding: Arc<AtomicU64>,
@@ -86,7 +66,6 @@ impl LogWorker {
                 .append(true)
                 .open(&path)?,
         );
-        Self::set_no_compression(&path);
         let size = file.as_ref().unwrap().metadata()?.len();
 
         let prefix = format!("{}/{}-", &dir_path, LOG_FILENAME);
@@ -120,7 +99,7 @@ impl LogWorker {
             padding,
             unit_size,
             nr_to_keep: ((max_size + unit_size - 1) / unit_size) as usize,
-            buf: Vec::new(),
+            rng: SmallRng::from_entropy(),
             file,
             size,
             old_logs: VecDeque::from(old_logs),
@@ -168,7 +147,6 @@ impl LogWorker {
             Ok(file) => {
                 self.file = Some(file);
                 self.size = 0;
-                Self::set_no_compression(&path);
             }
             Err(err) => {
                 error!(
@@ -181,31 +159,24 @@ impl LogWorker {
     }
 
     fn log(&mut self, msg: &str) {
-        let min_len = self.padding.load(atomic::Ordering::Relaxed) as usize;
-        if min_len > 0 && self.buf.len() != min_len {
-            self.buf = b".".repeat(min_len - 1);
-            self.buf.push(b'\n');
-        }
-
-        let now_str = Local::now().format("%Y-%m-%d %H:%M:%S");
-
         self.rotate();
         if self.file.is_none() {
             return;
         }
 
-        let mut data = Vec::<u8>::new();
-        write!(&mut data, "[{}] {}\n", now_str, msg).unwrap();
-        let data_len = data.len();
+        let min_len = self.padding.load(atomic::Ordering::Relaxed) as usize;
+        let mut line = Vec::<u8>::with_capacity(min_len.max(64));
+        let now_str = Local::now().format("%Y-%m-%d %H:%M:%S");
+        write!(&mut line, "[{}] {}\n", now_str, msg).unwrap();
+        let line_len = line.len();
 
-        let line = if data_len >= min_len {
-            &data
-        } else {
-            for i in 0..data_len - 1 {
-                self.buf[i] = data[i];
+        if line_len < min_len {
+            line[line_len - 1] = b' ';
+            for _ in line_len..min_len - 1 {
+                line.push(self.rng.gen());
             }
-            &self.buf
-        };
+            line.push(b'\n');
+        }
 
         if let Err(err) = self.file.as_mut().unwrap().write_all(line.as_ref()) {
             error!(
@@ -216,12 +187,6 @@ impl LogWorker {
             self.file = None;
         }
         self.size += line.len() as u64;
-
-        if data_len < min_len {
-            for i in 0..data_len - 1 {
-                self.buf[i] = b'.';
-            }
-        }
     }
 
     fn run(mut self) {
