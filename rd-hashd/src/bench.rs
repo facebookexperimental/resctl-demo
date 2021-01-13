@@ -600,7 +600,7 @@ impl Bench {
     /// Normalize it by chunking memory accesses so that a request can still
     /// meet the latency target when cfg.io_ratio of its memory accesses
     /// experience cfg.io_lat IO latency.
-    fn calc_mem_chunk_pages(cfg: &CpuCfg, params: &Params) -> usize {
+    fn calc_chunk_pages(cfg: &CpuCfg, params: &Params) -> usize {
         let io_time = params.lat_target - cfg.lat - params.sleep_mean;
         let nr_file_ios = io_time * params.file_frac / cfg.io_lat;
         let nr_file_chunks = nr_file_ios / cfg.io_ratio;
@@ -611,14 +611,14 @@ impl Bench {
 
     fn time_hash(size: usize, params: &Params, tf: &TestFiles) -> f64 {
         let mut hasher = hasher::Hasher::new(1.0, 0.0);
-        let chunk_size = params.mem_chunk_pages * *PAGE_SIZE;
+        let chunk_size = params.chunk_pages * *PAGE_SIZE;
         let chunks_per_unit = (tf.unit_size as usize).div_ceil(&chunk_size);
 
         let started_at = Instant::now();
 
         for i in 0..(size / chunk_size) {
             let path = tf.path((i / chunks_per_unit) as u64);
-            let off = ((i % chunks_per_unit) * params.mem_chunk_pages) as u64;
+            let off = ((i % chunks_per_unit) * params.chunk_pages) as u64;
 
             hasher.load(&path, off, chunk_size).expect(&format!(
                 "failed to load chunk {}, chunk_size={} chunks_per_unit={} path={:?} off={}",
@@ -637,12 +637,12 @@ impl Bench {
 
         debug!(
             "time_hash: time_per_byte={:.2}ns target_bytes={:.2} \
-                 cpu_ratio={:.2} file_size_mean={} mem_chunk_pages={}",
+                 cpu_ratio={:.2} file_size_mean={} chunk_pages={}",
             time_per_byte * 1000_000_000.0,
             target_bytes,
             cpu_ratio,
             params.file_size_mean,
-            params.mem_chunk_pages
+            params.chunk_pages
         );
 
         file_size_mean
@@ -674,30 +674,30 @@ impl Bench {
         params.sleep_stdev_ratio = 0.0;
 
         // Quickly time hash runs to determine the starting point and
-        // calculate mem_chunk_pages based on it. Repeat until
-        // mem_chunk_pages converges.
-        let mut last_mem_chunk_pages = 1;
+        // calculate chunk_pages based on it. Repeat until
+        // chunk_pages converges.
+        let mut last_chunk_pages = 1;
         let mut nr_converges = 0;
         for _ in 0..10 {
             let base_time = Self::time_hash(TIME_HASH_SIZE, &params, &tf);
             let time_per_byte = base_time / TIME_HASH_SIZE as f64;
             params.file_size_mean = Self::calc_file_size_mean(cfg, &self.params, time_per_byte);
 
-            // mem_chunk_pages calculation must be done with the original
+            // chunk_pages calculation must be done with the original
             // params w/ only file_size_mean modified.
-            let cmup_params = Params {
+            let cup_params = Params {
                 file_size_mean: params.file_size_mean,
                 ..self.params.clone()
             };
-            params.mem_chunk_pages = Self::calc_mem_chunk_pages(cfg, &cmup_params);
+            params.chunk_pages = Self::calc_chunk_pages(cfg, &cup_params);
 
-            if params.mem_chunk_pages == last_mem_chunk_pages {
+            if params.chunk_pages == last_chunk_pages {
                 nr_converges += 1;
                 if nr_converges >= 2 {
                     break;
                 }
             } else {
-                last_mem_chunk_pages = params.mem_chunk_pages;
+                last_chunk_pages = params.chunk_pages;
                 nr_converges = 0;
             }
         }
@@ -1072,7 +1072,7 @@ impl Bench {
         // cpu bench
         //
         self.params.file_size_mean = self.params_file.data.file_size_mean;
-        self.params.mem_chunk_pages = self.params_file.data.mem_chunk_pages;
+        self.params.chunk_pages = self.params_file.data.chunk_pages;
         self.params.rps_max = self.params_file.data.rps_max;
 
         if args.bench_cpu || args.bench_hash_size > 0 {
@@ -1081,12 +1081,12 @@ impl Bench {
                 v => v,
             };
 
-            self.params.mem_chunk_pages = Self::calc_mem_chunk_pages(&cfg.cpu, &self.params);
+            self.params.chunk_pages = Self::calc_chunk_pages(&cfg.cpu, &self.params);
             info!(
-                "[ Single cpu result: hash size {:.2}M, anon access {:.2}M, mem chunk {} pages ]",
+                "[ Single cpu result: hash size {:.2}M, anon access {:.2}M, chunk {} pages ]",
                 to_mb(self.params.file_size_mean),
                 to_mb(self.params.file_size_mean as f64 * self.params.anon_size_ratio),
-                self.params.mem_chunk_pages,
+                self.params.chunk_pages,
             );
         }
 

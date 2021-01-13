@@ -118,12 +118,12 @@ lazy_static::lazy_static! {
                  --prepare-config          'Prepare config files and exit'
                  --prepare                 'Prepare config files and testfiles and exit'
                  --bench                   'Benchmark and record results in args and params file'
-                 --bench-cpu               'Benchmark cpu'
-                 --bench-mem               'Benchmark memory'
+                 --bench-cpu               'Benchmark cpu, implied by --bench'
+                 --bench-mem               'Benchmark memory, implied by --bench'
                  --bench-fake-cpu-load     'Fake CPU load while benchmarking memory'
                  --bench-hash-size=[SIZE]  'Use the specified hash size'
                  --bench-rps-max=[RPS]     'Use the specified RPS max'
-                 --bench-log-bps=[BPS]     'Log write bps at max rps (default: {dfl_log_bps}M)'
+                 --bench-log-bps=[BPS]     'Log write bps at max rps (default: {dfl_log_bps:.2}M)'
                  --total-memory=[SIZE]     'Override total memory detection'
                  --total-swap=[SIZE]       'Override total swap space detection'
                  --nr-cpus=[NR]            'Override cpu count detection'
@@ -377,18 +377,15 @@ impl JsonArgs for Args {
 
         self.bench_fake_cpu_load = matches.is_present("bench-fake-cpu-load");
 
-        self.bench_hash_size = match matches.value_of("bench-hash-size") {
-            Some(v) => v.parse::<usize>().unwrap(),
-            None => 0,
-        };
-        self.bench_rps_max = match matches.value_of("bench-rps-max") {
-            Some(v) => v.parse::<u32>().unwrap(),
-            None => 0,
-        };
-        self.bench_log_bps = match matches.value_of("bench-log-bps") {
-            Some(v) => v.parse::<u64>().unwrap(),
-            None => 0,
-        };
+        if let Some(v) = matches.value_of("bench-hash-size") {
+            self.bench_hash_size = v.parse::<usize>().unwrap();
+        }
+        if let Some(v) = matches.value_of("bench-rps-max") {
+            self.bench_rps_max = v.parse::<u32>().unwrap();
+        }
+        if let Some(v) = matches.value_of("bench-log-bps") {
+            self.bench_log_bps = v.parse::<u64>().unwrap();
+        }
 
         self.verbosity = Self::verbosity(matches);
 

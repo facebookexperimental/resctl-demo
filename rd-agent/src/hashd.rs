@@ -118,8 +118,8 @@ impl Hashd {
             params.mem_frac = mem_frac;
             changed = true;
         }
-        if params.mem_chunk_pages != knobs.mem_chunk_pages {
-            params.mem_chunk_pages = knobs.mem_chunk_pages;
+        if params.chunk_pages != knobs.chunk_pages {
+            params.chunk_pages = knobs.chunk_pages;
             changed = true;
         }
         if params.file_addr_stdev_ratio != file_addr_stdev {

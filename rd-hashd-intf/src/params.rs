@@ -51,7 +51,7 @@ const PARAMS_DOC: &str = "\
 //  lat_target: Latency target
 //  rps_target: Request-per-second target
 //  rps_max: Reference maximum RPS, used to scale the amount of used memory
-//  mem_chunk_pages: Memory access chunk size in pages
+//  chunk_pages: Memory access chunk size in pages
 //  mem_frac: Memory footprint scaling factor - [0.0, 1.0]
 //  file_frac: Page cache proportion of memory footprint - [0.0, 1.0]
 //  file_size_mean: File access size average
@@ -85,7 +85,7 @@ pub struct Params {
     pub rps_target: u32,
     pub rps_max: u32,
     pub mem_frac: f64,
-    pub mem_chunk_pages: usize,
+    pub chunk_pages: usize,
     pub file_frac: f64,
     pub file_size_mean: usize,
     pub file_size_stdev_ratio: f64,
@@ -125,7 +125,7 @@ impl Default for Params {
             lat_target: 100.0 * MSEC,
             rps_target: 65536,
             rps_max: 0,
-            mem_chunk_pages: 1,
+            chunk_pages: 1,
             mem_frac: 0.80,
             file_frac: 0.15,
             file_size_mean: 4 << 20,
