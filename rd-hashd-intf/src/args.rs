@@ -118,10 +118,12 @@ lazy_static::lazy_static! {
                  --prepare-config          'Prepare config files and exit'
                  --prepare                 'Prepare config files and testfiles and exit'
                  --bench                   'Benchmark and record results in args and params file'
+                 --bench-cpu-single        'Benchmark hash/chunk sizes instead of taking from params'
                  --bench-cpu               'Benchmark cpu, implied by --bench'
                  --bench-mem               'Benchmark memory, implied by --bench'
                  --bench-fake-cpu-load     'Fake CPU load while benchmarking memory'
                  --bench-hash-size=[SIZE]  'Use the specified hash size'
+                 --bench-chunk-pages=[PAGES] 'Use the specified chunk pages'
                  --bench-rps-max=[RPS]     'Use the specified RPS max'
                  --bench-log-bps=[BPS]     'Log write bps at max rps (default: {dfl_log_bps:.2}M)'
                  --total-memory=[SIZE]     'Override total memory detection'
@@ -171,6 +173,8 @@ pub struct Args {
     #[serde(skip)]
     pub prepare_and_exit: bool,
     #[serde(skip)]
+    pub bench_cpu_single: bool,
+    #[serde(skip)]
     pub bench_cpu: bool,
     #[serde(skip)]
     pub bench_mem: bool,
@@ -178,6 +182,8 @@ pub struct Args {
     pub bench_fake_cpu_load: bool,
     #[serde(skip)]
     pub bench_hash_size: usize,
+    #[serde(skip)]
+    pub bench_chunk_pages: usize,
     #[serde(skip)]
     pub bench_rps_max: u32,
     #[serde(skip)]
@@ -215,10 +221,12 @@ impl Default for Args {
             keep_caches: false,
             prepare_testfiles: true,
             prepare_and_exit: false,
+            bench_cpu_single: false,
             bench_cpu: false,
             bench_mem: false,
             bench_fake_cpu_load: false,
             bench_hash_size: 0,
+            bench_chunk_pages: 0,
             bench_rps_max: 0,
             bench_log_bps: Params::default().log_bps,
             verbosity: 0,
@@ -362,6 +370,7 @@ impl JsonArgs for Args {
         }
 
         if !self.prepare_and_exit {
+            self.bench_cpu_single = matches.is_present("bench-cpu-single");
             self.bench_cpu = matches.is_present("bench-cpu");
             self.bench_mem = matches.is_present("bench-mem");
 
@@ -379,6 +388,9 @@ impl JsonArgs for Args {
 
         if let Some(v) = matches.value_of("bench-hash-size") {
             self.bench_hash_size = v.parse::<usize>().unwrap();
+        }
+        if let Some(v) = matches.value_of("bench-chunk-pages") {
+            self.bench_chunk_pages = v.parse::<usize>().unwrap();
         }
         if let Some(v) = matches.value_of("bench-rps-max") {
             self.bench_rps_max = v.parse::<u32>().unwrap();

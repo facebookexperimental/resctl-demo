@@ -571,15 +571,14 @@ impl RunCtx {
         );
     }
 
-    pub const BENCH_FAKE_CPU_HASH_SIZE: usize = 5 << 20;
     pub const BENCH_FAKE_CPU_RPS_MAX: u32 = 1000;
-    pub const BENCH_FAKE_CPU_LOG_BPS: u64 = 16 << 20;
 
     pub fn start_hashd_fake_cpu_bench(
         &self,
         balloon_size: usize,
         log_bps: u64,
         hash_size: usize,
+        chunk_pages: usize,
         rps_max: u32,
     ) {
         self.start_hashd_bench(
@@ -588,6 +587,7 @@ impl RunCtx {
             vec![
                 "--bench-fake-cpu-load".into(),
                 format!("--bench-hash-size={}", hash_size),
+                format!("--bench-chunk-pages={}", chunk_pages),
                 format!("--bench-rps-max={}", rps_max),
             ],
         );

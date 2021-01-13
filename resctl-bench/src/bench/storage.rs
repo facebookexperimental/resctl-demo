@@ -6,6 +6,7 @@ use std::collections::{BTreeMap, VecDeque};
 #[derive(Clone)]
 pub struct StorageJob {
     pub hash_size: usize,
+    pub chunk_pages: usize,
     pub rps_max: u32,
     pub log_bps: u64,
     pub loops: u32,
@@ -32,10 +33,13 @@ pub struct StorageJob {
 
 impl Default for StorageJob {
     fn default() -> Self {
+        let dfl_params = rd_hashd_intf::Params::default();
+
         Self {
-            hash_size: RunCtx::BENCH_FAKE_CPU_HASH_SIZE,
+            hash_size: dfl_params.file_size_mean,
+            chunk_pages: dfl_params.chunk_pages,
             rps_max: RunCtx::BENCH_FAKE_CPU_RPS_MAX,
-            log_bps: RunCtx::BENCH_FAKE_CPU_LOG_BPS,
+            log_bps: dfl_params.log_bps,
             loops: 5,
             mem_profile_ask: None,
             mem_avail_err_max: 0.1,
@@ -123,6 +127,7 @@ impl StorageJob {
         for (k, v) in spec.properties[0].iter() {
             match k.as_str() {
                 "hash-size" => job.hash_size = v.parse::<usize>()?,
+                "chunk-pages" => job.chunk_pages = v.parse::<usize>()?,
                 "rps-max" => job.rps_max = v.parse::<u32>()?,
                 "log-bps" => job.log_bps = v.parse::<u64>()?,
                 "loops" => job.loops = v.parse::<u32>()?,
@@ -146,7 +151,13 @@ impl StorageJob {
     fn estimate_available_memory(&mut self, rctx: &mut RunCtx) -> usize {
         // Estimate available memory by running the up and bisect phases of
         // rd-hashd benchmark.
-        rctx.start_hashd_fake_cpu_bench(0, self.log_bps, self.hash_size, self.rps_max);
+        rctx.start_hashd_fake_cpu_bench(
+            0,
+            self.log_bps,
+            self.hash_size,
+            self.chunk_pages,
+            self.rps_max,
+        );
 
         rctx.wait_cond(
             |af, progress| {
@@ -206,7 +217,13 @@ impl StorageJob {
 
     fn measure_supportable_memory_size(&mut self, rctx: &RunCtx) -> (usize, f64) {
         let balloon_size = self.mem_avail.saturating_sub(self.mem_share);
-        rctx.start_hashd_fake_cpu_bench(balloon_size, self.log_bps, self.hash_size, self.rps_max);
+        rctx.start_hashd_fake_cpu_bench(
+            balloon_size,
+            self.log_bps,
+            self.hash_size,
+            self.chunk_pages,
+            self.rps_max,
+        );
 
         const NR_MEM_USAGES: usize = 10;
         let mut mem_usages = VecDeque::<usize>::new();

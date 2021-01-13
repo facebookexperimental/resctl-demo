@@ -1,7 +1,7 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
 use crossbeam::channel::{self, select, tick, Receiver, Sender};
 use linreg::linear_regression_of;
-use log::{debug, info, warn};
+use log::{debug, error, info, warn};
 use num::Integer;
 use pid::Pid;
 use std::collections::VecDeque;
@@ -1065,38 +1065,42 @@ impl Bench {
         let args = self.args_file.data.clone();
         let max_size = args.size;
         let cfg = Cfg::default();
+        let dfl_params = Params::default();
 
         // Run benchmarks.
 
         //
-        // cpu bench
+        // cpu single bench
         //
-        self.params.file_size_mean = self.params_file.data.file_size_mean;
-        self.params.chunk_pages = self.params_file.data.chunk_pages;
-        self.params.rps_max = self.params_file.data.rps_max;
+        self.params.file_size_mean = match (args.bench_cpu_single, args.bench_hash_size) {
+            (true, 0) => self.bench_cpu(&cfg.cpu),
+            (false, 0) => dfl_params.file_size_mean,
+            (_, v) => v,
+        };
+        self.params.chunk_pages = match (args.bench_cpu_single, args.bench_chunk_pages) {
+            (true, 0) => Self::calc_chunk_pages(&cfg.cpu, &self.params),
+            (false, 0) => dfl_params.chunk_pages,
+            (_, v) => v,
+        };
+        info!(
+            "[ Single cpu result: hash size {:.2}M, anon access {:.2}M, chunk {} pages ]",
+            to_mb(self.params.file_size_mean),
+            to_mb(self.params.file_size_mean as f64 * self.params.anon_size_ratio),
+            self.params.chunk_pages,
+        );
 
-        if args.bench_cpu || args.bench_hash_size > 0 {
-            self.params.file_size_mean = match args.bench_hash_size {
-                0 => self.bench_cpu(&cfg.cpu),
-                v => v,
-            };
-
-            self.params.chunk_pages = Self::calc_chunk_pages(&cfg.cpu, &self.params);
-            info!(
-                "[ Single cpu result: hash size {:.2}M, anon access {:.2}M, chunk {} pages ]",
-                to_mb(self.params.file_size_mean),
-                to_mb(self.params.file_size_mean as f64 * self.params.anon_size_ratio),
-                self.params.chunk_pages,
-            );
-        }
-
-        if args.bench_cpu || args.bench_rps_max > 0 {
-            self.params.rps_max = match args.bench_rps_max {
-                0 => self.bench_cpu_saturation(&cfg.cpu_sat),
-                v => v,
-            };
-            info!("[ CPU saturation result: rps {:.2} ]", self.params.rps_max);
-        }
+        //
+        // cpu saturation bench
+        //
+        self.params.rps_max = match (args.bench_cpu, args.bench_rps_max) {
+            (true, 0) => self.bench_cpu_saturation(&cfg.cpu_sat),
+            (false, 0) => {
+                error!("rps_max unknown, either specify --bench-cpu or --bench-rps-max");
+                panic!();
+            },
+            (_, v) => v,
+        };
+        info!("[ CPU saturation result: rps {:.2} ]", self.params.rps_max);
 
         //
         // memory bench
