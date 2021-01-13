@@ -571,7 +571,7 @@ impl RunCtx {
         );
     }
 
-    pub const BENCH_FAKE_CPU_RPS_MAX: u32 = 1000;
+    pub const BENCH_FAKE_CPU_RPS_MAX: u32 = 2000;
 
     pub fn start_hashd_fake_cpu_bench(
         &self,
