@@ -90,12 +90,12 @@ impl Job for HashdParamsJob {
 
         writeln!(
             out,
-            "\nResult: hash_size={} rps_max={} mem_size={} mem_frac={:.3} mem_chunk_pages={}",
+            "\nResult: hash_size={} rps_max={} mem_size={} mem_frac={:.3} chunk_pages={}",
             format_size(result.hash_size),
             result.rps_max,
             format_size(result.mem_size),
             result.mem_frac,
-            result.mem_chunk_pages
+            result.chunk_pages
         )
         .unwrap();
     }

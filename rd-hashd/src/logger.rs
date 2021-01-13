@@ -2,7 +2,7 @@
 use anyhow::{anyhow, Result};
 use chrono::prelude::*;
 use crossbeam::channel::{self, Receiver, Sender};
-use log::{debug, error, info, warn};
+use log::{debug, error, info};
 use rand::rngs::SmallRng;
 use rand::{Rng, SeedableRng};
 use scan_fmt::scan_fmt;
@@ -11,7 +11,6 @@ use std::collections::VecDeque;
 use std::fs::{self, File};
 use std::io::prelude::*;
 use std::path::Path;
-use std::process::Command;
 use std::sync::atomic::{self, AtomicU64};
 use std::sync::Arc;
 use std::thread::{spawn, JoinHandle};

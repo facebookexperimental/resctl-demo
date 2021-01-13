@@ -255,7 +255,7 @@ struct HashCompletion {
 struct HasherThread {
     tf: Arc<TestFiles>,
     mem_frac: f64,
-    mem_chunk_pages: usize,
+    chunk_pages: usize,
 
     file_max_frac: f64,
     file_frac: f64,
@@ -343,7 +343,7 @@ impl HasherThread {
             let (file_idx, file_off) = self.file_page_to_idx_off(page);
             let path = self.tf.path(file_idx);
 
-            match rdh.load(&path, file_off, *PAGE_SIZE * self.mem_chunk_pages) {
+            match rdh.load(&path, file_off, *PAGE_SIZE * self.chunk_pages) {
                 Ok(size) => Self::file_dist_count(
                     &mut file_dist,
                     page,
@@ -363,10 +363,10 @@ impl HasherThread {
         for _ in 0..self.anon_nr_chunks {
             let rel = anon_addr_normal.sample(&mut rng) * self.anon_addr_frac;
             let page_base =
-                AnonArea::rel_to_page_idx(rel, aa.size - (self.mem_chunk_pages - 1) * *PAGE_SIZE);
+                AnonArea::rel_to_page_idx(rel, aa.size - (self.chunk_pages - 1) * *PAGE_SIZE);
             let is_write = rw_uniform.sample(&mut rng) <= self.anon_write_frac;
 
-            for page_idx in page_base..page_base + self.mem_chunk_pages {
+            for page_idx in page_base..page_base + self.chunk_pages {
                 let page: &mut [u64] = aa.access_page(page_idx);
                 if page[0] == 0 {
                     fill_area_with_random(page, aa.comp, &mut rng);
@@ -376,7 +376,7 @@ impl HasherThread {
                 }
                 rdh.append(aa.access_page(page_idx))
             }
-            Self::anon_dist_count(&mut anon_dist, page_base, self.mem_chunk_pages, &aa);
+            Self::anon_dist_count(&mut anon_dist, page_base, self.chunk_pages, &aa);
         }
         sleep(Duration::from_secs_f64(self.sleep_dur / 3.0));
 
@@ -641,7 +641,7 @@ impl DispatchThread {
         let mut rng = SmallRng::from_entropy();
 
         while self.nr_in_flight < self.concurrency as u32 {
-            let chunk_size = *PAGE_SIZE * self.params.mem_chunk_pages;
+            let chunk_size = *PAGE_SIZE * self.params.chunk_pages;
 
             // Determine file and anon access chunk counts. Indices are
             // determined by each hash worker to avoid overloading the
@@ -654,7 +654,7 @@ impl DispatchThread {
             let hasher_thread = HasherThread {
                 tf: self.tf.clone(),
                 mem_frac: self.params.mem_frac,
-                mem_chunk_pages: self.params.mem_chunk_pages,
+                chunk_pages: self.params.chunk_pages,
 
                 file_max_frac: self.tf.size as f64 / self.max_size as f64,
                 file_frac: self.params.file_frac,

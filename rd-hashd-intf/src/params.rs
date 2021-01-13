@@ -51,7 +51,7 @@ const PARAMS_DOC: &str = "\
 //  lat_target: Latency target
 //  rps_target: Request-per-second target
 //  rps_max: Reference maximum RPS, used to scale the amount of used memory
-//  mem_chunk_pages: Memory access chunk size in pages
+//  chunk_pages: Memory access chunk size in pages
 //  mem_frac: Memory footprint scaling factor - [0.0, 1.0]
 //  file_frac: Page cache proportion of memory footprint - [0.0, 1.0]
 //  file_size_mean: File access size average
@@ -85,7 +85,7 @@ pub struct Params {
     pub rps_target: u32,
     pub rps_max: u32,
     pub mem_frac: f64,
-    pub mem_chunk_pages: usize,
+    pub chunk_pages: usize,
     pub file_frac: f64,
     pub file_size_mean: usize,
     pub file_size_stdev_ratio: f64,
@@ -121,26 +121,26 @@ impl Default for Params {
         Self {
             control_period: 1.0,
             concurrency_max: 65536,
-            lat_target_pct: 0.9,
-            lat_target: 100.0 * MSEC,
+            lat_target_pct: 0.95,
+            lat_target: 75.0 * MSEC,
             rps_target: 65536,
             rps_max: 0,
-            mem_chunk_pages: 1,
+            chunk_pages: 25,
             mem_frac: 0.80,
-            file_frac: 0.15,
-            file_size_mean: 4 << 20,
-            file_size_stdev_ratio: 0.33,
-            file_addr_stdev_ratio: 0.2,
+            file_frac: 0.25,
+            file_size_mean: 1258291,
+            file_size_stdev_ratio: 0.45,
+            file_addr_stdev_ratio: 0.215,
             file_addr_rps_base_frac: 0.5,
-            anon_size_ratio: 1.0,
-            anon_size_stdev_ratio: 0.33,
-            anon_addr_stdev_ratio: 0.2,
+            anon_size_ratio: 2.3,
+            anon_size_stdev_ratio: 0.45,
+            anon_addr_stdev_ratio: 0.235,
             anon_addr_rps_base_frac: 0.5,
-            anon_write_frac: 0.05,
+            anon_write_frac: 0.3,
             sleep_mean: 20.0 * MSEC,
             sleep_stdev_ratio: 0.33,
-            cpu_ratio: 1.0,
-            log_bps: 16 << 20,
+            cpu_ratio: 0.93,
+            log_bps: 1100794,
             fake_cpu_load: false,
             acc_dist_slots: 0,
             lat_pid: PidParams {
