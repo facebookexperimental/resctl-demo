@@ -528,9 +528,7 @@ impl ReportWorker {
             bench_hashd: BenchHashdReport {
                 svc: bench_hashd,
                 phase: bench_hashd_phase,
-                mem_probe_size: (hashd[0].mem_probe_frac
-                    * runner.sobjs.bench_file.data.hashd.mem_size as f64)
-                    as usize,
+                mem_probe_size: hashd[0].mem_probe_size,
                 mem_probe_at: hashd[0].mem_probe_at,
             },
             bench_iocost: BenchIoCostReport { svc: bench_iocost },
