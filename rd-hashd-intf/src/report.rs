@@ -194,7 +194,7 @@ pub struct Report {
     pub rotational_swap: bool,
     pub testfiles_progress: f64,
     pub params_modified: DateTime<Local>,
-    pub mem_probe_frac: f64,
+    pub mem_probe_size: usize,
     pub mem_probe_at: DateTime<Local>,
     #[serde(flatten)]
     pub hasher: Stat,
@@ -210,7 +210,7 @@ impl Default for Report {
             rotational_swap: false,
             testfiles_progress: 0.0,
             params_modified: DateTime::from(UNIX_EPOCH),
-            mem_probe_frac: 0.0,
+            mem_probe_size: 0,
             mem_probe_at: DateTime::from(UNIX_EPOCH),
             hasher: Default::default(),
         }

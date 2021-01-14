@@ -193,7 +193,7 @@ impl Hashd {
                 } else {
                     rd_hashd_intf::Report {
                         // retain fields which don't need explicit expiration
-                        mem_probe_frac: rep.mem_probe_frac,
+                        mem_probe_size: rep.mem_probe_size,
                         mem_probe_at: rep.mem_probe_at,
                         ..Default::default()
                     }
@@ -212,7 +212,7 @@ impl Hashd {
             rps: hashd_r.hasher.rps,
             lat_pct: self.lat_target_pct,
             lat: hashd_r.hasher.lat,
-            mem_probe_frac: hashd_r.mem_probe_frac,
+            mem_probe_size: hashd_r.mem_probe_size,
             mem_probe_at: hashd_r.mem_probe_at,
         })
     }

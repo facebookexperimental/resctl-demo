@@ -90,7 +90,10 @@ fn prep_base_bench(
         Err(e) => {
             match e.downcast_ref::<std::io::Error>() {
                 Some(e) if e.raw_os_error() == Some(libc::ENOENT) => (),
-                _ => warn!("Failed to load {:?} ({})", &demo_bench_path, &e),
+                _ => warn!(
+                    "Failed to load {:?} ({}), remove the file",
+                    &demo_bench_path, &e
+                ),
             }
             Default::default()
         }

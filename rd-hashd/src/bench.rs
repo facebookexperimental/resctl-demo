@@ -547,7 +547,8 @@ impl Bench {
 
     fn set_mem_probe_frac(&self, frac: f64) {
         let mut rep = self.report_file.lock().unwrap();
-        rep.data.mem_probe_frac = frac;
+        let (fsize, asize) = self.mem_sizes(frac);
+        rep.data.mem_probe_size = fsize + asize;
         rep.data.mem_probe_at = chrono::Local::now();
     }
 
@@ -791,9 +792,9 @@ impl Bench {
         last_rps.round() as u32
     }
 
-    fn mem_sizes(&self, mem_frac: f64) -> (u64, u64) {
-        let size = (self.args_file.data.size as f64 * mem_frac) as u64;
-        let fsize = ((size as f64 * self.params.file_frac) as u64).min(size);
+    fn mem_sizes(&self, mem_frac: f64) -> (usize, usize) {
+        let size = (self.args_file.data.size as f64 * mem_frac) as usize;
+        let fsize = ((size as f64 * self.params.file_frac) as usize).min(size);
         let asize = size - fsize;
         (fsize, asize)
     }

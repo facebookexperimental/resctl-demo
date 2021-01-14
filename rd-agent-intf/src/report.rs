@@ -136,7 +136,7 @@ pub struct HashdReport {
     pub rps: f64,
     pub lat_pct: f64,
     pub lat: rd_hashd_intf::Latencies,
-    pub mem_probe_frac: f64,
+    pub mem_probe_size: usize,
     pub mem_probe_at: DateTime<Local>,
 }
 
@@ -149,7 +149,7 @@ impl Default for HashdReport {
             rps: 0.0,
             lat_pct: 0.0,
             lat: Default::default(),
-            mem_probe_frac: 0.0,
+            mem_probe_size: 0,
             mem_probe_at: DateTime::from(UNIX_EPOCH),
         }
     }
