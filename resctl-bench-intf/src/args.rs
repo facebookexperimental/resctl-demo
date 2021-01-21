@@ -17,7 +17,6 @@ lazy_static::lazy_static! {
          -r, --result=[PATH]    'Record the bench results into the specified json file'
          -R, --rep-retention=[SECS] '1s report retention in seconds (default: {dfl_rep_ret:.1}h)'
          -a, --args=[FILE]      'Load base command line arguments from FILE'
-         -i, --incremental      'Run incremental benchmarks if supported (see bench helps)'
          -c, --iocost-from-sys  'Use iocost parameters from io.cost.{{model,qos}} instead of bench.json'
              --keep-reports     'Don't delete expired report files'
              --clear-reports    'Remove existing report files'
@@ -39,8 +38,6 @@ pub struct Args {
     pub job_specs: Vec<JobSpec>,
 
     #[serde(skip)]
-    pub incremental: bool,
-    #[serde(skip)]
     pub iocost_from_sys: bool,
     #[serde(skip)]
     pub keep_reports: bool,
@@ -61,7 +58,6 @@ impl Default for Args {
             result: None,
             job_specs: Default::default(),
             rep_retention: 24 * 3600,
-            incremental: false,
             iocost_from_sys: false,
             keep_reports: false,
             clear_reports: false,
@@ -205,7 +201,6 @@ impl JsonArgs for Args {
             updated = true;
         }
 
-        self.incremental = matches.is_present("incremental");
         self.iocost_from_sys = matches.is_present("iocost-from-sys");
         self.keep_reports = matches.is_present("keep-reports");
         self.clear_reports = matches.is_present("clear-reports");

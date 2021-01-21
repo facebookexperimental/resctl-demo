@@ -11,6 +11,7 @@ use util::*;
 
 use super::progress::BenchProgress;
 use super::{rd_agent_base_args, AGENT_BIN};
+use crate::job::JobCtx;
 use rd_agent_intf::{
     AgentFiles, ReportIter, RunnerState, Slice, SysReq, AGENT_SVC_NAME, HASHD_BENCH_SVC_NAME,
     IOCOST_BENCH_SVC_NAME,
@@ -140,22 +141,28 @@ impl RunCtxInner {
     }
 }
 
-pub struct RunCtx {
+pub struct RunCtx<'a> {
     inner: Arc<Mutex<RunCtxInner>>,
     agent_init_fns: Vec<Box<dyn FnOnce(&mut RunCtx)>>,
     base_bench: rd_agent_intf::BenchKnobs,
     prev_result: Option<serde_json::Value>,
+    inc_job_ctxs: &'a mut Vec<JobCtx>,
+    inc_job_idx: usize,
+    result_path: Option<&'a str>,
     pub test: bool,
     pub commit_bench: bool,
 }
 
-impl RunCtx {
+impl<'a> RunCtx<'a> {
     pub fn new(
         dir: &str,
         dev: Option<&str>,
         linux_tar: Option<&str>,
         base_bench: &rd_agent_intf::BenchKnobs,
         prev_result: Option<serde_json::Value>,
+        inc_job_ctxs: &'a mut Vec<JobCtx>,
+        inc_job_idx: usize,
+        result_path: Option<&'a str>,
         test: bool,
         verbosity: u32,
     ) -> Self {
@@ -183,6 +190,9 @@ impl RunCtx {
             base_bench: base_bench.clone(),
             agent_init_fns: vec![],
             prev_result,
+            inc_job_ctxs,
+            inc_job_idx,
+            result_path,
             test,
             commit_bench: false,
         }
@@ -237,6 +247,11 @@ impl RunCtx {
 
     pub fn prev_result(&mut self) -> Option<serde_json::Value> {
         self.prev_result.take()
+    }
+
+    pub fn update_incremental_result(&mut self, result: serde_json::Value) {
+        self.inc_job_ctxs[self.inc_job_idx].result = Some(result);
+        super::save_results(self.result_path.as_ref().unwrap(), self.inc_job_ctxs);
     }
 
     pub fn base_bench(&self) -> &rd_agent_intf::BenchKnobs {
@@ -623,7 +638,7 @@ impl RunCtx {
     }
 }
 
-impl Drop for RunCtx {
+impl Drop for RunCtx<'_> {
     fn drop(&mut self) {
         self.stop_agent();
     }

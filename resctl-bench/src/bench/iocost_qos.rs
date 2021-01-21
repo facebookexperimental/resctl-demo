@@ -105,11 +105,12 @@ struct IoCostQoSRun {
     storage: StorageResult,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 struct IoCostQoSResult {
     model: IoCostModelParams,
     base_qos: IoCostQoSParams,
     results: Vec<IoCostQoSRun>,
+    inc_results: Vec<IoCostQoSRun>,
 }
 
 impl IoCostQoSJob {
@@ -119,26 +120,30 @@ impl IoCostQoSJob {
         &self,
         pr: Option<serde_json::Value>,
         bench: &BenchKnobs,
-    ) -> Option<IoCostQoSResult> {
+    ) -> IoCostQoSResult {
+        let empty = IoCostQoSResult {
+            model: bench.iocost.model.clone(),
+            base_qos: bench.iocost.qos.clone(),
+            results: vec![],
+            inc_results: vec![],
+        };
+
         if pr.is_none() {
-            return None;
+            return empty;
         }
 
         let pr = serde_json::from_value::<IoCostQoSResult>(pr.unwrap()).unwrap();
         let msg = "iocost-qos: Ignoring existing result file due to";
-        if pr.results.len() == 0 || pr.results[0].qos.is_some() {
-            warn!("{} {}", &msg, "missing baseline");
-        }
         if pr.model != bench.iocost.model || pr.base_qos != bench.iocost.qos {
             warn!("{} {}", &msg, "iocost parameter mismatch");
-            return None;
+            return empty;
         }
         if self.mem_profile > 0 && self.mem_profile != pr.results[0].storage.mem_profile {
             warn!("{} {}", &msg, "mem-profile mismatch");
-            return None;
+            return empty;
         }
 
-        Some(pr)
+        pr
     }
 
     fn apply_qos_ovr(ovr: Option<&IoCostQoSOvr>, qos: &IoCostQoSParams) -> IoCostQoSParams {
@@ -205,15 +210,15 @@ impl IoCostQoSJob {
     fn find_matching_result<'a>(
         ovr: Option<&IoCostQoSOvr>,
         qos: &IoCostQoSParams,
-        prev_result: Option<&'a IoCostQoSResult>,
+        prev_result: &'a IoCostQoSResult,
     ) -> Option<&'a IoCostQoSRun> {
-        if prev_result.is_none() {
-            return None;
-        }
-
         let qos = Self::apply_qos_ovr(ovr.clone(), qos);
 
-        for r in prev_result.unwrap().results.iter() {
+        for r in prev_result
+            .results
+            .iter()
+            .chain(prev_result.inc_results.iter())
+        {
             if ovr.is_none() {
                 if r.qos.is_none() {
                     return Some(r);
@@ -300,9 +305,9 @@ impl Job for IoCostQoSJob {
         if rctx.base_bench().iocost_seq == 0 {
             bail!("iocost-qos: iocost parameters missing, run iocost-params first or use --iocost-from-sys");
         }
-        let prev_result = self.verify_prev_result(rctx.prev_result(), &bench);
-        if prev_result.is_some() {
-            self.mem_profile = prev_result.as_ref().unwrap().results[0].storage.mem_profile;
+        let mut prev_result = self.verify_prev_result(rctx.prev_result(), &bench);
+        if prev_result.results.len() > 0 {
+            self.mem_profile = prev_result.results[0].storage.mem_profile;
         }
         let mut nr_to_run = 0;
 
@@ -310,7 +315,7 @@ impl Job for IoCostQoSJob {
         // without waiting for the benches to run.
         for (i, ovr) in self.runs.iter().enumerate() {
             let qos = &bench.iocost.qos;
-            let new = match Self::find_matching_result(ovr.as_ref(), qos, prev_result.as_ref()) {
+            let new = match Self::find_matching_result(ovr.as_ref(), qos, &prev_result) {
                 Some(_) => false,
                 None => {
                     nr_to_run += 1;
@@ -345,39 +350,41 @@ impl Job for IoCostQoSJob {
         for (i, ovr) in self.runs.iter().enumerate() {
             let qos = &bench.iocost.qos;
             let ovr = ovr.as_ref();
-            match Self::find_matching_result(ovr, qos, prev_result.as_ref()) {
-                Some(result) => results.push(result.clone()),
-                None => {
-                    info!(
-                        "iocost-qos[{:02}]: Running storage benchmark with QoS parameters:",
-                        i
+            if let Some(result) = Self::find_matching_result(ovr, qos, &prev_result) {
+                results.push(result.clone());
+                continue;
+            }
+
+            info!(
+                "iocost-qos[{:02}]: Running storage benchmark with QoS parameters:",
+                i
+            );
+            info!("iocost-qos[{:02}]: {}", i, Self::format_qos_ovr(ovr, qos));
+
+            let mut job = self.storage_job.clone();
+            job.mem_profile_ask = last_mem_profile;
+            job.mem_avail = last_mem_avail;
+
+            let result = Self::run_one(rctx, &mut job, ovr)?;
+
+            last_mem_profile = Some(result.storage.mem_profile);
+            last_mem_avail = result.storage.mem_avail;
+
+            // Sanity check QoS params.
+            if result.qos.is_some() {
+                let target_qos = Self::apply_qos_ovr(ovr, qos);
+                if result.qos.as_ref().unwrap() != &target_qos {
+                    bail!(
+                        "iocost-qos: result qos ({}) != target qos ({})",
+                        &result.qos.as_ref().unwrap(),
+                        &target_qos
                     );
-                    info!("iocost-qos[{:02}]: {}", i, Self::format_qos_ovr(ovr, qos));
-
-                    let mut job = self.storage_job.clone();
-                    job.mem_profile_ask = last_mem_profile;
-                    job.mem_avail = last_mem_avail;
-
-                    let result = Self::run_one(rctx, &mut job, ovr)?;
-
-                    last_mem_profile = Some(result.storage.mem_profile);
-                    last_mem_avail = result.storage.mem_avail;
-
-                    // Sanity check QoS params.
-                    if result.qos.is_some() {
-                        let target_qos = Self::apply_qos_ovr(ovr, qos);
-                        if result.qos.as_ref().unwrap() != &target_qos {
-                            bail!(
-                                "iocost-qos: result qos ({}) != target qos ({})",
-                                &result.qos.as_ref().unwrap(),
-                                &target_qos
-                            );
-                        }
-                    }
-
-                    results.push(result);
                 }
             }
+
+            prev_result.inc_results.push(result.clone());
+            rctx.update_incremental_result(serde_json::to_value(&prev_result).unwrap());
+            results.push(result);
         }
 
         let (model, base_qos) = (bench.iocost.model, bench.iocost.qos);
@@ -385,6 +392,7 @@ impl Job for IoCostQoSJob {
             model,
             base_qos,
             results,
+            inc_results: vec![],
         };
 
         Ok(serde_json::to_value(&result).unwrap())
