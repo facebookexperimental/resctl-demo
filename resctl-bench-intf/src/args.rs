@@ -19,8 +19,9 @@ lazy_static::lazy_static! {
          -a, --args=[FILE]      'Load base command line arguments from FILE'
          -i, --incremental      'Run incremental benchmarks if supported (see bench helps)'
          -c, --iocost-from-sys  'Use iocost parameters from io.cost.{{model,qos}} instead of bench.json'
-             --clear-reports    'Remove existing report files'
              --keep-reports     'Don't delete expired report files'
+             --clear-reports    'Remove existing report files'
+             --test             'Test mode for development'
          -v...                  'Sets the level of verbosity'",
         dfl_dir = Args::default().dir,
         dfl_rep_ret = Args::default().rep_retention,
@@ -46,6 +47,8 @@ pub struct Args {
     #[serde(skip)]
     pub clear_reports: bool,
     #[serde(skip)]
+    pub test: bool,
+    #[serde(skip)]
     pub verbosity: u32,
 }
 
@@ -62,6 +65,7 @@ impl Default for Args {
             iocost_from_sys: false,
             keep_reports: false,
             clear_reports: false,
+            test: false,
             verbosity: 0,
         }
     }
@@ -205,6 +209,7 @@ impl JsonArgs for Args {
         self.iocost_from_sys = matches.is_present("iocost-from-sys");
         self.keep_reports = matches.is_present("keep-reports");
         self.clear_reports = matches.is_present("clear-reports");
+        self.test = matches.is_present("test");
         self.verbosity = Self::verbosity(matches);
 
         match matches.subcommand() {

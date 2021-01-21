@@ -252,6 +252,7 @@ fn main() {
                 args.linux_tar.as_deref(),
                 &base_bench,
                 jctx.result.take(),
+                args.test,
                 args.verbosity,
             );
 

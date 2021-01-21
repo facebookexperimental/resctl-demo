@@ -121,6 +121,7 @@ lazy_static::lazy_static! {
                  --bench-cpu-single        'Benchmark hash/chunk sizes instead of taking from params'
                  --bench-cpu               'Benchmark cpu, implied by --bench'
                  --bench-mem               'Benchmark memory, implied by --bench'
+                 --bench-test              'Use quick pseudo bench for testing'
                  --bench-fake-cpu-load     'Fake CPU load while benchmarking memory'
                  --bench-hash-size=[SIZE]  'Use the specified hash size'
                  --bench-chunk-pages=[PAGES] 'Use the specified chunk pages'
@@ -179,6 +180,8 @@ pub struct Args {
     #[serde(skip)]
     pub bench_mem: bool,
     #[serde(skip)]
+    pub bench_test: bool,
+    #[serde(skip)]
     pub bench_fake_cpu_load: bool,
     #[serde(skip)]
     pub bench_hash_size: usize,
@@ -224,6 +227,7 @@ impl Default for Args {
             bench_cpu_single: false,
             bench_cpu: false,
             bench_mem: false,
+            bench_test: false,
             bench_fake_cpu_load: false,
             bench_hash_size: 0,
             bench_chunk_pages: 0,
@@ -373,6 +377,7 @@ impl JsonArgs for Args {
             self.bench_cpu_single = matches.is_present("bench-cpu-single");
             self.bench_cpu = matches.is_present("bench-cpu");
             self.bench_mem = matches.is_present("bench-mem");
+            self.bench_test = matches.is_present("bench-test");
 
             if matches.is_present("bench") {
                 self.bench_cpu = true;

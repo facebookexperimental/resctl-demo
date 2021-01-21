@@ -162,7 +162,9 @@ impl StorageJob {
         rctx.wait_cond(
             |af, progress| {
                 let rep = &af.report.data;
-                if rep.bench_hashd.phase > rd_hashd_intf::Phase::BenchMemBisect {
+                if rep.bench_hashd.phase > rd_hashd_intf::Phase::BenchMemBisect
+                    || rep.state != rd_agent_intf::RunnerState::BenchHashd
+                {
                     true
                 } else {
                     progress.set_status(&format!(
@@ -241,8 +243,10 @@ impl StorageJob {
                 self.mem_usage = mem_usages.iter().fold(0, |max, u| max.max(*u));
                 self.mem_probe_at = rep.bench_hashd.mem_probe_at.timestamp() as u64;
 
-                mem_avail_err =
-                    (self.mem_usage as f64 - self.mem_share as f64) / self.mem_share as f64;
+                if !rctx.test {
+                    mem_avail_err =
+                        (self.mem_usage as f64 - self.mem_share as f64) / self.mem_share as f64;
+                }
 
                 // Abort early iff we go over. Memory usage may keep rising
                 // through refine stages, so we'll check for going under

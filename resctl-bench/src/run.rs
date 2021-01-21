@@ -145,6 +145,7 @@ pub struct RunCtx {
     agent_init_fns: Vec<Box<dyn FnOnce(&mut RunCtx)>>,
     base_bench: rd_agent_intf::BenchKnobs,
     prev_result: Option<serde_json::Value>,
+    pub test: bool,
     pub commit_bench: bool,
 }
 
@@ -155,6 +156,7 @@ impl RunCtx {
         linux_tar: Option<&str>,
         base_bench: &rd_agent_intf::BenchKnobs,
         prev_result: Option<serde_json::Value>,
+        test: bool,
         verbosity: u32,
     ) -> Self {
         Self {
@@ -181,6 +183,7 @@ impl RunCtx {
             base_bench: base_bench.clone(),
             agent_init_fns: vec![],
             prev_result,
+            test,
             commit_bench: false,
         }
     }
@@ -531,8 +534,12 @@ impl RunCtx {
         );
     }
 
-    pub fn start_hashd_bench(&self, ballon_size: usize, log_bps: u64, extra_args: Vec<String>) {
+    pub fn start_hashd_bench(&self, ballon_size: usize, log_bps: u64, mut extra_args: Vec<String>) {
         debug!("Starting hashd benchmark ({})", &HASHD_BENCH_SVC_NAME);
+
+        if self.test {
+            extra_args.push("--bench-test".into());
+        }
 
         let mut next_seq = 0;
         self.access_agent_files(|af| {
