@@ -361,7 +361,7 @@ impl<'a> RunCtx<'a> {
             next_seq
         });
 
-        self.wait_cond_fallible(
+        self.wait_cond(
             |af, _| af.cmd_ack.data.cmd_seq >= next_seq,
             Some(CMD_TIMEOUT),
             None,
@@ -380,7 +380,7 @@ impl<'a> RunCtx<'a> {
         drop(ctx);
 
         let started_at = unix_now() as i64;
-        if let Err(e) = self.wait_cond_fallible(
+        if let Err(e) = self.wait_cond(
             |af, _| {
                 let rep = &af.report.data;
                 rep.timestamp.timestamp() > started_at && rep.state == RunnerState::Running
@@ -451,7 +451,7 @@ impl<'a> RunCtx<'a> {
         }
     }
 
-    pub fn wait_cond_fallible<F>(
+    pub fn wait_cond<F>(
         &self,
         mut cond: F,
         timeout: Option<Duration>,
@@ -494,16 +494,6 @@ impl<'a> RunCtx<'a> {
         }
     }
 
-    pub fn wait_cond<F>(&self, cond: F, timeout: Option<Duration>, progress: Option<BenchProgress>)
-    where
-        F: FnMut(&AgentFiles, &mut BenchProgress) -> bool,
-    {
-        if let Err(e) = self.wait_cond_fallible(cond, timeout, progress) {
-            error!("Failed to wait for condition ({})", &e);
-            panic!();
-        }
-    }
-
     pub fn access_agent_files<F, T>(&self, func: F) -> T
     where
         F: FnOnce(&mut AgentFiles) -> T,
@@ -530,7 +520,7 @@ impl<'a> RunCtx<'a> {
             },
             Some(CMD_TIMEOUT),
             None,
-        );
+        ).expect("failed to start iocost benchmark");
     }
 
     pub fn stop_iocost_bench(&self) {
@@ -546,7 +536,7 @@ impl<'a> RunCtx<'a> {
             |af, _| af.report.data.state != RunnerState::BenchIoCost,
             Some(CMD_TIMEOUT),
             None,
-        );
+        ).expect("failed to stop iocost benchmark");
     }
 
     pub fn start_hashd_bench(&self, ballon_size: usize, log_bps: u64, mut extra_args: Vec<String>) {
@@ -574,7 +564,7 @@ impl<'a> RunCtx<'a> {
             },
             Some(CMD_TIMEOUT),
             None,
-        );
+        ).expect("failed to start hashd benchmark");
     }
 
     pub fn stop_hashd_bench(&self) {
@@ -590,7 +580,7 @@ impl<'a> RunCtx<'a> {
             |af, _| af.report.data.state != RunnerState::BenchHashd,
             Some(CMD_TIMEOUT),
             None,
-        );
+        ).expect("failed to stop hashd benchmark");
     }
 
     pub const BENCH_FAKE_CPU_RPS_MAX: u32 = 2000;

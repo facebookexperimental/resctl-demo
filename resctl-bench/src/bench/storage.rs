@@ -148,7 +148,7 @@ impl StorageJob {
         rctx.access_agent_files(|af| Self::hashd_mem_usage_rep(&af.report.data))
     }
 
-    fn estimate_available_memory(&mut self, rctx: &mut RunCtx) -> usize {
+    fn estimate_available_memory(&mut self, rctx: &mut RunCtx) -> Result<usize> {
         // Estimate available memory by running the up and bisect phases of
         // rd-hashd benchmark.
         rctx.start_hashd_fake_cpu_bench(
@@ -177,11 +177,11 @@ impl StorageJob {
             },
             None,
             Some(BenchProgress::new().monitor_systemd_unit(HASHD_BENCH_SVC_NAME)),
-        );
+        )?;
 
         let mem_usage = Self::hashd_mem_usage_rctx(rctx);
         rctx.stop_hashd_bench();
-        mem_usage
+        Ok(mem_usage)
     }
 
     fn select_memory_profile(&self) -> Result<(u32, usize)> {
@@ -217,7 +217,7 @@ impl StorageJob {
         Ok(prof_match.unwrap())
     }
 
-    fn measure_supportable_memory_size(&mut self, rctx: &RunCtx) -> (usize, f64) {
+    fn measure_supportable_memory_size(&mut self, rctx: &RunCtx) -> Result<(usize, f64)> {
         let balloon_size = self.mem_avail.saturating_sub(self.mem_share);
         rctx.start_hashd_fake_cpu_bench(
             balloon_size,
@@ -274,19 +274,19 @@ impl StorageJob {
             },
             None,
             Some(BenchProgress::new().monitor_systemd_unit(HASHD_BENCH_SVC_NAME)),
-        );
+        )?;
 
         rctx.stop_hashd_bench();
 
         if mem_avail_err > self.mem_avail_err_max {
-            return (0, mem_avail_err);
+            return Ok((0, mem_avail_err));
         }
 
         let mem_size = rctx.access_agent_files(|af| {
             af.bench.data.hashd.mem_size as f64 * af.bench.data.hashd.mem_frac
         }) as usize;
 
-        (mem_size, mem_avail_err)
+        Ok((mem_size, mem_avail_err))
     }
 
     fn process_retry(&mut self) -> Result<bool> {
@@ -459,7 +459,7 @@ impl Job for StorageJob {
 
         if self.mem_avail == 0 {
             info!("storage: Estimating available memory");
-            self.mem_avail = self.estimate_available_memory(rctx);
+            self.mem_avail = self.estimate_available_memory(rctx)?;
         } else {
             info!(
                 "storage: Starting with the specified available memory {}",
@@ -493,7 +493,7 @@ impl Job for StorageJob {
                     self.mem_sizes.len() + 1,
                     self.loops
                 );
-                let (mem_size, mem_avail_err) = self.measure_supportable_memory_size(rctx);
+                let (mem_size, mem_avail_err) = self.measure_supportable_memory_size(rctx)?;
 
                 // check for both going over and under, see the above function
                 if mem_avail_err.abs() > self.mem_avail_err_max {
