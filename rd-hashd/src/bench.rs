@@ -6,6 +6,7 @@ use num::Integer;
 use pid::Pid;
 use std::collections::VecDeque;
 use std::fmt::Write;
+use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::thread::{sleep, spawn, JoinHandle};
 use std::time::{Duration, Instant};
@@ -28,6 +29,7 @@ enum ConvergeWhich {
 
 use ConvergeWhich::*;
 
+#[derive(Clone)]
 struct ConvergeCfg {
     which: ConvergeWhich,
     converges: usize,
@@ -57,15 +59,17 @@ struct CpuSatCfg {
     converge: ConvergeCfg,
 }
 
+#[derive(Clone)]
 struct MemIoSatCfg {
     name: String,
     pos_prefix: String,
-    fmt_pos: Box<dyn 'static + Fn(&Bench, f64) -> String>,
-    set_pos: Box<dyn 'static + Fn(&mut Params, f64)>,
-    next_up_pos: Box<dyn 'static + Fn(&Params, Option<f64>) -> Option<f64>>,
-    bisect_done: Box<dyn 'static + Fn(&Params, f64, f64) -> bool>,
-    next_refine_pos: Box<dyn 'static + Fn(&Params, Option<f64>) -> Option<f64>>,
+    fmt_pos: Rc<Box<dyn 'static + Fn(&Bench, f64) -> String>>,
+    set_pos: Rc<Box<dyn 'static + Fn(&mut Params, f64)>>,
+    next_up_pos: Rc<Box<dyn 'static + Fn(&Params, Option<f64>) -> Option<f64>>>,
+    bisect_done: Rc<Box<dyn 'static + Fn(&Params, f64, f64) -> bool>>,
+    next_refine_pos: Rc<Box<dyn 'static + Fn(&Params, Option<f64>) -> Option<f64>>>,
 
+    test: bool,
     term_err_good: f64,
     term_err_bad: f64,
     up_err: f64,
@@ -81,10 +85,89 @@ pub struct Cfg {
     pub cpu: CpuCfg,
     cpu_sat: CpuSatCfg,
     mem_sat: MemIoSatCfg,
+    mem_sat_test: MemIoSatCfg,
 }
 
 impl Default for Cfg {
     fn default() -> Self {
+        let mem_sat = MemIoSatCfg {
+            name: "Memory".into(),
+            pos_prefix: "size".into(),
+            fmt_pos: Rc::new(Box::new(|bench, pos| {
+                let (fsize, asize) = bench.mem_sizes(pos);
+                format!("{:.2}G", to_gb(fsize + asize))
+            })),
+
+            set_pos: Rc::new(Box::new(|params, pos| params.mem_frac = pos)),
+
+            next_up_pos: Rc::new(Box::new(|_params, pos| match pos {
+                None => Some(0.2),
+                Some(v) if v < 0.99 => Some((v + 0.2).min(1.0)),
+                _ => None,
+            })),
+
+            bisect_done: Rc::new(Box::new(|_params, left, right| right - left < 0.05)),
+
+            next_refine_pos: Rc::new(Box::new(|params, pos| {
+                let step = params.mem_frac * 0.05;
+                let min = (params.mem_frac / 2.0).max(0.001);
+                match pos {
+                    None => Some(params.mem_frac),
+                    Some(v) if v >= min + step => Some(v - step),
+                    _ => None,
+                }
+            })),
+
+            test: false,
+            term_err_good: 0.05,
+            term_err_bad: 0.5,
+            up_err: 0.25,
+            bisect_err: 0.1,
+            refine_err: 0.075,
+
+            up_converge: ConvergeCfg {
+                which: Rps,
+                converges: 5,
+                period: 15,
+                min_dur: 30,
+                max_dur: 90,
+                slope: 0.01,
+                err_slope: 0.025,
+                rot_mult: 4.0,
+            },
+            bisect_converge: ConvergeCfg {
+                which: Rps,
+                converges: 5,
+                period: 15,
+                min_dur: 30,
+                max_dur: 90,
+                slope: 0.01,
+                err_slope: 0.025,
+                rot_mult: 2.0,
+            },
+            refine_converge: ConvergeCfg {
+                which: Rps,
+                converges: 5,
+                period: 15,
+                min_dur: 60,
+                max_dur: 240,
+                slope: 0.01,
+                err_slope: 0.025,
+                rot_mult: 2.0,
+            },
+        };
+
+        let test_mem_cvg = ConvergeCfg {
+            which: Rps,
+            converges: 3,
+            period: 5,
+            min_dur: 10,
+            max_dur: 10,
+            slope: 0.1,
+            err_slope: 0.25,
+            rot_mult: 1.0,
+        };
+
         Self {
             mem_buffer: 0.0,
             cpu: CpuCfg {
@@ -125,70 +208,14 @@ impl Default for Cfg {
                     rot_mult: 1.0,
                 },
             },
-            mem_sat: MemIoSatCfg {
-                name: "Memory".into(),
-                pos_prefix: "size".into(),
-                fmt_pos: Box::new(|bench, pos| {
-                    let (fsize, asize) = bench.mem_sizes(pos);
-                    format!("{:.2}G", to_gb(fsize + asize))
-                }),
-
-                set_pos: Box::new(|params, pos| params.mem_frac = pos),
-
-                next_up_pos: Box::new(|_params, pos| match pos {
-                    None => Some(0.2),
-                    Some(v) if v < 0.99 => Some((v + 0.2).min(1.0)),
-                    _ => None,
-                }),
-
-                bisect_done: Box::new(|_params, left, right| right - left < 0.05),
-
-                next_refine_pos: Box::new(|params, pos| {
-                    let step = params.mem_frac * 0.05;
-                    let min = (params.mem_frac / 2.0).max(0.001);
-                    match pos {
-                        None => Some(params.mem_frac),
-                        Some(v) if v >= min + step => Some(v - step),
-                        _ => None,
-                    }
-                }),
-
-                term_err_good: 0.05,
-                term_err_bad: 0.5,
-                up_err: 0.25,
-                bisect_err: 0.1,
-                refine_err: 0.075,
-
-                up_converge: ConvergeCfg {
-                    which: Rps,
-                    converges: 5,
-                    period: 15,
-                    min_dur: 30,
-                    max_dur: 90,
-                    slope: 0.01,
-                    err_slope: 0.025,
-                    rot_mult: 4.0,
-                },
-                bisect_converge: ConvergeCfg {
-                    which: Rps,
-                    converges: 5,
-                    period: 15,
-                    min_dur: 30,
-                    max_dur: 90,
-                    slope: 0.01,
-                    err_slope: 0.025,
-                    rot_mult: 2.0,
-                },
-                refine_converge: ConvergeCfg {
-                    which: Rps,
-                    converges: 5,
-                    period: 15,
-                    min_dur: 60,
-                    max_dur: 240,
-                    slope: 0.01,
-                    err_slope: 0.025,
-                    rot_mult: 2.0,
-                },
+            mem_sat: mem_sat.clone(),
+            // A test run is composed of one shortened round of each phase.
+            mem_sat_test: MemIoSatCfg {
+                test: true,
+                up_converge: test_mem_cvg.clone(),
+                bisect_converge: test_mem_cvg.clone(),
+                refine_converge: test_mem_cvg.clone(),
+                ..mem_sat
             },
         }
     }
@@ -922,7 +949,7 @@ impl Bench {
                 &(cfg.fmt_pos)(self, pos)
             );
 
-            if self.memio_up_round(cfg, &cfg.up_converge, &th) {
+            if cfg.test || self.memio_up_round(cfg, &cfg.up_converge, &th) {
                 break;
             }
         }
@@ -963,9 +990,13 @@ impl Bench {
                     left.push_front(pos);
                 }
 
-                if (cfg.bisect_done)(&params, left[0], right[0]) {
+                if cfg.test || (cfg.bisect_done)(&params, left[0], right[0]) {
                     break;
                 }
+            }
+
+            if cfg.test {
+                break;
             }
 
             // Memory response can be delayed and we can end up on the wrong
@@ -1054,7 +1085,7 @@ impl Bench {
                 cfg.refine_err * TO_PCT
             );
 
-            if err >= 0.0 || -err <= cfg.refine_err {
+            if cfg.test || err >= 0.0 || -err <= cfg.refine_err {
                 break;
             }
         }
@@ -1098,7 +1129,7 @@ impl Bench {
             (false, 0) => {
                 error!("rps_max unknown, either specify --bench-cpu or --bench-rps-max");
                 panic!();
-            },
+            }
             (_, v) => v,
         };
         info!("[ CPU saturation result: rps {:.2} ]", self.params.rps_max);
@@ -1107,6 +1138,13 @@ impl Bench {
         // memory bench
         //
         if args.bench_mem {
+            let mem_sat_cfg = if self.args_file.data.bench_test {
+                warn!("Test mode, result won't be usable");
+                &cfg.mem_sat_test
+            } else {
+                &cfg.mem_sat
+            };
+
             let orig_fake_cpu_load = self.params.fake_cpu_load;
             self.params.fake_cpu_load = self.args_file.data.bench_fake_cpu_load;
 
@@ -1115,7 +1153,7 @@ impl Bench {
 
             let mut th = self.create_test_hasher(max_size, tf, &self.params, false);
 
-            self.params.mem_frac = self.bench_memio_saturation_bisect(&cfg.mem_sat, &mut th);
+            self.params.mem_frac = self.bench_memio_saturation_bisect(mem_sat_cfg, &mut th);
             let (fsize, asize) = self.mem_sizes(self.params.mem_frac);
             info!(
                 "[ Memory saturation bisect result: {:.2}G (file {:.2}G, anon {:.2}G) ]",
@@ -1124,7 +1162,7 @@ impl Bench {
                 to_gb(asize)
             );
 
-            self.params.mem_frac = self.bench_memio_saturation_refine(&cfg.mem_sat, &mut th);
+            self.params.mem_frac = self.bench_memio_saturation_refine(mem_sat_cfg, &mut th);
 
             // Longer-runs might need more memory due to access from
             // accumulating long tails and other system disturbances. Plus, IO

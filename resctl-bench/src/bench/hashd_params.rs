@@ -70,7 +70,7 @@ impl Job for HashdParamsJob {
             },
             None,
             Some(BenchProgress::new().monitor_systemd_unit(HASHD_BENCH_SVC_NAME)),
-        );
+        )?;
 
         let result = rctx.access_agent_files(|af| af.bench.data.hashd.clone());
 

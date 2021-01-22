@@ -143,6 +143,18 @@ fn prep_base_bench(
     Ok((bench, demo_bench_path, bench_path))
 }
 
+pub fn save_results(path: &str, job_ctxs: &Vec<JobCtx>) {
+    let serialized = serde_json::to_string_pretty(&job_ctxs).expect("Failed to serialize output");
+    let mut f = fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(path)
+        .expect("Failed to open output file");
+    f.write_all(serialized.as_ref())
+        .expect("Failed to write output file");
+}
+
 fn main() {
     setup_prog_state();
     bench::init_benchs();
@@ -171,31 +183,31 @@ fn main() {
         }
     }
 
+    // Stash the result part for incremental result file updates.
+    let mut inc_job_ctxs = job_ctxs.clone();
+
     // Combine new jobs to run into job_ctxs.
     let mut nr_to_run = 0;
     'next: for spec in args.job_specs.iter() {
-        match JobCtx::process_job_spec(spec) {
-            Ok(mut new) => {
-                new.run = true;
-                nr_to_run += 1;
-                for jctx in job_ctxs.iter_mut() {
-                    if jctx.spec.kind == new.spec.kind && jctx.spec.id == new.spec.id {
-                        debug!("{} has a matching entry in the result file", &new.spec);
-                        let result = match args.incremental {
-                            true => jctx.result.take(),
-                            false => None,
-                        };
-                        *jctx = JobCtx { result, ..new };
-                        continue 'next;
-                    }
-                }
-                job_ctxs.push(new);
-            }
-            Err(e) => {
-                error!("{}: {}", spec, &e);
-                panic!();
+        let mut new = JobCtx::new(spec);
+        if let Err(e) = new.parse_job_spec() {
+            error!("{}: {}", spec, &e);
+            panic!();
+        }
+        new.run = true;
+        nr_to_run += 1;
+        for (inc_job_idx, jctx) in job_ctxs.iter_mut().enumerate() {
+            if jctx.spec.kind == new.spec.kind && jctx.spec.id == new.spec.id {
+                debug!("{} has a matching entry in the result file", &new.spec);
+                new.inc_job_idx = inc_job_idx;
+                new.result = jctx.result.take();
+                *jctx = new;
+                continue 'next;
             }
         }
+        new.inc_job_idx = inc_job_ctxs.len();
+        inc_job_ctxs.push(new.clone());
+        job_ctxs.push(new);
     }
 
     debug!("job_ctxs: nr_to_run={}\n{:#?}", nr_to_run, &job_ctxs);
@@ -252,6 +264,10 @@ fn main() {
                 args.linux_tar.as_deref(),
                 &base_bench,
                 jctx.result.take(),
+                &mut inc_job_ctxs,
+                jctx.inc_job_idx,
+                args.result.as_deref(),
+                args.test,
                 args.verbosity,
             );
 
@@ -273,24 +289,16 @@ fn main() {
             }
         }
 
-        if jctx.run || nr_to_run == 0 {
+        // Format only the completed jobs.
+        if (jctx.run || nr_to_run == 0) && jctx.sysreqs_report.is_some() {
             println!("{}\n\n{}", "=".repeat(90), &jctx.format());
         }
     }
 
-    // Printout the results.
+    // Write the result file.
     if !job_ctxs.is_empty() {
         if let Some(path) = args.result.as_ref() {
-            let serialized =
-                serde_json::to_string_pretty(&job_ctxs).expect("Failed to serialize output");
-            let mut f = fs::OpenOptions::new()
-                .write(true)
-                .create(true)
-                .truncate(true)
-                .open(path)
-                .expect("Failed to open output file");
-            f.write_all(serialized.as_ref())
-                .expect("Failed to write output file");
+            save_results(path, &job_ctxs);
         }
     }
 }

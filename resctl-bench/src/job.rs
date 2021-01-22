@@ -27,6 +27,8 @@ pub struct JobCtx {
     #[serde(skip)]
     pub job: Option<Box<dyn Job>>,
     #[serde(skip)]
+    pub inc_job_idx: usize,
+    #[serde(skip)]
     pub run: bool,
 
     pub started_at: u64,
@@ -48,28 +50,53 @@ impl std::fmt::Debug for JobCtx {
     }
 }
 
+impl std::clone::Clone for JobCtx {
+    fn clone(&self) -> Self {
+        let mut clone = Self {
+            spec: self.spec.clone(),
+            job: None,
+            inc_job_idx: 0,
+            run: self.run,
+            started_at: self.started_at,
+            ended_at: self.ended_at,
+            sysreqs: self.sysreqs.clone(),
+            missed_sysreqs: self.missed_sysreqs.clone(),
+            sysreqs_report: self.sysreqs_report.clone(),
+            iocost: self.iocost.clone(),
+            result: self.result.clone(),
+        };
+        clone.parse_job_spec().unwrap();
+        clone
+    }
+}
+
 impl JobCtx {
-    pub fn process_job_spec(spec: &JobSpec) -> Result<Self> {
+    pub fn new(spec: &JobSpec) -> Self {
+        Self {
+            spec: spec.clone(),
+            job: None,
+            inc_job_idx: 0,
+            run: false,
+            started_at: 0,
+            ended_at: 0,
+            sysreqs: Default::default(),
+            missed_sysreqs: Default::default(),
+            sysreqs_report: None,
+            iocost: Default::default(),
+            result: None,
+        }
+    }
+
+    pub fn parse_job_spec(&mut self) -> Result<()> {
         let benchs = BENCHS.lock().unwrap();
 
         for bench in benchs.iter() {
-            if spec.kind == bench.desc().kind {
-                return Ok(Self {
-                    spec: spec.clone(),
-                    job: Some(bench.parse(spec)?),
-                    run: false,
-                    started_at: 0,
-                    ended_at: 0,
-                    sysreqs: Default::default(),
-                    missed_sysreqs: Default::default(),
-                    sysreqs_report: None,
-                    iocost: Default::default(),
-                    result: None,
-                });
+            if self.spec.kind == bench.desc().kind {
+                self.job = Some(bench.parse(&self.spec)?);
+                return Ok(());
             }
         }
-
-        bail!("unrecognized bench type {:?}", spec.kind);
+        bail!("unrecognized bench type {:?}", self.spec.kind);
     }
 
     pub fn load_result_file(path: &str) -> Result<Vec<Self>> {
@@ -78,10 +105,9 @@ impl JobCtx {
         f.read_to_string(&mut buf)?;
 
         let mut results: Vec<Self> = serde_json::from_str(&buf)?;
-        for mut jctx in results.iter_mut() {
-            match JobCtx::process_job_spec(&jctx.spec) {
-                Ok(parsed) => jctx.job = parsed.job,
-                Err(e) => bail!("failed to process {} ({})", &jctx.spec, &e),
+        for jctx in results.iter_mut() {
+            if let Err(e) = jctx.parse_job_spec() {
+                bail!("failed to parse {} ({})", &jctx.spec, &e);
             }
         }
 

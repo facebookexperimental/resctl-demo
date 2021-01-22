@@ -447,6 +447,108 @@ impl ReportFile {
     }
 }
 
+struct IoLatReader {
+    biolatpcts_bin: Option<String>,
+    devnr: (u32, u32),
+    name: String,
+    intv: String,
+    tx: Option<Sender<String>>,
+    rx: Option<Receiver<String>>,
+    child: Option<Child>,
+    jh: Option<JoinHandle<()>>,
+}
+
+impl IoLatReader {
+    fn start_iolat(
+        biolatpcts_bin: &str,
+        devnr: (u32, u32),
+        name: &str,
+        intv: &str,
+        tx: Sender<String>,
+    ) -> Result<(Child, JoinHandle<()>)> {
+        let mut child = Command::new(biolatpcts_bin)
+            .arg(format!("{}:{}", devnr.0, devnr.1))
+            .args(&["-i", intv, "--json"])
+            .arg("-p")
+            .arg(
+                IoLatReport::PCTS
+                    .iter()
+                    .map(|x| format!("{}", x))
+                    .collect::<Vec<String>>()
+                    .join(","),
+            )
+            .stdout(Stdio::piped())
+            .spawn()?;
+        let name = name.to_string();
+        let stdout = child.stdout.take().unwrap();
+        let jh = spawn(move || child_reader_thread(name, stdout, tx));
+        Ok((child, jh))
+    }
+
+    fn reset(&mut self) -> Result<()> {
+        self.disconnect();
+
+        let (tx, rx) = channel::unbounded::<String>();
+        self.rx = Some(rx);
+
+        if self.biolatpcts_bin.is_some() {
+            let (child, jh) = Self::start_iolat(
+                self.biolatpcts_bin.as_ref().unwrap(),
+                self.devnr,
+                &self.name,
+                &self.intv,
+                tx,
+            )?;
+            self.child = Some(child);
+            self.jh = Some(jh);
+        } else {
+            self.tx = Some(tx);
+        }
+        Ok(())
+    }
+
+    fn new(cfg: &Config, name: &str, intv: &str) -> Result<Self> {
+        let mut iolat = Self {
+            biolatpcts_bin: cfg.biolatpcts_bin.as_ref().map(|x| x.to_owned()),
+            devnr: cfg.scr_devnr,
+            name: name.to_owned(),
+            intv: intv.to_owned(),
+            tx: None,
+            rx: None,
+            child: None,
+            jh: None,
+        };
+        iolat.reset()?;
+        Ok(iolat)
+    }
+
+    fn kick(&self) {
+        if self.child.is_some() {
+            kill(
+                Pid::from_raw(self.child.as_ref().unwrap().id() as i32),
+                Signal::SIGUSR2,
+            )
+            .unwrap();
+        }
+    }
+
+    fn disconnect(&mut self) {
+        self.tx.take();
+        self.rx.take();
+        if self.child.is_some() {
+            let _ = self.child.as_mut().unwrap().kill();
+            let _ = self.child.as_mut().unwrap().wait();
+            self.jh.take().unwrap().join().unwrap();
+        }
+    }
+}
+
+impl Drop for IoLatReader {
+    fn drop(&mut self) {
+        self.disconnect();
+    }
+}
+
 struct ReportWorker {
     runner: Runner,
     term_rx: Receiver<()>,
@@ -569,30 +671,15 @@ impl ReportWorker {
         Ok(iolat_map)
     }
 
-    fn start_iolat(
-        cfg: &Config,
-        name: &str,
-        intv: &str,
-        tx: Sender<String>,
-    ) -> (Child, JoinHandle<()>) {
-        let mut cmd = Command::new(&cfg.biolatpcts_bin.as_ref().unwrap())
-            .arg(format!("{}:{}", cfg.scr_devnr.0, cfg.scr_devnr.1))
-            .args(&["-i", intv, "--json"])
-            .arg("-p")
-            .arg(
-                IoLatReport::PCTS
-                    .iter()
-                    .map(|x| format!("{}", x))
-                    .collect::<Vec<String>>()
-                    .join(","),
-            )
-            .stdout(Stdio::piped())
-            .spawn()
-            .unwrap();
-        let name = name.to_string();
-        let stdout = cmd.stdout.take().unwrap();
-        let jh = spawn(move || child_reader_thread(name, stdout, tx));
-        (cmd, jh)
+    fn maybe_retry_iolat(retries: &mut u32, iolat: &mut IoLatReader, e: &dyn std::error::Error) {
+        if *retries > 0 && !prog_exiting() {
+            *retries -= 1;
+            warn!("report: iolat reader thread failed ({:?}), retrying...", e);
+            iolat.reset().unwrap();
+        } else {
+            error!("report: iolat reader thread failed ({:?}), giving up", e);
+            panic!();
+        }
     }
 
     fn run_inner(mut self) {
@@ -601,32 +688,20 @@ impl ReportWorker {
         let runner = self.runner.data.lock().unwrap();
         let cfg = &runner.cfg;
 
-        let (iolat_tx, iolat_rx) = channel::unbounded::<String>();
-        let (mut iolat, mut iolat_jh) = (None, None);
-
-        let (iolat_cum_tx, iolat_cum_rx) = channel::unbounded::<String>();
-        let (mut iolat_cum, mut iolat_cum_jh) = (None, None);
-
-        if cfg.biolatpcts_bin.is_some() {
-            let (cmd, jh) = Self::start_iolat(cfg, "iolat", "1", iolat_tx);
-            iolat = Some(cmd);
-            iolat_jh = Some(jh);
-
-            let (cmd, jh) = Self::start_iolat(cfg, "iolat_cum", "-1", iolat_cum_tx);
-            iolat_cum = Some(cmd);
-            iolat_cum_jh = Some(jh);
-        }
+        let mut iolat = IoLatReader::new(cfg, "iolat", "1").unwrap();
+        let mut iolat_cum = IoLatReader::new(cfg, "iolat_cum", "-1").unwrap();
 
         drop(runner);
         let mut sleep_dur = Duration::from_secs(0);
+        let mut iolat_retries = crate::misc::BCC_RETRIES;
+        let mut iolat_cum_retries = crate::misc::BCC_RETRIES;
 
         'outer: loop {
             select! {
-                recv(iolat_rx) -> res => {
+                recv(iolat.rx.as_ref().unwrap()) -> res => {
                     // the cumulative instance doesn't have an interval,
                     // kick it and run it at the same pace as the 1s one.
-                    kill(Pid::from_raw(iolat_cum.as_ref().unwrap().id() as i32),
-                         Signal::SIGUSR2).unwrap();
+                    iolat_cum.kick();
 
                     match res {
                         Ok(line) => {
@@ -635,13 +710,10 @@ impl ReportWorker {
                                 Err(e) => warn!("report: failed to parse iolat output ({:?})", &e),
                             }
                         }
-                        Err(e) => {
-                            warn!("report: iolat reader thread failed ({:?})", &e);
-                            break;
-                        }
+                        Err(e) => Self::maybe_retry_iolat(&mut iolat_retries, &mut iolat, &e),
                     }
                 },
-                recv(iolat_cum_rx) -> res => {
+                recv(iolat_cum.rx.as_ref().unwrap()) -> res => {
                     match res {
                         Ok(line) => {
                             match Self::parse_iolat_output(&line) {
@@ -649,16 +721,13 @@ impl ReportWorker {
                                 Err(e) => warn!("report: failed to parse iolat_cum output ({:?})", &e),
                             }
                         }
-                        Err(e) => {
-                            warn!("report: iolat_cum reader thread failed ({:?})", &e);
-                            break;
-                        }
+                        Err(e) => Self::maybe_retry_iolat(&mut iolat_cum_retries, &mut iolat_cum, &e),
                     }
                 },
                 recv(self.term_rx) -> term => {
                     if let Err(e) = term {
                         info!("report: Term ({})", &e);
-                        break;
+                        break 'outer;
                     }
                 },
                 recv(channel::after(sleep_dur)) -> _ => (),
@@ -688,21 +757,6 @@ impl ReportWorker {
 
             self.report_file.tick(&base_report, now);
             self.report_file_1min.tick(&base_report, now);
-        }
-
-        drop(iolat_rx);
-        drop(iolat_cum_rx);
-
-        if iolat.is_some() {
-            let _ = iolat.as_mut().unwrap().kill();
-            let _ = iolat.as_mut().unwrap().wait();
-            iolat_jh.unwrap().join().unwrap();
-        }
-
-        if iolat_cum.is_some() {
-            let _ = iolat_cum.as_mut().unwrap().kill();
-            let _ = iolat_cum.as_mut().unwrap().wait();
-            iolat_cum_jh.unwrap().join().unwrap();
         }
     }
 
