@@ -671,17 +671,30 @@ impl ReportWorker {
         Ok(iolat_map)
     }
 
+    fn maybe_retry_iolat(retries: &mut u32, iolat: &mut IoLatReader, e: &dyn std::error::Error) {
+        if *retries > 0 && !prog_exiting() {
+            *retries -= 1;
+            warn!("report: iolat reader thread failed ({:?}), retrying...", e);
+            iolat.reset().unwrap();
+        } else {
+            error!("report: iolat reader thread failed ({:?}), giving up", e);
+            panic!();
+        }
+    }
+
     fn run_inner(mut self) {
         let mut next_at = unix_now() + 1;
 
         let runner = self.runner.data.lock().unwrap();
         let cfg = &runner.cfg;
 
-        let iolat = IoLatReader::new(cfg, "iolat", "1").unwrap();
-        let iolat_cum = IoLatReader::new(cfg, "iolat_cum", "-1").unwrap();
+        let mut iolat = IoLatReader::new(cfg, "iolat", "1").unwrap();
+        let mut iolat_cum = IoLatReader::new(cfg, "iolat_cum", "-1").unwrap();
 
         drop(runner);
         let mut sleep_dur = Duration::from_secs(0);
+        let mut iolat_retries = crate::misc::BCC_RETRIES;
+        let mut iolat_cum_retries = crate::misc::BCC_RETRIES;
 
         'outer: loop {
             select! {
@@ -697,10 +710,7 @@ impl ReportWorker {
                                 Err(e) => warn!("report: failed to parse iolat output ({:?})", &e),
                             }
                         }
-                        Err(e) => {
-                            warn!("report: iolat reader thread failed ({:?})", &e);
-                            break;
-                        }
+                        Err(e) => Self::maybe_retry_iolat(&mut iolat_retries, &mut iolat, &e),
                     }
                 },
                 recv(iolat_cum.rx.as_ref().unwrap()) -> res => {
@@ -711,16 +721,13 @@ impl ReportWorker {
                                 Err(e) => warn!("report: failed to parse iolat_cum output ({:?})", &e),
                             }
                         }
-                        Err(e) => {
-                            warn!("report: iolat_cum reader thread failed ({:?})", &e);
-                            break;
-                        }
+                        Err(e) => Self::maybe_retry_iolat(&mut iolat_cum_retries, &mut iolat_cum, &e),
                     }
                 },
                 recv(self.term_rx) -> term => {
                     if let Err(e) = term {
                         info!("report: Term ({})", &e);
-                        break;
+                        break 'outer;
                     }
                 },
                 recv(channel::after(sleep_dur)) -> _ => (),
