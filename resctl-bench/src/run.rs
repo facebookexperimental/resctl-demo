@@ -96,6 +96,9 @@ impl RunCtxInner {
     }
 
     fn start_agent(&mut self, extra_args: Vec<String>) -> Result<()> {
+        if prog_exiting() {
+            bail!("exiting");
+        }
         if self.agent_svc.is_some() {
             bail!("already running");
         }
