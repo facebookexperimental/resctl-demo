@@ -370,6 +370,7 @@ impl<'a> RunCtx<'a> {
 
     pub fn start_agent_fallible(&mut self, extra_args: Vec<String>) -> Result<()> {
         let mut ctx = self.inner.lock().unwrap();
+        ctx.minder_state = MinderState::Ok;
 
         ctx.start_agent(extra_args)?;
 
@@ -520,7 +521,8 @@ impl<'a> RunCtx<'a> {
             },
             Some(CMD_TIMEOUT),
             None,
-        ).expect("failed to start iocost benchmark");
+        )
+        .expect("failed to start iocost benchmark");
     }
 
     pub fn stop_iocost_bench(&self) {
@@ -536,7 +538,8 @@ impl<'a> RunCtx<'a> {
             |af, _| af.report.data.state != RunnerState::BenchIoCost,
             Some(CMD_TIMEOUT),
             None,
-        ).expect("failed to stop iocost benchmark");
+        )
+        .expect("failed to stop iocost benchmark");
     }
 
     pub fn start_hashd_bench(&self, ballon_size: usize, log_bps: u64, mut extra_args: Vec<String>) {
@@ -564,7 +567,8 @@ impl<'a> RunCtx<'a> {
             },
             Some(CMD_TIMEOUT),
             None,
-        ).expect("failed to start hashd benchmark");
+        )
+        .expect("failed to start hashd benchmark");
     }
 
     pub fn stop_hashd_bench(&self) {
@@ -580,7 +584,8 @@ impl<'a> RunCtx<'a> {
             |af, _| af.report.data.state != RunnerState::BenchHashd,
             Some(CMD_TIMEOUT),
             None,
-        ).expect("failed to stop hashd benchmark");
+        )
+        .expect("failed to stop hashd benchmark");
     }
 
     pub const BENCH_FAKE_CPU_RPS_MAX: u32 = 2000;
