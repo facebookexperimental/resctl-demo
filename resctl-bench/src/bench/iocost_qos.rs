@@ -7,9 +7,10 @@ use std::collections::BTreeMap;
 
 // Gonna run storage bench multiple times with different parameters. Let's
 // run it just once by default.
+const DFL_VRATE_INTVS: u32 = 10;
+const DFL_STORAGE_BASE_LOOPS: u32 = 3;
 const DFL_STORAGE_LOOPS: u32 = 1;
 const DFL_RETRIES: u32 = 2;
-const DFL_RUN_VRATES: [f64; 10] = [100.0, 90.0, 80.0, 70.0, 60.0, 50.0, 40.0, 30.0, 20.0, 10.0];
 
 #[derive(Debug, Default, Clone, PartialEq)]
 struct IoCostQoSOvr {
@@ -22,6 +23,8 @@ struct IoCostQoSOvr {
 }
 
 struct IoCostQoSJob {
+    base_loops: u32,
+    loops: u32,
     mem_profile: u32,
     retries: u32,
     allow_fails: bool,
@@ -39,6 +42,8 @@ impl Bench for IoCostQoSBench {
     fn parse(&self, spec: &JobSpec) -> Result<Box<dyn Job>> {
         let mut storage_spec = JobSpec::new("storage".into(), None, vec![Default::default()]);
 
+        let mut vrate_intvs = 0;
+        let mut base_loops = DFL_STORAGE_BASE_LOOPS;
         let mut loops = DFL_STORAGE_LOOPS;
         let mut mem_profile = 0;
         let mut retries = DFL_RETRIES;
@@ -47,6 +52,8 @@ impl Bench for IoCostQoSBench {
 
         for (k, v) in spec.properties[0].iter() {
             match k.as_str() {
+                "vrate-intvs" => vrate_intvs = v.parse::<u32>()?,
+                "base-loops" => base_loops = v.parse::<u32>()?,
                 "loops" => loops = v.parse::<u32>()?,
                 "mem-profile" => mem_profile = v.parse::<u32>()?,
                 "retries" => retries = v.parse::<u32>()?,
@@ -75,20 +82,25 @@ impl Bench for IoCostQoSBench {
 
         let mut storage_job = StorageJob::parse(&storage_spec)?;
         storage_job.active = true;
-        storage_job.loops = loops;
 
-        // No configuration. Use the default profile.
-        if runs.len() == 1 {
-            for vrate in &DFL_RUN_VRATES {
+        if runs.len() == 1 && vrate_intvs == 0 {
+            vrate_intvs = DFL_VRATE_INTVS;
+        }
+
+        if vrate_intvs > 0 {
+            let click = 100.0 / vrate_intvs as f64;
+            for i in 0..vrate_intvs {
                 runs.push(Some(IoCostQoSOvr {
-                    min: Some(*vrate),
-                    max: Some(*vrate),
+                    min: Some(100.0 - i as f64 * click),
+                    max: Some(100.0 - i as f64 * click),
                     ..Default::default()
                 }));
             }
         }
 
         Ok(Box::new(IoCostQoSJob {
+            base_loops,
+            loops,
             mem_profile,
             retries,
             allow_fails,
@@ -379,6 +391,10 @@ impl Job for IoCostQoSJob {
                 let mut job = self.storage_job.clone();
                 job.mem_profile_ask = last_mem_profile;
                 job.mem_avail = last_mem_avail;
+                job.loops = match i {
+                    0 => self.base_loops,
+                    _ => self.loops,
+                };
 
                 match Self::run_one(rctx, &mut job, ovr) {
                     Ok(result) => {
