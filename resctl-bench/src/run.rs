@@ -254,7 +254,9 @@ impl<'a> RunCtx<'a> {
 
     pub fn update_incremental_result(&mut self, result: serde_json::Value) {
         self.inc_job_ctxs[self.inc_job_idx].result = Some(result);
-        super::save_results(self.result_path.as_ref().unwrap(), self.inc_job_ctxs);
+        if self.result_path.is_some() {
+            super::save_results(self.result_path.as_ref().unwrap(), self.inc_job_ctxs);
+        }
     }
 
     pub fn base_bench(&self) -> &rd_agent_intf::BenchKnobs {

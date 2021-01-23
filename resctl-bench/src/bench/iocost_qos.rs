@@ -134,18 +134,21 @@ impl IoCostQoSJob {
             return empty;
         }
         let pr = serde_json::from_value::<IoCostQoSResult>(pr.unwrap()).unwrap();
-        if pr.results[0].is_none() {
+
+        let base_result = if pr.results.len() > 0 && pr.results[0].is_some() {
+            pr.results[0].as_ref().unwrap()
+        } else if pr.inc_results.len() > 0 {
+            &pr.inc_results[0]
+        } else {
             return empty;
-        }
+        };
 
         let msg = "iocost-qos: Ignoring existing result file due to";
         if pr.model != bench.iocost.model || pr.base_qos != bench.iocost.qos {
             warn!("{} {}", &msg, "iocost parameter mismatch");
             return empty;
         }
-        if self.mem_profile > 0
-            && self.mem_profile != pr.results[0].as_ref().unwrap().storage.mem_profile
-        {
+        if self.mem_profile > 0 && self.mem_profile != base_result.storage.mem_profile {
             warn!("{} {}", &msg, "mem-profile mismatch");
             return empty;
         }
