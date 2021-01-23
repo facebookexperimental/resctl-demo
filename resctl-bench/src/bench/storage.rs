@@ -479,6 +479,16 @@ impl Job for StorageJob {
             let (mp, ms) = self.select_memory_profile()?;
             self.mem_profile = mp;
             self.mem_share = ms;
+
+            if self.mem_avail < self.mem_share {
+                warn!(
+                    "storage: mem_avail {} is too small for the memory profile, forcing to {}",
+                    format_size(self.mem_avail),
+                    format_size(self.mem_share)
+                );
+                warn!("storage: If keeps failing, free up memory or use lower memory profile");
+                self.mem_avail = self.mem_share;
+            }
             info!(
                 "storage: Memory profile {}G (mem_share {}, mem_avail {})",
                 self.mem_profile,
