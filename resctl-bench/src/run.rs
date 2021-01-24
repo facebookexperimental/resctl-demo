@@ -550,6 +550,12 @@ impl<'a> RunCtx<'a> {
     pub fn start_hashd_bench(&self, ballon_size: usize, log_bps: u64, mut extra_args: Vec<String>) {
         debug!("Starting hashd benchmark ({})", &HASHD_BENCH_SVC_NAME);
 
+        // Some benches monitor the memory usage of rd-hashd-bench.service.
+        // On consecutive runs, some memory charges can shift to
+        // workload.slice causing inaccuracies. Let's start with a clean
+        // state.
+        write_one_line("/proc/sys/vm/drop_caches", "3").unwrap();
+
         if self.test {
             extra_args.push("--bench-test".into());
         }
