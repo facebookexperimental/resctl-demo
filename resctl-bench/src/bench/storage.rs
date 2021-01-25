@@ -43,8 +43,8 @@ impl Default for StorageJob {
             loops: 5,
             mem_profile_ask: None,
             mem_avail_err_max: 0.1,
-            mem_avail_inner_retries: 5,
-            mem_avail_outer_retries: 5,
+            mem_avail_inner_retries: 2,
+            mem_avail_outer_retries: 2,
             active: false,
 
             first_try: true,
@@ -133,8 +133,8 @@ impl StorageJob {
                 "loops" => job.loops = v.parse::<u32>()?,
                 "mem-profile" => job.mem_profile_ask = Some(v.parse::<u32>()?),
                 "mem-avail-err-max" => job.mem_avail_err_max = v.parse::<f64>()?,
-                "mem-avail-inner-tries" => job.mem_avail_inner_retries = v.parse::<u32>()?,
-                "mem-avail-outer-tries" => job.mem_avail_outer_retries = v.parse::<u32>()?,
+                "mem-avail-inner-retries" => job.mem_avail_inner_retries = v.parse::<u32>()?,
+                "mem-avail-outer-retries" => job.mem_avail_outer_retries = v.parse::<u32>()?,
                 k => bail!("unknown property key {:?}", k),
             }
         }
@@ -328,10 +328,10 @@ impl StorageJob {
 
         if retry_outer {
             self.mem_avail = cur_mem_avail;
-            self.mem_avail_outer_retries -= 1;
             if self.mem_avail_outer_retries == 0 {
-                bail!("available memory keeps fluctuating, you gotta keep the system idle");
+                bail!("available memory keeps fluctuating, keep the system idle");
             }
+            self.mem_avail_outer_retries -= 1;
         }
 
         self.prev_mem_avail = cur_mem_avail;
@@ -481,13 +481,16 @@ impl Job for StorageJob {
             self.mem_share = ms;
 
             if self.mem_avail < self.mem_share {
-                warn!(
-                    "storage: mem_avail {} is too small for the memory profile, forcing to {}",
-                    format_size(self.mem_avail),
-                    format_size(self.mem_share)
-                );
-                warn!("storage: If keeps failing, free up memory or use lower memory profile");
-                self.mem_avail = self.mem_share;
+                if self.mem_avail_outer_retries > 0 {
+                    warn!(
+                        "storage: mem_avail {} too small for the memory profile, re-estimating",
+                        format_size(self.mem_avail),
+                    );
+                    self.mem_avail_outer_retries -= 1;
+                    self.mem_avail = self.estimate_available_memory(rctx)?;
+                    continue 'outer;
+                }
+                bail!("mem_avail too small, IO may be too slow to populate memory, giving up");
             }
             info!(
                 "storage: Memory profile {}G (mem_share {}, mem_avail {})",

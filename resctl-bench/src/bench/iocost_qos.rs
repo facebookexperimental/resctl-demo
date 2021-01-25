@@ -10,7 +10,7 @@ use std::collections::BTreeMap;
 const DFL_VRATE_INTVS: u32 = 10;
 const DFL_STORAGE_BASE_LOOPS: u32 = 3;
 const DFL_STORAGE_LOOPS: u32 = 1;
-const DFL_RETRIES: u32 = 2;
+const DFL_RETRIES: u32 = 1;
 
 #[derive(Debug, Default, Clone, PartialEq)]
 struct IoCostQoSOvr {
@@ -27,7 +27,7 @@ struct IoCostQoSJob {
     loops: u32,
     mem_profile: u32,
     retries: u32,
-    allow_fails: bool,
+    allow_fail: bool,
     storage_job: StorageJob,
     runs: Vec<Option<IoCostQoSOvr>>,
 }
@@ -47,7 +47,7 @@ impl Bench for IoCostQoSBench {
         let mut loops = DFL_STORAGE_LOOPS;
         let mut mem_profile = 0;
         let mut retries = DFL_RETRIES;
-        let mut allow_fails = false;
+        let mut allow_fail = false;
         let mut runs = vec![None];
 
         for (k, v) in spec.properties[0].iter() {
@@ -57,7 +57,7 @@ impl Bench for IoCostQoSBench {
                 "loops" => loops = v.parse::<u32>()?,
                 "mem-profile" => mem_profile = v.parse::<u32>()?,
                 "retries" => retries = v.parse::<u32>()?,
-                "allow-fails" => allow_fails = v.parse::<bool>()?,
+                "allow-fail" => allow_fail = v.parse::<bool>()?,
                 k => {
                     storage_spec.properties[0].insert(k.into(), v.into());
                 }
@@ -103,7 +103,7 @@ impl Bench for IoCostQoSBench {
             loops,
             mem_profile,
             retries,
-            allow_fails,
+            allow_fail,
             storage_job,
             runs,
         }))
@@ -423,7 +423,7 @@ impl Job for IoCostQoSJob {
                             warn!("iocost-qos[{:02}]: Failed ({}), retrying...", i, &e);
                         } else {
                             error!("iocost-qos[{:02}]: Failed ({}), giving up...", i, &e);
-                            if !self.allow_fails {
+                            if !self.allow_fail {
                                 return Err(e);
                             }
                             break 'outer;
