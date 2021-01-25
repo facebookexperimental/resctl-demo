@@ -120,6 +120,41 @@ impl Iterator for MemProfileIterator {
     }
 }
 
+struct HashdFakeCpuBench {
+    size: u64,
+    balloon_size: usize,
+    preload_size: usize,
+    log_bps: u64,
+    log_size: u64,
+    hash_size: usize,
+    chunk_pages: usize,
+    rps_max: u32,
+    file_frac: f64,
+}
+
+impl HashdFakeCpuBench {
+    fn start(&self, rctx: &RunCtx) {
+        rctx.start_hashd_bench(
+            self.balloon_size,
+            self.log_bps,
+            // We should specify all the total_memory() dependent values in
+            // rd_hashd_intf::Args so that the behavior stays the same for
+            // the same mem_profile.
+            vec![
+                format!("--size={}", self.size),
+                format!("--bench-preload-cache={}", self.preload_size),
+                format!("--log-size={}", self.log_size),
+                "--bench-fake-cpu-load".into(),
+                format!("--bench-hash-size={}", self.hash_size),
+                format!("--bench-chunk-pages={}", self.chunk_pages),
+                format!("--bench-rps-max={}", self.rps_max),
+                format!("--bench-file-frac={}", self.file_frac),
+                format!("--file-max={}", self.file_frac),
+            ],
+        );
+    }
+}
+
 impl StorageJob {
     pub fn parse(spec: &JobSpec) -> Result<StorageJob> {
         let mut job = StorageJob::default();
@@ -150,14 +185,21 @@ impl StorageJob {
 
     fn estimate_available_memory(&mut self, rctx: &mut RunCtx) -> Result<usize> {
         // Estimate available memory by running the up and bisect phases of
-        // rd-hashd benchmark.
-        rctx.start_hashd_fake_cpu_bench(
-            0,
-            self.log_bps,
-            self.hash_size,
-            self.chunk_pages,
-            self.rps_max,
-        );
+        // rd-hashd benchmark. Reduce file_frac as much as possible and
+        // disable log so that we can ramp up memory usage quickly even on
+        // really slow IO devices.
+        HashdFakeCpuBench {
+            size: rd_hashd_intf::Args::DFL_SIZE_MULT * total_memory() as u64,
+            balloon_size: 0,
+            preload_size: 0,
+            log_bps: 0,
+            log_size: 0,
+            hash_size: self.hash_size,
+            chunk_pages: self.chunk_pages,
+            rps_max: self.rps_max,
+            file_frac: rd_hashd_intf::Params::FILE_FRAC_MIN,
+        }
+        .start(rctx);
 
         rctx.wait_cond(
             |af, progress| {
@@ -218,14 +260,22 @@ impl StorageJob {
     }
 
     fn measure_supportable_memory_size(&mut self, rctx: &RunCtx) -> Result<(usize, f64)> {
-        let balloon_size = self.mem_avail.saturating_sub(self.mem_share);
-        rctx.start_hashd_fake_cpu_bench(
-            balloon_size,
-            self.log_bps,
-            self.hash_size,
-            self.chunk_pages,
-            self.rps_max,
-        );
+        let mem_size = (self.mem_profile as u64) << 30;
+        let file_frac = rd_hashd_intf::Params::default().file_frac;
+        let preload_size = (mem_size as f64 * (file_frac * 2.0).min(1.0)) as usize;
+
+        HashdFakeCpuBench {
+            size: rd_hashd_intf::Args::DFL_SIZE_MULT * mem_size as u64,
+            balloon_size: self.mem_avail.saturating_sub(self.mem_share),
+            preload_size,
+            log_bps: self.log_bps,
+            log_size: mem_size / 2,
+            hash_size: self.hash_size,
+            chunk_pages: self.chunk_pages,
+            rps_max: self.rps_max,
+            file_frac,
+        }
+        .start(rctx);
 
         const NR_MEM_USAGES: usize = 10;
         let mut mem_usages = VecDeque::<usize>::new();
@@ -490,7 +540,7 @@ impl Job for StorageJob {
                     self.mem_avail = self.estimate_available_memory(rctx)?;
                     continue 'outer;
                 }
-                bail!("mem_avail too small, IO may be too slow to populate memory, giving up");
+                bail!("mem_avail too small for the memory profile, giving up");
             }
             info!(
                 "storage: Memory profile {}G (mem_share {}, mem_avail {})",

@@ -113,7 +113,7 @@ lazy_static::lazy_static! {
              -i, --interval=[SECS]         'Summary report interval, 0 to disable (default: {dfl_intv}s)'
              -R, --rotational=[BOOL]       'Force rotational detection to either true or false'
              -a, --args=[FILE]             'Load base command line arguments from FILE'
-                 --keep-caches             'Don't drop caches for testfiles on startup'
+                 --keep-cache              'Don't drop page cache for testfiles on startup'
                  --clear-testfiles         'Clear testfiles before preparing them'
                  --prepare-config          'Prepare config files and exit'
                  --prepare                 'Prepare config files and testfiles and exit'
@@ -127,6 +127,8 @@ lazy_static::lazy_static! {
                  --bench-chunk-pages=[PAGES] 'Use the specified chunk pages'
                  --bench-rps-max=[RPS]     'Use the specified RPS max'
                  --bench-log-bps=[BPS]     'Log write bps at max rps (default: {dfl_log_bps:.2}M)'
+                 --bench-file-frac=[FRAC]  'Page cache ratio compared to anon memory (default: {dfl_file_frac:.2})'
+                 --bench-preload-cache=[SIZE] 'Prepopulate page cache with testfiles (default: {dfl_preload_cache:.2}G)'
                  --total-memory=[SIZE]     'Override total memory detection'
                  --total-swap=[SIZE]       'Override total swap space detection'
                  --nr-cpus=[NR]            'Override cpu count detection'
@@ -135,6 +137,8 @@ lazy_static::lazy_static! {
             dfl_file_max_frac=Args::default().file_max_frac,
             dfl_log_size=to_gb(Args::default().log_size),
             dfl_log_bps=to_mb(Args::default().bench_log_bps),
+            dfl_preload_cache=to_mb(Args::default().bench_preload_cache),
+            dfl_file_frac=Params::default().file_frac,
             dfl_intv=Args::default().interval)
     };
 }
@@ -166,7 +170,7 @@ pub struct Args {
     pub nr_cpus: Option<usize>,
 
     #[serde(skip)]
-    pub keep_caches: bool,
+    pub keep_cache: bool,
     #[serde(skip)]
     pub clear_testfiles: bool,
     #[serde(skip)]
@@ -192,6 +196,10 @@ pub struct Args {
     #[serde(skip)]
     pub bench_log_bps: u64,
     #[serde(skip)]
+    pub bench_file_frac: f64,
+    #[serde(skip)]
+    pub bench_preload_cache: usize,
+    #[serde(skip)]
     pub verbosity: u32,
 }
 
@@ -206,6 +214,7 @@ impl Args {
 
 impl Default for Args {
     fn default() -> Self {
+        let dfl_params = Params::default();
         Self {
             testfiles: None,
             size: Self::DFL_SIZE_MULT * total_memory() as u64,
@@ -221,7 +230,9 @@ impl Default for Args {
             total_swap: None,
             nr_cpus: None,
             clear_testfiles: false,
-            keep_caches: false,
+            keep_cache: false,
+            bench_preload_cache: (total_memory() as f64 * (dfl_params.file_frac * 2.0).min(1.0))
+                as usize,
             prepare_testfiles: true,
             prepare_and_exit: false,
             bench_cpu_single: false,
@@ -232,7 +243,8 @@ impl Default for Args {
             bench_hash_size: 0,
             bench_chunk_pages: 0,
             bench_rps_max: 0,
-            bench_log_bps: Params::default().log_bps,
+            bench_log_bps: dfl_params.log_bps,
+            bench_file_frac: 0.0,
             verbosity: 0,
         }
     }
@@ -363,7 +375,14 @@ impl JsonArgs for Args {
             updated_base = true;
         }
 
-        self.keep_caches = matches.is_present("keep-caches");
+        self.keep_cache = matches.is_present("keep-cache");
+        if let Some(v) = matches.value_of("bench-preload-cache") {
+            self.bench_preload_cache = if v.len() > 0 {
+                v.parse::<usize>().unwrap()
+            } else {
+                dfl.bench_preload_cache
+            };
+        }
         self.clear_testfiles = matches.is_present("clear-testfiles");
 
         let prep_cfg = matches.is_present("prepare-config");
@@ -402,6 +421,9 @@ impl JsonArgs for Args {
         }
         if let Some(v) = matches.value_of("bench-log-bps") {
             self.bench_log_bps = v.parse::<u64>().unwrap();
+        }
+        if let Some(v) = matches.value_of("bench-file-frac") {
+            self.bench_file_frac = v.parse::<f64>().unwrap();
         }
 
         self.verbosity = Self::verbosity(matches);

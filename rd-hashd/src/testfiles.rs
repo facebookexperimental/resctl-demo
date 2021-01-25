@@ -6,7 +6,7 @@ use rand::rngs::SmallRng;
 use rand::SeedableRng;
 use std::ffi::OsStr;
 use std::fs;
-use std::io::{Read, Write};
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::os::unix::io::AsRawFd;
 use std::path::{Path, PathBuf};
 use util::*;
@@ -167,7 +167,7 @@ impl TestFiles {
         path
     }
 
-    pub fn drop_caches(&self) {
+    pub fn drop_cache(&self) {
         for i in 0..self.nr_files {
             let path = self.path(i);
             match fs::File::open(&path) {
@@ -192,6 +192,35 @@ impl TestFiles {
                     &path, &e
                 ),
             }
+        }
+    }
+
+    pub fn preload<F: FnMut(u64)>(&self, size: usize, mut progress: F) {
+        let nr_files = (size as u64 / self.unit_size).min(self.nr_files);
+
+        // Populate the units in the reverse order so that the hotter a unit
+        // the later it gets loaded.
+        for fi in (0..nr_files).rev() {
+            let path = self.path(fi);
+            let mut f = match fs::File::open(&path) {
+                Ok(f) => f,
+                Err(e) => {
+                    warn!("Failed to open {:?} for preheat ({})", &path, &e);
+                    continue;
+                }
+            };
+            for pi in 0..(self.unit_size / *PAGE_SIZE as u64) {
+                if let Err(e) = f.seek(SeekFrom::Start(pi * *PAGE_SIZE as u64)) {
+                    warn!("Failed to seek to {:?}:{} for preheat ({})", &path, pi, &e);
+                    continue;
+                }
+                let mut buf: Vec<u8> = vec![0];
+                if let Err(e) = f.read_exact(&mut buf) {
+                    warn!("Failed to read {:?}:{} for preheat ({})", &path, pi, &e);
+                    continue;
+                }
+            }
+            progress((nr_files - fi) * self.unit_size);
         }
     }
 }

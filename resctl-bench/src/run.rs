@@ -112,7 +112,7 @@ impl RunCtxInner {
             let status = Command::new(&hashd_bin)
                 .arg("--testfiles")
                 .arg(testfiles_path)
-                .arg("--keep-caches")
+                .arg("--keep-cache")
                 .arg("--prepare")
                 .status()?;
             if !status.success() {
@@ -600,26 +600,6 @@ impl<'a> RunCtx<'a> {
     }
 
     pub const BENCH_FAKE_CPU_RPS_MAX: u32 = 2000;
-
-    pub fn start_hashd_fake_cpu_bench(
-        &self,
-        balloon_size: usize,
-        log_bps: u64,
-        hash_size: usize,
-        chunk_pages: usize,
-        rps_max: u32,
-    ) {
-        self.start_hashd_bench(
-            balloon_size,
-            log_bps,
-            vec![
-                "--bench-fake-cpu-load".into(),
-                format!("--bench-hash-size={}", hash_size),
-                format!("--bench-chunk-pages={}", chunk_pages),
-                format!("--bench-rps-max={}", rps_max),
-            ],
-        );
-    }
 
     pub fn sysreqs_report(&self) -> Option<Arc<rd_agent_intf::SysReqsReport>> {
         self.inner.lock().unwrap().sysreqs_rep.clone()
