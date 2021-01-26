@@ -10,7 +10,7 @@ use std::collections::BTreeMap;
 const DFL_VRATE_INTVS: u32 = 10;
 const DFL_STORAGE_BASE_LOOPS: u32 = 3;
 const DFL_STORAGE_LOOPS: u32 = 1;
-const DFL_RETRIES: u32 = 1;
+const DFL_RETRIES: u32 = 2;
 
 #[derive(Debug, Default, Clone, PartialEq)]
 struct IoCostQoSOvr {
