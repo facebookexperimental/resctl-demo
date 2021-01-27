@@ -10,7 +10,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use util::*;
 
 use super::progress::BenchProgress;
-use super::{rd_agent_base_args, AGENT_BIN};
+use super::{Program, AGENT_BIN};
 use crate::job::JobCtx;
 use rd_agent_intf::{
     AgentFiles, ReportIter, RunnerState, Slice, SysReq, AGENT_SVC_NAME, HASHD_BENCH_SVC_NAME,
@@ -57,7 +57,10 @@ struct RunCtxInner {
 impl RunCtxInner {
     fn start_agent_svc(&self, mut extra_args: Vec<String>) -> Result<TransientService> {
         let mut args = vec![AGENT_BIN.clone()];
-        args.append(&mut rd_agent_base_args(&self.dir, self.dev.as_deref())?);
+        args.append(&mut Program::rd_agent_base_args(
+            &self.dir,
+            self.dev.as_deref(),
+        )?);
         args.push("--reset".into());
         args.push("--keep-reports".into());
 
@@ -254,7 +257,7 @@ impl<'a> RunCtx<'a> {
 
     pub fn update_incremental_result(&mut self, result: serde_json::Value) {
         self.inc_job_ctxs[self.inc_job_idx].result = Some(result);
-        super::save_results(self.result_path, self.inc_job_ctxs);
+        Program::save_results(self.result_path, self.inc_job_ctxs);
     }
 
     pub fn base_bench(&self) -> &rd_agent_intf::BenchKnobs {
