@@ -107,6 +107,8 @@ pub struct Params {
 }
 
 impl Params {
+    pub const FILE_FRAC_MIN: f64 = 0.001;
+
     pub fn log_padding(&self) -> u64 {
         if self.rps_max > 0 {
             (self.log_bps as f64 / self.rps_max as f64).round() as u64
@@ -159,7 +161,7 @@ impl Default for Params {
 
 impl JsonLoad for Params {
     fn loaded(&mut self, _prev: Option<&mut Self>) -> Result<()> {
-        self.file_frac = self.file_frac.max(0.001);
+        self.file_frac = self.file_frac.max(Self::FILE_FRAC_MIN);
         Ok(())
     }
 }

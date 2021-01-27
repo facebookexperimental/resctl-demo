@@ -112,7 +112,7 @@ impl RunCtxInner {
             let status = Command::new(&hashd_bin)
                 .arg("--testfiles")
                 .arg(testfiles_path)
-                .arg("--keep-caches")
+                .arg("--keep-cache")
                 .arg("--prepare")
                 .status()?;
             if !status.success() {
@@ -254,7 +254,9 @@ impl<'a> RunCtx<'a> {
 
     pub fn update_incremental_result(&mut self, result: serde_json::Value) {
         self.inc_job_ctxs[self.inc_job_idx].result = Some(result);
-        super::save_results(self.result_path.as_ref().unwrap(), self.inc_job_ctxs);
+        if self.result_path.is_some() {
+            super::save_results(self.result_path.as_ref().unwrap(), self.inc_job_ctxs);
+        }
     }
 
     pub fn base_bench(&self) -> &rd_agent_intf::BenchKnobs {
@@ -548,6 +550,12 @@ impl<'a> RunCtx<'a> {
     pub fn start_hashd_bench(&self, ballon_size: usize, log_bps: u64, mut extra_args: Vec<String>) {
         debug!("Starting hashd benchmark ({})", &HASHD_BENCH_SVC_NAME);
 
+        // Some benches monitor the memory usage of rd-hashd-bench.service.
+        // On consecutive runs, some memory charges can shift to
+        // workload.slice causing inaccuracies. Let's start with a clean
+        // state.
+        write_one_line("/proc/sys/vm/drop_caches", "3").unwrap();
+
         if self.test {
             extra_args.push("--bench-test".into());
         }
@@ -592,26 +600,6 @@ impl<'a> RunCtx<'a> {
     }
 
     pub const BENCH_FAKE_CPU_RPS_MAX: u32 = 2000;
-
-    pub fn start_hashd_fake_cpu_bench(
-        &self,
-        balloon_size: usize,
-        log_bps: u64,
-        hash_size: usize,
-        chunk_pages: usize,
-        rps_max: u32,
-    ) {
-        self.start_hashd_bench(
-            balloon_size,
-            log_bps,
-            vec![
-                "--bench-fake-cpu-load".into(),
-                format!("--bench-hash-size={}", hash_size),
-                format!("--bench-chunk-pages={}", chunk_pages),
-                format!("--bench-rps-max={}", rps_max),
-            ],
-        );
-    }
 
     pub fn sysreqs_report(&self) -> Option<Arc<rd_agent_intf::SysReqsReport>> {
         self.inner.lock().unwrap().sysreqs_rep.clone()

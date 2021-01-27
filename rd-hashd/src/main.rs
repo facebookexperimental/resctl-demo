@@ -59,6 +59,7 @@ fn report_tick(rf: &mut JsonReportFile<Report>, throttle: bool) {
 struct TestFilesProgressBar {
     bar: ProgressBar,
     greet: Option<String>,
+    name: String,
     log: bool,
     size: u64,
     last_at: Instant,
@@ -66,13 +67,14 @@ struct TestFilesProgressBar {
 }
 
 impl TestFilesProgressBar {
-    fn new(size: u64, greet: &str, hidden: bool) -> Self {
+    fn new(size: u64, greet: &str, name: &str, hidden: bool) -> Self {
         let tfbar = Self {
             bar: match hidden {
                 false => ProgressBar::new(size),
                 true => ProgressBar::hidden(),
             },
             greet: Some(greet.to_string()),
+            name: name.to_string(),
             log: !hidden && !console::user_attended_stderr(),
             size,
             last_at: Instant::now(),
@@ -112,7 +114,8 @@ impl TestFilesProgressBar {
         self.last_pos = pos;
 
         info!(
-            "testfiles: {:6.2}% ({:.2}G / {:.2}G)",
+            "{}: {:6.2}% ({:.2}G / {:.2}G)",
+            &self.name,
             pos as f64 / self.size as f64 * TO_PCT,
             to_gb(pos),
             to_gb(self.size)
@@ -238,7 +241,12 @@ fn main() {
         );
 
         // Lay out the testfiles while reporting progress.
-        let mut tfbar = TestFilesProgressBar::new(args.file_max_size(), &greet, args.verbosity > 1);
+        let mut tfbar = TestFilesProgressBar::new(
+            args.file_max_size(),
+            &greet,
+            "Preparing testfiles",
+            args.verbosity > 1,
+        );
         tf.setup(|pos| {
             tfbar.progress(pos);
             report_file.data.testfiles_progress = pos as f64 / args.file_max_size() as f64;
@@ -248,9 +256,9 @@ fn main() {
         report_file.data.testfiles_progress = 1.0;
         report_tick(&mut report_file, false);
 
-        if !args.keep_caches {
-            info!("Dropping caches for testfiles");
-            tf.drop_caches();
+        if !args.keep_cache {
+            info!("Dropping page cache for testfiles");
+            tf.drop_cache();
         }
     }
 

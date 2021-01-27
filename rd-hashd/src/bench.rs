@@ -12,7 +12,7 @@ use std::thread::{sleep, spawn, JoinHandle};
 use std::time::{Duration, Instant};
 use std::u32;
 
-use rd_hashd_intf::{params::PidParams, Params, Phase, Report, Stat};
+use rd_hashd_intf::{params, Params, Phase, Report, Stat};
 use util::*;
 
 use super::hasher;
@@ -47,7 +47,7 @@ pub struct CpuCfg {
     io_lat: f64,
     io_ratio: f64,
     err: f64,
-    fsz_pid: PidParams,
+    fsz_pid: params::PidParams,
     rounds: u32,
     converge: ConvergeCfg,
 }
@@ -176,7 +176,7 @@ impl Default for Cfg {
                 io_lat: 2.5 * MSEC,
                 io_ratio: 0.2,
                 err: 0.05,
-                fsz_pid: PidParams {
+                fsz_pid: params::PidParams {
                     kp: 0.25,
                     ki: 0.01,
                     kd: 0.01,
@@ -545,25 +545,13 @@ impl Bench {
         report_file: JsonReportFile<Report>,
     ) -> Self {
         let args = &args_file.data;
-
-        // Reset parameters which are gonna be discovered through benchmarking
-        // and keep user specified values for others.
-        let default: Params = Default::default();
-        let p = Params {
-            file_size_mean: default.file_size_mean,
-            rps_max: default.rps_max,
-            mem_frac: default.mem_frac,
-            fake_cpu_load: default.fake_cpu_load,
-            log_bps: args.bench_log_bps,
-            ..params_file.data.clone()
-        };
         let verbosity = args.verbosity;
 
         Self {
             args_file,
             params_file,
             report_file: Arc::new(Mutex::new(report_file)),
-            params: p,
+            params: Default::default(),
             bar_hidden: verbosity > 1,
         }
     }
@@ -579,7 +567,7 @@ impl Bench {
         rep.data.mem_probe_at = chrono::Local::now();
     }
 
-    fn prep_tf(&self, size: u64, why: &str) -> TestFiles {
+    fn prep_tf(&self, size: u64, preload: usize, why: &str) -> TestFiles {
         let size = (size as f64 * self.args_file.data.file_max_frac).ceil() as u64;
         let greet = format!("Preparing {:.2}G testfiles for {}", to_gb(size), why);
 
@@ -589,7 +577,8 @@ impl Bench {
             size,
             self.args_file.data.compressibility,
         );
-        let mut tfbar = TestFilesProgressBar::new(size, &greet, self.bar_hidden);
+        let mut tfbar =
+            TestFilesProgressBar::new(size, &greet, "Preparing testfiles", self.bar_hidden);
         let mut report_file = self.report_file.lock().unwrap();
 
         report_file.data.hasher.rps = 0.0;
@@ -599,6 +588,22 @@ impl Bench {
             report_tick(&mut report_file, true);
         })
         .unwrap();
+
+        if preload > 0 {
+            // When the IO is really slow, we might not be able to ramp up
+            // memory usage quickly enough to successfully measure
+            // supportable memory footprint. Let's work around by
+            // pre-populating page cache with the hottest testfile pages.
+            let greet = format!("Preloading {:.2}G into cache", to_gb(preload));
+            let mut tfbar = TestFilesProgressBar::new(
+                preload as u64,
+                &greet,
+                "Preloading testfiles",
+                self.bar_hidden,
+            );
+            tf.preload(preload, |pos| tfbar.progress(pos));
+        }
+
         tf
     }
 
@@ -690,7 +695,7 @@ impl Bench {
         let max_size = cfg.size.max(TIME_HASH_SIZE as u64);
 
         self.set_phase(Phase::BenchCpuSinglePrep);
-        let tf = self.prep_tf(max_size, "single cpu bench");
+        let tf = self.prep_tf(max_size, 0, "single cpu bench");
         self.set_phase(Phase::BenchCpuSingle);
 
         params.concurrency_max = 1;
@@ -780,7 +785,7 @@ impl Bench {
         let mut nr_rounds = 0;
 
         self.set_phase(Phase::BenchCpuSaturationPrep);
-        let tf = self.prep_tf(cfg.size, "cpu saturation bench");
+        let tf = self.prep_tf(cfg.size, 0, "cpu saturation bench");
         self.set_phase(Phase::BenchCpuSaturation);
 
         params.file_addr_stdev_ratio = 100.0;
@@ -1147,9 +1152,20 @@ impl Bench {
 
             let orig_fake_cpu_load = self.params.fake_cpu_load;
             self.params.fake_cpu_load = self.args_file.data.bench_fake_cpu_load;
+            if self.args_file.data.bench_file_frac > 0.0 {
+                self.params.file_frac = self
+                    .args_file
+                    .data
+                    .bench_file_frac
+                    .max(rd_hashd_intf::Params::FILE_FRAC_MIN);
+            }
 
             self.set_phase(Phase::BenchMemPrep);
-            let tf = self.prep_tf(max_size, "Memory saturation bench");
+            let tf = self.prep_tf(
+                max_size,
+                self.args_file.data.bench_preload_cache,
+                "Memory saturation bench",
+            );
 
             let mut th = self.create_test_hasher(max_size, tf, &self.params, false);
 
