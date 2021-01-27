@@ -7,7 +7,7 @@ use std::path::Path;
 use std::process::Command;
 use util::*;
 
-use resctl_bench_intf::Args;
+use resctl_bench_intf::{Args, Mode};
 
 mod bench;
 mod job;
@@ -169,25 +169,18 @@ impl Program {
             .expect("Failed to write output file");
     }
 
-    fn main(mut self) {
-        let args = &self.args_file.data;
-
-        // Load existing result file into job_ctxs.
-        if Path::new(&args.result).exists() {
-            match JobCtx::load_result_file(&args.result) {
-                Ok(mut results) => {
-                    debug!("Loaded {} entries from result file", results.len());
-                    self.job_ctxs.append(&mut results);
-                }
-                Err(e) => {
-                    error!(
-                        "Failed to load existing result file {:?} ({})",
-                        &args.result, &e
-                    );
-                    panic!();
-                }
+    fn commit_args(&self) {
+        // Everything parsed okay. Update the args file.
+        if self.args_updated {
+            if let Err(e) = Args::save_args(&self.args_file) {
+                error!("Failed to update args file ({})", &e);
+                panic!();
             }
         }
+    }
+
+    fn run(&mut self) {
+        let args = &self.args_file.data;
 
         // Stash the result part for incremental result file updates.
         let mut inc_job_ctxs = self.job_ctxs.clone();
@@ -217,15 +210,7 @@ impl Program {
         }
 
         debug!("job_ctxs: nr_to_run={}\n{:#?}", nr_to_run, &self.job_ctxs);
-
-        // Everything parsed okay. Update the args file and prepare to run
-        // benches.
-        if self.args_updated {
-            if let Err(e) = Args::save_args(&self.args_file) {
-                error!("Failed to update args file ({})", &e);
-                panic!();
-            }
-        }
+        self.commit_args();
 
         if nr_to_run > 0 && !args.keep_reports {
             if let Err(e) = self.clean_up_report_files() {
@@ -296,7 +281,7 @@ impl Program {
             }
 
             // Format only the completed jobs.
-            if (jctx.run || nr_to_run == 0) && jctx.sysreqs_report.is_some() {
+            if jctx.run && jctx.sysreqs_report.is_some() {
                 println!("{}\n\n{}", "=".repeat(90), &jctx.format());
             }
         }
@@ -304,6 +289,42 @@ impl Program {
         // Write the result file.
         if !self.job_ctxs.is_empty() {
             Self::save_results(&args.result, &self.job_ctxs);
+        }
+    }
+
+    fn format(&self) {
+        self.commit_args();
+        for jctx in self.job_ctxs.iter() {
+            // Format only the completed jobs.
+            if jctx.sysreqs_report.is_some() {
+                println!("{}\n\n{}", "=".repeat(90), &jctx.format());
+            }
+        }
+    }
+
+    fn main(mut self) {
+        let args = &self.args_file.data;
+
+        // Load existing result file into job_ctxs.
+        if Path::new(&args.result).exists() {
+            match JobCtx::load_result_file(&args.result) {
+                Ok(mut results) => {
+                    debug!("Loaded {} entries from result file", results.len());
+                    self.job_ctxs.append(&mut results);
+                }
+                Err(e) => {
+                    error!(
+                        "Failed to load existing result file {:?} ({})",
+                        &args.result, &e
+                    );
+                    panic!();
+                }
+            }
+        }
+
+        match args.mode {
+            Mode::Run => self.run(),
+            Mode::Format => self.format(),
         }
     }
 }

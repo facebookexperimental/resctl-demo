@@ -27,6 +27,12 @@ lazy_static::lazy_static! {
     );
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub enum Mode {
+    Run,
+    Format,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Args {
@@ -34,6 +40,7 @@ pub struct Args {
     pub dev: Option<String>,
     pub linux_tar: Option<String>,
     pub rep_retention: u64,
+    pub mode: Mode,
     pub job_specs: Vec<JobSpec>,
 
     #[serde(skip)]
@@ -57,6 +64,7 @@ impl Default for Args {
             dev: None,
             linux_tar: None,
             result: "".into(),
+            mode: Mode::Run,
             job_specs: Default::default(),
             rep_retention: 24 * 3600,
             iocost_from_sys: false,
@@ -154,6 +162,31 @@ impl Args {
         }
         Ok(job_specs)
     }
+
+    fn process_subcommand(&mut self, mode: Mode, subm: &clap::ArgMatches) -> bool {
+        let mut updated = false;
+
+        if self.mode != mode {
+            self.job_specs = vec![];
+            self.mode = mode;
+            updated = true;
+        }
+
+        match Self::parse_job_specs(subm) {
+            Ok(job_specs) => {
+                if job_specs.len() > 0 {
+                    self.job_specs = job_specs;
+                    updated = true;
+                }
+            }
+            Err(e) => {
+                error!("{}", &e);
+                exit(1);
+            }
+        }
+
+        updated
+    }
 }
 
 impl JsonLoad for Args {}
@@ -173,8 +206,8 @@ impl JsonArgs for Args {
                     .about("Run benchmarks")
                     .arg(
                         clap::Arg::with_name("file")
-                            .long("job")
-                            .short("j")
+                            .long("file")
+                            .short("f")
                             .multiple(true)
                             .takes_value(true)
                             .number_of_values(1)
@@ -184,6 +217,24 @@ impl JsonArgs for Args {
                         clap::Arg::with_name("spec")
                             .multiple(true)
                             .help("Benchmark job spec - \"BENCH_TYPE[:KEY=VAL...]\""),
+                    ),
+            )
+            .subcommand(
+                clap::SubCommand::with_name("format")
+                    .about("Format benchmark results")
+                    .arg(
+                        clap::Arg::with_name("file")
+                            .long("file")
+                            .short("f")
+                            .multiple(true)
+                            .takes_value(true)
+                            .number_of_values(1)
+                            .help("Benchmark format file"),
+                    )
+                    .arg(
+                        clap::Arg::with_name("spec")
+                            .multiple(true)
+                            .help("Results to format - \"BENCY_TYPE[:KEY=VAL...]\""),
                     ),
             )
             .get_matches()
@@ -237,21 +288,11 @@ impl JsonArgs for Args {
         self.test = matches.is_present("test");
         self.verbosity = Self::verbosity(matches);
 
-        match matches.subcommand() {
-            ("run", Some(subm)) => match Self::parse_job_specs(subm) {
-                Ok(job_specs) => {
-                    if job_specs.len() > 0 {
-                        self.job_specs = job_specs;
-                        updated = true;
-                    }
-                }
-                Err(e) => {
-                    error!("{}", &e);
-                    exit(1);
-                }
-            },
-            _ => {}
-        }
+        updated |= match matches.subcommand() {
+            ("run", Some(subm)) => self.process_subcommand(Mode::Run, subm),
+            ("format", Some(subm)) => self.process_subcommand(Mode::Format, subm),
+            _ => false,
+        };
 
         updated
     }
