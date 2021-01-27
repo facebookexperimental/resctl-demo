@@ -11,10 +11,10 @@ use rd_agent_intf;
 
 lazy_static::lazy_static! {
     static ref TOP_ARGS_STR: String = format!(
-        "-d, --dir=[TOPDIR]     'Top-level dir for operation and scratch files (default: {dfl_dir})'
+        "<RESULTFILE>           'Record the bench results into the specified json file'
+         -d, --dir=[TOPDIR]     'Top-level dir for operation and scratch files (default: {dfl_dir})'
          -D, --dev=[DEVICE]     'Scratch device override (e.g. nvme0n1)'
          -l, --linux=[PATH]     'Path to linux.tar, downloaded automatically if not specified'
-         -r, --result=[PATH]    'Record the bench results into the specified json file'
          -R, --rep-retention=[SECS] '1s report retention in seconds (default: {dfl_rep_ret:.1}h)'
          -a, --args=[FILE]      'Load base command line arguments from FILE'
          -c, --iocost-from-sys  'Use iocost parameters from io.cost.{{model,qos}} instead of bench.json'
@@ -33,10 +33,11 @@ pub struct Args {
     pub dir: String,
     pub dev: Option<String>,
     pub linux_tar: Option<String>,
-    pub result: Option<String>,
     pub rep_retention: u64,
     pub job_specs: Vec<JobSpec>,
 
+    #[serde(skip)]
+    pub result: String,
     #[serde(skip)]
     pub iocost_from_sys: bool,
     #[serde(skip)]
@@ -55,7 +56,7 @@ impl Default for Args {
             dir: rd_agent_intf::Args::default().dir.clone(),
             dev: None,
             linux_tar: None,
-            result: None,
+            result: "".into(),
             job_specs: Default::default(),
             rep_retention: 24 * 3600,
             iocost_from_sys: false,
@@ -114,8 +115,44 @@ impl Args {
         ))
     }
 
-    fn load_jobfile(fname: &str) -> Result<Vec<JobSpec>> {
-        Ok(Self::load(fname)?.job_specs)
+    fn parse_job_specs(subm: &clap::ArgMatches) -> Result<Vec<JobSpec>> {
+        let mut jobsets = BTreeMap::<usize, Vec<JobSpec>>::new();
+
+        match (subm.indices_of("spec"), subm.values_of("spec")) {
+            (Some(idxs), Some(specs)) => {
+                for (idx, spec) in idxs.zip(specs) {
+                    match Self::parse_job_spec(spec) {
+                        Ok(v) => {
+                            jobsets.insert(idx, vec![v]);
+                        }
+                        Err(e) => bail!("spec {:?}: {}", spec, &e),
+                    }
+                }
+            }
+            _ => {}
+        }
+
+        match (subm.indices_of("file"), subm.values_of("file")) {
+            (Some(idxs), Some(fnames)) => {
+                for (idx, fname) in idxs.zip(fnames) {
+                    match Self::load(fname) {
+                        Ok(v) => {
+                            jobsets.insert(idx, v.job_specs);
+                        }
+                        Err(e) => bail!("file {:?}: {}", fname, &e),
+                    }
+                }
+            }
+            _ => {}
+        }
+
+        let mut job_specs = Vec::new();
+        if jobsets.len() > 0 {
+            for jobset in jobsets.values_mut() {
+                job_specs.append(jobset);
+            }
+        }
+        Ok(job_specs)
     }
 }
 
@@ -135,7 +172,7 @@ impl JsonArgs for Args {
                 clap::SubCommand::with_name("run")
                     .about("Run benchmarks")
                     .arg(
-                        clap::Arg::with_name("jobfile")
+                        clap::Arg::with_name("file")
                             .long("job")
                             .short("j")
                             .multiple(true)
@@ -144,7 +181,7 @@ impl JsonArgs for Args {
                             .help("Benchmark job file"),
                     )
                     .arg(
-                        clap::Arg::with_name("jobspec")
+                        clap::Arg::with_name("spec")
                             .multiple(true)
                             .help("Benchmark job spec - \"BENCH_TYPE[:KEY=VAL...]\""),
                     ),
@@ -184,14 +221,6 @@ impl JsonArgs for Args {
             };
             updated = true;
         }
-        if let Some(v) = matches.value_of("result") {
-            self.result = if v.len() > 0 {
-                Some(v.to_string())
-            } else {
-                None
-            };
-            updated = true;
-        }
         if let Some(v) = matches.value_of("rep-retention") {
             self.rep_retention = if v.len() > 0 {
                 v.parse::<u64>().unwrap()
@@ -201,6 +230,7 @@ impl JsonArgs for Args {
             updated = true;
         }
 
+        self.result = matches.value_of("RESULTFILE").unwrap().into();
         self.iocost_from_sys = matches.is_present("iocost-from-sys");
         self.keep_reports = matches.is_present("keep-reports");
         self.clear_reports = matches.is_present("clear-reports");
@@ -208,51 +238,18 @@ impl JsonArgs for Args {
         self.verbosity = Self::verbosity(matches);
 
         match matches.subcommand() {
-            ("run", Some(subm)) => {
-                let mut jobsets = BTreeMap::<usize, Vec<JobSpec>>::new();
-
-                match (subm.indices_of("jobspec"), subm.values_of("jobspec")) {
-                    (Some(idxs), Some(specs)) => {
-                        for (idx, spec) in idxs.zip(specs) {
-                            match Self::parse_job_spec(spec) {
-                                Ok(v) => {
-                                    jobsets.insert(idx, vec![v]);
-                                }
-                                Err(e) => {
-                                    error!("jobspec {:?}: {}", spec, &e);
-                                    exit(1);
-                                }
-                            }
-                        }
+            ("run", Some(subm)) => match Self::parse_job_specs(subm) {
+                Ok(job_specs) => {
+                    if job_specs.len() > 0 {
+                        self.job_specs = job_specs;
+                        updated = true;
                     }
-                    _ => {}
                 }
-
-                match (subm.indices_of("jobfile"), subm.values_of("jobfile")) {
-                    (Some(idxs), Some(fnames)) => {
-                        for (idx, fname) in idxs.zip(fnames) {
-                            match Self::load_jobfile(fname) {
-                                Ok(v) => {
-                                    jobsets.insert(idx, v);
-                                }
-                                Err(e) => {
-                                    error!("jobfile {:?}: {}", fname, &e);
-                                    exit(1);
-                                }
-                            }
-                        }
-                    }
-                    _ => {}
+                Err(e) => {
+                    error!("{}", &e);
+                    exit(1);
                 }
-
-                if jobsets.len() > 0 {
-                    self.job_specs = Vec::new();
-                    for jobset in jobsets.values_mut() {
-                        self.job_specs.append(jobset);
-                    }
-                    updated = true;
-                }
-            }
+            },
             _ => {}
         }
 

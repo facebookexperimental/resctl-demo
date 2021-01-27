@@ -151,7 +151,7 @@ pub struct RunCtx<'a> {
     prev_result: Option<serde_json::Value>,
     inc_job_ctxs: &'a mut Vec<JobCtx>,
     inc_job_idx: usize,
-    result_path: Option<&'a str>,
+    result_path: &'a str,
     pub test: bool,
     pub commit_bench: bool,
 }
@@ -165,7 +165,7 @@ impl<'a> RunCtx<'a> {
         prev_result: Option<serde_json::Value>,
         inc_job_ctxs: &'a mut Vec<JobCtx>,
         inc_job_idx: usize,
-        result_path: Option<&'a str>,
+        result_path: &'a str,
         test: bool,
         verbosity: u32,
     ) -> Self {
@@ -254,9 +254,7 @@ impl<'a> RunCtx<'a> {
 
     pub fn update_incremental_result(&mut self, result: serde_json::Value) {
         self.inc_job_ctxs[self.inc_job_idx].result = Some(result);
-        if self.result_path.is_some() {
-            super::save_results(self.result_path.as_ref().unwrap(), self.inc_job_ctxs);
-        }
+        super::save_results(self.result_path, self.inc_job_ctxs);
     }
 
     pub fn base_bench(&self) -> &rd_agent_intf::BenchKnobs {

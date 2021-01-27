@@ -168,17 +168,18 @@ fn main() {
     let mut job_ctxs = vec![];
 
     // Load existing result file into job_ctxs.
-    if let Some(path) = args.result.as_ref() {
-        if Path::new(path).exists() {
-            match JobCtx::load_result_file(path) {
-                Ok(mut results) => {
-                    debug!("Loaded {} entries from result file", results.len());
-                    job_ctxs.append(&mut results);
-                }
-                Err(e) => {
-                    error!("Failed to load existing result file {:?} ({})", path, &e);
-                    panic!();
-                }
+    if Path::new(&args.result).exists() {
+        match JobCtx::load_result_file(&args.result) {
+            Ok(mut results) => {
+                debug!("Loaded {} entries from result file", results.len());
+                job_ctxs.append(&mut results);
+            }
+            Err(e) => {
+                error!(
+                    "Failed to load existing result file {:?} ({})",
+                    &args.result, &e
+                );
+                panic!();
             }
         }
     }
@@ -266,7 +267,7 @@ fn main() {
                 jctx.result.take(),
                 &mut inc_job_ctxs,
                 jctx.inc_job_idx,
-                args.result.as_deref(),
+                &args.result,
                 args.test,
                 args.verbosity,
             );
@@ -297,8 +298,6 @@ fn main() {
 
     // Write the result file.
     if !job_ctxs.is_empty() {
-        if let Some(path) = args.result.as_ref() {
-            save_results(path, &job_ctxs);
-        }
+        save_results(&args.result, &job_ctxs);
     }
 }
