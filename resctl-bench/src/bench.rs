@@ -37,6 +37,7 @@ lazy_static::lazy_static! {
 pub struct BenchDesc {
     pub kind: String,
     pub takes_propsets: bool,
+    pub incremental: bool,
 }
 
 impl BenchDesc {
@@ -44,11 +45,17 @@ impl BenchDesc {
         Self {
             kind: kind.into(),
             takes_propsets: false,
+            incremental: false,
         }
     }
 
     pub fn takes_propsets(mut self) -> Self {
         self.takes_propsets = true;
+        self
+    }
+
+    pub fn incremental(mut self) -> Self {
+        self.incremental = true;
         self
     }
 }

@@ -13,7 +13,7 @@ impl Bench for IoCostParamsBench {
     }
 
     fn parse(&self, spec: &JobSpec) -> Result<Box<dyn Job>> {
-        for (k, _v) in spec.properties[0].iter() {
+        for (k, _v) in spec.props[0].iter() {
             match k.as_str() {
                 k => bail!("unknown property key {:?}", k),
             }
@@ -55,7 +55,7 @@ impl Job for IoCostParamsJob {
         Ok(serde_json::to_value(&result).unwrap())
     }
 
-    fn format<'a>(&self, mut out: Box<dyn Write + 'a>, result: &serde_json::Value) {
+    fn format<'a>(&self, mut out: Box<dyn Write + 'a>, result: &serde_json::Value, _full: bool) {
         let result = serde_json::from_value::<IoCostKnobs>(result.to_owned()).unwrap();
         let model = &result.model;
         let qos = &result.qos;

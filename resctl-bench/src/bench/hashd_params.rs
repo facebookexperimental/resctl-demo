@@ -28,7 +28,7 @@ impl Bench for HashdParamsBench {
     fn parse(&self, spec: &JobSpec) -> Result<Box<dyn Job>> {
         let mut job = HashdParamsJob::default();
 
-        for (k, v) in spec.properties[0].iter() {
+        for (k, v) in spec.props[0].iter() {
             match k.as_str() {
                 "balloon" => job.balloon_size = v.parse::<usize>()?,
                 "log-bps" => job.log_bps = v.parse::<u64>()?,
@@ -77,7 +77,7 @@ impl Job for HashdParamsJob {
         Ok(serde_json::to_value(&result).unwrap())
     }
 
-    fn format<'a>(&self, mut out: Box<dyn Write + 'a>, result: &serde_json::Value) {
+    fn format<'a>(&self, mut out: Box<dyn Write + 'a>, result: &serde_json::Value, _full: bool) {
         let result = serde_json::from_value::<HashdKnobs>(result.to_owned()).unwrap();
 
         writeln!(

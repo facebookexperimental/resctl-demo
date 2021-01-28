@@ -10,7 +10,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use util::*;
 
 use super::progress::BenchProgress;
-use super::{rd_agent_base_args, AGENT_BIN};
+use super::{Program, AGENT_BIN};
 use crate::job::JobCtx;
 use rd_agent_intf::{
     AgentFiles, ReportIter, RunnerState, Slice, SysReq, AGENT_SVC_NAME, HASHD_BENCH_SVC_NAME,
@@ -57,7 +57,10 @@ struct RunCtxInner {
 impl RunCtxInner {
     fn start_agent_svc(&self, mut extra_args: Vec<String>) -> Result<TransientService> {
         let mut args = vec![AGENT_BIN.clone()];
-        args.append(&mut rd_agent_base_args(&self.dir, self.dev.as_deref())?);
+        args.append(&mut Program::rd_agent_base_args(
+            &self.dir,
+            self.dev.as_deref(),
+        )?);
         args.push("--reset".into());
         args.push("--keep-reports".into());
 
@@ -148,10 +151,10 @@ pub struct RunCtx<'a> {
     inner: Arc<Mutex<RunCtxInner>>,
     agent_init_fns: Vec<Box<dyn FnOnce(&mut RunCtx)>>,
     base_bench: rd_agent_intf::BenchKnobs,
-    prev_result: Option<serde_json::Value>,
+    pub prev_result: Option<serde_json::Value>,
     inc_job_ctxs: &'a mut Vec<JobCtx>,
     inc_job_idx: usize,
-    result_path: Option<&'a str>,
+    result_path: &'a str,
     pub test: bool,
     pub commit_bench: bool,
 }
@@ -162,10 +165,9 @@ impl<'a> RunCtx<'a> {
         dev: Option<&str>,
         linux_tar: Option<&str>,
         base_bench: &rd_agent_intf::BenchKnobs,
-        prev_result: Option<serde_json::Value>,
         inc_job_ctxs: &'a mut Vec<JobCtx>,
         inc_job_idx: usize,
-        result_path: Option<&'a str>,
+        result_path: &'a str,
         test: bool,
         verbosity: u32,
     ) -> Self {
@@ -192,7 +194,7 @@ impl<'a> RunCtx<'a> {
             })),
             base_bench: base_bench.clone(),
             agent_init_fns: vec![],
-            prev_result,
+            prev_result: None,
             inc_job_ctxs,
             inc_job_idx,
             result_path,
@@ -248,15 +250,14 @@ impl<'a> RunCtx<'a> {
         self
     }
 
-    pub fn prev_result(&mut self) -> Option<serde_json::Value> {
-        self.prev_result.take()
+    pub fn update_incremental_jctx(&mut self, jctx: &JobCtx) {
+        self.inc_job_ctxs[self.inc_job_idx] = jctx.clone();
+        Program::save_results(self.result_path, self.inc_job_ctxs);
     }
 
     pub fn update_incremental_result(&mut self, result: serde_json::Value) {
         self.inc_job_ctxs[self.inc_job_idx].result = Some(result);
-        if self.result_path.is_some() {
-            super::save_results(self.result_path.as_ref().unwrap(), self.inc_job_ctxs);
-        }
+        Program::save_results(self.result_path, self.inc_job_ctxs);
     }
 
     pub fn base_bench(&self) -> &rd_agent_intf::BenchKnobs {

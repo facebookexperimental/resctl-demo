@@ -159,7 +159,7 @@ impl StorageJob {
     pub fn parse(spec: &JobSpec) -> Result<StorageJob> {
         let mut job = StorageJob::default();
 
-        for (k, v) in spec.properties[0].iter() {
+        for (k, v) in spec.props[0].iter() {
             match k.as_str() {
                 "hash-size" => job.hash_size = v.parse::<usize>()?,
                 "chunk-pages" => job.chunk_pages = v.parse::<usize>()?,
@@ -662,13 +662,15 @@ impl Job for StorageJob {
         Ok(serde_json::to_value(&result).unwrap())
     }
 
-    fn format<'a>(&self, mut out: Box<dyn Write + 'a>, result: &serde_json::Value) {
+    fn format<'a>(&self, mut out: Box<dyn Write + 'a>, result: &serde_json::Value, full: bool) {
         let result = serde_json::from_value::<StorageResult>(result.to_owned()).unwrap();
 
         self.format_header(&mut out, &result);
         writeln!(out, "").unwrap();
-        self.format_lat_dist(&mut out, &result);
-        writeln!(out, "").unwrap();
+        if full {
+            self.format_lat_dist(&mut out, &result);
+            writeln!(out, "").unwrap();
+        }
         self.format_summaries(&mut out, &result);
     }
 }

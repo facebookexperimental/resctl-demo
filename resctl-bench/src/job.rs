@@ -12,12 +12,12 @@ use util::*;
 use super::bench::BENCHS;
 use super::run::RunCtx;
 use rd_agent_intf::{SysReq, SysReqsReport};
-use resctl_bench_intf::JobSpec;
+use resctl_bench_intf::{JobSpec, Mode};
 
 pub trait Job {
     fn sysreqs(&self) -> HashSet<SysReq>;
     fn run(&mut self, rctx: &mut RunCtx) -> Result<serde_json::Value>;
-    fn format<'a>(&self, out: Box<dyn Write + 'a>, result: &serde_json::Value);
+    fn format<'a>(&self, out: Box<dyn Write + 'a>, result: &serde_json::Value, full: bool);
 }
 
 #[derive(Serialize, Deserialize)]
@@ -27,9 +27,11 @@ pub struct JobCtx {
     #[serde(skip)]
     pub job: Option<Box<dyn Job>>,
     #[serde(skip)]
+    pub incremental: bool,
+    #[serde(skip)]
     pub inc_job_idx: usize,
     #[serde(skip)]
-    pub run: bool,
+    pub prev: Option<Box<JobCtx>>,
 
     pub started_at: u64,
     pub ended_at: u64,
@@ -44,7 +46,6 @@ impl std::fmt::Debug for JobCtx {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("JobCtx")
             .field("spec", &self.spec)
-            .field("run", &self.run)
             .field("result", &self.result)
             .finish()
     }
@@ -55,8 +56,9 @@ impl std::clone::Clone for JobCtx {
         let mut clone = Self {
             spec: self.spec.clone(),
             job: None,
+            incremental: self.incremental,
             inc_job_idx: 0,
-            run: self.run,
+            prev: None,
             started_at: self.started_at,
             ended_at: self.ended_at,
             sysreqs: self.sysreqs.clone(),
@@ -75,8 +77,9 @@ impl JobCtx {
         Self {
             spec: spec.clone(),
             job: None,
+            incremental: false,
             inc_job_idx: 0,
-            run: false,
+            prev: None,
             started_at: 0,
             ended_at: 0,
             sysreqs: Default::default(),
@@ -91,7 +94,12 @@ impl JobCtx {
         let benchs = BENCHS.lock().unwrap();
 
         for bench in benchs.iter() {
-            if self.spec.kind == bench.desc().kind {
+            let desc = bench.desc();
+            if self.spec.kind == desc.kind {
+                if !desc.takes_propsets && self.spec.props.len() > 1 {
+                    bail!("multiple property sets not supported");
+                }
+                self.incremental = desc.incremental;
                 self.job = Some(bench.parse(&self.spec)?);
                 return Ok(());
             }
@@ -105,7 +113,8 @@ impl JobCtx {
         f.read_to_string(&mut buf)?;
 
         let mut results: Vec<Self> = serde_json::from_str(&buf)?;
-        for jctx in results.iter_mut() {
+        for (idx, jctx) in results.iter_mut().enumerate() {
+            jctx.inc_job_idx = idx;
             if let Err(e) = jctx.parse_job_spec() {
                 bail!("failed to parse {} ({})", &jctx.spec, &e);
             }
@@ -119,20 +128,36 @@ impl JobCtx {
         self.sysreqs = job.sysreqs();
         rctx.add_sysreqs(self.sysreqs.clone());
 
+        if self.prev.is_some() && self.prev.as_ref().unwrap().result.is_some() {
+            if !self.incremental {
+                *self = *self.prev.take().unwrap();
+                return Ok(());
+            }
+            rctx.prev_result = self.prev.as_mut().unwrap().result.take();
+        }
+
         self.started_at = unix_now();
         let result = job.run(rctx)?;
         self.ended_at = unix_now();
 
-        self.sysreqs_report = Some((*rctx.sysreqs_report().unwrap()).clone());
-        self.missed_sysreqs = rctx.missed_sysreqs();
-        if let Some(rep) = rctx.report_sample() {
-            self.iocost = rep.iocost.clone();
+        if rctx.sysreqs_report().is_some() {
+            self.sysreqs_report = Some((*rctx.sysreqs_report().unwrap()).clone());
+            self.missed_sysreqs = rctx.missed_sysreqs();
+            if let Some(rep) = rctx.report_sample() {
+                self.iocost = rep.iocost.clone();
+            }
+        } else {
+            let prev = self.prev.take().unwrap();
+            self.sysreqs_report = prev.sysreqs_report;
+            self.missed_sysreqs = prev.missed_sysreqs;
+            self.iocost = prev.iocost;
         }
         self.result = Some(result);
+        rctx.update_incremental_jctx(&self);
         Ok(())
     }
 
-    pub fn format(&self) -> String {
+    pub fn format(&self, mode: Mode) -> String {
         let mut buf = String::new();
         write!(buf, "[{} result] ", self.spec.kind).unwrap();
         if let Some(id) = self.spec.id.as_ref() {
@@ -230,10 +255,11 @@ impl JobCtx {
             .unwrap();
         }
 
-        self.job
-            .as_ref()
-            .unwrap()
-            .format(Box::new(&mut buf), self.result.as_ref().unwrap());
+        self.job.as_ref().unwrap().format(
+            Box::new(&mut buf),
+            self.result.as_ref().unwrap(),
+            mode == Mode::Format,
+        );
         buf
     }
 }
