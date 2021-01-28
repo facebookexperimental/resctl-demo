@@ -12,12 +12,12 @@ use util::*;
 use super::bench::BENCHS;
 use super::run::RunCtx;
 use rd_agent_intf::{SysReq, SysReqsReport};
-use resctl_bench_intf::JobSpec;
+use resctl_bench_intf::{JobSpec, Mode};
 
 pub trait Job {
     fn sysreqs(&self) -> HashSet<SysReq>;
     fn run(&mut self, rctx: &mut RunCtx) -> Result<serde_json::Value>;
-    fn format<'a>(&self, out: Box<dyn Write + 'a>, result: &serde_json::Value);
+    fn format<'a>(&self, out: Box<dyn Write + 'a>, result: &serde_json::Value, full: bool);
 }
 
 #[derive(Serialize, Deserialize)]
@@ -157,7 +157,7 @@ impl JobCtx {
         Ok(())
     }
 
-    pub fn format(&self) -> String {
+    pub fn format(&self, mode: Mode) -> String {
         let mut buf = String::new();
         write!(buf, "[{} result] ", self.spec.kind).unwrap();
         if let Some(id) = self.spec.id.as_ref() {
@@ -255,10 +255,11 @@ impl JobCtx {
             .unwrap();
         }
 
-        self.job
-            .as_ref()
-            .unwrap()
-            .format(Box::new(&mut buf), self.result.as_ref().unwrap());
+        self.job.as_ref().unwrap().format(
+            Box::new(&mut buf),
+            self.result.as_ref().unwrap(),
+            mode == Mode::Format,
+        );
         buf
     }
 }

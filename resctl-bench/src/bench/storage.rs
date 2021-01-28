@@ -662,13 +662,15 @@ impl Job for StorageJob {
         Ok(serde_json::to_value(&result).unwrap())
     }
 
-    fn format<'a>(&self, mut out: Box<dyn Write + 'a>, result: &serde_json::Value) {
+    fn format<'a>(&self, mut out: Box<dyn Write + 'a>, result: &serde_json::Value, full: bool) {
         let result = serde_json::from_value::<StorageResult>(result.to_owned()).unwrap();
 
         self.format_header(&mut out, &result);
         writeln!(out, "").unwrap();
-        self.format_lat_dist(&mut out, &result);
-        writeln!(out, "").unwrap();
+        if full {
+            self.format_lat_dist(&mut out, &result);
+            writeln!(out, "").unwrap();
+        }
         self.format_summaries(&mut out, &result);
     }
 }

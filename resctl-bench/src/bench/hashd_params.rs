@@ -77,7 +77,7 @@ impl Job for HashdParamsJob {
         Ok(serde_json::to_value(&result).unwrap())
     }
 
-    fn format<'a>(&self, mut out: Box<dyn Write + 'a>, result: &serde_json::Value) {
+    fn format<'a>(&self, mut out: Box<dyn Write + 'a>, result: &serde_json::Value, _full: bool) {
         let result = serde_json::from_value::<HashdKnobs>(result.to_owned()).unwrap();
 
         writeln!(

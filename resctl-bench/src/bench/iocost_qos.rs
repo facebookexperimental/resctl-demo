@@ -443,7 +443,7 @@ impl Job for IoCostQoSJob {
         Ok(serde_json::to_value(&result).unwrap())
     }
 
-    fn format<'a>(&self, mut out: Box<dyn Write + 'a>, result: &serde_json::Value) {
+    fn format<'a>(&self, mut out: Box<dyn Write + 'a>, result: &serde_json::Value, full: bool) {
         let result = serde_json::from_value::<IoCostQoSResult>(result.to_owned()).unwrap();
         if result.results.len() == 0
             || result.results[0].is_none()
@@ -456,38 +456,39 @@ impl Job for IoCostQoSJob {
 
         self.storage_job.format_header(&mut out, baseline);
 
-        for (i, (ovr, run)) in self.runs.iter().zip(result.results.iter()).enumerate() {
-            if run.is_none() {
-                continue;
-            }
-            let run = run.as_ref().unwrap();
-
-            writeln!(
-                out,
-                "\n\n\
-                 RUN {:02}\n\
-                 ======\n\n\
-                 QoS: {}\n",
-                i,
-                Self::format_qos_ovr(ovr.as_ref(), &result.base_qos)
-            )
-            .unwrap();
-            self.format_one_storage(&mut out, &run.storage);
-
-            if run.qos.is_some() {
-                write!(out, "\nvrate:").unwrap();
-                for pct in &Self::VRATE_PCTS {
-                    write!(
-                        out,
-                        " p{}={}",
-                        pct,
-                        run.vrate_pcts.get(&pct.to_string()).unwrap()
-                    )
-                    .unwrap();
+        if full {
+            for (i, (ovr, run)) in self.runs.iter().zip(result.results.iter()).enumerate() {
+                if run.is_none() {
+                    continue;
                 }
-                writeln!(out, "").unwrap();
+                let run = run.as_ref().unwrap();
 
                 writeln!(
+                    out,
+                    "\n\n\
+                    RUN {:02}\n\
+                    ======\n\n\
+                    QoS: {}\n",
+                    i,
+                    Self::format_qos_ovr(ovr.as_ref(), &result.base_qos)
+                )
+                .unwrap();
+                self.format_one_storage(&mut out, &run.storage);
+
+                if run.qos.is_some() {
+                    write!(out, "\nvrate:").unwrap();
+                    for pct in &Self::VRATE_PCTS {
+                        write!(
+                            out,
+                            " p{}={}",
+                            pct,
+                            run.vrate_pcts.get(&pct.to_string()).unwrap()
+                        )
+                        .unwrap();
+                    }
+                    writeln!(out, "").unwrap();
+
+                    writeln!(
                     out,
                     "\nQoS result: mem_offload_factor={:.3}@{}({:.3}x) vrate_mean/stdev={:.2}/{:.2}",
                     run.storage.mem_offload_factor,
@@ -497,16 +498,19 @@ impl Job for IoCostQoSJob {
                     run.vrate_stdev
                 )
                     .unwrap();
+                }
             }
-        }
 
-        writeln!(
-            out,
-            "\n\n\
-             Summary\n\
-             =======\n"
-        )
-        .unwrap();
+            writeln!(
+                out,
+                "\n\n\
+                 Summary\n\
+                 =======\n"
+            )
+            .unwrap();
+        } else {
+            writeln!(out, "").unwrap();
+        }
 
         for (i, ovr) in self.runs.iter().enumerate() {
             write!(

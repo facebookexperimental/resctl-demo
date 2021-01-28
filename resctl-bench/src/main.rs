@@ -188,10 +188,10 @@ impl Program {
         return None;
     }
 
-    fn format_jctx(jctx: &JobCtx) {
+    fn format_jctx(jctx: &JobCtx, mode: Mode) {
         // Format only the completed jobs.
         if jctx.result.is_some() {
-            println!("{}\n\n{}", "=".repeat(90), &jctx.format());
+            println!("{}\n\n{}", "=".repeat(90), &jctx.format(mode));
         }
     }
 
@@ -295,7 +295,7 @@ impl Program {
                     panic!();
                 }
             }
-            Self::format_jctx(jctx);
+            Self::format_jctx(jctx, Mode::Format);
         }
 
         // Write the result file.
@@ -304,7 +304,7 @@ impl Program {
         }
     }
 
-    fn do_format(&mut self) {
+    fn do_format(&mut self, mode: Mode) {
         let specs = &self.args_file.data.job_specs;
         let mut to_format = vec![];
         let mut jctxs = vec![];
@@ -331,7 +331,7 @@ impl Program {
         }
 
         for jctx in to_format.iter() {
-            Self::format_jctx(&jctx);
+            Self::format_jctx(&jctx, mode);
         }
 
         self.commit_args();
@@ -359,7 +359,8 @@ impl Program {
 
         match args.mode {
             Mode::Run => self.do_run(),
-            Mode::Format => self.do_format(),
+            Mode::Format => self.do_format(Mode::Format),
+            Mode::Summary => self.do_format(Mode::Summary),
         }
     }
 }

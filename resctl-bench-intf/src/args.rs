@@ -31,6 +31,7 @@ lazy_static::lazy_static! {
 pub enum Mode {
     Run,
     Format,
+    Summary,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -233,6 +234,24 @@ impl JsonArgs for Args {
                             .help("Results to format - \"BENCY_TYPE[:KEY=VAL...]\""),
                     ),
             )
+            .subcommand(
+                clap::SubCommand::with_name("summary")
+                    .about("Benchmark result summaries")
+                    .arg(
+                        clap::Arg::with_name("file")
+                            .long("file")
+                            .short("f")
+                            .multiple(true)
+                            .takes_value(true)
+                            .number_of_values(1)
+                            .help("Benchmark format file"),
+                    )
+                    .arg(
+                        clap::Arg::with_name("spec")
+                            .multiple(true)
+                            .help("Results to format - \"BENCY_TYPE[:KEY=VAL...]\""),
+                    ),
+            )
             .get_matches()
     }
 
@@ -287,6 +306,7 @@ impl JsonArgs for Args {
         updated |= match matches.subcommand() {
             ("run", Some(subm)) => self.process_subcommand(Mode::Run, subm),
             ("format", Some(subm)) => self.process_subcommand(Mode::Format, subm),
+            ("summary", Some(subm)) => self.process_subcommand(Mode::Summary, subm),
             _ => false,
         };
 
