@@ -16,7 +16,6 @@ use resctl_bench_intf::JobSpec;
 
 pub trait Job {
     fn sysreqs(&self) -> HashSet<SysReq>;
-    fn incremental(&self) -> bool;
     fn run(&mut self, rctx: &mut RunCtx) -> Result<serde_json::Value>;
     fn format<'a>(&self, out: Box<dyn Write + 'a>, result: &serde_json::Value);
 }
@@ -27,6 +26,8 @@ pub struct JobCtx {
 
     #[serde(skip)]
     pub job: Option<Box<dyn Job>>,
+    #[serde(skip)]
+    pub incremental: bool,
     #[serde(skip)]
     pub inc_job_idx: usize,
     #[serde(skip)]
@@ -55,6 +56,7 @@ impl std::clone::Clone for JobCtx {
         let mut clone = Self {
             spec: self.spec.clone(),
             job: None,
+            incremental: self.incremental,
             inc_job_idx: 0,
             prev: None,
             started_at: self.started_at,
@@ -75,6 +77,7 @@ impl JobCtx {
         Self {
             spec: spec.clone(),
             job: None,
+            incremental: false,
             inc_job_idx: 0,
             prev: None,
             started_at: 0,
@@ -91,7 +94,12 @@ impl JobCtx {
         let benchs = BENCHS.lock().unwrap();
 
         for bench in benchs.iter() {
-            if self.spec.kind == bench.desc().kind {
+            let desc = bench.desc();
+            if self.spec.kind == desc.kind {
+                if !desc.takes_propsets && self.spec.props.len() > 1 {
+                    bail!("multiple property sets not supported");
+                }
+                self.incremental = desc.incremental;
                 self.job = Some(bench.parse(&self.spec)?);
                 return Ok(());
             }
@@ -121,7 +129,7 @@ impl JobCtx {
         rctx.add_sysreqs(self.sysreqs.clone());
 
         if self.prev.is_some() && self.prev.as_ref().unwrap().result.is_some() {
-            if !job.incremental() {
+            if !self.incremental {
                 *self = *self.prev.take().unwrap();
                 return Ok(());
             }

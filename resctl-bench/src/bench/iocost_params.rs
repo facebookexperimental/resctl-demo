@@ -28,10 +28,6 @@ impl Job for IoCostParamsJob {
         Default::default()
     }
 
-    fn incremental(&self) -> bool {
-        false
-    }
-
     fn run(&mut self, rctx: &mut RunCtx) -> Result<serde_json::Value> {
         rctx.set_commit_bench().start_agent();
         info!("iocost-params: Estimating iocost parameters");

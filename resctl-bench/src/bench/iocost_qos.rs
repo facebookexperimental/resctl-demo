@@ -36,7 +36,7 @@ pub struct IoCostQoSBench {}
 
 impl Bench for IoCostQoSBench {
     fn desc(&self) -> BenchDesc {
-        BenchDesc::new("iocost-qos").takes_propsets()
+        BenchDesc::new("iocost-qos").takes_propsets().incremental()
     }
 
     fn parse(&self, spec: &JobSpec) -> Result<Box<dyn Job>> {
@@ -323,10 +323,6 @@ impl IoCostQoSJob {
 impl Job for IoCostQoSJob {
     fn sysreqs(&self) -> HashSet<SysReq> {
         StorageJob::default().sysreqs()
-    }
-
-    fn incremental(&self) -> bool {
-        true
     }
 
     fn run(&mut self, rctx: &mut RunCtx) -> Result<serde_json::Value> {

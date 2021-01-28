@@ -45,10 +45,6 @@ impl Job for HashdParamsJob {
         HASHD_SYSREQS.clone()
     }
 
-    fn incremental(&self) -> bool {
-        false
-    }
-
     fn run(&mut self, rctx: &mut RunCtx) -> Result<serde_json::Value> {
         rctx.set_commit_bench().start_agent();
         info!("hashd-params: Estimating rd-hashd parameters");

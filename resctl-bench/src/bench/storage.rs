@@ -491,10 +491,6 @@ impl Job for StorageJob {
         HASHD_SYSREQS.clone()
     }
 
-    fn incremental(&self) -> bool {
-        false
-    }
-
     fn run(&mut self, rctx: &mut RunCtx) -> Result<serde_json::Value> {
         if !self.active {
             rctx.set_passive_keep_crit_mem_prot();

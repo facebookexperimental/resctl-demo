@@ -208,7 +208,7 @@ impl Program {
             let mut new = JobCtx::new(spec);
             if let Err(e) = new.parse_job_spec() {
                 error!("{}: {}", spec, &e);
-                panic!();
+                exit(1);
             }
             match Self::pop_matching_jctx(&mut jctxs, &new.spec) {
                 Some(prev) => {
