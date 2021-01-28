@@ -13,7 +13,7 @@ impl Bench for IoCostParamsBench {
     }
 
     fn parse(&self, spec: &JobSpec) -> Result<Box<dyn Job>> {
-        for (k, _v) in spec.properties[0].iter() {
+        for (k, _v) in spec.props[0].iter() {
             match k.as_str() {
                 k => bail!("unknown property key {:?}", k),
             }

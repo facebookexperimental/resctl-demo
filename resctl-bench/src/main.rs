@@ -1,7 +1,6 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
 use anyhow::{anyhow, bail, Result};
 use log::{debug, error, info, warn};
-use std::collections::BTreeMap;
 use std::fs;
 use std::io::Write;
 use std::path::Path;
@@ -189,7 +188,7 @@ impl Program {
         return None;
     }
 
-    fn format_jctx(jctx: &JobCtx, _props: &Vec<BTreeMap<String, String>>) {
+    fn format_jctx(jctx: &JobCtx) {
         // Format only the completed jobs.
         if jctx.result.is_some() {
             println!("{}\n\n{}", "=".repeat(90), &jctx.format());
@@ -204,7 +203,7 @@ impl Program {
         let mut jctxs = vec![];
         std::mem::swap(&mut jctxs, &mut self.job_ctxs);
 
-        // Combine new jobs to run into job_ctxs.
+        // Put jobs to run in self.job_ctxs.
         for spec in args.job_specs.iter() {
             let mut new = JobCtx::new(spec);
             if let Err(e) = new.parse_job_spec() {
@@ -296,7 +295,7 @@ impl Program {
                     panic!();
                 }
             }
-            Self::format_jctx(jctx, &vec![]);
+            Self::format_jctx(jctx);
         }
 
         // Write the result file.
@@ -307,13 +306,12 @@ impl Program {
 
     fn do_format(&mut self) {
         let specs = &self.args_file.data.job_specs;
-        let empty_props = vec![];
         let mut to_format = vec![];
         let mut jctxs = vec![];
         std::mem::swap(&mut jctxs, &mut self.job_ctxs);
 
         if specs.len() == 0 {
-            to_format = jctxs.into_iter().map(|x| (x, &empty_props)).collect();
+            to_format = jctxs;
         } else {
             for spec in specs.iter() {
                 let jctx = match Self::pop_matching_jctx(&mut jctxs, &spec) {
@@ -323,12 +321,17 @@ impl Program {
                         exit(1);
                     }
                 };
-                to_format.push((jctx, &spec.properties));
+                // Formatting doesn't support per-bench properties (yet).
+                if jctx.spec.props[0].len() > 0 || jctx.spec.props.len() > 1 {
+                    error!("Unknown properties specified for formatting {}", &jctx.spec);
+                    exit(1);
+                }
+                to_format.push(jctx);
             }
         }
 
         for jctx in to_format.iter() {
-            Self::format_jctx(&jctx.0, &jctx.1);
+            Self::format_jctx(&jctx);
         }
 
         self.commit_args();

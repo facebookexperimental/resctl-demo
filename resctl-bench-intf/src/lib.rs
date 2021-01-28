@@ -3,4 +3,4 @@ pub mod args;
 pub mod jobspec;
 
 pub use args::{Args, Mode};
-pub use jobspec::JobSpec;
+pub use jobspec::{JobProps, JobSpec};

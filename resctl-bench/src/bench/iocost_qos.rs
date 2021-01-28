@@ -50,7 +50,7 @@ impl Bench for IoCostQoSBench {
         let mut allow_fail = false;
         let mut runs = vec![None];
 
-        for (k, v) in spec.properties[0].iter() {
+        for (k, v) in spec.props[0].iter() {
             match k.as_str() {
                 "vrate-intvs" => vrate_intvs = v.parse::<u32>()?,
                 "base-loops" => base_loops = v.parse::<u32>()?,
@@ -59,12 +59,12 @@ impl Bench for IoCostQoSBench {
                 "retries" => retries = v.parse::<u32>()?,
                 "allow-fail" => allow_fail = v.parse::<bool>()?,
                 k => {
-                    storage_spec.properties[0].insert(k.into(), v.into());
+                    storage_spec.props[0].insert(k.into(), v.into());
                 }
             }
         }
 
-        for props in spec.properties[1..].iter() {
+        for props in spec.props[1..].iter() {
             let mut ovr = IoCostQoSOvr::default();
             for (k, v) in props.iter() {
                 match k.as_str() {

@@ -2,25 +2,19 @@
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
+pub type JobProps = Vec<BTreeMap<String, String>>;
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct JobSpec {
     pub kind: String,
     pub id: Option<String>,
-    pub properties: Vec<BTreeMap<String, String>>,
+    pub props: JobProps,
 }
 
 impl JobSpec {
-    pub fn new(
-        kind: String,
-        id: Option<String>,
-        properties: Vec<BTreeMap<String, String>>,
-    ) -> Self {
-        assert!(properties.len() > 0);
-        Self {
-            kind,
-            id,
-            properties,
-        }
+    pub fn new(kind: String, id: Option<String>, props: JobProps) -> Self {
+        assert!(props.len() > 0);
+        Self { kind, id, props }
     }
 }
 

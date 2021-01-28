@@ -85,11 +85,11 @@ impl Args {
             None => bail!("invalid job type"),
         };
 
-        let mut properties = vec![];
+        let mut props = vec![];
         let mut id = None;
 
         for group in groups {
-            let mut props = BTreeMap::<String, String>::new();
+            let mut propset = BTreeMap::<String, String>::new();
             for tok in group.split(',') {
                 if tok.len() == 0 {
                     continue;
@@ -104,23 +104,19 @@ impl Args {
                 match kv[0] {
                     "id" => id = Some(kv[1]),
                     key => {
-                        props.insert(key.into(), kv[1].into());
+                        propset.insert(key.into(), kv[1].into());
                     }
                 }
             }
-            properties.push(props);
+            props.push(propset);
         }
 
         // Make sure there always is the first group.
-        if properties.len() == 0 {
-            properties.push(Default::default());
+        if props.len() == 0 {
+            props.push(Default::default());
         }
 
-        Ok(JobSpec::new(
-            kind.into(),
-            id.map(str::to_string),
-            properties,
-        ))
+        Ok(JobSpec::new(kind.into(), id.map(str::to_string), props))
     }
 
     fn parse_job_specs(subm: &clap::ArgMatches) -> Result<Vec<JobSpec>> {

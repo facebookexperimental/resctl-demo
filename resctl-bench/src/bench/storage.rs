@@ -159,7 +159,7 @@ impl StorageJob {
     pub fn parse(spec: &JobSpec) -> Result<StorageJob> {
         let mut job = StorageJob::default();
 
-        for (k, v) in spec.properties[0].iter() {
+        for (k, v) in spec.props[0].iter() {
             match k.as_str() {
                 "hash-size" => job.hash_size = v.parse::<usize>()?,
                 "chunk-pages" => job.chunk_pages = v.parse::<usize>()?,
