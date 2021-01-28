@@ -1,6 +1,6 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
 use anyhow::Result;
-use log::info;
+use log::{debug, info};
 use serde::{de::DeserializeOwned, Serialize};
 use std::default::Default;
 use std::fs;
@@ -231,7 +231,7 @@ where
 
     fn save_args(args_file: &JsonConfigFile<T>) -> Result<()> {
         if args_file.path.is_some() {
-            info!(
+            debug!(
                 "Updating command line arguments file {:?}",
                 &args_file.path.as_deref().unwrap()
             );

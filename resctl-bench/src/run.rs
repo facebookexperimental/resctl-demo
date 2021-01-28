@@ -151,7 +151,7 @@ pub struct RunCtx<'a> {
     inner: Arc<Mutex<RunCtxInner>>,
     agent_init_fns: Vec<Box<dyn FnOnce(&mut RunCtx)>>,
     base_bench: rd_agent_intf::BenchKnobs,
-    prev_result: Option<serde_json::Value>,
+    pub prev_result: Option<serde_json::Value>,
     inc_job_ctxs: &'a mut Vec<JobCtx>,
     inc_job_idx: usize,
     result_path: &'a str,
@@ -165,7 +165,6 @@ impl<'a> RunCtx<'a> {
         dev: Option<&str>,
         linux_tar: Option<&str>,
         base_bench: &rd_agent_intf::BenchKnobs,
-        prev_result: Option<serde_json::Value>,
         inc_job_ctxs: &'a mut Vec<JobCtx>,
         inc_job_idx: usize,
         result_path: &'a str,
@@ -195,7 +194,7 @@ impl<'a> RunCtx<'a> {
             })),
             base_bench: base_bench.clone(),
             agent_init_fns: vec![],
-            prev_result,
+            prev_result: None,
             inc_job_ctxs,
             inc_job_idx,
             result_path,
@@ -251,8 +250,9 @@ impl<'a> RunCtx<'a> {
         self
     }
 
-    pub fn prev_result(&mut self) -> Option<serde_json::Value> {
-        self.prev_result.take()
+    pub fn update_incremental_jctx(&mut self, jctx: &JobCtx) {
+        self.inc_job_ctxs[self.inc_job_idx] = jctx.clone();
+        Program::save_results(self.result_path, self.inc_job_ctxs);
     }
 
     pub fn update_incremental_result(&mut self, result: serde_json::Value) {

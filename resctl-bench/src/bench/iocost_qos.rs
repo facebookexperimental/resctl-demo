@@ -325,12 +325,16 @@ impl Job for IoCostQoSJob {
         StorageJob::default().sysreqs()
     }
 
+    fn incremental(&self) -> bool {
+        true
+    }
+
     fn run(&mut self, rctx: &mut RunCtx) -> Result<serde_json::Value> {
         let bench = rctx.base_bench().clone();
         if rctx.base_bench().iocost_seq == 0 {
             bail!("iocost-qos: iocost parameters missing, run iocost-params first or use --iocost-from-sys");
         }
-        let mut prev_result = self.verify_prev_result(rctx.prev_result(), &bench);
+        let mut prev_result = self.verify_prev_result(rctx.prev_result.clone(), &bench);
         if prev_result.results.len() > 0 {
             self.mem_profile = prev_result.results[0].as_ref().unwrap().storage.mem_profile;
         }
@@ -359,9 +363,6 @@ impl Job for IoCostQoSJob {
             info!("iocost-qos: {} storage benches to run", nr_to_run);
         } else {
             info!("iocost-qos: All results are available in the result file, nothing to do");
-            // We aren't gonna run any bench. Cycle the agent to populate reports.
-            rctx.start_agent();
-            rctx.stop_agent();
         }
 
         // Run the needed benches.

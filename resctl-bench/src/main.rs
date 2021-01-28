@@ -1,13 +1,14 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
 use anyhow::{anyhow, bail, Result};
 use log::{debug, error, info, warn};
+use std::collections::BTreeMap;
 use std::fs;
 use std::io::Write;
 use std::path::Path;
-use std::process::Command;
+use std::process::{exit, Command};
 use util::*;
 
-use resctl_bench_intf::{Args, Mode};
+use resctl_bench_intf::{Args, JobSpec, Mode};
 
 mod bench;
 mod job;
@@ -179,40 +180,59 @@ impl Program {
         }
     }
 
-    fn run(&mut self) {
+    fn pop_matching_jctx(jctxs: &mut Vec<JobCtx>, spec: &JobSpec) -> Option<JobCtx> {
+        for (idx, jctx) in jctxs.iter().enumerate() {
+            if jctx.spec.kind == spec.kind && jctx.spec.id == spec.id {
+                return Some(jctxs.remove(idx));
+            }
+        }
+        return None;
+    }
+
+    fn format_jctx(jctx: &JobCtx, _props: &Vec<BTreeMap<String, String>>) {
+        // Format only the completed jobs.
+        if jctx.result.is_some() {
+            println!("{}\n\n{}", "=".repeat(90), &jctx.format());
+        }
+    }
+
+    fn do_run(&mut self) {
         let args = &self.args_file.data;
 
         // Stash the result part for incremental result file updates.
-        let mut inc_job_ctxs = self.job_ctxs.clone();
+        let mut inc_jctxs = self.job_ctxs.clone();
+        let mut jctxs = vec![];
+        std::mem::swap(&mut jctxs, &mut self.job_ctxs);
 
         // Combine new jobs to run into job_ctxs.
-        let mut nr_to_run = 0;
-        'next: for spec in args.job_specs.iter() {
+        for spec in args.job_specs.iter() {
             let mut new = JobCtx::new(spec);
             if let Err(e) = new.parse_job_spec() {
                 error!("{}: {}", spec, &e);
                 panic!();
             }
-            new.run = true;
-            nr_to_run += 1;
-            for (inc_job_idx, jctx) in self.job_ctxs.iter_mut().enumerate() {
-                if jctx.spec.kind == new.spec.kind && jctx.spec.id == new.spec.id {
+            match Self::pop_matching_jctx(&mut jctxs, &new.spec) {
+                Some(prev) => {
                     debug!("{} has a matching entry in the result file", &new.spec);
-                    new.inc_job_idx = inc_job_idx;
-                    new.result = jctx.result.take();
-                    *jctx = new;
-                    continue 'next;
+                    new.inc_job_idx = prev.inc_job_idx;
+                    new.prev = Some(Box::new(prev));
+                }
+                None => {
+                    new.inc_job_idx = inc_jctxs.len();
+                    inc_jctxs.push(new.clone());
                 }
             }
-            new.inc_job_idx = inc_job_ctxs.len();
-            inc_job_ctxs.push(new.clone());
             self.job_ctxs.push(new);
         }
 
-        debug!("job_ctxs: nr_to_run={}\n{:#?}", nr_to_run, &self.job_ctxs);
+        debug!(
+            "job_ctxs: nr_to_run={}\n{:#?}",
+            self.job_ctxs.len(),
+            &self.job_ctxs
+        );
         self.commit_args();
 
-        if nr_to_run > 0 && !args.keep_reports {
+        if self.job_ctxs.len() > 0 && !args.keep_reports {
             if let Err(e) = self.clean_up_report_files() {
                 error!("Failed to clean up report files ({})", &e);
                 panic!();
@@ -242,48 +262,41 @@ impl Program {
 
         // Run the benches and print out the results.
         for jctx in self.job_ctxs.iter_mut() {
-            if jctx.run {
-                // Always start with a fresh bench file.
-                if let Err(e) = base_bench.save(&bench_path) {
-                    error!("Failed to set up {:?} ({})", &bench_path, &e);
-                    panic!();
-                }
-
-                let mut rctx = RunCtx::new(
-                    &args.dir,
-                    args.dev.as_deref(),
-                    args.linux_tar.as_deref(),
-                    &base_bench,
-                    jctx.result.take(),
-                    &mut inc_job_ctxs,
-                    jctx.inc_job_idx,
-                    &args.result,
-                    args.test,
-                    args.verbosity,
-                );
-
-                if let Err(e) = jctx.run(&mut rctx) {
-                    error!("Failed to run {} ({})", &jctx.spec, &e);
-                    panic!();
-                }
-
-                if rctx.commit_bench {
-                    base_bench = rd_agent_intf::BenchKnobs::load(&bench_path)
-                        .expect(&format!("Failed to load {:?}", &bench_path));
-                    if let Err(e) = base_bench.save(&demo_bench_path) {
-                        error!(
-                            "Failed to commit bench result to {:?} ({})",
-                            &demo_bench_path, &e
-                        );
-                        panic!();
-                    }
-                }
+            // Always start with a fresh bench file.
+            if let Err(e) = base_bench.save(&bench_path) {
+                error!("Failed to set up {:?} ({})", &bench_path, &e);
+                panic!();
             }
 
-            // Format only the completed jobs.
-            if jctx.run && jctx.sysreqs_report.is_some() {
-                println!("{}\n\n{}", "=".repeat(90), &jctx.format());
+            let mut rctx = RunCtx::new(
+                &args.dir,
+                args.dev.as_deref(),
+                args.linux_tar.as_deref(),
+                &base_bench,
+                &mut inc_jctxs,
+                jctx.inc_job_idx,
+                &args.result,
+                args.test,
+                args.verbosity,
+            );
+
+            if let Err(e) = jctx.run(&mut rctx) {
+                error!("Failed to run {} ({})", &jctx.spec, &e);
+                panic!();
             }
+
+            if rctx.commit_bench {
+                base_bench = rd_agent_intf::BenchKnobs::load(&bench_path)
+                    .expect(&format!("Failed to load {:?}", &bench_path));
+                if let Err(e) = base_bench.save(&demo_bench_path) {
+                    error!(
+                        "Failed to commit bench result to {:?} ({})",
+                        &demo_bench_path, &e
+                    );
+                    panic!();
+                }
+            }
+            Self::format_jctx(jctx, &vec![]);
         }
 
         // Write the result file.
@@ -292,14 +305,33 @@ impl Program {
         }
     }
 
-    fn format(&self) {
-        self.commit_args();
-        for jctx in self.job_ctxs.iter() {
-            // Format only the completed jobs.
-            if jctx.sysreqs_report.is_some() {
-                println!("{}\n\n{}", "=".repeat(90), &jctx.format());
+    fn do_format(&mut self) {
+        let specs = &self.args_file.data.job_specs;
+        let empty_props = vec![];
+        let mut to_format = vec![];
+        let mut jctxs = vec![];
+        std::mem::swap(&mut jctxs, &mut self.job_ctxs);
+
+        if specs.len() == 0 {
+            to_format = jctxs.into_iter().map(|x| (x, &empty_props)).collect();
+        } else {
+            for spec in specs.iter() {
+                let jctx = match Self::pop_matching_jctx(&mut jctxs, &spec) {
+                    Some(v) => v,
+                    None => {
+                        error!("No matching result for {}", &spec);
+                        exit(1);
+                    }
+                };
+                to_format.push((jctx, &spec.properties));
             }
         }
+
+        for jctx in to_format.iter() {
+            Self::format_jctx(&jctx.0, &jctx.1);
+        }
+
+        self.commit_args();
     }
 
     fn main(mut self) {
@@ -323,8 +355,8 @@ impl Program {
         }
 
         match args.mode {
-            Mode::Run => self.run(),
-            Mode::Format => self.format(),
+            Mode::Run => self.do_run(),
+            Mode::Format => self.do_format(),
         }
     }
 }
