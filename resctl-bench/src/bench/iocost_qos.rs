@@ -7,7 +7,8 @@ use std::collections::BTreeMap;
 
 // Gonna run storage bench multiple times with different parameters. Let's
 // run it just once by default.
-const DFL_VRATE_INTVS: u32 = 10;
+const DFL_VRATE_MAX: f64 = 125.0;
+const DFL_VRATE_INTVS: u32 = 25;
 const DFL_STORAGE_BASE_LOOPS: u32 = 3;
 const DFL_STORAGE_LOOPS: u32 = 1;
 const DFL_RETRIES: u32 = 2;
@@ -42,6 +43,8 @@ impl Bench for IoCostQoSBench {
     fn parse(&self, spec: &JobSpec) -> Result<Box<dyn Job>> {
         let mut storage_spec = JobSpec::new("storage".into(), None, vec![Default::default()]);
 
+        let mut vrate_min = 0.0;
+        let mut vrate_max = DFL_VRATE_MAX;
         let mut vrate_intvs = 0;
         let mut base_loops = DFL_STORAGE_BASE_LOOPS;
         let mut loops = DFL_STORAGE_LOOPS;
@@ -52,6 +55,8 @@ impl Bench for IoCostQoSBench {
 
         for (k, v) in spec.props[0].iter() {
             match k.as_str() {
+                "vrate-min" => vrate_min = v.parse::<f64>()?,
+                "vrate-max" => vrate_max = v.parse::<f64>()?,
                 "vrate-intvs" => vrate_intvs = v.parse::<u32>()?,
                 "base-loops" => base_loops = v.parse::<u32>()?,
                 "loops" => loops = v.parse::<u32>()?,
@@ -62,6 +67,10 @@ impl Bench for IoCostQoSBench {
                     storage_spec.props[0].insert(k.into(), v.into());
                 }
             }
+        }
+
+        if vrate_min < 0.0 || vrate_max < 0.0 || vrate_min >= vrate_max {
+            bail!("invalid vrate range [{}, {}]", vrate_min, vrate_max);
         }
 
         for props in spec.props[1..].iter() {
@@ -88,11 +97,19 @@ impl Bench for IoCostQoSBench {
         }
 
         if vrate_intvs > 0 {
-            let click = 100.0 / vrate_intvs as f64;
+            // min of 0 is special case and means that we start at one
+            // click, so if min is 0, max is 10 and intvs is 5, the sequence
+            // is (10, 7.5, 5, 2.5). If min > 0, the range is inclusive -
+            // min 5, max 10, intvs 5 => (10, 9, 8, 7, 6, 5).
+            let click = if vrate_min == 0.0 {
+                vrate_max / vrate_intvs as f64
+            } else {
+                (vrate_max - vrate_min) / (vrate_intvs - 1) as f64
+            };
             for i in 0..vrate_intvs {
                 runs.push(Some(IoCostQoSOvr {
-                    min: Some(100.0 - i as f64 * click),
-                    max: Some(100.0 - i as f64 * click),
+                    min: Some(vrate_max - i as f64 * click),
+                    max: Some(vrate_max - i as f64 * click),
                     ..Default::default()
                 }));
             }
