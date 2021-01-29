@@ -146,7 +146,7 @@ impl JobCtx {
             if let Some(rep) = rctx.report_sample() {
                 self.iocost = rep.iocost.clone();
             }
-        } else {
+        } else if self.prev.is_some() {
             let prev = self.prev.take().unwrap();
             self.sysreqs_report = prev.sysreqs_report;
             self.missed_sysreqs = prev.missed_sysreqs;
@@ -172,62 +172,63 @@ impl JobCtx {
         )
         .unwrap();
 
-        let sysreqs = self.sysreqs_report.as_ref().unwrap();
-        writeln!(
-            buf,
-            "System info: nr_cpus={} memory={} swap={}\n",
-            sysreqs.nr_cpus,
-            format_size(sysreqs.total_memory),
-            format_size(sysreqs.total_swap)
-        )
-        .unwrap();
-
-        writeln!(
-            buf,
-            "IO info: dev={}({}:{}) model=\"{}\" size={}",
-            &sysreqs.scr_dev,
-            sysreqs.scr_devnr.0,
-            sysreqs.scr_devnr.1,
-            &sysreqs.scr_dev_model,
-            format_size(sysreqs.scr_dev_size)
-        )
-        .unwrap();
-
-        writeln!(
-            buf,
-            "         iosched={} wbt={} iocost={} other={}",
-            &sysreqs.scr_dev_iosched,
-            match self.missed_sysreqs.contains(&SysReq::NoWbt) {
-                true => "on",
-                false => "off",
-            },
-            match self.iocost.qos.enable > 0 {
-                true => "on",
-                false => "off",
-            },
-            match self.missed_sysreqs.contains(&SysReq::NoOtherIoControllers) {
-                true => "on",
-                false => "off",
-            },
-        )
-        .unwrap();
-
-        if self.iocost.qos.enable > 0 {
-            let model = &self.iocost.model;
-            let qos = &self.iocost.qos;
+        if self.sysreqs_report.is_some() {
+            let sysreqs = self.sysreqs_report.as_ref().unwrap();
             writeln!(
                 buf,
-                "         iocost model: rbps={} rseqiops={} rrandiops={}",
-                model.knobs.rbps, model.knobs.rseqiops, model.knobs.rrandiops
+                "System info: nr_cpus={} memory={} swap={}\n",
+                sysreqs.nr_cpus,
+                format_size(sysreqs.total_memory),
+                format_size(sysreqs.total_swap)
             )
             .unwrap();
+
             writeln!(
                 buf,
-                "                       wbps={} wseqiops={} wrandiops={}",
-                model.knobs.wbps, model.knobs.wseqiops, model.knobs.wrandiops
+                "IO info: dev={}({}:{}) model=\"{}\" size={}",
+                &sysreqs.scr_dev,
+                sysreqs.scr_devnr.0,
+                sysreqs.scr_devnr.1,
+                &sysreqs.scr_dev_model,
+                format_size(sysreqs.scr_dev_size)
             )
             .unwrap();
+
             writeln!(
+                buf,
+                "         iosched={} wbt={} iocost={} other={}",
+                &sysreqs.scr_dev_iosched,
+                match self.missed_sysreqs.contains(&SysReq::NoWbt) {
+                    true => "on",
+                    false => "off",
+                },
+                match self.iocost.qos.enable > 0 {
+                    true => "on",
+                    false => "off",
+                },
+                match self.missed_sysreqs.contains(&SysReq::NoOtherIoControllers) {
+                    true => "on",
+                    false => "off",
+                },
+            )
+            .unwrap();
+
+            if self.iocost.qos.enable > 0 {
+                let model = &self.iocost.model;
+                let qos = &self.iocost.qos;
+                writeln!(
+                    buf,
+                    "         iocost model: rbps={} rseqiops={} rrandiops={}",
+                    model.knobs.rbps, model.knobs.rseqiops, model.knobs.rrandiops
+                )
+                .unwrap();
+                writeln!(
+                    buf,
+                    "                       wbps={} wseqiops={} wrandiops={}",
+                    model.knobs.wbps, model.knobs.wseqiops, model.knobs.wrandiops
+                )
+                .unwrap();
+                writeln!(
                 buf,
                 "         iocost QoS: rpct={:.2} rlat={} wpct={:.2} wlat={} min={:.2} max={:.2}",
                 qos.knobs.rpct,
@@ -237,22 +238,23 @@ impl JobCtx {
                 qos.knobs.min,
                 qos.knobs.max
             )
-            .unwrap();
-        }
-        writeln!(buf, "").unwrap();
+                .unwrap();
+            }
+            writeln!(buf, "").unwrap();
 
-        if self.missed_sysreqs.len() > 0 {
-            writeln!(
-                buf,
-                "Missed requirements: {}\n",
-                &self
-                    .missed_sysreqs
-                    .iter()
-                    .map(|x| format!("{:?}", x))
-                    .collect::<Vec<String>>()
-                    .join(", ")
-            )
-            .unwrap();
+            if self.missed_sysreqs.len() > 0 {
+                writeln!(
+                    buf,
+                    "Missed requirements: {}\n",
+                    &self
+                        .missed_sysreqs
+                        .iter()
+                        .map(|x| format!("{:?}", x))
+                        .collect::<Vec<String>>()
+                        .join(", ")
+                )
+                .unwrap();
+            }
         }
 
         self.job.as_ref().unwrap().format(

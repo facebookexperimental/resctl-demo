@@ -196,9 +196,40 @@ impl Program {
     }
 
     fn do_run(&mut self) {
-        let args = &self.args_file.data;
+        // Spec preprocessing gives the bench implementations a chance to
+        // add, remove and modify the scheduled benches. Preprocess is
+        // called once per scheduled bench.
+        let args = &mut self.args_file.data;
+        loop {
+            let mut found = None;
+            let benchs = bench::BENCHS.lock().unwrap();
+            'found_one: for (idx, spec) in args.job_specs.iter_mut().enumerate() {
+                if spec.preprocessed {
+                    continue;
+                }
+                spec.preprocessed = true;
+
+                for bench in benchs.iter() {
+                    let desc = bench.desc();
+                    if spec.kind == desc.kind {
+                        if desc.preprocess_run_specs.is_some() {
+                            found = Some((idx, desc));
+                            break 'found_one;
+                        }
+                        break;
+                    }
+                }
+            }
+
+            match found {
+                Some((idx, desc)) => desc.preprocess_run_specs.unwrap()(&mut args.job_specs, idx)
+                    .expect("preprocess_run_specs() failed"),
+                None => break,
+            }
+        }
 
         // Stash the result part for incremental result file updates.
+        let args = &self.args_file.data;
         let mut inc_jctxs = self.job_ctxs.clone();
         let mut jctxs = vec![];
         std::mem::swap(&mut jctxs, &mut self.job_ctxs);
@@ -295,7 +326,7 @@ impl Program {
                     panic!();
                 }
             }
-            Self::format_jctx(jctx, Mode::Format);
+            Self::format_jctx(jctx, Mode::Summary);
         }
 
         // Write the result file.

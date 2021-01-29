@@ -7,8 +7,8 @@ use std::collections::BTreeMap;
 
 // Gonna run storage bench multiple times with different parameters. Let's
 // run it just once by default.
-const DFL_VRATE_MAX: f64 = 125.0;
-const DFL_VRATE_INTVS: u32 = 25;
+const DFL_VRATE_MAX: f64 = 100.0;
+const DFL_VRATE_INTVS: u32 = 5;
 const DFL_STORAGE_BASE_LOOPS: u32 = 3;
 const DFL_STORAGE_LOOPS: u32 = 1;
 const DFL_RETRIES: u32 = 2;

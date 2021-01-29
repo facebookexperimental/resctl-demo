@@ -28,9 +28,6 @@ lazy_static::lazy_static! {
                 SysReq::HostCriticalServices,
         ]
     );
-}
-
-lazy_static::lazy_static! {
     pub static ref BENCHS: Arc<Mutex<Vec<Box<dyn Bench>>>> = Arc::new(Mutex::new(vec![]));
 }
 
@@ -38,6 +35,7 @@ pub struct BenchDesc {
     pub kind: String,
     pub takes_propsets: bool,
     pub incremental: bool,
+    pub preprocess_run_specs: Option<Box<dyn FnOnce(&mut Vec<JobSpec>, usize) -> Result<()>>>,
 }
 
 impl BenchDesc {
@@ -46,6 +44,7 @@ impl BenchDesc {
             kind: kind.into(),
             takes_propsets: false,
             incremental: false,
+            preprocess_run_specs: None,
         }
     }
 
@@ -56,6 +55,14 @@ impl BenchDesc {
 
     pub fn incremental(mut self) -> Self {
         self.incremental = true;
+        self
+    }
+
+    pub fn preprocess_run_specs<T>(mut self, preprocess_run_specs: T) -> Self
+    where
+        T: 'static + FnOnce(&mut Vec<JobSpec>, usize) -> Result<()>,
+    {
+        self.preprocess_run_specs = Some(Box::new(preprocess_run_specs));
         self
     }
 }
@@ -72,6 +79,7 @@ fn register_bench(bench: Box<dyn Bench>) -> () {
 mod hashd_params;
 mod iocost_params;
 mod iocost_qos;
+mod iocost_tune;
 mod storage;
 
 pub fn init_benchs() -> () {
@@ -79,4 +87,5 @@ pub fn init_benchs() -> () {
     register_bench(Box::new(iocost_params::IoCostParamsBench {}));
     register_bench(Box::new(hashd_params::HashdParamsBench {}));
     register_bench(Box::new(iocost_qos::IoCostQoSBench {}));
+    register_bench(Box::new(iocost_tune::IoCostTuneBench {}));
 }
