@@ -68,7 +68,7 @@ pub struct StorageBench {}
 
 impl Bench for StorageBench {
     fn desc(&self) -> BenchDesc {
-        BenchDesc::new("storage")
+        BenchDesc::new("storage").takes_run_props()
     }
 
     fn parse(&self, spec: &JobSpec) -> Result<Box<dyn Job>> {

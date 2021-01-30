@@ -22,7 +22,7 @@ pub struct HashdParamsBench {}
 
 impl Bench for HashdParamsBench {
     fn desc(&self) -> BenchDesc {
-        BenchDesc::new("hashd-params")
+        BenchDesc::new("hashd-params").takes_run_props()
     }
 
     fn parse(&self, spec: &JobSpec) -> Result<Box<dyn Job>> {

@@ -96,7 +96,10 @@ impl JobCtx {
         for bench in benchs.iter() {
             let desc = bench.desc();
             if self.spec.kind == desc.kind {
-                if !desc.takes_propsets && self.spec.props.len() > 1 {
+                if !desc.takes_run_props && self.spec.props[0].len() > 0 {
+                    bail!("unknown properties");
+                }
+                if !desc.takes_run_propsets && self.spec.props.len() > 1 {
                     bail!("multiple property sets not supported");
                 }
                 self.incremental = desc.incremental;

@@ -33,7 +33,8 @@ lazy_static::lazy_static! {
 
 pub struct BenchDesc {
     pub kind: String,
-    pub takes_propsets: bool,
+    pub takes_run_props: bool,
+    pub takes_run_propsets: bool,
     pub incremental: bool,
     pub preprocess_run_specs: Option<Box<dyn FnOnce(&mut Vec<JobSpec>, usize) -> Result<()>>>,
 }
@@ -42,14 +43,21 @@ impl BenchDesc {
     pub fn new(kind: &str) -> Self {
         Self {
             kind: kind.into(),
-            takes_propsets: false,
+            takes_run_props: false,
+            takes_run_propsets: false,
             incremental: false,
             preprocess_run_specs: None,
         }
     }
 
-    pub fn takes_propsets(mut self) -> Self {
-        self.takes_propsets = true;
+    pub fn takes_run_props(mut self) -> Self {
+        self.takes_run_props = true;
+        self
+    }
+
+    pub fn takes_run_propsets(mut self) -> Self {
+        self.takes_run_props = true;
+        self.takes_run_propsets = true;
         self
     }
 
