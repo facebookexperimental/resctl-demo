@@ -487,7 +487,7 @@ impl StorageJob {
 }
 
 impl Job for StorageJob {
-    fn sysreqs(&self) -> HashSet<SysReq> {
+    fn sysreqs(&self) -> BTreeSet<SysReq> {
         HASHD_SYSREQS.clone()
     }
 

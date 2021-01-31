@@ -18,7 +18,7 @@ impl Bench for IoCostParamsBench {
 }
 
 impl Job for IoCostParamsJob {
-    fn sysreqs(&self) -> HashSet<SysReq> {
+    fn sysreqs(&self) -> BTreeSet<SysReq> {
         Default::default()
     }
 

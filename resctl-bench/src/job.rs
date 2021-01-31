@@ -1,8 +1,9 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
 use anyhow::{bail, Result};
 use chrono::{DateTime, Local};
+use log::warn;
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
+use std::collections::BTreeSet;
 use std::fmt::Write;
 use std::fs;
 use std::io::Read;
@@ -15,9 +16,17 @@ use rd_agent_intf::{SysReq, SysReqsReport};
 use resctl_bench_intf::{JobSpec, Mode};
 
 pub trait Job {
-    fn sysreqs(&self) -> HashSet<SysReq>;
+    fn sysreqs(&self) -> BTreeSet<SysReq>;
     fn run(&mut self, rctx: &mut RunCtx) -> Result<serde_json::Value>;
     fn format<'a>(&self, out: Box<dyn Write + 'a>, result: &serde_json::Value, full: bool);
+}
+
+#[derive(Serialize, Deserialize, Clone, Default)]
+pub struct SysReqs {
+    pub required: BTreeSet<SysReq>,
+    pub missed: BTreeSet<SysReq>,
+    pub report: Option<SysReqsReport>,
+    pub iocost: rd_agent_intf::IoCostReport,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -35,10 +44,7 @@ pub struct JobCtx {
 
     pub started_at: u64,
     pub ended_at: u64,
-    pub sysreqs: HashSet<SysReq>,
-    pub missed_sysreqs: HashSet<SysReq>,
-    pub sysreqs_report: Option<SysReqsReport>,
-    pub iocost: rd_agent_intf::IoCostReport,
+    pub sysreqs: SysReqs,
     pub result: Option<serde_json::Value>,
 }
 
@@ -62,9 +68,6 @@ impl std::clone::Clone for JobCtx {
             started_at: self.started_at,
             ended_at: self.ended_at,
             sysreqs: self.sysreqs.clone(),
-            missed_sysreqs: self.missed_sysreqs.clone(),
-            sysreqs_report: self.sysreqs_report.clone(),
-            iocost: self.iocost.clone(),
             result: self.result.clone(),
         };
         clone.parse_job_spec().unwrap();
@@ -83,9 +86,6 @@ impl JobCtx {
             started_at: 0,
             ended_at: 0,
             sysreqs: Default::default(),
-            missed_sysreqs: Default::default(),
-            sysreqs_report: None,
-            iocost: Default::default(),
             result: None,
         }
     }
@@ -126,10 +126,10 @@ impl JobCtx {
         Ok(results)
     }
 
-    pub fn run(&mut self, rctx: &mut RunCtx) -> Result<()> {
+    pub fn run(&mut self, rctx: &mut RunCtx, mut sysreqs_forward: Option<SysReqs>) -> Result<()> {
         let job = self.job.as_mut().unwrap();
-        self.sysreqs = job.sysreqs();
-        rctx.add_sysreqs(self.sysreqs.clone());
+        self.sysreqs.required = job.sysreqs();
+        rctx.add_sysreqs(self.sysreqs.required.clone());
 
         if self.prev.is_some() && self.prev.as_ref().unwrap().result.is_some() {
             if !self.incremental {
@@ -144,16 +144,20 @@ impl JobCtx {
         self.ended_at = unix_now();
 
         if rctx.sysreqs_report().is_some() {
-            self.sysreqs_report = Some((*rctx.sysreqs_report().unwrap()).clone());
-            self.missed_sysreqs = rctx.missed_sysreqs();
+            self.sysreqs.report = Some((*rctx.sysreqs_report().unwrap()).clone());
+            self.sysreqs.missed = rctx.missed_sysreqs();
             if let Some(rep) = rctx.report_sample() {
-                self.iocost = rep.iocost.clone();
+                self.sysreqs.iocost = rep.iocost.clone();
             }
+        } else if sysreqs_forward.is_some() {
+            self.sysreqs = sysreqs_forward.take().unwrap();
         } else if self.prev.is_some() {
-            let prev = self.prev.take().unwrap();
-            self.sysreqs_report = prev.sysreqs_report;
-            self.missed_sysreqs = prev.missed_sysreqs;
-            self.iocost = prev.iocost;
+            self.sysreqs = self.prev.as_ref().unwrap().sysreqs.clone();
+        } else {
+            warn!(
+                "job: No sysreqs available for {:?} after completion",
+                &self.spec
+            );
         }
         self.result = Some(result);
         rctx.update_incremental_jctx(&self);
@@ -175,50 +179,52 @@ impl JobCtx {
         )
         .unwrap();
 
-        if self.sysreqs_report.is_some() {
-            let sysreqs = self.sysreqs_report.as_ref().unwrap();
+        let sr = &self.sysreqs;
+        if sr.report.is_some() {
+            let rep = self.sysreqs.report.as_ref().unwrap();
             writeln!(
                 buf,
                 "System info: nr_cpus={} memory={} swap={}\n",
-                sysreqs.nr_cpus,
-                format_size(sysreqs.total_memory),
-                format_size(sysreqs.total_swap)
+                rep.nr_cpus,
+                format_size(rep.total_memory),
+                format_size(rep.total_swap)
             )
             .unwrap();
 
             writeln!(
                 buf,
                 "IO info: dev={}({}:{}) model=\"{}\" size={}",
-                &sysreqs.scr_dev,
-                sysreqs.scr_devnr.0,
-                sysreqs.scr_devnr.1,
-                &sysreqs.scr_dev_model,
-                format_size(sysreqs.scr_dev_size)
+                &rep.scr_dev,
+                rep.scr_devnr.0,
+                rep.scr_devnr.1,
+                &rep.scr_dev_model,
+                format_size(rep.scr_dev_size)
             )
             .unwrap();
 
             writeln!(
                 buf,
                 "         iosched={} wbt={} iocost={} other={}",
-                &sysreqs.scr_dev_iosched,
-                match self.missed_sysreqs.contains(&SysReq::NoWbt) {
+                &rep.scr_dev_iosched,
+                match sr.missed.contains(&SysReq::NoWbt) {
                     true => "on",
                     false => "off",
                 },
-                match self.iocost.qos.enable > 0 {
+                match sr.iocost.qos.enable > 0 {
                     true => "on",
                     false => "off",
                 },
-                match self.missed_sysreqs.contains(&SysReq::NoOtherIoControllers) {
+                match sr.missed.contains(&SysReq::NoOtherIoControllers) {
                     true => "on",
                     false => "off",
                 },
             )
             .unwrap();
 
-            if self.iocost.qos.enable > 0 {
-                let model = &self.iocost.model;
-                let qos = &self.iocost.qos;
+            let iocost = &self.sysreqs.iocost;
+            if iocost.qos.enable > 0 {
+                let model = &iocost.model;
+                let qos = &iocost.qos;
                 writeln!(
                     buf,
                     "         iocost model: rbps={} rseqiops={} rrandiops={}",
@@ -245,12 +251,13 @@ impl JobCtx {
             }
             writeln!(buf, "").unwrap();
 
-            if self.missed_sysreqs.len() > 0 {
+            if self.sysreqs.missed.len() > 0 {
                 writeln!(
                     buf,
                     "Missed requirements: {}\n",
                     &self
-                        .missed_sysreqs
+                        .sysreqs
+                        .missed
                         .iter()
                         .map(|x| format!("{:?}", x))
                         .collect::<Vec<String>>()

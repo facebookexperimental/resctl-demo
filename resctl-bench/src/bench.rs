@@ -2,10 +2,10 @@
 
 // The individual bench implementations under bench/ inherits all uses from
 // this file. Make common stuff available.
-use anyhow::{bail, Result};
+use anyhow::{anyhow, bail, Result};
 use log::{error, info, warn};
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
+use std::collections::BTreeSet;
 use std::fmt::Write;
 use std::iter::FromIterator;
 use std::sync::{Arc, Mutex};
@@ -20,7 +20,7 @@ use resctl_bench_intf::JobSpec;
 use util::*;
 
 lazy_static::lazy_static! {
-    pub static ref HASHD_SYSREQS: HashSet<SysReq> = FromIterator::from_iter(
+    pub static ref HASHD_SYSREQS: BTreeSet<SysReq> = FromIterator::from_iter(
         vec![
                 SysReq::AnonBalance,
                 SysReq::SwapOnScratch,

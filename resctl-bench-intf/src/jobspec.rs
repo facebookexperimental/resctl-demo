@@ -12,6 +12,8 @@ pub struct JobSpec {
 
     #[serde(skip)]
     pub preprocessed: bool,
+    #[serde(skip)]
+    pub forward_results_from: Vec<usize>,
 }
 
 impl JobSpec {
@@ -22,6 +24,7 @@ impl JobSpec {
             id,
             props,
             preprocessed: false,
+            forward_results_from: vec![],
         }
     }
 }

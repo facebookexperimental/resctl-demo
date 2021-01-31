@@ -130,19 +130,19 @@ impl Bench for IoCostQoSBench {
 }
 
 #[derive(Clone, Serialize, Deserialize)]
-struct IoCostQoSRun {
-    qos: Option<IoCostQoSParams>,
-    vrate_mean: f64,
-    vrate_stdev: f64,
-    vrate_pcts: BTreeMap<String, f64>,
-    storage: StorageResult,
+pub struct IoCostQoSRun {
+    pub qos: Option<IoCostQoSParams>,
+    pub vrate_mean: f64,
+    pub vrate_stdev: f64,
+    pub vrate_pcts: BTreeMap<String, f64>,
+    pub storage: StorageResult,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
-struct IoCostQoSResult {
-    model: IoCostModelParams,
-    base_qos: IoCostQoSParams,
-    results: Vec<Option<IoCostQoSRun>>,
+pub struct IoCostQoSResult {
+    pub model: IoCostModelParams,
+    pub base_qos: IoCostQoSParams,
+    pub results: Vec<Option<IoCostQoSRun>>,
     inc_results: Vec<IoCostQoSRun>,
 }
 
@@ -340,7 +340,7 @@ impl IoCostQoSJob {
 }
 
 impl Job for IoCostQoSJob {
-    fn sysreqs(&self) -> HashSet<SysReq> {
+    fn sysreqs(&self) -> BTreeSet<SysReq> {
         StorageJob::default().sysreqs()
     }
 

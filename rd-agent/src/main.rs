@@ -3,7 +3,7 @@ use anyhow::{anyhow, bail, Result};
 use log::{debug, error, info, trace, warn};
 use proc_mounts::MountInfo;
 use scan_fmt::scan_fmt;
-use std::collections::HashSet;
+use std::collections::BTreeSet;
 use std::fs;
 use std::io;
 use std::io::prelude::*;
@@ -184,7 +184,7 @@ pub struct Config {
     pub verbosity: u32,
     pub enforce: EnforceConfig,
 
-    pub sr_failed: HashSet<SysReq>,
+    pub sr_failed: BTreeSet<SysReq>,
     sr_wbt: Option<u64>,
     sr_wbt_path: Option<String>,
     sr_swappiness: Option<u32>,
@@ -442,7 +442,7 @@ impl Config {
                 crit_mem_prot: !args.passive || args.keep_crit_mem_prot,
             },
 
-            sr_failed: HashSet::new(),
+            sr_failed: BTreeSet::new(),
             sr_wbt: None,
             sr_wbt_path: None,
             sr_swappiness: None,
@@ -492,7 +492,7 @@ impl Config {
 
     fn check_one_fs(
         path: &str,
-        sr_failed: &mut HashSet<SysReq>,
+        sr_failed: &mut BTreeSet<SysReq>,
         enforce: bool,
     ) -> Result<MountInfo> {
         let mi = path_to_mountpoint(path)?;

@@ -12,10 +12,12 @@ fn preprocess_run_specs(specs: &mut Vec<JobSpec>, idx: usize) -> Result<()> {
     for i in (0..idx).rev() {
         let sp = &specs[i];
         if sp.kind == "iocost-qos" {
+            specs[idx].forward_results_from.push(i);
             return Ok(());
         }
     }
     info!("iocost-tune: Preceding iocost-qos not found, inserting with preset params");
+    specs[idx].forward_results_from.push(idx);
     specs.insert(
         idx,
         resctl_bench_intf::Args::parse_job_spec(&format!(
@@ -220,11 +222,14 @@ impl Bench for IoCostTuneBench {
 struct IoCostTuneResult {}
 
 impl Job for IoCostTuneJob {
-    fn sysreqs(&self) -> HashSet<SysReq> {
+    fn sysreqs(&self) -> BTreeSet<SysReq> {
         Default::default()
     }
 
-    fn run(&mut self, _rctx: &mut RunCtx) -> Result<serde_json::Value> {
+    fn run(&mut self, rctx: &mut RunCtx) -> Result<serde_json::Value> {
+        let _data: super::iocost_qos::IoCostQoSResult =
+            serde_json::from_value(rctx.result_forwards.pop().unwrap())
+                .map_err(|e| anyhow!("failed to parse iocost-qos result ({})", &e))?;
         Ok(serde_json::to_value(IoCostTuneResult {})?)
     }
 

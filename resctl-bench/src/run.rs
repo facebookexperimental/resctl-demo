@@ -2,7 +2,7 @@
 #![allow(dead_code)]
 use anyhow::{anyhow, bail, Result};
 use log::{debug, error, warn};
-use std::collections::{HashSet, VecDeque};
+use std::collections::{BTreeSet, VecDeque};
 use std::process::Command;
 use std::sync::{Arc, Mutex};
 use std::thread::{spawn, JoinHandle};
@@ -35,8 +35,8 @@ struct RunCtxInner {
     dev: Option<String>,
     linux_tar: Option<String>,
     verbosity: u32,
-    sysreqs: HashSet<SysReq>,
-    missed_sysreqs: HashSet<SysReq>,
+    sysreqs: BTreeSet<SysReq>,
+    missed_sysreqs: BTreeSet<SysReq>,
     need_linux_tar: bool,
     prep_testfiles: bool,
     bypass: bool,
@@ -152,6 +152,7 @@ pub struct RunCtx<'a> {
     agent_init_fns: Vec<Box<dyn FnOnce(&mut RunCtx)>>,
     base_bench: rd_agent_intf::BenchKnobs,
     pub prev_result: Option<serde_json::Value>,
+    pub result_forwards: Vec<serde_json::Value>,
     inc_job_ctxs: &'a mut Vec<JobCtx>,
     inc_job_idx: usize,
     result_path: &'a str,
@@ -161,22 +162,18 @@ pub struct RunCtx<'a> {
 
 impl<'a> RunCtx<'a> {
     pub fn new(
-        dir: &str,
-        dev: Option<&str>,
-        linux_tar: Option<&str>,
+        args: &'a resctl_bench_intf::Args,
         base_bench: &rd_agent_intf::BenchKnobs,
         inc_job_ctxs: &'a mut Vec<JobCtx>,
         inc_job_idx: usize,
-        result_path: &'a str,
-        test: bool,
-        verbosity: u32,
+        result_forwards: Vec<serde_json::Value>,
     ) -> Self {
         Self {
             inner: Arc::new(Mutex::new(RunCtxInner {
-                dir: dir.into(),
-                dev: dev.map(Into::into),
-                linux_tar: linux_tar.map(Into::into),
-                verbosity,
+                dir: args.dir.clone(),
+                dev: args.dev.clone(),
+                linux_tar: args.linux_tar.clone(),
+                verbosity: args.verbosity,
                 sysreqs: Default::default(),
                 missed_sysreqs: Default::default(),
                 need_linux_tar: false,
@@ -184,7 +181,7 @@ impl<'a> RunCtx<'a> {
                 bypass: false,
                 passive_all: false,
                 passive_keep_crit_mem_prot: false,
-                agent_files: AgentFiles::new(dir),
+                agent_files: AgentFiles::new(&args.dir),
                 agent_svc: None,
                 minder_state: MinderState::Ok,
                 minder_jh: None,
@@ -195,15 +192,16 @@ impl<'a> RunCtx<'a> {
             base_bench: base_bench.clone(),
             agent_init_fns: vec![],
             prev_result: None,
+            result_forwards,
             inc_job_ctxs,
             inc_job_idx,
-            result_path,
-            test,
+            result_path: &args.result,
+            test: args.test,
             commit_bench: false,
         }
     }
 
-    pub fn add_sysreqs(&mut self, sysreqs: HashSet<SysReq>) -> &mut Self {
+    pub fn add_sysreqs(&mut self, sysreqs: BTreeSet<SysReq>) -> &mut Self {
         self.inner
             .lock()
             .unwrap()
@@ -606,7 +604,7 @@ impl<'a> RunCtx<'a> {
         self.inner.lock().unwrap().sysreqs_rep.clone()
     }
 
-    pub fn missed_sysreqs(&self) -> HashSet<SysReq> {
+    pub fn missed_sysreqs(&self) -> BTreeSet<SysReq> {
         self.inner.lock().unwrap().missed_sysreqs.clone()
     }
 

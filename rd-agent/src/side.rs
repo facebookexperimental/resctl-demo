@@ -3,7 +3,7 @@ use super::{prepare_bin_file, Config};
 use anyhow::{anyhow, bail, Result};
 use log::{debug, error, info, warn};
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::fs;
 use std::process::Command;
 use std::sync::Arc;
@@ -101,7 +101,7 @@ pub fn prepare_linux_tar(cfg: &Config) -> Result<()> {
     Ok(())
 }
 
-pub fn startup_checks(sr_failed: &mut HashSet<SysReq>) {
+pub fn startup_checks(sr_failed: &mut BTreeSet<SysReq>) {
     for bin in &[
         "gcc",
         "ld",

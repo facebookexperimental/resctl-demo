@@ -291,26 +291,34 @@ impl Program {
             };
 
         // Run the benches and print out the results.
-        for jctx in self.job_ctxs.iter_mut() {
+        let mut pending = vec![];
+        std::mem::swap(&mut pending, &mut self.job_ctxs);
+        for mut jctx in pending.into_iter() {
             // Always start with a fresh bench file.
             if let Err(e) = base_bench.save(&bench_path) {
                 error!("Failed to set up {:?} ({})", &bench_path, &e);
                 panic!();
             }
 
+            let mut result_forwards = vec![];
+            let mut sysreqs_forward = None;
+            for i in jctx.spec.forward_results_from.iter() {
+                let from = &self.job_ctxs[*i];
+                result_forwards.push(from.result.as_ref().unwrap().clone());
+                if sysreqs_forward.is_none() {
+                    sysreqs_forward = Some(from.sysreqs.clone());
+                }
+            }
+
             let mut rctx = RunCtx::new(
-                &args.dir,
-                args.dev.as_deref(),
-                args.linux_tar.as_deref(),
+                &args,
                 &base_bench,
                 &mut inc_jctxs,
                 jctx.inc_job_idx,
-                &args.result,
-                args.test,
-                args.verbosity,
+                result_forwards,
             );
 
-            if let Err(e) = jctx.run(&mut rctx) {
+            if let Err(e) = jctx.run(&mut rctx, sysreqs_forward) {
                 error!("Failed to run {} ({})", &jctx.spec, &e);
                 panic!();
             }
@@ -326,7 +334,8 @@ impl Program {
                     panic!();
                 }
             }
-            Self::format_jctx(jctx, Mode::Summary);
+            Self::format_jctx(&jctx, Mode::Summary);
+            self.job_ctxs.push(jctx);
         }
 
         // Write the result file.

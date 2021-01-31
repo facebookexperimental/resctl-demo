@@ -41,7 +41,7 @@ impl Bench for HashdParamsBench {
 }
 
 impl Job for HashdParamsJob {
-    fn sysreqs(&self) -> HashSet<SysReq> {
+    fn sysreqs(&self) -> BTreeSet<SysReq> {
         HASHD_SYSREQS.clone()
     }
 
