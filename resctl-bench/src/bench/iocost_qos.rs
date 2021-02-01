@@ -13,14 +13,14 @@ const DFL_STORAGE_BASE_LOOPS: u32 = 3;
 const DFL_STORAGE_LOOPS: u32 = 1;
 const DFL_RETRIES: u32 = 2;
 
-#[derive(Debug, Default, Clone, PartialEq)]
-struct IoCostQoSOvr {
-    rpct: Option<f64>,
-    rlat: Option<u64>,
-    wpct: Option<f64>,
-    wlat: Option<u64>,
-    min: Option<f64>,
-    max: Option<f64>,
+#[derive(Serialize, Deserialize, Debug, Default, Clone, PartialEq)]
+pub struct IoCostQoSOvr {
+    pub rpct: Option<f64>,
+    pub rlat: Option<u64>,
+    pub wpct: Option<f64>,
+    pub wlat: Option<u64>,
+    pub min: Option<f64>,
+    pub max: Option<f64>,
 }
 
 struct IoCostQoSJob {
@@ -131,6 +131,7 @@ impl Bench for IoCostQoSBench {
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct IoCostQoSRun {
+    pub ovr: Option<IoCostQoSOvr>,
     pub qos: Option<IoCostQoSParams>,
     pub vrate_mean: f64,
     pub vrate_stdev: f64,
@@ -324,6 +325,7 @@ impl IoCostQoSJob {
         let (vrate_mean, vrate_stdev, vrate_pcts) = study_vrate_mean_pcts.result(&Self::VRATE_PCTS);
 
         Ok(IoCostQoSRun {
+            ovr: ovr.cloned(),
             qos,
             vrate_mean,
             vrate_stdev,
@@ -476,7 +478,7 @@ impl Job for IoCostQoSJob {
         self.storage_job.format_header(&mut out, baseline);
 
         if full {
-            for (i, (ovr, run)) in self.runs.iter().zip(result.results.iter()).enumerate() {
+            for (i, run) in result.results.iter().enumerate() {
                 if run.is_none() {
                     continue;
                 }
@@ -489,7 +491,7 @@ impl Job for IoCostQoSJob {
                     ======\n\n\
                     QoS: {}\n",
                     i,
-                    Self::format_qos_ovr(ovr.as_ref(), &result.base_qos)
+                    Self::format_qos_ovr(run.ovr.as_ref(), &result.base_qos)
                 )
                 .unwrap();
                 self.format_one_storage(&mut out, &run.storage);

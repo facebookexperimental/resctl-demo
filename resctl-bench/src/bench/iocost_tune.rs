@@ -1,7 +1,9 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
+use super::iocost_qos::{IoCostQoSOvr, IoCostQoSResult};
+use super::storage::StorageResult;
 use super::*;
 use std::cmp::{Ordering, PartialOrd};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 pub struct IoCostTuneBench {}
 
@@ -28,10 +30,10 @@ fn preprocess_run_specs(specs: &mut Vec<JobSpec>, idx: usize) -> Result<()> {
     Ok(())
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 enum DataSel {
-    MOF,                             // Memory offloading factor
-    Lat(&'static str, &'static str), // Latency
+    MOF,                 // Memory offloading factor
+    Lat(String, String), // Latency
 }
 
 impl DataSel {
@@ -97,7 +99,17 @@ impl DataSel {
             );
         }
 
-        Ok(Self::Lat(lat_pct.unwrap(), time_pct.unwrap()))
+        Ok(Self::Lat(
+            lat_pct.unwrap().to_owned(),
+            time_pct.unwrap().to_owned(),
+        ))
+    }
+
+    fn select(&self, storage: &StorageResult) -> f64 {
+        match self {
+            Self::MOF => storage.mem_offload_factor,
+            Self::Lat(lat_pct, time_pct) => storage.io_lat_pcts[lat_pct][time_pct],
+        }
     }
 
     fn cmp_lat_sel(a: &str, b: &str) -> Ordering {
@@ -136,6 +148,55 @@ impl PartialOrd for DataSel {
     }
 }
 
+impl std::fmt::Display for DataSel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::MOF => write!(f, "mof"),
+            Self::Lat(lat_pct, time_pct) => write!(f, "p{}-{}", lat_pct, time_pct),
+        }
+    }
+}
+
+// DataSel is an enum and used as keys in maps which the default serde
+// serialization can't handle as enum is serialized into a map and a map
+// can't be a key. Implement custom serialization into string.
+impl serde::ser::Serialize for DataSel {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::ser::Serializer,
+    {
+        serializer.serialize_str(&format!("{}", self))
+    }
+}
+
+impl<'de> serde::de::Deserialize<'de> for DataSel {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::de::Deserializer<'de>,
+    {
+        struct DataSelVisitor;
+
+        impl<'de> serde::de::Visitor<'de> for DataSelVisitor {
+            type Value = DataSel;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("`mof` or `pLAT-TIME`")
+            }
+
+            fn visit_str<E>(self, value: &str) -> Result<DataSel, E>
+            where
+                E: serde::de::Error,
+            {
+                DataSel::parse(value).map_err(|e| {
+                    serde::de::Error::custom(format!("invalid DataSel: {} ({})", value, &e))
+                })
+            }
+        }
+
+        deserializer.deserialize_str(DataSelVisitor)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum Target {
     Inflection,
@@ -160,7 +221,7 @@ impl Target {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 struct QoSTarget {
     sel: DataSel,
     target: Target,
@@ -207,19 +268,25 @@ impl Bench for IoCostTuneBench {
         for props in spec.props[1..].iter() {
             for (k, v) in props.iter() {
                 let target = QoSTarget::parse(k, v)?;
-                job.sels.insert(target.sel);
+                job.sels.insert(target.sel.clone());
                 job.targets.push(target);
             }
         }
-
-        info!("{:?}", &job);
 
         Ok(Box::new(job))
     }
 }
 
-#[derive(Serialize, Deserialize, Clone)]
-struct IoCostTuneResult {}
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, PartialOrd)]
+struct DataPoint {
+    vrate: f64,
+    val: f64,
+}
+
+#[derive(Serialize, Deserialize, Clone, Default)]
+struct IoCostTuneResult {
+    data: BTreeMap<DataSel, Vec<DataPoint>>,
+}
 
 impl Job for IoCostTuneJob {
     fn sysreqs(&self) -> BTreeSet<SysReq> {
@@ -227,11 +294,35 @@ impl Job for IoCostTuneJob {
     }
 
     fn run(&mut self, rctx: &mut RunCtx) -> Result<serde_json::Value> {
-        let _data: super::iocost_qos::IoCostQoSResult =
-            serde_json::from_value(rctx.result_forwards.pop().unwrap())
-                .map_err(|e| anyhow!("failed to parse iocost-qos result ({})", &e))?;
-        Ok(serde_json::to_value(IoCostTuneResult {})?)
+        let src: IoCostQoSResult = serde_json::from_value(rctx.result_forwards.pop().unwrap())
+            .map_err(|e| anyhow!("failed to parse iocost-qos result ({})", &e))?;
+        let mut data = BTreeMap::<DataSel, Vec<DataPoint>>::default();
+
+        for sel in self.sels.iter() {
+            let mut dps: Vec<DataPoint> = vec![];
+            for run in src.results.iter().filter_map(|x| x.as_ref()) {
+                let vrate = match run.ovr {
+                    Some(IoCostQoSOvr {
+                        rpct: None,
+                        rlat: None,
+                        wpct: None,
+                        wlat: None,
+                        min: Some(min),
+                        max: Some(max),
+                    }) if min == max => min,
+                    _ => continue,
+                };
+                let val = sel.select(&run.storage);
+                dps.push(DataPoint { vrate, val });
+            }
+            data.insert(sel.clone(), dps);
+        }
+
+        Ok(serde_json::to_value(IoCostTuneResult { data })?)
     }
 
-    fn format<'a>(&self, mut _out: Box<dyn Write + 'a>, _result: &serde_json::Value, _full: bool) {}
+    fn format<'a>(&self, mut out: Box<dyn Write + 'a>, result: &serde_json::Value, _full: bool) {
+        let result = serde_json::from_value::<IoCostTuneResult>(result.to_owned()).unwrap();
+        write!(out, "data={:#?}", &result.data).unwrap();
+    }
 }
