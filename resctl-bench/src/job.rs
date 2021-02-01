@@ -132,7 +132,7 @@ impl JobCtx {
         rctx.add_sysreqs(self.sysreqs.required.clone());
 
         if self.prev.is_some() && self.prev.as_ref().unwrap().result.is_some() {
-            if !self.incremental {
+            if !self.incremental && self.prev.as_ref().unwrap().spec == self.spec {
                 *self = *self.prev.take().unwrap();
                 return Ok(());
             }
