@@ -264,8 +264,7 @@ impl Program {
 
         if self.job_ctxs.len() > 0 && !args.keep_reports {
             if let Err(e) = self.clean_up_report_files() {
-                error!("Failed to clean up report files ({})", &e);
-                panic!();
+                warn!("Failed to clean up report files ({})", &e);
             }
         }
 

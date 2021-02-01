@@ -150,42 +150,26 @@ pub struct IoCostQoSResult {
 impl IoCostQoSJob {
     const VRATE_PCTS: [&'static str; 9] = ["00", "01", "10", "16", "50", "84", "90", "99", "100"];
 
-    fn verify_prev_result(
-        &self,
-        pr: Option<serde_json::Value>,
-        bench: &BenchKnobs,
-    ) -> IoCostQoSResult {
-        let empty = IoCostQoSResult {
-            model: bench.iocost.model.clone(),
-            base_qos: bench.iocost.qos.clone(),
-            results: vec![],
-            inc_results: vec![],
-        };
-
-        if pr.is_none() {
-            return empty;
-        }
-        let pr = serde_json::from_value::<IoCostQoSResult>(pr.unwrap()).unwrap();
-
+    fn prev_matches(&self, pr: &IoCostQoSResult, bench: &BenchKnobs) -> bool {
         let base_result = if pr.results.len() > 0 && pr.results[0].is_some() {
             pr.results[0].as_ref().unwrap()
         } else if pr.inc_results.len() > 0 {
             &pr.inc_results[0]
         } else {
-            return empty;
+            return false;
         };
 
-        let msg = "iocost-qos: Ignoring existing result file due to";
+        let msg = "iocost-qos: Existing result doesn't match the current configuration";
         if pr.model != bench.iocost.model || pr.base_qos != bench.iocost.qos {
-            warn!("{} {}", &msg, "iocost parameter mismatch");
-            return empty;
+            warn!("{} ({})", &msg, "iocost parameter mismatch");
+            return false;
         }
         if self.mem_profile > 0 && self.mem_profile != base_result.storage.mem_profile {
-            warn!("{} {}", &msg, "mem-profile mismatch");
-            return empty;
+            warn!("{} ({})", &msg, "mem-profile mismatch");
+            return false;
         }
 
-        pr
+        true
     }
 
     fn apply_qos_ovr(ovr: Option<&IoCostQoSOvr>, qos: &IoCostQoSParams) -> IoCostQoSParams {
@@ -251,25 +235,16 @@ impl IoCostQoSJob {
 
     fn find_matching_result<'a>(
         ovr: Option<&IoCostQoSOvr>,
-        qos: &IoCostQoSParams,
         prev_result: &'a IoCostQoSResult,
     ) -> Option<&'a IoCostQoSRun> {
-        let qos = Self::apply_qos_ovr(ovr.clone(), qos);
-
         for r in prev_result
             .results
             .iter()
             .filter_map(|x| x.as_ref())
             .chain(prev_result.inc_results.iter())
         {
-            if ovr.is_none() {
-                if r.qos.is_none() {
-                    return Some(r);
-                }
-            } else {
-                if r.qos.is_some() && r.qos.as_ref().unwrap() == &qos {
-                    return Some(r);
-                }
+            if ovr == r.ovr.as_ref() {
+                return Some(r);
             }
         }
         None
@@ -348,10 +323,23 @@ impl Job for IoCostQoSJob {
 
     fn run(&mut self, rctx: &mut RunCtx) -> Result<serde_json::Value> {
         let bench = rctx.base_bench().clone();
-        if rctx.base_bench().iocost_seq == 0 {
-            bail!("iocost-qos: iocost parameters missing, run iocost-params first or use --iocost-from-sys");
-        }
-        let mut prev_result = self.verify_prev_result(rctx.prev_result.clone(), &bench);
+
+        let (prev_matches, mut prev_result) = match rctx.prev_result.as_ref() {
+            Some(pr) => {
+                let pr = serde_json::from_value::<IoCostQoSResult>(pr.clone()).unwrap();
+                (self.prev_matches(&pr, &bench), pr)
+            }
+            None => (
+                true,
+                IoCostQoSResult {
+                    model: bench.iocost.model.clone(),
+                    base_qos: bench.iocost.qos.clone(),
+                    results: vec![],
+                    inc_results: vec![],
+                },
+            ),
+        };
+
         if prev_result.results.len() > 0 {
             self.mem_profile = prev_result.results[0].as_ref().unwrap().storage.mem_profile;
         }
@@ -361,7 +349,7 @@ impl Job for IoCostQoSJob {
         // without waiting for the benches to run.
         for (i, ovr) in self.runs.iter().enumerate() {
             let qos = &bench.iocost.qos;
-            let new = match Self::find_matching_result(ovr.as_ref(), qos, &prev_result) {
+            let new = match Self::find_matching_result(ovr.as_ref(), &prev_result) {
                 Some(_) => false,
                 None => {
                     nr_to_run += 1;
@@ -377,7 +365,20 @@ impl Job for IoCostQoSJob {
         }
 
         if nr_to_run > 0 {
-            info!("iocost-qos: {} storage benches to run", nr_to_run);
+            if rctx.base_bench().iocost_seq == 0 {
+                bail!("iocost-qos: iocost parameters missing, run iocost-params first or \
+                       use --iocost-from-sys");
+            }
+
+            if prev_matches || nr_to_run == self.runs.len() {
+                info!("iocost-qos: {} storage benches to run", nr_to_run);
+            } else {
+                bail!(
+                    "iocost-qos: {} storage benches to run but existing result doesn't match \
+                       the current configuration, consider removing the result file",
+                    nr_to_run
+                );
+            }
         } else {
             info!("iocost-qos: All results are available in the result file, nothing to do");
         }
@@ -393,7 +394,7 @@ impl Job for IoCostQoSJob {
         'outer: for (i, ovr) in self.runs.iter().enumerate() {
             let qos = &bench.iocost.qos;
             let ovr = ovr.as_ref();
-            if let Some(result) = Self::find_matching_result(ovr, qos, &prev_result) {
+            if let Some(result) = Self::find_matching_result(ovr, &prev_result) {
                 results.push(Some(result.clone()));
                 continue;
             }

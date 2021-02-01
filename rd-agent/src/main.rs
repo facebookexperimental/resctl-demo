@@ -1152,7 +1152,7 @@ fn main() {
         panic!();
     }
 
-    if let Err(e) = misc::prepare_misc_bins(&cfg) {
+    if let Err(e) = misc::prepare_misc_bins(&cfg, args_file.data.prepare) {
         error!("cfg: Failed to prepare misc support binaries ({:?})", &e);
         panic!();
     }

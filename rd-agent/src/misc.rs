@@ -21,12 +21,12 @@ const MISC_BINS: [(&str, &[u8]); 4] = [
     ),
 ];
 
-pub fn prepare_misc_bins(cfg: &Config) -> Result<()> {
+pub fn prepare_misc_bins(cfg: &Config, prepare_only: bool) -> Result<()> {
     for (name, body) in &MISC_BINS {
         prepare_bin_file(&format!("{}/{}", &cfg.misc_bin_path, name), body)?;
     }
 
-    if cfg.biolatpcts_bin.is_some() {
+    if !prepare_only && cfg.biolatpcts_bin.is_some() {
         let mut retries = BCC_RETRIES;
         loop {
             match run_command(
