@@ -14,7 +14,7 @@ use super::job::Job;
 use super::progress::BenchProgress;
 use super::run::RunCtx;
 use super::study::*;
-use rd_agent_intf::SysReq;
+use rd_agent_intf::{BenchKnobs, SysReq};
 use resctl_bench_intf::JobSpec;
 
 use util::*;
@@ -36,7 +36,6 @@ pub struct BenchDesc {
     pub takes_run_props: bool,
     pub takes_run_propsets: bool,
     pub incremental: bool,
-    pub preprocess_run_specs: Option<Box<dyn FnOnce(&mut Vec<JobSpec>, usize) -> Result<()>>>,
 }
 
 impl BenchDesc {
@@ -46,7 +45,6 @@ impl BenchDesc {
             takes_run_props: false,
             takes_run_propsets: false,
             incremental: false,
-            preprocess_run_specs: None,
         }
     }
 
@@ -65,18 +63,20 @@ impl BenchDesc {
         self.incremental = true;
         self
     }
-
-    pub fn preprocess_run_specs<T>(mut self, preprocess_run_specs: T) -> Self
-    where
-        T: 'static + FnOnce(&mut Vec<JobSpec>, usize) -> Result<()>,
-    {
-        self.preprocess_run_specs = Some(Box::new(preprocess_run_specs));
-        self
-    }
 }
 
 pub trait Bench: Send + Sync {
     fn desc(&self) -> BenchDesc;
+
+    fn preprocess_run_specs(
+        &self,
+        _specs: &mut Vec<JobSpec>,
+        _idx: usize,
+        _base_bench: &BenchKnobs,
+    ) -> Result<()> {
+        Ok(())
+    }
+
     fn parse(&self, spec: &JobSpec) -> Result<Box<dyn Job>>;
 }
 

@@ -196,45 +196,64 @@ impl Program {
     }
 
     fn do_run(&mut self) {
+        // Use alternate bench file to avoid clobbering resctl-demo bench
+        // results w/ e.g. fake_cpu_load ones.
+        let scr_path = self.args_file.data.dir.clone() + "/scratch";
+        let scr_devname = path_to_devname(&scr_path)
+            .expect("failed to resolve device for scratch path")
+            .into_string()
+            .unwrap();
+        let scr_devnr = devname_to_devnr(&scr_devname)
+            .expect("failed to resolve device number for scratch device");
+        let iocost_sys_save =
+            IoCostSysSave::read_from_sys(scr_devnr).expect("failed to read iocost.model,qos");
+
+        let (mut base_bench, demo_bench_path, bench_path) =
+            match self.prep_base_bench(&scr_devname, &iocost_sys_save) {
+                Ok(v) => v,
+                Err(e) => {
+                    error!("Failed to prepare bench files ({})", &e);
+                    panic!();
+                }
+            };
+
+        // Stash the result part for incremental result file updates.
+        let mut inc_jctxs = self.job_ctxs.clone();
+        let mut jctxs = vec![];
+        std::mem::swap(&mut jctxs, &mut self.job_ctxs);
+
         // Spec preprocessing gives the bench implementations a chance to
         // add, remove and modify the scheduled benches. Preprocess is
         // called once per scheduled bench.
         let args = &mut self.args_file.data;
         loop {
-            let mut found = None;
-            let benchs = bench::BENCHS.lock().unwrap();
-            'found_one: for (idx, spec) in args.job_specs.iter_mut().enumerate() {
-                if spec.preprocessed {
-                    continue;
-                }
-                spec.preprocessed = true;
-
-                for bench in benchs.iter() {
-                    let desc = bench.desc();
-                    if spec.kind == desc.kind {
-                        if desc.preprocess_run_specs.is_some() {
-                            found = Some((idx, desc));
-                            break 'found_one;
-                        }
-                        break;
-                    }
+            let mut idx = None;
+            for (i, spec) in args.job_specs.iter().enumerate() {
+                if !spec.preprocessed {
+                    idx = Some(i);
+                    break;
                 }
             }
+            if idx.is_none() {
+                break;
+            }
 
-            match found {
-                Some((idx, desc)) => desc.preprocess_run_specs.unwrap()(&mut args.job_specs, idx)
-                    .expect("preprocess_run_specs() failed"),
-                None => break,
+            let idx = idx.unwrap();
+            let spec = &mut args.job_specs[idx];
+            spec.preprocessed = true;
+
+            let benchs = bench::BENCHS.lock().unwrap();
+            for bench in benchs.iter() {
+                if bench.desc().kind == spec.kind {
+                    bench.preprocess_run_specs(&mut args.job_specs, idx, &base_bench)
+                        .expect("preprocess_run_specs() failed");
+                    break;
+                }
             }
         }
 
-        // Stash the result part for incremental result file updates.
-        let args = &self.args_file.data;
-        let mut inc_jctxs = self.job_ctxs.clone();
-        let mut jctxs = vec![];
-        std::mem::swap(&mut jctxs, &mut self.job_ctxs);
-
         // Put jobs to run in self.job_ctxs.
+        let args = &self.args_file.data;
         for spec in args.job_specs.iter() {
             let mut new = JobCtx::new(spec);
             if let Err(e) = new.parse_job_spec() {
@@ -267,27 +286,6 @@ impl Program {
                 warn!("Failed to clean up report files ({})", &e);
             }
         }
-
-        // Use alternate bench file to avoid clobbering resctl-demo bench
-        // results w/ e.g. fake_cpu_load ones.
-        let scr_path = args.dir.clone() + "/scratch";
-        let scr_devname = path_to_devname(&scr_path)
-            .expect("failed to resolve device for scratch path")
-            .into_string()
-            .unwrap();
-        let scr_devnr = devname_to_devnr(&scr_devname)
-            .expect("failed to resolve device number for scratch device");
-        let iocost_sys_save =
-            IoCostSysSave::read_from_sys(scr_devnr).expect("failed to read iocost.model,qos");
-
-        let (mut base_bench, demo_bench_path, bench_path) =
-            match self.prep_base_bench(&scr_devname, &iocost_sys_save) {
-                Ok(v) => v,
-                Err(e) => {
-                    error!("Failed to prepare bench files ({})", &e);
-                    panic!();
-                }
-            };
 
         // Run the benches and print out the results.
         let mut pending = vec![];

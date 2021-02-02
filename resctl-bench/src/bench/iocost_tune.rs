@@ -10,26 +10,6 @@ pub struct IoCostTuneBench {}
 const DFL_VRATE_MAX: f64 = 125.0;
 const DFL_VRATE_INTVS: u32 = 50;
 
-fn preprocess_run_specs(specs: &mut Vec<JobSpec>, idx: usize) -> Result<()> {
-    for i in (0..idx).rev() {
-        let sp = &specs[i];
-        if sp.kind == "iocost-qos" {
-            specs[idx].forward_results_from.push(i);
-            return Ok(());
-        }
-    }
-    info!("iocost-tune: Preceding iocost-qos not found, inserting with preset params");
-    specs[idx].forward_results_from.push(idx);
-    specs.insert(
-        idx,
-        resctl_bench_intf::Args::parse_job_spec(&format!(
-            "iocost-qos:vrate-max={},vrate-intvs={}",
-            DFL_VRATE_MAX, DFL_VRATE_INTVS
-        ))?,
-    );
-    Ok(())
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum DataSel {
     MOF,                 // Memory offloading factor
@@ -249,9 +229,32 @@ struct IoCostTuneJob {
 
 impl Bench for IoCostTuneBench {
     fn desc(&self) -> BenchDesc {
-        BenchDesc::new("iocost-tune")
-            .takes_run_propsets()
-            .preprocess_run_specs(preprocess_run_specs)
+        BenchDesc::new("iocost-tune").takes_run_propsets()
+    }
+
+    fn preprocess_run_specs(
+        &self,
+        specs: &mut Vec<JobSpec>,
+        idx: usize,
+        _base_bench: &BenchKnobs,
+    ) -> Result<()> {
+        for i in (0..idx).rev() {
+            let sp = &specs[i];
+            if sp.kind == "iocost-qos" {
+                specs[idx].forward_results_from.push(i);
+                return Ok(());
+            }
+        }
+        info!("iocost-tune: iocost-qos run not specified, inserting with preset params");
+        specs[idx].forward_results_from.push(idx);
+        specs.insert(
+            idx,
+            resctl_bench_intf::Args::parse_job_spec(&format!(
+                "iocost-qos:vrate-max={},vrate-intvs={}",
+                DFL_VRATE_MAX, DFL_VRATE_INTVS
+            ))?,
+        );
+        Ok(())
     }
 
     fn parse(&self, spec: &JobSpec) -> Result<Box<dyn Job>> {
