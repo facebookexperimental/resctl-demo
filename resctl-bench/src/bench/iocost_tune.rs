@@ -9,6 +9,7 @@ pub struct IoCostTuneBench {}
 
 const DFL_VRATE_MAX: f64 = 125.0;
 const DFL_VRATE_INTVS: u32 = 50;
+const DFL_GRAN: f64 = 0.1;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum DataSel {
@@ -221,10 +222,21 @@ impl QoSTarget {
     }
 }
 
-#[derive(Default, Debug)]
+#[derive(Debug)]
 struct IoCostTuneJob {
     sels: BTreeSet<DataSel>,
     targets: Vec<QoSTarget>,
+    gran: f64,
+}
+
+impl Default for IoCostTuneJob {
+    fn default() -> Self {
+        Self {
+            sels: Default::default(),
+            targets: Default::default(),
+            gran: DFL_GRAN,
+        }
+    }
 }
 
 impl Bench for IoCostTuneBench {
@@ -262,11 +274,21 @@ impl Bench for IoCostTuneBench {
         let mut job = IoCostTuneJob::default();
 
         for (k, v) in spec.props[0].iter() {
-            let sel = DataSel::parse(k)?;
-            if v.len() > 0 {
-                bail!("first parameter group can't have targets");
+            match k.as_str() {
+                "gran" => {
+                    job.gran = v.parse::<f64>()?;
+                    if job.gran <= 0.0 {
+                        bail!("gran must be positive");
+                    }
+                }
+                k => {
+                    let sel = DataSel::parse(k)?;
+                    if v.len() > 0 {
+                        bail!("first parameter group can't have targets");
+                    }
+                    job.sels.insert(sel);
+                }
             }
-            job.sels.insert(sel);
         }
 
         for props in spec.props[1..].iter() {
@@ -281,15 +303,132 @@ impl Bench for IoCostTuneBench {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, PartialOrd)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialOrd, PartialEq)]
 struct DataPoint {
     vrate: f64,
     val: f64,
 }
 
+//
+//    MOF / LAT
+//        ^
+//        |
+// height -......------
+//        |    / .
+//        |slope .
+//        |/     .
+//        |      .
+//        +------|------> vrate
+//              infl
+//
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+struct DataLines {
+    height: f64,
+    infl: f64,
+    slope: f64,
+    err: f64,
+}
+
+impl DataLines {
+    fn eval(&self, vrate: f64) -> f64 {
+        if vrate < self.infl {
+            self.height + self.slope * (vrate - self.infl)
+        } else {
+            self.height
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+struct DataSeries {
+    points: Vec<DataPoint>,
+    lines: DataLines,
+}
+
+impl DataSeries {
+    /// Implements Andy Newell's inflection point detection algorithm.
+    fn calc_lines(&self, infl: f64) -> DataLines {
+        assert!(self.points.len() > 0);
+
+        let mut infl_idx = 0;
+        for (idx, point) in self.points.iter().enumerate().rev() {
+            if point.vrate < infl {
+                infl_idx = idx + 1;
+                break;
+            }
+        }
+        let left = &self.points[0..infl_idx];
+        let right = &self.points[infl_idx..];
+
+        // Find y s.t. minimize (y1-y)^2 + (y2-y)^2 + ...
+        // n*y^2 - 2y1*y - 2y2*y - ...
+        // derivative is 2*n*y - 2y1 - 2y2 - ...
+        // local maxima at y = (y1+y2+...)/n, basic average
+        let height = if right.len() > 0 {
+            right.iter().fold(0.0, |acc, point| acc + point.val) / right.len() as f64
+        } else {
+            left.iter().last().unwrap().val
+        };
+
+        // Find slope m s.t. minimize (m*(x1-X)-(y1-H))^2 ...
+        // m^2*(x1-X)^2 - 2*(m*(x1-X)*(y1-H)) - ...
+        // derivative is 2*m*(x1-X)^2 - 2*(x1-X)*(y1-H) - ...
+        // local maxima at m = ((x1-X)*(y1-H) + (x2-X)*(y2-H) + ...)/((x1-X)^2+(x2-X)^2)
+        let slope = if left.len() > 0 {
+            let top = left.iter().fold(0.0, |acc, point| {
+                acc + (point.vrate - infl) * (point.val - height)
+            });
+            let bot = left
+                .iter()
+                .fold(0.0, |acc, point| acc + (point.vrate - infl).powi(2));
+            top / bot
+        } else {
+            0.0
+        };
+
+        let mut lines = DataLines {
+            height,
+            infl,
+            slope,
+            err: 0.0,
+        };
+
+        // Calculate error
+        lines.err = self
+            .points
+            .iter()
+            .fold(0.0, |acc, point| {
+                acc + (point.val - lines.eval(point.vrate)).powi(2)
+            })
+            .sqrt();
+
+        lines
+    }
+
+    fn fit_lines(&mut self, gran: f64) {
+        let start = self.points.iter().next().unwrap().vrate;
+        let end = self.points.iter().last().unwrap().vrate;
+        let intvs = ((end - start) / gran).ceil() as u32 + 1;
+        let gran = (end - start) / (intvs - 1) as f64;
+        assert!(intvs > 1);
+
+        self.lines.err = std::f64::MAX;
+
+        for i in 0..intvs {
+            let lines = self.calc_lines(start + i as f64 * gran);
+            if lines.err <= self.lines.err {
+                debug!("better lines: {:?} @ {}", &lines, start + i as f64 * gran);
+                self.lines = lines;
+            } else {
+                debug!("worse lines: {:?}", &lines);
+            }
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone, Default)]
 struct IoCostTuneResult {
-    data: BTreeMap<DataSel, Vec<DataPoint>>,
+    data: BTreeMap<DataSel, DataSeries>,
 }
 
 impl Job for IoCostTuneJob {
@@ -300,10 +439,10 @@ impl Job for IoCostTuneJob {
     fn run(&mut self, rctx: &mut RunCtx) -> Result<serde_json::Value> {
         let src: IoCostQoSResult = serde_json::from_value(rctx.result_forwards.pop().unwrap())
             .map_err(|e| anyhow!("failed to parse iocost-qos result ({})", &e))?;
-        let mut data = BTreeMap::<DataSel, Vec<DataPoint>>::default();
+        let mut data = BTreeMap::<DataSel, DataSeries>::default();
 
         for sel in self.sels.iter() {
-            let mut dps: Vec<DataPoint> = vec![];
+            let mut series = DataSeries::default();
             for run in src.results.iter().filter_map(|x| x.as_ref()) {
                 let vrate = match run.ovr {
                     Some(IoCostQoSOvr {
@@ -317,9 +456,11 @@ impl Job for IoCostTuneJob {
                     _ => continue,
                 };
                 let val = sel.select(&run.storage);
-                dps.push(DataPoint { vrate, val });
+                series.points.push(DataPoint { vrate, val });
             }
-            data.insert(sel.clone(), dps);
+            series.points.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            series.fit_lines(self.gran);
+            data.insert(sel.clone(), series);
         }
 
         Ok(serde_json::to_value(IoCostTuneResult { data })?)
