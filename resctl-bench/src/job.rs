@@ -126,18 +126,27 @@ impl JobCtx {
         Ok(results)
     }
 
-    pub fn run(&mut self, rctx: &mut RunCtx, mut sysreqs_forward: Option<SysReqs>) -> Result<()> {
-        let job = self.job.as_mut().unwrap();
-        self.sysreqs.required = job.sysreqs();
-        rctx.add_sysreqs(self.sysreqs.required.clone());
+    pub fn are_results_compatible(&self, other: &JobSpec) -> bool {
+        assert!(self.spec.kind == other.kind);
+        self.incremental || &self.spec == other
+    }
 
-        if self.prev.is_some() && self.prev.as_ref().unwrap().result.is_some() {
-            if !self.incremental && self.prev.as_ref().unwrap().spec == self.spec {
+    pub fn run(&mut self, rctx: &mut RunCtx, mut sysreqs_forward: Option<SysReqs>) -> Result<()> {
+        if self.prev.is_some()
+            && self.are_results_compatible(&self.prev.as_ref().unwrap().spec)
+            && self.prev.as_ref().unwrap().result.is_some()
+        {
+            if self.incremental {
+                rctx.prev_result = self.prev.as_mut().unwrap().result.take();
+            } else {
                 *self = *self.prev.take().unwrap();
                 return Ok(());
             }
-            rctx.prev_result = self.prev.as_mut().unwrap().result.take();
         }
+
+        let job = self.job.as_mut().unwrap();
+        self.sysreqs.required = job.sysreqs();
+        rctx.add_sysreqs(self.sysreqs.required.clone());
 
         self.started_at = unix_now();
         let result = job.run(rctx)?;

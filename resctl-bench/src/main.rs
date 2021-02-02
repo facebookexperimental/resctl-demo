@@ -179,13 +179,41 @@ impl Program {
         }
     }
 
-    fn pop_matching_jctx(jctxs: &mut Vec<JobCtx>, spec: &JobSpec) -> Option<JobCtx> {
+    fn find_matching_jctx_idx(jctxs: &Vec<JobCtx>, spec: &JobSpec) -> Option<usize> {
         for (idx, jctx) in jctxs.iter().enumerate() {
             if jctx.spec.kind == spec.kind && jctx.spec.id == spec.id {
-                return Some(jctxs.remove(idx));
+                return Some(idx);
             }
         }
         return None;
+    }
+
+    fn find_matching_jctx<'a>(jctxs: &'a Vec<JobCtx>, spec: &JobSpec) -> Option<&'a JobCtx> {
+        match Self::find_matching_jctx_idx(jctxs, spec) {
+            Some(idx) => Some(&jctxs[idx]),
+            None => None,
+        }
+    }
+
+    fn pop_matching_jctx(jctxs: &mut Vec<JobCtx>, spec: &JobSpec) -> Option<JobCtx> {
+        match Self::find_matching_jctx_idx(jctxs, spec) {
+            Some(idx) => Some(jctxs.remove(idx)),
+            None => None,
+        }
+    }
+
+    fn find_prev_result<'a>(
+        jctxs: &'a Vec<JobCtx>,
+        spec: &JobSpec,
+    ) -> Option<&'a serde_json::Value> {
+        let jctx = match Self::find_matching_jctx(jctxs, spec) {
+            Some(jctx) => jctx,
+            None => return None,
+        };
+        match (jctx.are_results_compatible(spec), jctx.result.as_ref()) {
+            (true, Some(result)) => Some(result),
+            _ => None,
+        }
     }
 
     fn format_jctx(jctx: &JobCtx, mode: Mode) {
@@ -240,12 +268,14 @@ impl Program {
 
             let idx = idx.unwrap();
             let spec = &mut args.job_specs[idx];
+            let prev_result = Self::find_prev_result(&jctxs, spec);
             spec.preprocessed = true;
 
             let benchs = bench::BENCHS.lock().unwrap();
             for bench in benchs.iter() {
                 if bench.desc().kind == spec.kind {
-                    bench.preprocess_run_specs(&mut args.job_specs, idx, &base_bench)
+                    bench
+                        .preprocess_run_specs(&mut args.job_specs, idx, &base_bench, prev_result)
                         .expect("preprocess_run_specs() failed");
                     break;
                 }

@@ -3,7 +3,7 @@
 // The individual bench implementations under bench/ inherits all uses from
 // this file. Make common stuff available.
 use anyhow::{anyhow, bail, Result};
-use log::{error, info, warn};
+use log::{debug, error, info, warn};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 use std::fmt::Write;
@@ -73,6 +73,7 @@ pub trait Bench: Send + Sync {
         _specs: &mut Vec<JobSpec>,
         _idx: usize,
         _base_bench: &BenchKnobs,
+        _prev_result: Option<&serde_json::Value>,
     ) -> Result<()> {
         Ok(())
     }

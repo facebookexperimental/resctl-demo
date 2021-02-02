@@ -42,7 +42,82 @@ impl Bench for IoCostQoSBench {
             .incremental()
     }
 
+    fn preprocess_run_specs(
+        &self,
+        specs: &mut Vec<JobSpec>,
+        idx: usize,
+        base_bench: &BenchKnobs,
+        prev_result: Option<&serde_json::Value>,
+    ) -> Result<()> {
+        // Is the bench result available or iocost-params already scheduled?
+        if base_bench.iocost_seq > 0 {
+            debug!("iocost-qos-pre: iocost parameters available");
+            return Ok(());
+        }
+        for i in (0..idx).rev() {
+            let sp = &specs[i];
+            if sp.kind == "iocost-params" {
+                debug!("iocost-qos-pre: iocost-params already scheduled");
+                return Ok(());
+            }
+        }
+
+        // If prev has all the needed results, we don't need iocost-params.
+        if prev_result.is_some() {
+            let prev_result =
+                serde_json::from_value::<IoCostQoSResult>(prev_result.unwrap().clone())?;
+
+            // Let the actual job parsing stage take care of it.
+            let job = match IoCostQoSJob::parse(&specs[idx]) {
+                Ok(job) => job,
+                Err(_) => return Ok(()),
+            };
+
+            if let Ok(()) = job.runs.iter().try_for_each(|ovr| {
+                IoCostQoSJob::find_matching_result(ovr.as_ref(), &prev_result)
+                    .map(|_| ())
+                    .ok_or(anyhow!(""))
+            }) {
+                debug!("iocost-qos-pre: iocost params unavailable but no need to run more benches");
+                return Ok(());
+            }
+        }
+
+        info!("iocost-qos: iocost parameters missing, inserting iocost-params run");
+        specs.insert(
+            idx,
+            resctl_bench_intf::Args::parse_job_spec("iocost-params")?,
+        );
+        Ok(())
+    }
+
     fn parse(&self, spec: &JobSpec) -> Result<Box<dyn Job>> {
+        Ok(Box::new(IoCostQoSJob::parse(spec)?))
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct IoCostQoSRun {
+    pub ovr: Option<IoCostQoSOvr>,
+    pub qos: Option<IoCostQoSParams>,
+    pub vrate_mean: f64,
+    pub vrate_stdev: f64,
+    pub vrate_pcts: BTreeMap<String, f64>,
+    pub storage: StorageResult,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct IoCostQoSResult {
+    pub model: IoCostModelParams,
+    pub base_qos: IoCostQoSParams,
+    pub results: Vec<Option<IoCostQoSRun>>,
+    inc_results: Vec<IoCostQoSRun>,
+}
+
+impl IoCostQoSJob {
+    const VRATE_PCTS: [&'static str; 9] = ["00", "01", "10", "16", "50", "84", "90", "99", "100"];
+
+    fn parse(spec: &JobSpec) -> Result<Self> {
         let mut storage_spec = JobSpec::new("storage".into(), None, vec![Default::default()]);
 
         let mut vrate_min = 0.0;
@@ -117,7 +192,7 @@ impl Bench for IoCostQoSBench {
             }
         }
 
-        Ok(Box::new(IoCostQoSJob {
+        Ok(IoCostQoSJob {
             base_loops,
             loops,
             mem_profile,
@@ -125,30 +200,8 @@ impl Bench for IoCostQoSBench {
             allow_fail,
             storage_job,
             runs,
-        }))
+        })
     }
-}
-
-#[derive(Clone, Serialize, Deserialize)]
-pub struct IoCostQoSRun {
-    pub ovr: Option<IoCostQoSOvr>,
-    pub qos: Option<IoCostQoSParams>,
-    pub vrate_mean: f64,
-    pub vrate_stdev: f64,
-    pub vrate_pcts: BTreeMap<String, f64>,
-    pub storage: StorageResult,
-}
-
-#[derive(Serialize, Deserialize, Clone)]
-pub struct IoCostQoSResult {
-    pub model: IoCostModelParams,
-    pub base_qos: IoCostQoSParams,
-    pub results: Vec<Option<IoCostQoSRun>>,
-    inc_results: Vec<IoCostQoSRun>,
-}
-
-impl IoCostQoSJob {
-    const VRATE_PCTS: [&'static str; 9] = ["00", "01", "10", "16", "50", "84", "90", "99", "100"];
 
     fn prev_matches(&self, pr: &IoCostQoSResult, bench: &BenchKnobs) -> bool {
         let base_result = if pr.results.len() > 0 && pr.results[0].is_some() {
@@ -366,8 +419,10 @@ impl Job for IoCostQoSJob {
 
         if nr_to_run > 0 {
             if rctx.base_bench().iocost_seq == 0 {
-                bail!("iocost-qos: iocost parameters missing, run iocost-params first or \
-                       use --iocost-from-sys");
+                bail!(
+                    "iocost-qos: iocost parameters missing, run iocost-params first or \
+                       use --iocost-from-sys"
+                );
             }
 
             if prev_matches || nr_to_run == self.runs.len() {

@@ -237,6 +237,7 @@ impl Bench for IoCostTuneBench {
         specs: &mut Vec<JobSpec>,
         idx: usize,
         _base_bench: &BenchKnobs,
+        _prev_result: Option<&serde_json::Value>,
     ) -> Result<()> {
         for i in (0..idx).rev() {
             let sp = &specs[i];
