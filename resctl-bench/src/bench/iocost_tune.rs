@@ -5,6 +5,8 @@ use super::*;
 use std::cmp::{Ordering, PartialOrd};
 use std::collections::{BTreeMap, BTreeSet};
 
+mod graph;
+
 pub struct IoCostTuneBench {}
 
 const DFL_IOCOST_QOS_VRATE_MAX: f64 = 125.0;
@@ -500,7 +502,7 @@ struct QoSResult {
 }
 
 #[derive(Serialize, Deserialize, Clone, Default, Debug)]
-struct IoCostTuneResult {
+pub struct IoCostTuneResult {
     base_model: IoCostModelParams,
     base_qos: IoCostQoSParams,
     data: BTreeMap<DataSel, DataSeries>,
@@ -587,7 +589,7 @@ impl Job for IoCostTuneJob {
         _full: bool,
         props: &JobProps,
     ) -> Result<()> {
-        let result = serde_json::from_value::<IoCostTuneResult>(result.to_owned()).unwrap();
+        let result = serde_json::from_value::<IoCostTuneResult>(result.clone()).unwrap();
 
         let mut graph_prefix = None;
         for (k, v) in props[0].iter() {
@@ -599,6 +601,10 @@ impl Job for IoCostTuneJob {
 
         write!(out, "results={:#?}", &result.results).unwrap();
 
+        if graph_prefix.is_some() {
+            let grapher = graph::Grapher::new(graph_prefix.as_ref().unwrap());
+            grapher.plot(&result)?;
+        }
         Ok(())
     }
 }

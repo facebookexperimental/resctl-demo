@@ -527,7 +527,7 @@ impl Job for IoCostQoSJob {
         full: bool,
         _props: &JobProps,
     ) -> Result<()> {
-        let result = serde_json::from_value::<IoCostQoSResult>(result.to_owned()).unwrap();
+        let result = serde_json::from_value::<IoCostQoSResult>(result.clone()).unwrap();
         if result.results.len() == 0
             || result.results[0].is_none()
             || result.results[0].as_ref().unwrap().qos.is_some()
