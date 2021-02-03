@@ -17,6 +17,22 @@ pub struct IoCostModelParams {
     pub wrandiops: u64,
 }
 
+impl std::ops::Mul<f64> for IoCostModelParams {
+    type Output = Self;
+
+    fn mul(self, rhs: f64) -> Self {
+        let mul = |u: u64| (u as f64 * rhs).round() as u64;
+        Self {
+            rbps: mul(self.rbps),
+            rseqiops: mul(self.rseqiops),
+            rrandiops: mul(self.rrandiops),
+            wbps: mul(self.wbps),
+            wseqiops: mul(self.wseqiops),
+            wrandiops: mul(self.wrandiops),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 #[serde(default)]
 pub struct IoCostQoSParams {

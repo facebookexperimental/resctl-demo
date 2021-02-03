@@ -7,9 +7,11 @@ use std::collections::{BTreeMap, BTreeSet};
 
 pub struct IoCostTuneBench {}
 
-const DFL_VRATE_MAX: f64 = 125.0;
-const DFL_VRATE_INTVS: u32 = 50;
+const DFL_IOCOST_QOS_VRATE_MAX: f64 = 125.0;
+const DFL_IOCOST_QOS_VRATE_INTVS: u32 = 50;
 const DFL_GRAN: f64 = 0.1;
+const DFL_VRATE_MIN: f64 = 1.0;
+const DFL_VRATE_MAX: f64 = 100.0;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum DataSel {
@@ -178,10 +180,18 @@ impl<'de> serde::de::Deserialize<'de> for DataSel {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Serialize, Deserialize)]
 enum Target {
     Inflection,
     Threshold(f64),
+}
+
+impl std::cmp::Eq for Target {}
+
+impl std::cmp::Ord for Target {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.partial_cmp(other).unwrap()
+    }
 }
 
 impl Target {
@@ -202,7 +212,7 @@ impl Target {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 struct QoSTarget {
     sel: DataSel,
     target: Target,
@@ -222,19 +232,29 @@ impl QoSTarget {
     }
 }
 
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+struct QoSRule {
+    name: Option<String>,
+    targets: BTreeSet<QoSTarget>,
+}
+
 #[derive(Debug)]
 struct IoCostTuneJob {
-    sels: BTreeSet<DataSel>,
-    targets: Vec<QoSTarget>,
     gran: f64,
+    vrate_min: f64,
+    vrate_max: f64,
+    sels: BTreeSet<DataSel>,
+    rules: Vec<QoSRule>,
 }
 
 impl Default for IoCostTuneJob {
     fn default() -> Self {
         Self {
-            sels: Default::default(),
-            targets: Default::default(),
             gran: DFL_GRAN,
+            vrate_min: DFL_VRATE_MIN,
+            vrate_max: DFL_VRATE_MAX,
+            sels: Default::default(),
+            rules: Default::default(),
         }
     }
 }
@@ -264,7 +284,7 @@ impl Bench for IoCostTuneBench {
             idx,
             resctl_bench_intf::Args::parse_job_spec(&format!(
                 "iocost-qos:vrate-max={},vrate-intvs={}",
-                DFL_VRATE_MAX, DFL_VRATE_INTVS
+                DFL_IOCOST_QOS_VRATE_MAX, DFL_IOCOST_QOS_VRATE_INTVS
             ))?,
         );
         Ok(())
@@ -275,12 +295,9 @@ impl Bench for IoCostTuneBench {
 
         for (k, v) in spec.props[0].iter() {
             match k.as_str() {
-                "gran" => {
-                    job.gran = v.parse::<f64>()?;
-                    if job.gran <= 0.0 {
-                        bail!("gran must be positive");
-                    }
-                }
+                "gran" => job.gran = v.parse::<f64>()?,
+                "vrate-min" => job.vrate_min = v.parse::<f64>()?,
+                "vrate-max" => job.vrate_max = v.parse::<f64>()?,
                 k => {
                     let sel = DataSel::parse(k)?;
                     if v.len() > 0 {
@@ -291,12 +308,43 @@ impl Bench for IoCostTuneBench {
             }
         }
 
-        for props in spec.props[1..].iter() {
+        if job.gran <= 0.0 || job.vrate_min <= 0.0 || job.vrate_min >= job.vrate_max {
+            bail!("`gran`, `vrate_min` and/or `vrate_max` invalid");
+        }
+
+        let mut prop_groups = spec.props[1..].to_owned();
+        if job.sels.len() == 0 && prop_groups.len() == 0 {
+            let mut push_props = |props: &[(&str, &str)]| {
+                prop_groups.push(
+                    props
+                        .iter()
+                        .map(|(k, v)| (k.to_string(), v.to_string()))
+                        .collect(),
+                )
+            };
+
+            push_props(&[("name", "default"), ("mof", "infl")]);
+            push_props(&[("name", "p99-10m"), ("mof", "infl"), ("p99", "10m")]);
+            push_props(&[("name", "p99-5m"), ("mof", "infl"), ("p99", "5m")]);
+            push_props(&[("name", "p99-1m"), ("mof", "infl"), ("p99", "1m")]);
+        }
+
+        for props in prop_groups.iter() {
+            let mut rule = QoSRule::default();
             for (k, v) in props.iter() {
-                let target = QoSTarget::parse(k, v)?;
-                job.sels.insert(target.sel.clone());
-                job.targets.push(target);
+                match k.as_str() {
+                    "name" => rule.name = Some(v.to_owned()),
+                    k => {
+                        let target = QoSTarget::parse(k, v)?;
+                        job.sels.insert(target.sel.clone());
+                        rule.targets.insert(target);
+                    }
+                }
             }
+            if rule.targets.len() == 0 {
+                bail!("each rule must have at least one QoS target");
+            }
+            job.rules.push(rule);
         }
 
         Ok(Box::new(job))
@@ -336,6 +384,21 @@ impl DataLines {
         } else {
             self.height
         }
+    }
+
+    fn solve(&self, target: &Target, (vmin, vmax): (f64, f64)) -> f64 {
+        match target {
+            Target::Inflection => self.infl,
+            Target::Threshold(thr) => {
+                if *thr >= self.height {
+                    vmax
+                } else {
+                    self.infl - ((self.height - *thr) / self.slope)
+                }
+            }
+        }
+        .max(vmin)
+        .min(vmax)
     }
 }
 
@@ -417,18 +480,29 @@ impl DataSeries {
         for i in 0..intvs {
             let lines = self.calc_lines(start + i as f64 * gran);
             if lines.err <= self.lines.err {
-                debug!("better lines: {:?} @ {}", &lines, start + i as f64 * gran);
+                trace!("better lines: {:?} @ {}", &lines, start + i as f64 * gran);
                 self.lines = lines;
             } else {
-                debug!("worse lines: {:?}", &lines);
+                trace!("worse lines: {:?}", &lines);
             }
         }
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Default)]
+#[derive(Serialize, Deserialize, Clone, Default, Debug)]
+struct QoSResult {
+    rule: QoSRule,
+    scale_factor: f64,
+    model: IoCostModelParams,
+    qos: IoCostQoSParams,
+}
+
+#[derive(Serialize, Deserialize, Clone, Default, Debug)]
 struct IoCostTuneResult {
+    base_model: IoCostModelParams,
+    base_qos: IoCostQoSParams,
     data: BTreeMap<DataSel, DataSeries>,
+    results: Vec<QoSResult>,
 }
 
 impl Job for IoCostTuneJob {
@@ -463,11 +537,49 @@ impl Job for IoCostTuneJob {
             data.insert(sel.clone(), series);
         }
 
-        Ok(serde_json::to_value(IoCostTuneResult { data })?)
+        let base_model = src.model.clone();
+        let base_qos = src.base_qos.clone();
+
+        let mut results = Vec::<QoSResult>::new();
+        for rule in self.rules.iter().cloned() {
+            let mut vrate = std::f64::MAX;
+            for target in rule.targets.iter() {
+                let solution = data[&target.sel]
+                    .lines
+                    .solve(&target.target, (self.vrate_min, self.vrate_max));
+                debug!(
+                    "iocost-tune: target={:?} solution={}",
+                    &target.target, solution
+                );
+                vrate = vrate.min(solution);
+            }
+
+            let scale_factor = vrate / 100.0;
+            let model = base_model.clone() * scale_factor;
+            let qos = IoCostQoSParams {
+                min: 100.0,
+                max: 100.0,
+                ..base_qos.clone()
+            };
+
+            results.push(QoSResult {
+                rule,
+                scale_factor,
+                model,
+                qos,
+            });
+        }
+
+        Ok(serde_json::to_value(IoCostTuneResult {
+            base_model,
+            base_qos,
+            data,
+            results,
+        })?)
     }
 
     fn format<'a>(&self, mut out: Box<dyn Write + 'a>, result: &serde_json::Value, _full: bool) {
         let result = serde_json::from_value::<IoCostTuneResult>(result.to_owned()).unwrap();
-        write!(out, "data={:#?}", &result.data).unwrap();
+        write!(out, "results={:#?}", &result.results).unwrap();
     }
 }
