@@ -520,14 +520,20 @@ impl Job for IoCostQoSJob {
         Ok(serde_json::to_value(&result).unwrap())
     }
 
-    fn format<'a>(&self, mut out: Box<dyn Write + 'a>, result: &serde_json::Value, full: bool) {
+    fn format<'a>(
+        &self,
+        mut out: Box<dyn Write + 'a>,
+        result: &serde_json::Value,
+        full: bool,
+        _props: &JobProps,
+    ) -> Result<()> {
         let result = serde_json::from_value::<IoCostQoSResult>(result.to_owned()).unwrap();
         if result.results.len() == 0
             || result.results[0].is_none()
             || result.results[0].as_ref().unwrap().qos.is_some()
         {
             error!("iocost-qos: Failed to format due to missing baseline");
-            return;
+            return Ok(());
         }
         let baseline = &result.results[0].as_ref().unwrap().storage;
 
@@ -635,5 +641,7 @@ impl Job for IoCostQoSJob {
                 None => writeln!(out, "[{:02}]  failed", i).unwrap(),
             }
         }
+
+        Ok(())
     }
 }

@@ -7,7 +7,7 @@ use std::path::Path;
 use std::process::{exit, Command};
 use util::*;
 
-use resctl_bench_intf::{Args, JobSpec, Mode};
+use resctl_bench_intf::{Args, JobProps, JobSpec, Mode};
 
 mod bench;
 mod job;
@@ -216,11 +216,12 @@ impl Program {
         }
     }
 
-    fn format_jctx(jctx: &JobCtx, mode: Mode) {
+    fn format_jctx(jctx: &JobCtx, mode: Mode, props: &JobProps) -> Result<()> {
         // Format only the completed jobs.
         if jctx.result.is_some() {
-            println!("{}\n\n{}", "=".repeat(90), &jctx.format(mode));
+            println!("{}\n\n{}", "=".repeat(90), &jctx.format(mode, props)?);
         }
+        Ok(())
     }
 
     fn do_run(&mut self) {
@@ -357,7 +358,7 @@ impl Program {
                     panic!();
                 }
             }
-            Self::format_jctx(&jctx, Mode::Summary);
+            Self::format_jctx(&jctx, Mode::Summary, &vec![Default::default()]).unwrap();
             self.job_ctxs.push(jctx);
         }
 
@@ -369,12 +370,13 @@ impl Program {
 
     fn do_format(&mut self, mode: Mode) {
         let specs = &self.args_file.data.job_specs;
+        let empty_props = vec![Default::default()];
         let mut to_format = vec![];
         let mut jctxs = vec![];
         std::mem::swap(&mut jctxs, &mut self.job_ctxs);
 
         if specs.len() == 0 {
-            to_format = jctxs;
+            to_format = jctxs.into_iter().map(|x| (x, &empty_props)).collect();
         } else {
             for spec in specs.iter() {
                 let jctx = match Self::pop_matching_jctx(&mut jctxs, &spec) {
@@ -384,17 +386,28 @@ impl Program {
                         exit(1);
                     }
                 };
-                // Formatting doesn't support per-bench properties (yet).
-                if jctx.spec.props[0].len() > 0 || jctx.spec.props.len() > 1 {
+
+                let desc = jctx.bench.as_ref().unwrap().desc();
+                if !desc.takes_format_props && spec.props[0].len() > 0 {
                     error!("Unknown properties specified for formatting {}", &jctx.spec);
                     exit(1);
                 }
-                to_format.push(jctx);
+                if !desc.takes_format_propsets && spec.props.len() > 1 {
+                    error!(
+                        "Multiple property sets not supported for formatting {}",
+                        &jctx.spec
+                    );
+                    exit(1);
+                }
+                to_format.push((jctx, &spec.props));
             }
         }
 
-        for jctx in to_format.iter() {
-            Self::format_jctx(&jctx, mode);
+        for (jctx, props) in to_format.iter() {
+            if let Err(e) = Self::format_jctx(jctx, mode, props) {
+                error!("Failed to format {}: {}", &jctx.spec, &e);
+                panic!();
+            }
         }
 
         self.commit_args();

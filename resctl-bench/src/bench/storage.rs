@@ -662,7 +662,13 @@ impl Job for StorageJob {
         Ok(serde_json::to_value(&result).unwrap())
     }
 
-    fn format<'a>(&self, mut out: Box<dyn Write + 'a>, result: &serde_json::Value, full: bool) {
+    fn format<'a>(
+        &self,
+        mut out: Box<dyn Write + 'a>,
+        result: &serde_json::Value,
+        full: bool,
+        _props: &JobProps,
+    ) -> Result<()> {
         let result = serde_json::from_value::<StorageResult>(result.to_owned()).unwrap();
 
         self.format_header(&mut out, &result);
@@ -672,5 +678,7 @@ impl Job for StorageJob {
             writeln!(out, "").unwrap();
         }
         self.format_summaries(&mut out, &result);
+
+        Ok(())
     }
 }

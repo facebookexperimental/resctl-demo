@@ -15,7 +15,7 @@ use super::progress::BenchProgress;
 use super::run::RunCtx;
 use super::study::*;
 use rd_agent_intf::{BenchKnobs, SysReq};
-use resctl_bench_intf::JobSpec;
+use resctl_bench_intf::{JobProps, JobSpec};
 
 use util::*;
 
@@ -49,6 +49,7 @@ pub struct BenchDesc {
     pub incremental: bool,
 }
 
+#[allow(dead_code)]
 impl BenchDesc {
     pub fn new(kind: &str) -> Self {
         Self {

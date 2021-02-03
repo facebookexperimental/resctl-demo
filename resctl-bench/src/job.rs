@@ -7,17 +7,24 @@ use std::collections::BTreeSet;
 use std::fmt::Write;
 use std::fs;
 use std::io::Read;
+use std::sync::Arc;
 use std::time::{Duration, UNIX_EPOCH};
 use util::*;
 
 use super::run::RunCtx;
 use rd_agent_intf::{SysReq, SysReqsReport};
-use resctl_bench_intf::{JobSpec, Mode};
+use resctl_bench_intf::{JobProps, JobSpec, Mode};
 
 pub trait Job {
     fn sysreqs(&self) -> BTreeSet<SysReq>;
     fn run(&mut self, rctx: &mut RunCtx) -> Result<serde_json::Value>;
-    fn format<'a>(&self, out: Box<dyn Write + 'a>, result: &serde_json::Value, full: bool);
+    fn format<'a>(
+        &self,
+        out: Box<dyn Write + 'a>,
+        result: &serde_json::Value,
+        full: bool,
+        props: &JobProps,
+    ) -> Result<()>;
 }
 
 #[derive(Serialize, Deserialize, Clone, Default)]
@@ -32,6 +39,8 @@ pub struct SysReqs {
 pub struct JobCtx {
     pub spec: JobSpec,
 
+    #[serde(skip)]
+    pub bench: Option<Arc<Box<dyn super::bench::Bench>>>,
     #[serde(skip)]
     pub job: Option<Box<dyn Job>>,
     #[serde(skip)]
@@ -60,6 +69,7 @@ impl std::clone::Clone for JobCtx {
     fn clone(&self) -> Self {
         let mut clone = Self {
             spec: self.spec.clone(),
+            bench: None,
             job: None,
             incremental: self.incremental,
             inc_job_idx: 0,
@@ -78,6 +88,7 @@ impl JobCtx {
     pub fn new(spec: &JobSpec) -> Self {
         Self {
             spec: spec.clone(),
+            bench: None,
             job: None,
             incremental: false,
             inc_job_idx: 0,
@@ -100,6 +111,7 @@ impl JobCtx {
         }
         self.incremental = desc.incremental;
         self.job = Some(bench.parse(&self.spec)?);
+        self.bench = Some(bench);
         Ok(())
     }
 
@@ -166,7 +178,7 @@ impl JobCtx {
         Ok(())
     }
 
-    pub fn format(&self, mode: Mode) -> String {
+    pub fn format(&self, mode: Mode, props: &JobProps) -> Result<String> {
         let mut buf = String::new();
         write!(buf, "[{} result] ", self.spec.kind).unwrap();
         if let Some(id) = self.spec.id.as_ref() {
@@ -273,7 +285,9 @@ impl JobCtx {
             Box::new(&mut buf),
             self.result.as_ref().unwrap(),
             mode == Mode::Format,
-        );
-        buf
+            props,
+        )?;
+
+        Ok(buf)
     }
 }

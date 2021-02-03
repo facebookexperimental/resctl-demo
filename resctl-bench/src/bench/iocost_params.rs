@@ -49,7 +49,13 @@ impl Job for IoCostParamsJob {
         Ok(serde_json::to_value(&result).unwrap())
     }
 
-    fn format<'a>(&self, mut out: Box<dyn Write + 'a>, result: &serde_json::Value, _full: bool) {
+    fn format<'a>(
+        &self,
+        mut out: Box<dyn Write + 'a>,
+        result: &serde_json::Value,
+        _full: bool,
+        _props: &JobProps,
+    ) -> Result<()> {
         let result = serde_json::from_value::<IoCostKnobs>(result.to_owned()).unwrap();
         let model = &result.model;
         let qos = &result.qos;
@@ -72,5 +78,7 @@ impl Job for IoCostParamsJob {
             qos.rpct, qos.rlat, qos.wpct, qos.wlat, qos.min, qos.max
         )
         .unwrap();
+
+        Ok(())
     }
 }

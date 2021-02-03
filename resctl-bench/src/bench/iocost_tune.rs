@@ -261,7 +261,9 @@ impl Default for IoCostTuneJob {
 
 impl Bench for IoCostTuneBench {
     fn desc(&self) -> BenchDesc {
-        BenchDesc::new("iocost-tune").takes_run_propsets()
+        BenchDesc::new("iocost-tune")
+            .takes_run_propsets()
+            .takes_format_props()
     }
 
     fn preprocess_run_specs(
@@ -578,8 +580,25 @@ impl Job for IoCostTuneJob {
         })?)
     }
 
-    fn format<'a>(&self, mut out: Box<dyn Write + 'a>, result: &serde_json::Value, _full: bool) {
+    fn format<'a>(
+        &self,
+        mut out: Box<dyn Write + 'a>,
+        result: &serde_json::Value,
+        _full: bool,
+        props: &JobProps,
+    ) -> Result<()> {
         let result = serde_json::from_value::<IoCostTuneResult>(result.to_owned()).unwrap();
+
+        let mut graph_prefix = None;
+        for (k, v) in props[0].iter() {
+            match k.as_ref() {
+                "graph" => graph_prefix = Some(v.to_owned()),
+                k => bail!("unknown format parameter {:?}", k),
+            }
+        }
+
         write!(out, "results={:#?}", &result.results).unwrap();
+
+        Ok(())
     }
 }
