@@ -10,7 +10,6 @@ use std::io::Read;
 use std::time::{Duration, UNIX_EPOCH};
 use util::*;
 
-use super::bench::BENCHS;
 use super::run::RunCtx;
 use rd_agent_intf::{SysReq, SysReqsReport};
 use resctl_bench_intf::{JobSpec, Mode};
@@ -91,23 +90,17 @@ impl JobCtx {
     }
 
     pub fn parse_job_spec(&mut self) -> Result<()> {
-        let benchs = BENCHS.lock().unwrap();
-
-        for bench in benchs.iter() {
-            let desc = bench.desc();
-            if self.spec.kind == desc.kind {
-                if !desc.takes_run_props && self.spec.props[0].len() > 0 {
-                    bail!("unknown properties");
-                }
-                if !desc.takes_run_propsets && self.spec.props.len() > 1 {
-                    bail!("multiple property sets not supported");
-                }
-                self.incremental = desc.incremental;
-                self.job = Some(bench.parse(&self.spec)?);
-                return Ok(());
-            }
+        let bench = super::bench::find_bench(&self.spec.kind)?;
+        let desc = bench.desc();
+        if !desc.takes_run_props && self.spec.props[0].len() > 0 {
+            bail!("unknown properties");
         }
-        bail!("unrecognized bench type {:?}", self.spec.kind);
+        if !desc.takes_run_propsets && self.spec.props.len() > 1 {
+            bail!("multiple property sets not supported");
+        }
+        self.incremental = desc.incremental;
+        self.job = Some(bench.parse(&self.spec)?);
+        Ok(())
     }
 
     pub fn load_result_file(path: &str) -> Result<Vec<Self>> {

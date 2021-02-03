@@ -271,15 +271,11 @@ impl Program {
             let prev_result = Self::find_prev_result(&jctxs, spec);
             spec.preprocessed = true;
 
-            let benchs = bench::BENCHS.lock().unwrap();
-            for bench in benchs.iter() {
-                if bench.desc().kind == spec.kind {
-                    bench
-                        .preprocess_run_specs(&mut args.job_specs, idx, &base_bench, prev_result)
-                        .expect("preprocess_run_specs() failed");
-                    break;
-                }
-            }
+            bench::find_bench(&spec.kind)
+                .unwrap()
+                .preprocess_run_specs(&mut args.job_specs, idx, &base_bench, prev_result)
+                .expect("preprocess_run_specs() failed");
+            break;
         }
 
         // Put jobs to run in self.job_ctxs.

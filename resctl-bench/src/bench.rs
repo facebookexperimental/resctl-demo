@@ -28,13 +28,24 @@ lazy_static::lazy_static! {
                 SysReq::HostCriticalServices,
         ]
     );
-    pub static ref BENCHS: Arc<Mutex<Vec<Box<dyn Bench>>>> = Arc::new(Mutex::new(vec![]));
+    static ref BENCHS: Mutex<Vec<Arc<Box<dyn Bench>>>> = Mutex::new(vec![]);
+}
+
+pub fn find_bench(kind: &str) -> Result<Arc<Box<dyn Bench>>> {
+    for bench in BENCHS.lock().unwrap().iter() {
+        if bench.desc().kind == kind {
+            return Ok(bench.clone());
+        }
+    }
+    bail!("unknown bench kind {:?}", kind);
 }
 
 pub struct BenchDesc {
     pub kind: String,
     pub takes_run_props: bool,
     pub takes_run_propsets: bool,
+    pub takes_format_props: bool,
+    pub takes_format_propsets: bool,
     pub incremental: bool,
 }
 
@@ -44,6 +55,8 @@ impl BenchDesc {
             kind: kind.into(),
             takes_run_props: false,
             takes_run_propsets: false,
+            takes_format_props: false,
+            takes_format_propsets: false,
             incremental: false,
         }
     }
@@ -56,6 +69,17 @@ impl BenchDesc {
     pub fn takes_run_propsets(mut self) -> Self {
         self.takes_run_props = true;
         self.takes_run_propsets = true;
+        self
+    }
+
+    pub fn takes_format_props(mut self) -> Self {
+        self.takes_format_props = true;
+        self
+    }
+
+    pub fn takes_format_propsets(mut self) -> Self {
+        self.takes_format_props = true;
+        self.takes_format_propsets = true;
         self
     }
 
@@ -82,7 +106,7 @@ pub trait Bench: Send + Sync {
 }
 
 fn register_bench(bench: Box<dyn Bench>) -> () {
-    BENCHS.lock().unwrap().push(bench);
+    BENCHS.lock().unwrap().push(Arc::new(bench));
 }
 
 mod hashd_params;
