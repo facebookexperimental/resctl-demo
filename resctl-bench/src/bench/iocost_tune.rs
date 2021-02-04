@@ -355,49 +355,54 @@ impl Bench for IoCostTuneBench {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialOrd, PartialEq)]
-struct DataPoint {
-    vrate: f64,
-    val: f64,
-}
+// (vrate, MOF or LAT)
+type DataPoint = (f64, f64);
 
 //
-//    MOF / LAT
-//        ^
-//        |
-// height -......------
-//        |    / .
-//        |slope .
-//        |/     .
-//        |      .
-//        +------|------> vrate
-//              infl
+//   MOF or LAT
+//       ^
+//       |
+// dhigh +.................------
+//       |                /.
+//       |              /  .
+//       |      slope /    .
+//       |          /      .
+//  dlow +--------/        .
+//       |        .        .
+//       +--------+--------+------> vrate
+//              vlow     vhigh
 //
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 struct DataLines {
-    height: f64,
-    infl: f64,
-    slope: f64,
-    err: f64,
+    low: DataPoint,
+    high: DataPoint,
 }
 
 impl DataLines {
+    fn slope(&self) -> f64 {
+        (self.high.1 - self.low.1) / (self.high.0 - self.low.0)
+    }
+
     fn eval(&self, vrate: f64) -> f64 {
-        if vrate < self.infl {
-            self.height + self.slope * (vrate - self.infl)
+        if vrate < self.low.0 {
+            self.low.1
+        } else if vrate > self.high.0 {
+            self.high.1
         } else {
-            self.height
+            self.low.1 + self.slope() * (vrate - self.low.0)
         }
     }
 
     fn solve(&self, target: &Target, (vmin, vmax): (f64, f64)) -> f64 {
         match target {
-            Target::Inflection => self.infl,
+            Target::Inflection => self.high.1,
             Target::Threshold(thr) => {
-                if *thr >= self.height {
+                if *thr >= self.high.1 {
                     vmax
+                } else if *thr <= self.low.1 {
+                    self.low.0
                 } else {
-                    self.infl - ((self.height - *thr) / self.slope)
+                    self.low.0 + ((*thr - self.low.1) / self.slope())
                 }
             }
         }
@@ -410,86 +415,158 @@ impl DataLines {
 struct DataSeries {
     points: Vec<DataPoint>,
     lines: DataLines,
+    error: f64,
 }
 
 impl DataSeries {
-    /// Implements Andy Newell's inflection point detection algorithm.
-    fn calc_lines(&self, infl: f64) -> DataLines {
-        assert!(self.points.len() > 0);
-
-        let mut infl_idx = 0;
-        for (idx, point) in self.points.iter().enumerate().rev() {
-            if point.vrate < infl {
-                infl_idx = idx + 1;
+    fn split_at<'a>(points: &'a [DataPoint], at: f64) -> (&'a [DataPoint], &'a [DataPoint]) {
+        let mut idx = 0;
+        for (i, point) in points.iter().enumerate() {
+            if point.0 > at {
+                idx = i;
                 break;
             }
         }
-        let left = &self.points[0..infl_idx];
-        let right = &self.points[infl_idx..];
+        (&points[0..idx], &points[idx..])
+    }
 
-        // Find y s.t. minimize (y1-y)^2 + (y2-y)^2 + ...
-        // n*y^2 - 2y1*y - 2y2*y - ...
-        // derivative is 2*n*y - 2y1 - 2y2 - ...
-        // local maxima at y = (y1+y2+...)/n, basic average
-        let height = if right.len() > 0 {
-            right.iter().fold(0.0, |acc, point| acc + point.val) / right.len() as f64
-        } else {
-            left.iter().last().unwrap().val
-        };
+    fn vmax(points: &[DataPoint]) -> f64 {
+        points.iter().last().unwrap().0
+    }
 
-        // Find slope m s.t. minimize (m*(x1-X)-(y1-H))^2 ...
-        // m^2*(x1-X)^2 - 2*(m*(x1-X)*(y1-H)) - ...
-        // derivative is 2*m*(x1-X)^2 - 2*(x1-X)*(y1-H) - ...
-        // local maxima at m = ((x1-X)*(y1-H) + (x2-X)*(y2-H) + ...)/((x1-X)^2+(x2-X)^2)
-        let slope = if left.len() > 0 {
-            let top = left.iter().fold(0.0, |acc, point| {
-                acc + (point.vrate - infl) * (point.val - height)
-            });
-            let bot = left
-                .iter()
-                .fold(0.0, |acc, point| acc + (point.vrate - infl).powi(2));
-            top / bot
-        } else {
-            0.0
-        };
+    fn fit_line(points: &[DataPoint]) -> DataLines {
+        let (slope, y_intcp) = linreg::linear_regression_of(&points).unwrap();
+        let vmax = Self::vmax(points);
+        DataLines {
+            low: (0.0, y_intcp),
+            high: (vmax, slope * vmax + y_intcp),
+        }
+    }
 
-        let mut lines = DataLines {
-            height,
-            infl,
-            slope,
-            err: 0.0,
-        };
+    /// Find y s.t. minimize (y1-y)^2 + (y2-y)^2 + ...
+    /// n*y^2 - 2y1*y - 2y2*y - ...
+    /// derivative is 2*n*y - 2y1 - 2y2 - ...
+    /// local maxima at y = (y1+y2+...)/n, basic average
+    fn calc_height(points: &[DataPoint]) -> f64 {
+        points.iter().fold(0.0, |acc, point| acc + point.1) / points.len() as f64
+    }
 
-        // Calculate error
-        lines.err = self
-            .points
+    /// Find slope m s.t. minimize (m*(x1-X)-(y1-H))^2 ...
+    /// m^2*(x1-X)^2 - 2*(m*(x1-X)*(y1-H)) - ...
+    /// derivative is 2*m*(x1-X)^2 - 2*(x1-X)*(y1-H) - ...
+    /// local maxima at m = ((x1-X)*(y1-H) + (x2-X)*(y2-H) + ...)/((x1-X)^2+(x2-X)^2)
+    fn calc_slope(points: &[DataPoint], hinge: &DataPoint) -> f64 {
+        let top = points.iter().fold(0.0, |acc, point| {
+            acc + (point.0 - hinge.0) * (point.1 - hinge.1)
+        });
+        let bot = points
+            .iter()
+            .fold(0.0, |acc, point| acc + (point.0 - hinge.0).powi(2));
+        top / bot
+    }
+
+    fn fit_slope_with_vlow(points: &[DataPoint], vlow: f64) -> Option<DataLines> {
+        let (left, right) = Self::split_at(points, vlow);
+        if left.len() < 3 || right.len() < 3 {
+            return None;
+        }
+
+        let low = (vlow, Self::calc_height(left));
+        let slope = Self::calc_slope(right, &low);
+        if slope == 0.0 {
+            return None;
+        }
+
+        let vmax = Self::vmax(points);
+        Some(DataLines {
+            low,
+            high: (vmax, low.1 + slope * (vmax - low.0)),
+        })
+    }
+
+    fn fit_slope_with_vhigh(points: &[DataPoint], vhigh: f64) -> Option<DataLines> {
+        let (left, right) = Self::split_at(points, vhigh);
+        if left.len() < 3 || right.len() < 3 {
+            return None;
+        }
+
+        let high = (vhigh, Self::calc_height(right));
+        let slope = Self::calc_slope(left, &high);
+        if slope == 0.0 {
+            return None;
+        }
+
+        Some(DataLines {
+            low: (0.0, high.1 - slope * high.0),
+            high,
+        })
+    }
+
+    fn fit_slope_with_vlow_and_vhigh(
+        points: &[DataPoint],
+        vlow: f64,
+        vhigh: f64,
+    ) -> Option<DataLines> {
+        let (left, center) = Self::split_at(points, vlow);
+        let (center, right) = Self::split_at(center, vhigh);
+        if left.len() < 3 || center.len() < 3 || right.len() < 3 {
+            return None;
+        }
+
+        Some(DataLines {
+            low: (vlow, Self::calc_height(left)),
+            high: (vhigh, Self::calc_height(right)),
+        })
+    }
+
+    fn calc_error(points: &[DataPoint], lines: &DataLines) -> f64 {
+        points
             .iter()
             .fold(0.0, |acc, point| {
-                acc + (point.val - lines.eval(point.vrate)).powi(2)
+                acc + (point.1 - lines.eval(point.0)).powi(2)
             })
-            .sqrt();
-
-        lines
+            .sqrt()
     }
 
     fn fit_lines(&mut self, gran: f64) {
-        let start = self.points.iter().next().unwrap().vrate;
-        let end = self.points.iter().last().unwrap().vrate;
+        let start = self.points.iter().next().unwrap().0;
+        let end = self.points.iter().last().unwrap().0;
         let intvs = ((end - start) / gran).ceil() as u32 + 1;
         let gran = (end - start) / (intvs - 1) as f64;
         assert!(intvs > 1);
 
-        self.lines.err = std::f64::MAX;
+        // Start with simple linear regression.
+        let mut best_lines = Self::fit_line(&self.points);
+        let mut best_error = Self::calc_error(&self.points, &best_lines);
 
+        let mut try_and_pick = |fit: &(dyn Fn() -> Option<DataLines>)| {
+            if let Some(lines) = fit() {
+                let error = Self::calc_error(&self.points, &lines);
+                if error < best_error {
+                    best_lines = lines;
+                    best_error = error;
+                }
+            }
+        };
+
+        // Try one flat line and one slope.
         for i in 0..intvs {
-            let lines = self.calc_lines(start + i as f64 * gran);
-            if lines.err <= self.lines.err {
-                trace!("better lines: {:?} @ {}", &lines, start + i as f64 * gran);
-                self.lines = lines;
-            } else {
-                trace!("worse lines: {:?}", &lines);
+            let infl = start + i as f64 * gran;
+            try_and_pick(&|| Self::fit_slope_with_vlow(&self.points, infl));
+            try_and_pick(&|| Self::fit_slope_with_vhigh(&self.points, infl));
+        }
+
+        // Try two flat lines connected with a slope.
+        for i in 0..intvs - 1 {
+            let vlow = start + i as f64 * gran;
+            for j in i..intvs {
+                let vhigh = start + j as f64 * gran;
+                try_and_pick(&|| Self::fit_slope_with_vlow_and_vhigh(&self.points, vlow, vhigh));
             }
         }
+
+        self.lines = best_lines;
+        self.error = best_error;
     }
 }
 
@@ -534,7 +611,7 @@ impl Job for IoCostTuneJob {
                     _ => continue,
                 };
                 let val = sel.select(&run.storage);
-                series.points.push(DataPoint { vrate, val });
+                series.points.push((vrate, val));
             }
             series.points.sort_by(|a, b| a.partial_cmp(b).unwrap());
             series.fit_lines(self.gran);

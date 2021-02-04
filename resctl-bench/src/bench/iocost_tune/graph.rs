@@ -28,17 +28,11 @@ impl<'a> Grapher<'a> {
         let sel_name = format!("{}", sel);
 
         let (vrate_max, val_max) = series.points.iter().fold((0.0_f64, 0.0_f64), |acc, point| {
-            (acc.0.max(point.vrate), acc.1.max(point.val))
+            (acc.0.max(point.0), acc.1.max(point.1))
         });
 
-        let points: Vec<(f64, f64)> = series
-            .points
-            .iter()
-            .map(|point| (point.vrate, point.val))
-            .collect();
-
-        let points_plot: Plot =
-            Plot::new(points).point_style(PointStyle::new().marker(PointMarker::Circle));
+        let points_plot: Plot = Plot::new(series.points.clone())
+            .point_style(PointStyle::new().marker(PointMarker::Circle));
 
         let mut lines = vec![];
         for i in 0..80 {
