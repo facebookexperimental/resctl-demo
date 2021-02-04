@@ -668,12 +668,14 @@ impl Job for IoCostTuneJob {
     ) -> Result<()> {
         let result = serde_json::from_value::<IoCostTuneResult>(result.clone()).unwrap();
 
-        let mut graph = false;
+        write!(out,
+               "Graphs (circle: data points, cross: fitted line)\n\
+                ================================================\n\n").unwrap();
+
         let mut graph_prefix = None;
         for (k, v) in props[0].iter() {
             match k.as_ref() {
                 "graph" => {
-                    graph = true;
                     if v.len() > 0 {
                         graph_prefix = Some(v.to_owned());
                     }
@@ -682,12 +684,8 @@ impl Job for IoCostTuneJob {
             }
         }
 
-        if graph {
-            let mut grapher = graph::Grapher::new(out, graph_prefix.as_deref());
-            return grapher.plot(&result);
-        }
-
-        write!(out, "results={:#?}", &result.results).unwrap();
+        let mut grapher = graph::Grapher::new(out, graph_prefix.as_deref());
+        grapher.plot(&result)?;
         Ok(())
     }
 }
