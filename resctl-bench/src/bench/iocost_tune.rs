@@ -100,8 +100,8 @@ impl DataSel {
     fn cmp_lat_sel(a: &str, b: &str) -> Ordering {
         match (a, b) {
             (a, b) if a == b => Ordering::Equal,
-            ("mean", _) => Ordering::Greater,
-            (_, "mean") => Ordering::Less,
+            ("mean", _) => Ordering::Less,
+            (_, "mean") => Ordering::Greater,
             (a, b) => {
                 let a = a.parse::<f64>().unwrap();
                 let b = b.parse::<f64>().unwrap();
@@ -118,8 +118,8 @@ impl Ord for DataSel {
             (Self::MOF, _) => Ordering::Less,
             (_, Self::MOF) => Ordering::Greater,
             (Self::Lat(alat, atime), Self::Lat(blat, btime)) => {
-                match Self::cmp_lat_sel(alat, blat) {
-                    Ordering::Equal => Self::cmp_lat_sel(atime, btime),
+                match Self::cmp_lat_sel(atime, btime) {
+                    Ordering::Equal => Self::cmp_lat_sel(alat, blat),
                     ord => ord,
                 }
             }
