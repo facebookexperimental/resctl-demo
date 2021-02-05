@@ -41,7 +41,7 @@ pub struct JobData {
     pub started_at: u64,
     pub ended_at: u64,
     pub sysreqs: SysReqs,
-    pub result: Option<serde_json::Value>,
+    pub result: serde_json::Value,
 }
 
 impl JobData {
@@ -51,8 +51,12 @@ impl JobData {
             started_at: 0,
             ended_at: 0,
             sysreqs: Default::default(),
-            result: None,
+            result: serde_json::Value::Null,
         }
+    }
+
+    pub fn result_valid(&self) -> bool {
+        self.result != serde_json::Value::Null
     }
 }
 
@@ -153,11 +157,9 @@ impl JobCtx {
     pub fn run(&mut self, rctx: &mut RunCtx, mut sysreqs_forward: Option<SysReqs>) -> Result<()> {
         if self.prev.is_some() {
             let prev_data = &self.prev.as_ref().unwrap().data;
-            if self.are_results_compatible(&prev_data.spec) && prev_data.result.is_some() {
+            if self.are_results_compatible(&prev_data.spec) && prev_data.result_valid() {
                 if self.incremental {
-                    if prev_data.result.is_some() {
-                        rctx.prev_data = Some(prev_data.clone());
-                    }
+                    rctx.prev_data = Some(prev_data.clone());
                 } else {
                     *self = *self.prev.take().unwrap();
                     return Ok(());
@@ -190,7 +192,7 @@ impl JobCtx {
                 &data.spec
             );
         }
-        data.result = Some(result);
+        data.result = result;
         rctx.update_incremental_jctx(&self);
         Ok(())
     }

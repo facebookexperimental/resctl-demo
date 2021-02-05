@@ -98,7 +98,7 @@ pub trait Bench: Send + Sync {
         _specs: &mut Vec<JobSpec>,
         _idx: usize,
         _base_bench: &BenchKnobs,
-        _prev_result: Option<&serde_json::Value>,
+        _prev_data: Option<&JobData>,
     ) -> Result<()> {
         Ok(())
     }

@@ -669,8 +669,7 @@ impl Job for StorageJob {
         full: bool,
         _props: &JobProps,
     ) -> Result<()> {
-        let result =
-            serde_json::from_value::<StorageResult>(data.result.as_ref().unwrap().clone()).unwrap();
+        let result = serde_json::from_value::<StorageResult>(data.result.clone()).unwrap();
 
         self.format_header(&mut out, &result);
         writeln!(out, "").unwrap();

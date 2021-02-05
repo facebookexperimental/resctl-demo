@@ -273,7 +273,7 @@ impl Bench for IoCostTuneBench {
         specs: &mut Vec<JobSpec>,
         idx: usize,
         _base_bench: &BenchKnobs,
-        _prev_result: Option<&serde_json::Value>,
+        _prev_data: Option<&JobData>,
     ) -> Result<()> {
         for i in (0..idx).rev() {
             let sp = &specs[i];
@@ -592,9 +592,8 @@ impl Job for IoCostTuneJob {
     }
 
     fn run(&mut self, rctx: &mut RunCtx) -> Result<serde_json::Value> {
-        let src: IoCostQoSResult =
-            serde_json::from_value(rctx.data_forwards.pop().unwrap().result.unwrap())
-                .map_err(|e| anyhow!("failed to parse iocost-qos result ({})", &e))?;
+        let src: IoCostQoSResult = serde_json::from_value(rctx.data_forwards.pop().unwrap().result)
+            .map_err(|e| anyhow!("failed to parse iocost-qos result ({})", &e))?;
         let mut data = BTreeMap::<DataSel, DataSeries>::default();
 
         if src.results.len() == 0 {
@@ -671,9 +670,7 @@ impl Job for IoCostTuneJob {
         _full: bool,
         props: &JobProps,
     ) -> Result<()> {
-        let result =
-            serde_json::from_value::<IoCostTuneResult>(data.result.as_ref().unwrap().clone())
-                .unwrap();
+        let result = serde_json::from_value::<IoCostTuneResult>(data.result.clone()).unwrap();
 
         write!(
             out,

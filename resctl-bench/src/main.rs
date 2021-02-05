@@ -15,7 +15,7 @@ mod progress;
 mod run;
 mod study;
 
-use job::JobCtx;
+use job::{JobCtx, JobData};
 use run::RunCtx;
 
 const RB_BENCH_FILENAME: &str = "rb-bench.json";
@@ -202,23 +202,21 @@ impl Program {
         }
     }
 
-    fn find_prev_result<'a>(
-        jctxs: &'a Vec<JobCtx>,
-        spec: &JobSpec,
-    ) -> Option<&'a serde_json::Value> {
+    fn find_prev_data<'a>(jctxs: &'a Vec<JobCtx>, spec: &JobSpec) -> Option<&'a JobData> {
         let jctx = match Self::find_matching_jctx(jctxs, spec) {
             Some(jctx) => jctx,
             None => return None,
         };
-        match (jctx.are_results_compatible(spec), jctx.data.result.as_ref()) {
-            (true, Some(result)) => Some(result),
-            _ => None,
+        if jctx.are_results_compatible(spec) && jctx.data.result_valid() {
+            Some(&jctx.data)
+        } else {
+            None
         }
     }
 
     fn format_jctx(jctx: &JobCtx, mode: Mode, props: &JobProps) -> Result<()> {
         // Format only the completed jobs.
-        if jctx.data.result.is_some() {
+        if jctx.data.result_valid() {
             println!("{}\n\n{}", "=".repeat(90), &jctx.format(mode, props)?);
         }
         Ok(())
@@ -269,12 +267,12 @@ impl Program {
 
             let idx = idx.unwrap();
             let spec = &mut args.job_specs[idx];
-            let prev_result = Self::find_prev_result(&jctxs, spec);
+            let prev_data = Self::find_prev_data(&jctxs, spec);
             spec.preprocessed = true;
 
             bench::find_bench(&spec.kind)
                 .unwrap()
-                .preprocess_run_specs(&mut args.job_specs, idx, &base_bench, prev_result)
+                .preprocess_run_specs(&mut args.job_specs, idx, &base_bench, prev_data)
                 .expect("preprocess_run_specs() failed");
             break;
         }

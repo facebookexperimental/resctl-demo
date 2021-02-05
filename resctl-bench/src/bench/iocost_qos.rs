@@ -47,7 +47,7 @@ impl Bench for IoCostQoSBench {
         specs: &mut Vec<JobSpec>,
         idx: usize,
         base_bench: &BenchKnobs,
-        prev_result: Option<&serde_json::Value>,
+        prev_data: Option<&JobData>,
     ) -> Result<()> {
         // Is the bench result available or iocost-params already scheduled?
         if base_bench.iocost_seq > 0 {
@@ -63,9 +63,10 @@ impl Bench for IoCostQoSBench {
         }
 
         // If prev has all the needed results, we don't need iocost-params.
-        if prev_result.is_some() {
-            let prev_result =
-                serde_json::from_value::<IoCostQoSResult>(prev_result.unwrap().clone())?;
+        if prev_data.is_some() {
+            let prev_result = serde_json::from_value::<IoCostQoSResult>(
+                prev_data.as_ref().unwrap().result.clone(),
+            )?;
 
             // Let the actual job parsing stage take care of it.
             let job = match IoCostQoSJob::parse(&specs[idx]) {
@@ -379,9 +380,7 @@ impl Job for IoCostQoSJob {
 
         let (prev_matches, mut prev_result) = match rctx.prev_data.as_ref() {
             Some(pd) => {
-                let pr =
-                    serde_json::from_value::<IoCostQoSResult>(pd.result.as_ref().unwrap().clone())
-                        .unwrap();
+                let pr = serde_json::from_value::<IoCostQoSResult>(pd.result.clone()).unwrap();
                 (self.prev_matches(&pr, &bench), pr)
             }
             None => (
@@ -529,9 +528,7 @@ impl Job for IoCostQoSJob {
         full: bool,
         _props: &JobProps,
     ) -> Result<()> {
-        let result =
-            serde_json::from_value::<IoCostQoSResult>(data.result.as_ref().unwrap().clone())
-                .unwrap();
+        let result = serde_json::from_value::<IoCostQoSResult>(data.result.clone()).unwrap();
         if result.results.len() == 0
             || result.results[0].is_none()
             || result.results[0].as_ref().unwrap().qos.is_some()

@@ -84,8 +84,7 @@ impl Job for HashdParamsJob {
         _full: bool,
         _props: &JobProps,
     ) -> Result<()> {
-        let result =
-            serde_json::from_value::<HashdKnobs>(data.result.as_ref().unwrap().clone()).unwrap();
+        let result = serde_json::from_value::<HashdKnobs>(data.result.clone()).unwrap();
 
         writeln!(
             out,
