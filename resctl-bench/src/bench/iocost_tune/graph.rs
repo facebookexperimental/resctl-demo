@@ -3,6 +3,7 @@ use plotlib::page::Page;
 use plotlib::repr::Plot;
 use plotlib::style::{LineStyle, PointMarker, PointStyle};
 use plotlib::view::ContinuousView;
+use std::process::Command;
 
 pub struct Grapher<'a> {
     out: Box<dyn Write + 'a>,
@@ -114,7 +115,7 @@ impl<'a> Grapher<'a> {
         mem_profile: u32,
         extra_info: &str,
     ) -> Result<()> {
-        const SIZE: (u32, u32) = (640, 520);
+        const SIZE: (u32, u32) = (576, 468);
         let (view, vrate_max, yscale) =
             Self::setup_view(sel, series, mem_profile, Some(extra_info));
 
@@ -151,17 +152,35 @@ impl<'a> Grapher<'a> {
         Ok(())
     }
 
-    fn collect_svgs(&self, _srcs: &Vec<String>, _dst: &str) -> Result<()> {
-        Ok(())
+    fn collect_svgs(&self, srcs: &Vec<String>, dst: &str) -> Result<()> {
+        run_command(
+            Command::new("montage")
+                .args(&[
+                    "-font",
+                    "cantarell",
+                    "-density",
+                    "150",
+                    "-tile",
+                    "2x3",
+                    "-geometry",
+                    "+0+0",
+                ])
+                .args(srcs)
+                .arg(dst),
+            "are imagemagick and cantarell font available?",
+        )
     }
 
-    pub fn plot(&mut self, result: &IoCostTuneResult) -> Result<()> {
+    pub fn plot(&mut self, data: &JobData, result: &IoCostTuneResult) -> Result<()> {
         for (sel, series) in result.data.iter() {
-            self.plot_one_text(sel, series, 0 /*result.mem_profile*/)?;
+            self.plot_one_text(sel, series, result.mem_profile)?;
             if self.file_prefix.is_some() {
+                let sr = data.sysreqs.report.as_ref().unwrap();
                 if let Err(e) = self.plot_one_svg(
-                    sel, series, 0,  /*result.mem_profile*/
-                    "", /*result.dev_model*/
+                    sel,
+                    series,
+                    result.mem_profile,
+                    &format!("{}", sr.scr_dev_model.trim()),
                 ) {
                     bail!(
                         "Failed to plot graph into {:?} ({})",
@@ -178,9 +197,8 @@ impl<'a> Grapher<'a> {
                 .iter()
                 .map(|(sel, _series)| self.plot_filename(sel))
                 .collect();
-            if let Err(e) = self.collect_svgs(&srcs, &dst) {
-                bail!("Failed to collect graphs into {:?} ({})", &dst, &e);
-            }
+            self.collect_svgs(&srcs, &dst)
+                .map_err(|e| anyhow!("Failed to collect graphs into {:?} ({})", &dst, &e))?
         }
         Ok(())
     }

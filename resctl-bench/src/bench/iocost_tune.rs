@@ -582,6 +582,7 @@ struct QoSResult {
 pub struct IoCostTuneResult {
     base_model: IoCostModelParams,
     base_qos: IoCostQoSParams,
+    mem_profile: u32,
     data: BTreeMap<DataSel, DataSeries>,
     results: Vec<QoSResult>,
 }
@@ -658,6 +659,7 @@ impl Job for IoCostTuneJob {
         Ok(serde_json::to_value(IoCostTuneResult {
             base_model,
             base_qos,
+            mem_profile: src.mem_profile,
             data,
             results,
         })?)
@@ -675,7 +677,7 @@ impl Job for IoCostTuneJob {
         write!(
             out,
             "Graphs (circle: data points, cross: fitted line)\n\
-                ================================================\n\n"
+             ================================================\n\n"
         )
         .unwrap();
 
@@ -692,7 +694,7 @@ impl Job for IoCostTuneJob {
         }
 
         let mut grapher = graph::Grapher::new(out, graph_prefix.as_deref());
-        grapher.plot(&result)?;
+        grapher.plot(data, &result)?;
         Ok(())
     }
 }

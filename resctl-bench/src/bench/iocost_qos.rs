@@ -111,6 +111,7 @@ pub struct IoCostQoSRun {
 pub struct IoCostQoSResult {
     pub base_model: IoCostModelParams,
     pub base_qos: IoCostQoSParams,
+    pub mem_profile: u32,
     pub results: Vec<Option<IoCostQoSRun>>,
     inc_results: Vec<IoCostQoSRun>,
 }
@@ -205,20 +206,12 @@ impl IoCostQoSJob {
     }
 
     fn prev_matches(&self, pr: &IoCostQoSResult, bench: &BenchKnobs) -> bool {
-        let base_result = if pr.results.len() > 0 && pr.results[0].is_some() {
-            pr.results[0].as_ref().unwrap()
-        } else if pr.inc_results.len() > 0 {
-            &pr.inc_results[0]
-        } else {
-            return false;
-        };
-
         let msg = "iocost-qos: Existing result doesn't match the current configuration";
         if pr.base_model != bench.iocost.model || pr.base_qos != bench.iocost.qos {
             warn!("{} ({})", &msg, "iocost parameter mismatch");
             return false;
         }
-        if self.mem_profile > 0 && self.mem_profile != base_result.storage.mem_profile {
+        if self.mem_profile > 0 && self.mem_profile != pr.mem_profile {
             warn!("{} ({})", &msg, "mem-profile mismatch");
             return false;
         }
@@ -388,6 +381,7 @@ impl Job for IoCostQoSJob {
                 IoCostQoSResult {
                     base_model: bench.iocost.model.clone(),
                     base_qos: bench.iocost.qos.clone(),
+                    mem_profile: 0,
                     results: vec![],
                     inc_results: vec![],
                 },
@@ -395,7 +389,7 @@ impl Job for IoCostQoSJob {
         };
 
         if prev_result.results.len() > 0 {
-            self.mem_profile = prev_result.results[0].as_ref().unwrap().storage.mem_profile;
+            self.mem_profile = prev_result.mem_profile;
         }
         let mut nr_to_run = 0;
 
@@ -514,6 +508,7 @@ impl Job for IoCostQoSJob {
         let result = IoCostQoSResult {
             base_model,
             base_qos,
+            mem_profile: self.mem_profile,
             results,
             inc_results: vec![],
         };
