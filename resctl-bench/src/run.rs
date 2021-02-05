@@ -254,7 +254,7 @@ impl<'a> RunCtx<'a> {
     }
 
     pub fn update_incremental_result(&mut self, result: serde_json::Value) {
-        self.inc_job_ctxs[self.inc_job_idx].result = Some(result);
+        self.inc_job_ctxs[self.inc_job_idx].data.result = Some(result);
         Program::save_results(self.result_path, self.inc_job_ctxs);
     }
 

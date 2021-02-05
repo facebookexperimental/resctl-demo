@@ -35,9 +35,31 @@ pub struct SysReqs {
     pub iocost: rd_agent_intf::IoCostReport,
 }
 
+#[derive(Serialize, Deserialize, Clone)]
+pub struct JobData {
+    pub spec: JobSpec,
+    pub started_at: u64,
+    pub ended_at: u64,
+    pub sysreqs: SysReqs,
+    pub result: Option<serde_json::Value>,
+}
+
+impl JobData {
+    fn new(spec: &JobSpec) -> Self {
+        Self {
+            spec: spec.clone(),
+            started_at: 0,
+            ended_at: 0,
+            sysreqs: Default::default(),
+            result: None,
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize)]
 pub struct JobCtx {
-    pub spec: JobSpec,
+    #[serde(flatten)]
+    pub data: JobData,
 
     #[serde(skip)]
     pub bench: Option<Arc<Box<dyn super::bench::Bench>>>,
@@ -49,18 +71,13 @@ pub struct JobCtx {
     pub inc_job_idx: usize,
     #[serde(skip)]
     pub prev: Option<Box<JobCtx>>,
-
-    pub started_at: u64,
-    pub ended_at: u64,
-    pub sysreqs: SysReqs,
-    pub result: Option<serde_json::Value>,
 }
 
 impl std::fmt::Debug for JobCtx {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("JobCtx")
-            .field("spec", &self.spec)
-            .field("result", &self.result)
+            .field("spec", &self.data.spec)
+            .field("result", &self.data.result)
             .finish()
     }
 }
@@ -68,16 +85,12 @@ impl std::fmt::Debug for JobCtx {
 impl std::clone::Clone for JobCtx {
     fn clone(&self) -> Self {
         let mut clone = Self {
-            spec: self.spec.clone(),
+            data: self.data.clone(),
             bench: None,
             job: None,
             incremental: self.incremental,
             inc_job_idx: 0,
             prev: None,
-            started_at: self.started_at,
-            ended_at: self.ended_at,
-            sysreqs: self.sysreqs.clone(),
-            result: self.result.clone(),
         };
         clone.parse_job_spec().unwrap();
         clone
@@ -85,32 +98,33 @@ impl std::clone::Clone for JobCtx {
 }
 
 impl JobCtx {
-    pub fn new(spec: &JobSpec) -> Self {
+    pub fn with_data(data: JobData) -> Self {
         Self {
-            spec: spec.clone(),
+            data,
             bench: None,
             job: None,
             incremental: false,
             inc_job_idx: 0,
             prev: None,
-            started_at: 0,
-            ended_at: 0,
-            sysreqs: Default::default(),
-            result: None,
         }
     }
 
+    pub fn new(spec: &JobSpec) -> Self {
+        Self::with_data(JobData::new(spec))
+    }
+
     pub fn parse_job_spec(&mut self) -> Result<()> {
-        let bench = super::bench::find_bench(&self.spec.kind)?;
+        let spec = &self.data.spec;
+        let bench = super::bench::find_bench(&spec.kind)?;
         let desc = bench.desc();
-        if !desc.takes_run_props && self.spec.props[0].len() > 0 {
+        if !desc.takes_run_props && spec.props[0].len() > 0 {
             bail!("unknown properties");
         }
-        if !desc.takes_run_propsets && self.spec.props.len() > 1 {
+        if !desc.takes_run_propsets && spec.props.len() > 1 {
             bail!("multiple property sets not supported");
         }
         self.incremental = desc.incremental;
-        self.job = Some(bench.parse(&self.spec)?);
+        self.job = Some(bench.parse(spec)?);
         self.bench = Some(bench);
         Ok(())
     }
@@ -124,7 +138,7 @@ impl JobCtx {
         for (idx, jctx) in results.iter_mut().enumerate() {
             jctx.inc_job_idx = idx;
             if let Err(e) = jctx.parse_job_spec() {
-                bail!("failed to parse {} ({})", &jctx.spec, &e);
+                bail!("failed to parse {} ({})", &jctx.data.spec, &e);
             }
         }
 
@@ -132,17 +146,17 @@ impl JobCtx {
     }
 
     pub fn are_results_compatible(&self, other: &JobSpec) -> bool {
-        assert!(self.spec.kind == other.kind);
-        self.incremental || &self.spec == other
+        assert!(self.data.spec.kind == other.kind);
+        self.incremental || &self.data.spec == other
     }
 
     pub fn run(&mut self, rctx: &mut RunCtx, mut sysreqs_forward: Option<SysReqs>) -> Result<()> {
         if self.prev.is_some()
-            && self.are_results_compatible(&self.prev.as_ref().unwrap().spec)
-            && self.prev.as_ref().unwrap().result.is_some()
+            && self.are_results_compatible(&self.prev.as_ref().unwrap().data.spec)
+            && self.prev.as_ref().unwrap().data.result.is_some()
         {
             if self.incremental {
-                rctx.prev_result = self.prev.as_mut().unwrap().result.take();
+                rctx.prev_result = self.prev.as_mut().unwrap().data.result.take();
             } else {
                 *self = *self.prev.take().unwrap();
                 return Ok(());
@@ -150,52 +164,54 @@ impl JobCtx {
         }
 
         let job = self.job.as_mut().unwrap();
-        self.sysreqs.required = job.sysreqs();
-        rctx.add_sysreqs(self.sysreqs.required.clone());
+        let data = &mut self.data;
+        data.sysreqs.required = job.sysreqs();
+        rctx.add_sysreqs(data.sysreqs.required.clone());
 
-        self.started_at = unix_now();
+        data.started_at = unix_now();
         let result = job.run(rctx)?;
-        self.ended_at = unix_now();
+        data.ended_at = unix_now();
 
         if rctx.sysreqs_report().is_some() {
-            self.sysreqs.report = Some((*rctx.sysreqs_report().unwrap()).clone());
-            self.sysreqs.missed = rctx.missed_sysreqs();
+            data.sysreqs.report = Some((*rctx.sysreqs_report().unwrap()).clone());
+            data.sysreqs.missed = rctx.missed_sysreqs();
             if let Some(rep) = rctx.report_sample() {
-                self.sysreqs.iocost = rep.iocost.clone();
+                data.sysreqs.iocost = rep.iocost.clone();
             }
         } else if sysreqs_forward.is_some() {
-            self.sysreqs = sysreqs_forward.take().unwrap();
+            data.sysreqs = sysreqs_forward.take().unwrap();
         } else if self.prev.is_some() {
-            self.sysreqs = self.prev.as_ref().unwrap().sysreqs.clone();
+            data.sysreqs = self.prev.as_ref().unwrap().data.sysreqs.clone();
         } else {
             warn!(
                 "job: No sysreqs available for {:?} after completion",
-                &self.spec
+                &data.spec
             );
         }
-        self.result = Some(result);
+        data.result = Some(result);
         rctx.update_incremental_jctx(&self);
         Ok(())
     }
 
     pub fn format(&self, mode: Mode, props: &JobProps) -> Result<String> {
         let mut buf = String::new();
-        write!(buf, "[{} result] ", self.spec.kind).unwrap();
-        if let Some(id) = self.spec.id.as_ref() {
+        let data = &self.data;
+        write!(buf, "[{} result] ", data.spec.kind).unwrap();
+        if let Some(id) = data.spec.id.as_ref() {
             write!(buf, "\"{}\" ", id).unwrap();
         }
         writeln!(
             buf,
             "{} - {}\n",
-            DateTime::<Local>::from(UNIX_EPOCH + Duration::from_secs(self.started_at))
+            DateTime::<Local>::from(UNIX_EPOCH + Duration::from_secs(data.started_at))
                 .format("%Y-%m-%d %T"),
-            DateTime::<Local>::from(UNIX_EPOCH + Duration::from_secs(self.ended_at)).format("%T")
+            DateTime::<Local>::from(UNIX_EPOCH + Duration::from_secs(data.ended_at)).format("%T")
         )
         .unwrap();
 
-        let sr = &self.sysreqs;
+        let sr = &data.sysreqs;
         if sr.report.is_some() {
-            let rep = self.sysreqs.report.as_ref().unwrap();
+            let rep = data.sysreqs.report.as_ref().unwrap();
             writeln!(
                 buf,
                 "System info: nr_cpus={} memory={} swap={}\n",
@@ -235,7 +251,7 @@ impl JobCtx {
             )
             .unwrap();
 
-            let iocost = &self.sysreqs.iocost;
+            let iocost = &data.sysreqs.iocost;
             if iocost.qos.enable > 0 {
                 let model = &iocost.model;
                 let qos = &iocost.qos;
@@ -265,11 +281,12 @@ impl JobCtx {
             }
             writeln!(buf, "").unwrap();
 
-            if self.sysreqs.missed.len() > 0 {
+            if data.sysreqs.missed.len() > 0 {
                 writeln!(
                     buf,
                     "Missed requirements: {}\n",
                     &self
+                        .data
                         .sysreqs
                         .missed
                         .iter()
@@ -283,7 +300,7 @@ impl JobCtx {
 
         self.job.as_ref().unwrap().format(
             Box::new(&mut buf),
-            self.result.as_ref().unwrap(),
+            data.result.as_ref().unwrap(),
             mode == Mode::Format,
             props,
         )?;

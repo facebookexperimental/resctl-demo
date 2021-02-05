@@ -181,7 +181,7 @@ impl Program {
 
     fn find_matching_jctx_idx(jctxs: &Vec<JobCtx>, spec: &JobSpec) -> Option<usize> {
         for (idx, jctx) in jctxs.iter().enumerate() {
-            if jctx.spec.kind == spec.kind && jctx.spec.id == spec.id {
+            if jctx.data.spec.kind == spec.kind && jctx.data.spec.id == spec.id {
                 return Some(idx);
             }
         }
@@ -210,7 +210,7 @@ impl Program {
             Some(jctx) => jctx,
             None => return None,
         };
-        match (jctx.are_results_compatible(spec), jctx.result.as_ref()) {
+        match (jctx.are_results_compatible(spec), jctx.data.result.as_ref()) {
             (true, Some(result)) => Some(result),
             _ => None,
         }
@@ -218,7 +218,7 @@ impl Program {
 
     fn format_jctx(jctx: &JobCtx, mode: Mode, props: &JobProps) -> Result<()> {
         // Format only the completed jobs.
-        if jctx.result.is_some() {
+        if jctx.data.result.is_some() {
             println!("{}\n\n{}", "=".repeat(90), &jctx.format(mode, props)?);
         }
         Ok(())
@@ -287,9 +287,9 @@ impl Program {
                 error!("{}: {}", spec, &e);
                 exit(1);
             }
-            match Self::pop_matching_jctx(&mut jctxs, &new.spec) {
+            match Self::pop_matching_jctx(&mut jctxs, &new.data.spec) {
                 Some(prev) => {
-                    debug!("{} has a matching entry in the result file", &new.spec);
+                    debug!("{} has a matching entry in the result file", &new.data.spec);
                     new.inc_job_idx = prev.inc_job_idx;
                     new.prev = Some(Box::new(prev));
                 }
@@ -326,11 +326,11 @@ impl Program {
 
             let mut result_forwards = vec![];
             let mut sysreqs_forward = None;
-            for i in jctx.spec.forward_results_from.iter() {
+            for i in jctx.data.spec.forward_results_from.iter() {
                 let from = &self.job_ctxs[*i];
-                result_forwards.push(from.result.as_ref().unwrap().clone());
+                result_forwards.push(from.data.result.as_ref().unwrap().clone());
                 if sysreqs_forward.is_none() {
-                    sysreqs_forward = Some(from.sysreqs.clone());
+                    sysreqs_forward = Some(from.data.sysreqs.clone());
                 }
             }
 
@@ -343,7 +343,7 @@ impl Program {
             );
 
             if let Err(e) = jctx.run(&mut rctx, sysreqs_forward) {
-                error!("Failed to run {} ({})", &jctx.spec, &e);
+                error!("Failed to run {} ({})", &jctx.data.spec, &e);
                 panic!();
             }
 
@@ -389,13 +389,16 @@ impl Program {
 
                 let desc = jctx.bench.as_ref().unwrap().desc();
                 if !desc.takes_format_props && spec.props[0].len() > 0 {
-                    error!("Unknown properties specified for formatting {}", &jctx.spec);
+                    error!(
+                        "Unknown properties specified for formatting {}",
+                        &jctx.data.spec
+                    );
                     exit(1);
                 }
                 if !desc.takes_format_propsets && spec.props.len() > 1 {
                     error!(
                         "Multiple property sets not supported for formatting {}",
-                        &jctx.spec
+                        &jctx.data.spec
                     );
                     exit(1);
                 }
@@ -405,7 +408,7 @@ impl Program {
 
         for (jctx, props) in to_format.iter() {
             if let Err(e) = Self::format_jctx(jctx, mode, props) {
-                error!("Failed to format {}: {}", &jctx.spec, &e);
+                error!("Failed to format {}: {}", &jctx.data.spec, &e);
                 panic!();
             }
         }

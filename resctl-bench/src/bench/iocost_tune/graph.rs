@@ -151,7 +151,7 @@ impl<'a> Grapher<'a> {
         Ok(())
     }
 
-    fn collect_svgs(&self, srcs: &Vec<String>, dst: &str) -> Result<()> {
+    fn collect_svgs(&self, _srcs: &Vec<String>, _dst: &str) -> Result<()> {
         Ok(())
     }
 
