@@ -10,7 +10,7 @@ use std::fmt::Write;
 use std::iter::FromIterator;
 use std::sync::{Arc, Mutex};
 
-use super::job::Job;
+use super::job::{Job, JobData};
 use super::progress::BenchProgress;
 use super::run::RunCtx;
 use super::study::*;

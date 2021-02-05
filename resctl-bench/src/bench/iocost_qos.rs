@@ -377,9 +377,11 @@ impl Job for IoCostQoSJob {
     fn run(&mut self, rctx: &mut RunCtx) -> Result<serde_json::Value> {
         let bench = rctx.base_bench().clone();
 
-        let (prev_matches, mut prev_result) = match rctx.prev_result.as_ref() {
-            Some(pr) => {
-                let pr = serde_json::from_value::<IoCostQoSResult>(pr.clone()).unwrap();
+        let (prev_matches, mut prev_result) = match rctx.prev_data.as_ref() {
+            Some(pd) => {
+                let pr =
+                    serde_json::from_value::<IoCostQoSResult>(pd.result.as_ref().unwrap().clone())
+                        .unwrap();
                 (self.prev_matches(&pr, &bench), pr)
             }
             None => (
@@ -523,11 +525,13 @@ impl Job for IoCostQoSJob {
     fn format<'a>(
         &self,
         mut out: Box<dyn Write + 'a>,
-        result: &serde_json::Value,
+        data: &JobData,
         full: bool,
         _props: &JobProps,
     ) -> Result<()> {
-        let result = serde_json::from_value::<IoCostQoSResult>(result.clone()).unwrap();
+        let result =
+            serde_json::from_value::<IoCostQoSResult>(data.result.as_ref().unwrap().clone())
+                .unwrap();
         if result.results.len() == 0
             || result.results[0].is_none()
             || result.results[0].as_ref().unwrap().qos.is_some()

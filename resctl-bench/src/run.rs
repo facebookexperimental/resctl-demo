@@ -11,7 +11,7 @@ use util::*;
 
 use super::progress::BenchProgress;
 use super::{Program, AGENT_BIN};
-use crate::job::JobCtx;
+use crate::job::{JobCtx, JobData};
 use rd_agent_intf::{
     AgentFiles, ReportIter, RunnerState, Slice, SysReq, AGENT_SVC_NAME, HASHD_BENCH_SVC_NAME,
     IOCOST_BENCH_SVC_NAME,
@@ -151,8 +151,8 @@ pub struct RunCtx<'a> {
     inner: Arc<Mutex<RunCtxInner>>,
     agent_init_fns: Vec<Box<dyn FnOnce(&mut RunCtx)>>,
     base_bench: rd_agent_intf::BenchKnobs,
-    pub prev_result: Option<serde_json::Value>,
-    pub result_forwards: Vec<serde_json::Value>,
+    pub prev_data: Option<JobData>,
+    pub data_forwards: Vec<JobData>,
     inc_job_ctxs: &'a mut Vec<JobCtx>,
     inc_job_idx: usize,
     result_path: &'a str,
@@ -166,7 +166,7 @@ impl<'a> RunCtx<'a> {
         base_bench: &rd_agent_intf::BenchKnobs,
         inc_job_ctxs: &'a mut Vec<JobCtx>,
         inc_job_idx: usize,
-        result_forwards: Vec<serde_json::Value>,
+        data_forwards: Vec<JobData>,
     ) -> Self {
         Self {
             inner: Arc::new(Mutex::new(RunCtxInner {
@@ -191,8 +191,8 @@ impl<'a> RunCtx<'a> {
             })),
             base_bench: base_bench.clone(),
             agent_init_fns: vec![],
-            prev_result: None,
-            result_forwards,
+            prev_data: None,
+            data_forwards,
             inc_job_ctxs,
             inc_job_idx,
             result_path: &args.result,

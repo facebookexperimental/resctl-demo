@@ -21,7 +21,7 @@ pub trait Job {
     fn format<'a>(
         &self,
         out: Box<dyn Write + 'a>,
-        result: &serde_json::Value,
+        data: &JobData,
         full: bool,
         props: &JobProps,
     ) -> Result<()>;
@@ -151,15 +151,17 @@ impl JobCtx {
     }
 
     pub fn run(&mut self, rctx: &mut RunCtx, mut sysreqs_forward: Option<SysReqs>) -> Result<()> {
-        if self.prev.is_some()
-            && self.are_results_compatible(&self.prev.as_ref().unwrap().data.spec)
-            && self.prev.as_ref().unwrap().data.result.is_some()
-        {
-            if self.incremental {
-                rctx.prev_result = self.prev.as_mut().unwrap().data.result.take();
-            } else {
-                *self = *self.prev.take().unwrap();
-                return Ok(());
+        if self.prev.is_some() {
+            let prev_data = &self.prev.as_ref().unwrap().data;
+            if self.are_results_compatible(&prev_data.spec) && prev_data.result.is_some() {
+                if self.incremental {
+                    if prev_data.result.is_some() {
+                        rctx.prev_data = Some(prev_data.clone());
+                    }
+                } else {
+                    *self = *self.prev.take().unwrap();
+                    return Ok(());
+                }
             }
         }
 
@@ -298,12 +300,10 @@ impl JobCtx {
             }
         }
 
-        self.job.as_ref().unwrap().format(
-            Box::new(&mut buf),
-            data.result.as_ref().unwrap(),
-            mode == Mode::Format,
-            props,
-        )?;
+        self.job
+            .as_ref()
+            .unwrap()
+            .format(Box::new(&mut buf), data, mode == Mode::Format, props)?;
 
         Ok(buf)
     }

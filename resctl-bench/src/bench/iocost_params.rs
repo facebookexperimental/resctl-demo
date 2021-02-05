@@ -52,11 +52,12 @@ impl Job for IoCostParamsJob {
     fn format<'a>(
         &self,
         mut out: Box<dyn Write + 'a>,
-        result: &serde_json::Value,
+        data: &JobData,
         _full: bool,
         _props: &JobProps,
     ) -> Result<()> {
-        let result = serde_json::from_value::<IoCostKnobs>(result.clone()).unwrap();
+        let result =
+            serde_json::from_value::<IoCostKnobs>(data.result.as_ref().unwrap().clone()).unwrap();
         let model = &result.model;
         let qos = &result.qos;
 

@@ -324,11 +324,11 @@ impl Program {
                 panic!();
             }
 
-            let mut result_forwards = vec![];
+            let mut data_forwards = vec![];
             let mut sysreqs_forward = None;
             for i in jctx.data.spec.forward_results_from.iter() {
                 let from = &self.job_ctxs[*i];
-                result_forwards.push(from.data.result.as_ref().unwrap().clone());
+                data_forwards.push(from.data.clone());
                 if sysreqs_forward.is_none() {
                     sysreqs_forward = Some(from.data.sysreqs.clone());
                 }
@@ -339,7 +339,7 @@ impl Program {
                 &base_bench,
                 &mut inc_jctxs,
                 jctx.inc_job_idx,
-                result_forwards,
+                data_forwards,
             );
 
             if let Err(e) = jctx.run(&mut rctx, sysreqs_forward) {

@@ -665,11 +665,12 @@ impl Job for StorageJob {
     fn format<'a>(
         &self,
         mut out: Box<dyn Write + 'a>,
-        result: &serde_json::Value,
+        data: &JobData,
         full: bool,
         _props: &JobProps,
     ) -> Result<()> {
-        let result = serde_json::from_value::<StorageResult>(result.clone()).unwrap();
+        let result =
+            serde_json::from_value::<StorageResult>(data.result.as_ref().unwrap().clone()).unwrap();
 
         self.format_header(&mut out, &result);
         writeln!(out, "").unwrap();

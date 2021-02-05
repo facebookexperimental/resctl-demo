@@ -80,11 +80,12 @@ impl Job for HashdParamsJob {
     fn format<'a>(
         &self,
         mut out: Box<dyn Write + 'a>,
-        result: &serde_json::Value,
+        data: &JobData,
         _full: bool,
         _props: &JobProps,
     ) -> Result<()> {
-        let result = serde_json::from_value::<HashdKnobs>(result.clone()).unwrap();
+        let result =
+            serde_json::from_value::<HashdKnobs>(data.result.as_ref().unwrap().clone()).unwrap();
 
         writeln!(
             out,

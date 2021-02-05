@@ -592,8 +592,9 @@ impl Job for IoCostTuneJob {
     }
 
     fn run(&mut self, rctx: &mut RunCtx) -> Result<serde_json::Value> {
-        let src: IoCostQoSResult = serde_json::from_value(rctx.result_forwards.pop().unwrap())
-            .map_err(|e| anyhow!("failed to parse iocost-qos result ({})", &e))?;
+        let src: IoCostQoSResult =
+            serde_json::from_value(rctx.data_forwards.pop().unwrap().result.unwrap())
+                .map_err(|e| anyhow!("failed to parse iocost-qos result ({})", &e))?;
         let mut data = BTreeMap::<DataSel, DataSeries>::default();
 
         if src.results.len() == 0 {
@@ -666,15 +667,20 @@ impl Job for IoCostTuneJob {
     fn format<'a>(
         &self,
         mut out: Box<dyn Write + 'a>,
-        result: &serde_json::Value,
+        data: &JobData,
         _full: bool,
         props: &JobProps,
     ) -> Result<()> {
-        let result = serde_json::from_value::<IoCostTuneResult>(result.clone()).unwrap();
+        let result =
+            serde_json::from_value::<IoCostTuneResult>(data.result.as_ref().unwrap().clone())
+                .unwrap();
 
-        write!(out,
-               "Graphs (circle: data points, cross: fitted line)\n\
-                ================================================\n\n").unwrap();
+        write!(
+            out,
+            "Graphs (circle: data points, cross: fitted line)\n\
+                ================================================\n\n"
+        )
+        .unwrap();
 
         let mut graph_prefix = None;
         for (k, v) in props[0].iter() {
