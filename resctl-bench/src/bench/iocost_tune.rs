@@ -622,7 +622,7 @@ impl Job for IoCostTuneJob {
             data.insert(sel.clone(), series);
         }
 
-        let base_model = src.model.clone();
+        let base_model = src.base_model.clone();
         let base_qos = src.base_qos.clone();
 
         let mut results = Vec::<QoSResult>::new();

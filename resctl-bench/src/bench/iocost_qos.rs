@@ -109,7 +109,7 @@ pub struct IoCostQoSRun {
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct IoCostQoSResult {
-    pub model: IoCostModelParams,
+    pub base_model: IoCostModelParams,
     pub base_qos: IoCostQoSParams,
     pub results: Vec<Option<IoCostQoSRun>>,
     inc_results: Vec<IoCostQoSRun>,
@@ -214,7 +214,7 @@ impl IoCostQoSJob {
         };
 
         let msg = "iocost-qos: Existing result doesn't match the current configuration";
-        if pr.model != bench.iocost.model || pr.base_qos != bench.iocost.qos {
+        if pr.base_model != bench.iocost.model || pr.base_qos != bench.iocost.qos {
             warn!("{} ({})", &msg, "iocost parameter mismatch");
             return false;
         }
@@ -386,7 +386,7 @@ impl Job for IoCostQoSJob {
             None => (
                 true,
                 IoCostQoSResult {
-                    model: bench.iocost.model.clone(),
+                    base_model: bench.iocost.model.clone(),
                     base_qos: bench.iocost.qos.clone(),
                     results: vec![],
                     inc_results: vec![],
@@ -510,9 +510,9 @@ impl Job for IoCostQoSJob {
 
         results.resize(self.runs.len(), None);
 
-        let (model, base_qos) = (bench.iocost.model, bench.iocost.qos);
+        let (base_model, base_qos) = (bench.iocost.model, bench.iocost.qos);
         let result = IoCostQoSResult {
-            model,
+            base_model,
             base_qos,
             results,
             inc_results: vec![],
