@@ -17,9 +17,12 @@ impl<'a> Grapher<'a> {
         }
     }
 
-    fn setup_view(sel: &DataSel, series: &DataSeries) -> (ContinuousView, f64, f64) {
-        let sel_name = format!("{}", sel);
-
+    fn setup_view(
+        sel: &DataSel,
+        series: &DataSeries,
+        mem_profile: u32,
+        extra_info: Option<&str>,
+    ) -> (ContinuousView, f64, f64) {
         let (vrate_max, val_max, val_min) = series
             .points
             .iter()
@@ -41,7 +44,7 @@ impl<'a> Grapher<'a> {
 
         let lines = &series.lines;
         let mut xlabel = format!(
-            "vrate: min={:.3} max={:.3} ",
+            "vrate (min={:.3} max={:.3} ",
             lines.low.1 * yscale,
             lines.high.1 * yscale
         );
@@ -51,20 +54,33 @@ impl<'a> Grapher<'a> {
         if lines.high.0 < vrate_max {
             xlabel += &format!("high-infl={:.1} ", lines.high.0);
         }
-        xlabel += &format!("err={:.3}", series.error * yscale);
+        xlabel += &format!("err={:.3})", series.error * yscale);
+
+        let mut ylabel = match sel {
+            DataSel::MOF => format!("{}@{}", sel, mem_profile),
+            sel => format!("{}", sel),
+        };
+        if extra_info.is_some() {
+            ylabel += &format!(" ({})", extra_info.as_ref().unwrap());
+        }
 
         let view = ContinuousView::new()
             .x_range(0.0, vrate_max * 1.1)
             .y_range(ymin * yscale, val_max * 1.1 * yscale)
             .x_label(xlabel)
-            .y_label(sel_name);
+            .y_label(ylabel);
 
         (view, vrate_max, yscale)
     }
 
-    fn plot_one_text(&mut self, sel: &DataSel, series: &DataSeries) -> Result<()> {
+    fn plot_one_text(
+        &mut self,
+        sel: &DataSel,
+        series: &DataSeries,
+        mem_profile: u32,
+    ) -> Result<()> {
         const SIZE: (u32, u32) = (80, 24);
-        let (view, vrate_max, yscale) = Self::setup_view(sel, series);
+        let (view, vrate_max, yscale) = Self::setup_view(sel, series, mem_profile, None);
 
         let mut lines = vec![];
         for i in 0..SIZE.0 {
@@ -91,9 +107,16 @@ impl<'a> Grapher<'a> {
         format!("{}-{}.svg", self.file_prefix.as_ref().unwrap(), sel)
     }
 
-    fn plot_one_svg(&mut self, sel: &DataSel, series: &DataSeries) -> Result<()> {
-        const SIZE: (u32, u32) = (640, 480);
-        let (view, vrate_max, yscale) = Self::setup_view(sel, series);
+    fn plot_one_svg(
+        &mut self,
+        sel: &DataSel,
+        series: &DataSeries,
+        mem_profile: u32,
+        extra_info: &str,
+    ) -> Result<()> {
+        const SIZE: (u32, u32) = (640, 520);
+        let (view, vrate_max, yscale) =
+            Self::setup_view(sel, series, mem_profile, Some(extra_info));
 
         let lines = &series.lines;
         let segments = vec![
@@ -102,7 +125,7 @@ impl<'a> Grapher<'a> {
             (lines.high.0, lines.high.1 * yscale),
             (vrate_max, lines.high.1 * yscale),
         ];
-        let view = view.add(Plot::new(segments).line_style(LineStyle::new().colour("#DD3355")));
+        let view = view.add(Plot::new(segments).line_style(LineStyle::new().colour("#3749e6")));
 
         let points = series
             .points
@@ -113,7 +136,7 @@ impl<'a> Grapher<'a> {
             Plot::new(points).point_style(
                 PointStyle::new()
                     .marker(PointMarker::Circle)
-                    .colour("#35C788"),
+                    .colour("#37c0e6"),
             ),
         );
 
@@ -128,17 +151,35 @@ impl<'a> Grapher<'a> {
         Ok(())
     }
 
+    fn collect_svgs(&self, srcs: &Vec<String>, dst: &str) -> Result<()> {
+        Ok(())
+    }
+
     pub fn plot(&mut self, result: &IoCostTuneResult) -> Result<()> {
         for (sel, series) in result.data.iter() {
-            self.plot_one_text(sel, series)?;
+            self.plot_one_text(sel, series, 0 /*result.mem_profile*/)?;
             if self.file_prefix.is_some() {
-                if let Err(e) = self.plot_one_svg(sel, series) {
-                    warn!(
-                        "iocost-tune: Failed to plot graph into {:?} ({})",
+                if let Err(e) = self.plot_one_svg(
+                    sel, series, 0,  /*result.mem_profile*/
+                    "", /*result.dev_model*/
+                ) {
+                    bail!(
+                        "Failed to plot graph into {:?} ({})",
                         &self.plot_filename(sel),
                         &e
                     );
                 }
+            }
+        }
+        if self.file_prefix.is_some() {
+            let dst = format!("{}.pdf", self.file_prefix.as_ref().unwrap());
+            let srcs: Vec<String> = result
+                .data
+                .iter()
+                .map(|(sel, _series)| self.plot_filename(sel))
+                .collect();
+            if let Err(e) = self.collect_svgs(&srcs, &dst) {
+                bail!("Failed to collect graphs into {:?} ({})", &dst, &e);
             }
         }
         Ok(())

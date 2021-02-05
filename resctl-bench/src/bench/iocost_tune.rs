@@ -596,6 +596,10 @@ impl Job for IoCostTuneJob {
             .map_err(|e| anyhow!("failed to parse iocost-qos result ({})", &e))?;
         let mut data = BTreeMap::<DataSel, DataSeries>::default();
 
+        if src.results.len() == 0 {
+            bail!("no entry in iocost-qos result");
+        }
+
         for sel in self.sels.iter() {
             let mut series = DataSeries::default();
             for run in src.results.iter().filter_map(|x| x.as_ref()) {
