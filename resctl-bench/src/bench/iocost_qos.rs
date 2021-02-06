@@ -206,12 +206,23 @@ impl IoCostQoSJob {
     }
 
     fn prev_matches(&self, pr: &IoCostQoSResult, bench: &BenchKnobs) -> bool {
+        // If @pr has't completed and only contains incremental results, its
+        // mem_profile isn't initialized yet. Obtain mem_profile from the
+        // base storage result instead.
+        let base_result = if pr.results.len() > 0 && pr.results[0].is_some() {
+            pr.results[0].as_ref().unwrap()
+        } else if pr.inc_results.len() > 0 {
+            &pr.inc_results[0]
+        } else {
+            return false;
+        };
+
         let msg = "iocost-qos: Existing result doesn't match the current configuration";
         if pr.base_model != bench.iocost.model || pr.base_qos != bench.iocost.qos {
             warn!("{} ({})", &msg, "iocost parameter mismatch");
             return false;
         }
-        if self.mem_profile > 0 && self.mem_profile != pr.mem_profile {
+        if self.mem_profile > 0 && self.mem_profile != base_result.storage.mem_profile {
             warn!("{} ({})", &msg, "mem-profile mismatch");
             return false;
         }
