@@ -242,6 +242,7 @@ struct QoSRule {
 
 #[derive(Debug)]
 struct IoCostTuneJob {
+    mem_profile: u32,
     gran: f64,
     vrate_min: f64,
     vrate_max: f64,
@@ -252,6 +253,7 @@ struct IoCostTuneJob {
 impl Default for IoCostTuneJob {
     fn default() -> Self {
         Self {
+            mem_profile: 0,
             gran: DFL_GRAN,
             vrate_min: DFL_VRATE_MIN,
             vrate_max: DFL_VRATE_MAX,
@@ -282,13 +284,23 @@ impl Bench for IoCostTuneBench {
                 return Ok(());
             }
         }
+
         info!("iocost-tune: iocost-qos run not specified, inserting with preset params");
+
+        let mut extra_args = String::new();
+        for (k, v) in specs[idx].props[0].iter() {
+            if k == "mem-profile" {
+                extra_args += &format!(",{}={}", k, v);
+                break;
+            }
+        }
+
         specs[idx].forward_results_from.push(idx);
         specs.insert(
             idx,
             resctl_bench_intf::Args::parse_job_spec(&format!(
-                "iocost-qos:vrate-max={},vrate-intvs={}",
-                DFL_IOCOST_QOS_VRATE_MAX, DFL_IOCOST_QOS_VRATE_INTVS
+                "iocost-qos:vrate-max={},vrate-intvs={}{}",
+                DFL_IOCOST_QOS_VRATE_MAX, DFL_IOCOST_QOS_VRATE_INTVS, extra_args
             ))?,
         );
         Ok(())
@@ -299,6 +311,7 @@ impl Bench for IoCostTuneBench {
 
         for (k, v) in spec.props[0].iter() {
             match k.as_str() {
+                "mem-profile" => job.mem_profile = v.parse::<u32>()?,
                 "gran" => job.gran = v.parse::<f64>()?,
                 "vrate-min" => job.vrate_min = v.parse::<f64>()?,
                 "vrate-max" => job.vrate_max = v.parse::<f64>()?,
@@ -597,6 +610,16 @@ impl Job for IoCostTuneJob {
             .map_err(|e| anyhow!("failed to parse iocost-qos result ({})", &e))?;
         let mut data = BTreeMap::<DataSel, DataSeries>::default();
 
+        if self.mem_profile == 0 {
+            self.mem_profile = src.mem_profile;
+        } else if self.mem_profile != src.mem_profile {
+            bail!(
+                "mem-profile ({}) != iocost-qos's ({})",
+                self.mem_profile,
+                src.mem_profile
+            );
+        }
+
         if src.results.len() == 0 {
             bail!("no entry in iocost-qos result");
         }
@@ -659,7 +682,7 @@ impl Job for IoCostTuneJob {
         Ok(serde_json::to_value(IoCostTuneResult {
             base_model,
             base_qos,
-            mem_profile: src.mem_profile,
+            mem_profile: self.mem_profile,
             data,
             results,
         })?)
