@@ -274,7 +274,6 @@ impl Program {
                 .unwrap()
                 .preprocess_run_specs(&mut args.job_specs, idx, &base_bench, prev_data)
                 .expect("preprocess_run_specs() failed");
-            break;
         }
 
         // Put jobs to run in self.job_ctxs.
