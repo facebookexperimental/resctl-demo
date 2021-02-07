@@ -114,7 +114,8 @@ impl Iterator for MemProfileIterator {
         let v = self.cur;
         self.cur *= 2;
         match v {
-            v if v <= 8 => Some((v, ((v as usize) << 30) / 2)),
+            v if v <= 4 => Some((v, ((v as usize) << 30) / 2)),
+            v if v <= 16 => Some((v, ((v as usize) << 30) * 3 / 4)),
             v => Some((v, ((v as usize) - 8) << 30)),
         }
     }
