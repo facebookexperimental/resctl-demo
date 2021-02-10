@@ -301,6 +301,7 @@ impl IoCostQoSJob {
         if let Some(v) = ovr.max {
             qos.max = v;
         }
+        qos.sanitize();
         qos
     }
 

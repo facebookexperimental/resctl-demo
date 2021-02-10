@@ -54,6 +54,18 @@ impl std::fmt::Display for IoCostQoSParams {
     }
 }
 
+impl IoCostQoSParams {
+    /// The kernel reads only two digits after the decimal point. Let's
+    /// rinse the floats through formatting and parsing so that they can be
+    /// tested for equality with values read from kernel.
+    pub fn sanitize(&mut self) {
+        self.rpct = format!("{:.2}", self.rpct).parse::<f64>().unwrap();
+        self.wpct = format!("{:.2}", self.wpct).parse::<f64>().unwrap();
+        self.min = format!("{:.2}", self.min).parse::<f64>().unwrap();
+        self.max = format!("{:.2}", self.max).parse::<f64>().unwrap();
+    }
+}
+
 /// Save /sys/fs/cgroup/io.cost.model,qos and restore them on drop.
 #[derive(Default)]
 pub struct IoCostSysSave {

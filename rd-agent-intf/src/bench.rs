@@ -1,4 +1,5 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
+use anyhow::Result;
 use chrono::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::time::SystemTime;
@@ -74,7 +75,12 @@ impl Default for BenchKnobs {
     }
 }
 
-impl JsonLoad for BenchKnobs {}
+impl JsonLoad for BenchKnobs {
+    fn loaded(&mut self, _prev: Option<&mut Self>) -> Result<()> {
+        self.iocost.qos.sanitize();
+        Ok(())
+    }
+}
 
 impl JsonSave for BenchKnobs {
     fn preamble() -> Option<String> {

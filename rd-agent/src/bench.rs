@@ -105,7 +105,8 @@ pub fn update_iocost(knobs: &mut BenchKnobs, cfg: &Config, iocost_seq: u64) -> R
         .read(true)
         .open(&cfg.iocost_paths.result)?;
 
-    let iocost: IoCostKnobs = serde_json::from_reader(f)?;
+    let mut iocost: IoCostKnobs = serde_json::from_reader(f)?;
+    iocost.qos.sanitize();
 
     let devnr = match scan_fmt!(&iocost.devnr, "{}:{}", u32, u32) {
         Ok(v) => v,
@@ -181,7 +182,7 @@ pub fn apply_iocost(knobs: &BenchKnobs, cfg: &Config) -> Result<()> {
 
     let qos = &knobs.iocost.qos;
     let qos_line = format!(
-        "{}:{} rpct={} rlat={} wpct={} wlat={} min={} max={}",
+        "{}:{} rpct={:.2} rlat={} wpct={:.2} wlat={} min={:.2} max={:.2}",
         maj, min, qos.rpct, qos.rlat, qos.wpct, qos.wlat, qos.min, qos.max
     );
     debug!("iocost.qos: {}", &qos_line);
