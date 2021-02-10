@@ -40,12 +40,34 @@ pub struct IoCostQoSOvr {
     pub wlat: Option<u64>,
     pub min: Option<f64>,
     pub max: Option<f64>,
+
+    #[serde(skip)]
+    pub skip: bool,
+}
+
+impl IoCostQoSOvr {
+    /// See IoCostQoSParams::sanitize().
+    fn sanitize(&mut self) {
+        if let Some(rpct) = self.rpct.as_mut() {
+            *rpct = format!("{:.2}", rpct).parse::<f64>().unwrap();
+        }
+        if let Some(wpct) = self.wpct.as_mut() {
+            *wpct = format!("{:.2}", wpct).parse::<f64>().unwrap();
+        }
+        if let Some(min) = self.min.as_mut() {
+            *min = format!("{:.2}", min).parse::<f64>().unwrap();
+        }
+        if let Some(max) = self.max.as_mut() {
+            *max = format!("{:.2}", max).parse::<f64>().unwrap();
+        }
+    }
 }
 
 struct IoCostQoSJob {
     base_loops: u32,
     loops: u32,
     mem_profile: u32,
+    dither_dist: Option<f64>,
     retries: u32,
     allow_fail: bool,
     storage_job: StorageJob,
@@ -68,25 +90,41 @@ impl Bench for IoCostQoSBench {
         base_bench: &BenchKnobs,
         prev_data: Option<&JobData>,
     ) -> Result<()> {
+        let prev_result = if prev_data.is_some() {
+            Some(serde_json::from_value::<IoCostQoSResult>(
+                prev_data.as_ref().unwrap().result.clone(),
+            )?)
+        } else {
+            None
+        };
+
+        // If dither is enabled without explicit dither_dist and prev has
+        // dither_dist set, use the prev dither_dist so that we can use
+        // results from it.
+        if let Some(pr) = prev_result.as_ref() {
+            if let Some(pdd) = pr.dither_dist.as_ref() {
+                for (k, v) in specs[idx].props[0].iter_mut() {
+                    if k == "dither" && v.len() == 0 {
+                        *v = format!("{}", pdd);
+                    }
+                }
+            }
+        }
+
         // Is the bench result available or iocost-params already scheduled?
         if base_bench.iocost_seq > 0 {
             debug!("iocost-qos-pre: iocost parameters available");
             return Ok(());
         }
         for i in (0..idx).rev() {
-            let sp = &specs[i];
-            if sp.kind == "iocost-params" {
+            if specs[i].kind == "iocost-params" {
                 debug!("iocost-qos-pre: iocost-params already scheduled");
                 return Ok(());
             }
         }
 
         // If prev has all the needed results, we don't need iocost-params.
-        if prev_data.is_some() {
-            let prev_result = serde_json::from_value::<IoCostQoSResult>(
-                prev_data.as_ref().unwrap().result.clone(),
-            )?;
-
+        if let Some(pr) = prev_result.as_ref() {
             // Let the actual job parsing stage take care of it.
             let job = match IoCostQoSJob::parse(&specs[idx]) {
                 Ok(job) => job,
@@ -94,7 +132,7 @@ impl Bench for IoCostQoSBench {
             };
 
             if let Ok(()) = job.runs.iter().try_for_each(|ovr| {
-                IoCostQoSJob::find_matching_result(ovr.as_ref(), &prev_result)
+                IoCostQoSJob::find_matching_result(ovr.as_ref(), pr)
                     .map(|_| ())
                     .ok_or(anyhow!(""))
             }) {
@@ -131,6 +169,7 @@ pub struct IoCostQoSResult {
     pub base_model: IoCostModelParams,
     pub base_qos: IoCostQoSParams,
     pub mem_profile: u32,
+    pub dither_dist: Option<f64>,
     pub results: Vec<Option<IoCostQoSRun>>,
     inc_results: Vec<IoCostQoSRun>,
 }
@@ -151,6 +190,7 @@ impl IoCostQoSJob {
         let mut allow_fail = false;
         let mut runs = vec![None];
         let mut dither = false;
+        let mut dither_dist = None;
 
         for (k, v) in spec.props[0].iter() {
             match k.as_str() {
@@ -162,7 +202,12 @@ impl IoCostQoSJob {
                 "mem-profile" => mem_profile = v.parse::<u32>()?,
                 "retries" => retries = v.parse::<u32>()?,
                 "allow-fail" => allow_fail = v.parse::<bool>()?,
-                "dither" => dither = true,
+                "dither" => {
+                    dither = true;
+                    if v.len() > 0 {
+                        dither_dist = Some(v.parse::<f64>()?);
+                    }
+                }
                 k => {
                     storage_spec.props[0].insert(k.into(), v.into());
                 }
@@ -212,20 +257,26 @@ impl IoCostQoSJob {
             };
 
             if dither {
-                let dither_dist = rand::thread_rng().gen_range(-click / 2.0, click / 2.0);
-                vrate_min += dither_dist + dither_shift;
-                vrate_max += dither_dist + dither_shift;
+                if dither_dist.is_none() {
+                    dither_dist = Some(
+                        rand::thread_rng().gen_range(-click / 2.0, click / 2.0) + dither_shift,
+                    );
+                }
+                vrate_min += dither_dist.as_ref().unwrap();
+                vrate_max += dither_dist.as_ref().unwrap();
             }
 
             vrate_min = vrate_min.max(VRATE_INTVS_MIN);
 
             let mut vrate = vrate_max;
             while vrate > vrate_min - 0.001 {
-                runs.push(Some(IoCostQoSOvr {
+                let mut ovr = IoCostQoSOvr {
                     min: Some(vrate),
                     max: Some(vrate),
                     ..Default::default()
-                }));
+                };
+                ovr.sanitize();
+                runs.push(Some(ovr));
                 vrate -= click;
             }
         }
@@ -234,6 +285,7 @@ impl IoCostQoSJob {
             base_loops,
             loops,
             mem_profile,
+            dither_dist,
             retries,
             allow_fail,
             storage_job,
@@ -267,13 +319,18 @@ impl IoCostQoSJob {
     }
 
     fn calc_abs_min_vrate(model: &IoCostModelParams) -> f64 {
-        (ABS_MIN_PERF.rbps as f64 / model.rbps as f64)
-            .max(ABS_MIN_PERF.rseqiops as f64 / model.rseqiops as f64)
-            .max(ABS_MIN_PERF.rrandiops as f64 / model.rrandiops as f64)
-            .max(ABS_MIN_PERF.wbps as f64 / model.wbps as f64)
-            .max(ABS_MIN_PERF.wseqiops as f64 / model.wseqiops as f64)
-            .max(ABS_MIN_PERF.wrandiops as f64 / model.wrandiops as f64)
-            * 100.0
+        format!(
+            "{:.2}",
+            (ABS_MIN_PERF.rbps as f64 / model.rbps as f64)
+                .max(ABS_MIN_PERF.rseqiops as f64 / model.rseqiops as f64)
+                .max(ABS_MIN_PERF.rrandiops as f64 / model.rrandiops as f64)
+                .max(ABS_MIN_PERF.wbps as f64 / model.wbps as f64)
+                .max(ABS_MIN_PERF.wseqiops as f64 / model.wseqiops as f64)
+                .max(ABS_MIN_PERF.wrandiops as f64 / model.wrandiops as f64)
+                * 100.0
+        )
+        .parse::<f64>()
+        .unwrap()
     }
 
     fn apply_qos_ovr(ovr: Option<&IoCostQoSOvr>, qos: &IoCostQoSParams) -> IoCostQoSParams {
@@ -440,6 +497,7 @@ impl Job for IoCostQoSJob {
                     base_model: bench.iocost.model.clone(),
                     base_qos: bench.iocost.qos.clone(),
                     mem_profile: 0,
+                    dither_dist: self.dither_dist,
                     results: vec![],
                     inc_results: vec![],
                 },
@@ -449,12 +507,34 @@ impl Job for IoCostQoSJob {
         if prev_result.results.len() > 0 {
             self.mem_profile = prev_result.mem_profile;
         }
+
+        let abs_min_vrate = Self::calc_abs_min_vrate(&rctx.base_bench().iocost.model);
         let mut nr_to_run = 0;
 
         // Print out what to do beforehand so that the user can spot errors
         // without waiting for the benches to run.
-        for (i, ovr) in self.runs.iter().enumerate() {
+        for (i, ovr) in self.runs.iter_mut().enumerate() {
             let qos = &bench.iocost.qos;
+
+            let mut extra_state = " ";
+
+            if let Some(ovr) = ovr.as_mut() {
+                if let Some(max) = ovr.max.as_mut() {
+                    if *max < abs_min_vrate {
+                        ovr.skip = true;
+                        extra_state = "s";
+                    }
+                }
+                if !ovr.skip {
+                    if let Some(min) = ovr.min.as_mut() {
+                        if *min < abs_min_vrate {
+                            *min = abs_min_vrate;
+                            extra_state = "a";
+                        }
+                    }
+                }
+            }
+
             let new = match Self::find_matching_result(ovr.as_ref(), &prev_result) {
                 Some(_) => false,
                 None => {
@@ -463,10 +543,11 @@ impl Job for IoCostQoSJob {
                 }
             };
             info!(
-                "iocost-qos[{:02}]: {} {}",
+                "iocost-qos[{:02}]: {}{} {}",
                 i,
                 if new { "+" } else { "-" },
-                Self::format_qos_ovr(ovr.as_ref(), qos)
+                extra_state,
+                Self::format_qos_ovr(ovr.as_ref(), qos),
             );
         }
 
@@ -492,7 +573,6 @@ impl Job for IoCostQoSJob {
         }
 
         // Run the needed benches.
-        let abs_min_vrate = Self::calc_abs_min_vrate(&rctx.base_bench().iocost.model);
         let mut last_mem_avail = 0;
         let mut last_mem_profile = match self.mem_profile {
             0 => None,
@@ -500,31 +580,13 @@ impl Job for IoCostQoSJob {
         };
 
         let mut results = vec![];
-        'outer: for (i, mut ovr) in self.runs.iter().cloned().enumerate() {
-            if let Some(ovr) = ovr.as_mut() {
-                if let Some(max) = ovr.max.as_mut() {
-                    if *max < abs_min_vrate {
-                        info!(
-                            "iocost-qos[{:02}]: max vrate {:.2} too low (< {:.2}), skipping",
-                            i, *max, abs_min_vrate
-                        );
-                        continue 'outer;
-                    }
-                }
-                if let Some(min) = ovr.min.as_mut() {
-                    if *min < abs_min_vrate {
-                        info!(
-                            "iocost-qos[{:02}]: min vrate {:.2} too low, bumping to {:.2}",
-                            i, *min, abs_min_vrate
-                        );
-                        *min = abs_min_vrate;
-                    }
-                }
-            }
-
+        for (i, ovr) in self.runs.iter().enumerate() {
             let qos = &bench.iocost.qos;
             if let Some(result) = Self::find_matching_result(ovr.as_ref(), &prev_result) {
                 results.push(Some(result.clone()));
+                continue;
+            } else if ovr.is_some() && ovr.as_ref().unwrap().skip {
+                results.push(None);
                 continue;
             }
 
@@ -578,7 +640,8 @@ impl Job for IoCostQoSJob {
                             if !self.allow_fail {
                                 return Err(e);
                             }
-                            break 'outer;
+                            results.push(None);
+                            break;
                         }
                     }
                 }
@@ -592,6 +655,7 @@ impl Job for IoCostQoSJob {
             base_model,
             base_qos,
             mem_profile: self.mem_profile,
+            dither_dist: self.dither_dist,
             results,
             inc_results: vec![],
         };
