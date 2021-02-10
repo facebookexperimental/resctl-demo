@@ -27,6 +27,7 @@ impl<'a> Grapher<'a> {
         let (vrate_max, val_max, val_min) = series
             .points
             .iter()
+            .chain(series.outliers.iter())
             .fold((0.0_f64, 0.0_f64, std::f64::MAX), |acc, point| {
                 (acc.0.max(point.0), acc.1.max(point.1), acc.1.min(point.1))
             });
@@ -89,7 +90,15 @@ impl<'a> Grapher<'a> {
             lines.push((vrate, series.lines.eval(vrate) * yscale));
         }
         let view =
-            view.add(Plot::new(lines).point_style(PointStyle::new().marker(PointMarker::Cross)));
+            view.add(Plot::new(lines).point_style(PointStyle::new().marker(PointMarker::Square)));
+
+        let outliers = series
+            .outliers
+            .iter()
+            .map(|(vrate, val)| (*vrate, val * yscale))
+            .collect();
+        let view =
+            view.add(Plot::new(outliers).point_style(PointStyle::new().marker(PointMarker::Cross)));
 
         let points = series
             .points
@@ -119,14 +128,18 @@ impl<'a> Grapher<'a> {
         let (view, vrate_max, yscale) =
             Self::setup_view(sel, series, mem_profile, Some(extra_info));
 
-        let lines = &series.lines;
-        let segments = vec![
-            (0.0, lines.low.1 * yscale),
-            (lines.low.0, lines.low.1 * yscale),
-            (lines.high.0, lines.high.1 * yscale),
-            (vrate_max, lines.high.1 * yscale),
-        ];
-        let view = view.add(Plot::new(segments).line_style(LineStyle::new().colour("#3749e6")));
+        let points = series
+            .outliers
+            .iter()
+            .map(|(vrate, val)| (*vrate, val * yscale))
+            .collect();
+        let view = view.add(
+            Plot::new(points).point_style(
+                PointStyle::new()
+                    .marker(PointMarker::Cross)
+                    .colour("#37c0e6"),
+            ),
+        );
 
         let points = series
             .points
@@ -140,6 +153,15 @@ impl<'a> Grapher<'a> {
                     .colour("#37c0e6"),
             ),
         );
+
+        let lines = &series.lines;
+        let segments = vec![
+            (0.0, lines.low.1 * yscale),
+            (lines.low.0, lines.low.1 * yscale),
+            (lines.high.0, lines.high.1 * yscale),
+            (vrate_max, lines.high.1 * yscale),
+        ];
+        let view = view.add(Plot::new(segments).line_style(LineStyle::new().colour("#3749e6")));
 
         let view = view.x_max_ticks(10).y_max_ticks(10);
 

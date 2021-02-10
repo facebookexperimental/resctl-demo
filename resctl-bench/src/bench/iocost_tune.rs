@@ -2,6 +2,7 @@
 use super::iocost_qos::{IoCostQoSOvr, IoCostQoSResult};
 use super::storage::StorageResult;
 use super::*;
+use statrs::distribution::{Normal, Univariate};
 use std::cmp::{Ordering, PartialOrd};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -427,6 +428,7 @@ impl DataLines {
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 struct DataSeries {
     points: Vec<DataPoint>,
+    outliers: Vec<DataPoint>,
     lines: DataLines,
     error: f64,
 }
@@ -532,9 +534,11 @@ impl DataSeries {
         })
     }
 
-    fn calc_error(points: &[DataPoint], lines: &DataLines) -> f64 {
+    fn calc_error<'a, I>(points: I, lines: &DataLines) -> f64
+    where
+        I: Iterator<Item = &'a DataPoint>,
+    {
         points
-            .iter()
             .fold(0.0, |acc, point| {
                 acc + (point.1 - lines.eval(point.0)).powi(2)
             })
@@ -550,11 +554,11 @@ impl DataSeries {
 
         // Start with simple linear regression.
         let mut best_lines = Self::fit_line(&self.points);
-        let mut best_error = Self::calc_error(&self.points, &best_lines);
+        let mut best_error = Self::calc_error(self.points.iter(), &best_lines);
 
         let mut try_and_pick = |fit: &(dyn Fn() -> Option<DataLines>)| {
             if let Some(lines) = fit() {
-                let error = Self::calc_error(&self.points, &lines);
+                let error = Self::calc_error(self.points.iter(), &lines);
                 if error < best_error {
                     best_lines = lines;
                     best_error = error;
@@ -578,8 +582,42 @@ impl DataSeries {
             }
         }
 
+        // We fit the lines excluding the outliers so that the fitted lines
+        // can be used to guess the likely behaviors most of the time but
+        // include the outliers when reporting error so that the users can
+        // gauge the flakiness of the device.
+        self.error = Self::calc_error(self.points.iter().chain(self.outliers.iter()), &best_lines);
         self.lines = best_lines;
-        self.error = best_error;
+    }
+
+    fn filter_outliers(&mut self) {
+        let mut points = vec![];
+        points.append(&mut self.points);
+
+        let lines = &self.lines;
+        let nr_points = points.len() as f64;
+        let errors: Vec<f64> = points
+            .iter()
+            .map(|(vrate, val)| (val - lines.eval(*vrate)).powi(2))
+            .collect();
+        let mean = statistical::mean(&errors);
+        let stdev = statistical::standard_deviation(&errors, None);
+
+        let dist = Normal::new(mean, stdev).unwrap();
+
+        for (point, error) in points.into_iter().zip(errors.iter()) {
+            // Apply Chauvenet's criterion on the error of each data point
+            // to detect and reject outliers.
+            if (1.0 - dist.cdf(*error)) * nr_points >= 0.5 {
+                self.points.push(point);
+            } else {
+                self.outliers.push(point);
+            }
+        }
+
+        // self.points start sorted but outliers may go out of order if this
+        // function is called more than once. Sort just in case.
+        self.outliers.sort_by(|a, b| a.partial_cmp(b).unwrap());
     }
 }
 
@@ -642,6 +680,8 @@ impl Job for IoCostTuneJob {
                 series.points.push((vrate, val));
             }
             series.points.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            series.fit_lines(self.gran);
+            series.filter_outliers();
             series.fit_lines(self.gran);
             data.insert(sel.clone(), series);
         }
