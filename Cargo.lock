@@ -1554,6 +1554,7 @@ dependencies = [
  "num-traits",
  "plotlib",
  "quantiles",
+ "rand 0.7.3",
  "rd-agent-intf",
  "rd-hashd-intf",
  "resctl-bench-intf",

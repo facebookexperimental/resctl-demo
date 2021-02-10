@@ -1,5 +1,6 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
 use super::*;
+use rand::Rng;
 
 use super::storage::{StorageJob, StorageResult};
 use rd_agent_intf::BenchKnobs;
@@ -12,6 +13,24 @@ const DFL_VRATE_INTVS: u32 = 5;
 const DFL_STORAGE_BASE_LOOPS: u32 = 3;
 const DFL_STORAGE_LOOPS: u32 = 1;
 const DFL_RETRIES: u32 = 2;
+
+// Don't go below 1% of the specified model when applying vrate-intvs.
+const VRATE_INTVS_MIN: f64 = 1.0;
+
+// The absolute minimum performance level this bench will probe. It's
+// roughly 5% of what a modern 7200rpm hard disk can do. The bench itself
+// needs some access to IOs and going significantly lower than this may
+// affect system and bench stability. seqiops are artificially lowered to
+// avoid limiting throttling of older SSDs which have similar seqiops as
+// hard drives.
+const ABS_MIN_PERF: IoCostModelParams = IoCostModelParams {
+    rbps: 8 << 20,
+    rseqiops: 16,
+    rrandiops: 16,
+    wbps: 8 << 20,
+    wseqiops: 16,
+    wrandiops: 16,
+};
 
 #[derive(Serialize, Deserialize, Debug, Default, Clone, PartialEq)]
 pub struct IoCostQoSOvr {
@@ -131,6 +150,7 @@ impl IoCostQoSJob {
         let mut retries = DFL_RETRIES;
         let mut allow_fail = false;
         let mut runs = vec![None];
+        let mut dither = false;
 
         for (k, v) in spec.props[0].iter() {
             match k.as_str() {
@@ -142,6 +162,7 @@ impl IoCostQoSJob {
                 "mem-profile" => mem_profile = v.parse::<u32>()?,
                 "retries" => retries = v.parse::<u32>()?,
                 "allow-fail" => allow_fail = v.parse::<bool>()?,
+                "dither" => dither = true,
                 k => {
                     storage_spec.props[0].insert(k.into(), v.into());
                 }
@@ -180,17 +201,32 @@ impl IoCostQoSJob {
             // click, so if min is 0, max is 10 and intvs is 5, the sequence
             // is (10, 7.5, 5, 2.5). If min > 0, the range is inclusive -
             // min 5, max 10, intvs 5 => (10, 9, 8, 7, 6, 5).
-            let click = if vrate_min == 0.0 {
-                vrate_max / vrate_intvs as f64
+            let click;
+            let mut dither_shift = 0.0;
+            if vrate_min == 0.0 {
+                click = vrate_max / vrate_intvs as f64;
+                vrate_min = click;
+                dither_shift = -click / 2.0;
             } else {
-                (vrate_max - vrate_min) / (vrate_intvs - 1) as f64
+                click = (vrate_max - vrate_min) / (vrate_intvs - 1) as f64;
             };
-            for i in 0..vrate_intvs {
+
+            if dither {
+                let dither_dist = rand::thread_rng().gen_range(-click / 2.0, click / 2.0);
+                vrate_min += dither_dist + dither_shift;
+                vrate_max += dither_dist + dither_shift;
+            }
+
+            vrate_min = vrate_min.max(VRATE_INTVS_MIN);
+
+            let mut vrate = vrate_max;
+            while vrate > vrate_min - 0.001 {
                 runs.push(Some(IoCostQoSOvr {
-                    min: Some(vrate_max - i as f64 * click),
-                    max: Some(vrate_max - i as f64 * click),
+                    min: Some(vrate),
+                    max: Some(vrate),
                     ..Default::default()
                 }));
+                vrate -= click;
             }
         }
 
@@ -228,6 +264,16 @@ impl IoCostQoSJob {
         }
 
         true
+    }
+
+    fn calc_abs_min_vrate(model: &IoCostModelParams) -> f64 {
+        (ABS_MIN_PERF.rbps as f64 / model.rbps as f64)
+            .max(ABS_MIN_PERF.rseqiops as f64 / model.rseqiops as f64)
+            .max(ABS_MIN_PERF.rrandiops as f64 / model.rrandiops as f64)
+            .max(ABS_MIN_PERF.wbps as f64 / model.wbps as f64)
+            .max(ABS_MIN_PERF.wseqiops as f64 / model.wseqiops as f64)
+            .max(ABS_MIN_PERF.wrandiops as f64 / model.wrandiops as f64)
+            * 100.0
     }
 
     fn apply_qos_ovr(ovr: Option<&IoCostQoSOvr>, qos: &IoCostQoSParams) -> IoCostQoSParams {
@@ -445,6 +491,7 @@ impl Job for IoCostQoSJob {
         }
 
         // Run the needed benches.
+        let abs_min_vrate = Self::calc_abs_min_vrate(&rctx.base_bench().iocost.model);
         let mut last_mem_avail = 0;
         let mut last_mem_profile = match self.mem_profile {
             0 => None,
@@ -452,10 +499,30 @@ impl Job for IoCostQoSJob {
         };
 
         let mut results = vec![];
-        'outer: for (i, ovr) in self.runs.iter().enumerate() {
+        'outer: for (i, mut ovr) in self.runs.iter().cloned().enumerate() {
+            if let Some(ovr) = ovr.as_mut() {
+                if let Some(max) = ovr.max.as_mut() {
+                    if *max < abs_min_vrate {
+                        info!(
+                            "iocost-qos[{:02}]: max vrate {:.2} too low (< {:.2}), skipping",
+                            i, *max, abs_min_vrate
+                        );
+                        continue 'outer;
+                    }
+                }
+                if let Some(min) = ovr.min.as_mut() {
+                    if *min < abs_min_vrate {
+                        info!(
+                            "iocost-qos[{:02}]: min vrate {:.2} too low, bumping to {:.2}",
+                            i, *min, abs_min_vrate
+                        );
+                        *min = abs_min_vrate;
+                    }
+                }
+            }
+
             let qos = &bench.iocost.qos;
-            let ovr = ovr.as_ref();
-            if let Some(result) = Self::find_matching_result(ovr, &prev_result) {
+            if let Some(result) = Self::find_matching_result(ovr.as_ref(), &prev_result) {
                 results.push(Some(result.clone()));
                 continue;
             }
@@ -464,7 +531,11 @@ impl Job for IoCostQoSJob {
                 "iocost-qos[{:02}]: Running storage benchmark with QoS parameters:",
                 i
             );
-            info!("iocost-qos[{:02}]: {}", i, Self::format_qos_ovr(ovr, qos));
+            info!(
+                "iocost-qos[{:02}]: {}",
+                i,
+                Self::format_qos_ovr(ovr.as_ref(), qos)
+            );
 
             let mut retries = self.retries;
             loop {
@@ -476,14 +547,14 @@ impl Job for IoCostQoSJob {
                     _ => self.loops,
                 };
 
-                match Self::run_one(rctx, &mut job, ovr) {
+                match Self::run_one(rctx, &mut job, ovr.as_ref()) {
                     Ok(result) => {
                         last_mem_profile = Some(result.storage.mem_profile);
                         last_mem_avail = result.storage.mem_avail;
 
                         // Sanity check QoS params.
                         if result.qos.is_some() {
-                            let target_qos = Self::apply_qos_ovr(ovr, qos);
+                            let target_qos = Self::apply_qos_ovr(ovr.as_ref(), qos);
                             if result.qos.as_ref().unwrap() != &target_qos {
                                 bail!(
                                     "iocost-qos: result qos ({}) != target qos ({})",

@@ -506,7 +506,7 @@ impl Job for StorageJob {
             self.mem_profile = mp;
             self.mem_share = ms;
 
-            if self.mem_avail < self.mem_share {
+            if self.mem_avail < self.mem_share && !rctx.test {
                 if self.mem_avail_outer_retries > 0 {
                     warn!(
                         "storage: mem_avail {} too small for the memory profile, re-estimating",
@@ -535,7 +535,7 @@ impl Job for StorageJob {
                 let (mem_size, mem_avail_err) = self.measure_supportable_memory_size(rctx)?;
 
                 // check for both going over and under, see the above function
-                if mem_avail_err.abs() > self.mem_avail_err_max {
+                if mem_avail_err.abs() > self.mem_avail_err_max && !rctx.test {
                     warn!(
                         "storage: mem_avail error |{:.2}|% > {:.2}%, please keep system idle",
                         mem_avail_err * 100.0,

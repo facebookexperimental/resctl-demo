@@ -8,8 +8,6 @@ use std::collections::{BTreeMap, BTreeSet};
 
 mod graph;
 
-pub struct IoCostTuneBench {}
-
 const DFL_IOCOST_QOS_VRATE_MAX: f64 = 125.0;
 const DFL_IOCOST_QOS_VRATE_INTVS: u32 = 50;
 const DFL_GRAN: f64 = 0.1;
@@ -263,6 +261,8 @@ impl Default for IoCostTuneJob {
         }
     }
 }
+
+pub struct IoCostTuneBench {}
 
 impl Bench for IoCostTuneBench {
     fn desc(&self) -> BenchDesc {
