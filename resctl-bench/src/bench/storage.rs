@@ -3,6 +3,8 @@ use super::*;
 use rd_agent_intf::{HASHD_BENCH_SVC_NAME, ROOT_SLICE};
 use std::collections::{BTreeMap, VecDeque};
 
+const STD_MEM_PROFILE: u32 = 16;
+
 #[derive(Clone)]
 pub struct StorageJob {
     pub hash_size: usize,
@@ -98,29 +100,6 @@ pub struct StorageResult {
     pub io_lat_pcts: BTreeMap<String, BTreeMap<String, f64>>,
 }
 
-struct MemProfileIterator {
-    cur: u32,
-}
-
-impl MemProfileIterator {
-    fn new() -> Self {
-        Self { cur: 1 }
-    }
-}
-
-impl Iterator for MemProfileIterator {
-    type Item = (u32, usize);
-    fn next(&mut self) -> Option<Self::Item> {
-        let v = self.cur;
-        self.cur *= 2;
-        match v {
-            v if v <= 4 => Some((v, ((v as usize) << 30) / 2)),
-            v if v <= 16 => Some((v, ((v as usize) << 30) * 3 / 4)),
-            v => Some((v, ((v as usize) - 8) << 30)),
-        }
-    }
-}
-
 struct HashdFakeCpuBench {
     size: u64,
     balloon_size: usize,
@@ -168,6 +147,7 @@ impl StorageJob {
                 "log-bps" => job.log_bps = v.parse::<u64>()?,
                 "loops" => job.loops = v.parse::<u32>()?,
                 "mem-profile" => job.mem_profile_ask = Some(v.parse::<u32>()?),
+                "mem-avail" => job.mem_avail = v.parse::<usize>()?,
                 "mem-avail-err-max" => job.mem_avail_err_max = v.parse::<f64>()?,
                 "mem-avail-inner-retries" => job.mem_avail_inner_retries = v.parse::<u32>()?,
                 "mem-avail-outer-retries" => job.mem_avail_outer_retries = v.parse::<u32>()?,
@@ -227,37 +207,32 @@ impl StorageJob {
         Ok(mem_usage)
     }
 
+    fn mem_share(mem_profile: u32) -> Result<usize> {
+        match mem_profile {
+            v if v == 0 || (v & (v - 1)) != 0 => Err(anyhow!(
+                "storage: invalid memory profile {}, must be positive power of two",
+                mem_profile
+            )),
+            v if v <= 4 => Ok(((v as usize) << 30) / 2),
+            v if v <= 16 => Ok(((v as usize) << 30) * 3 / 4),
+            v => Ok(((v as usize) - 8) << 30),
+        }
+    }
+
     fn select_memory_profile(&self) -> Result<(u32, usize)> {
-        // Select the matching memory profile.
-        let mut prof_match: Option<(u32, usize)> = None;
         match self.mem_profile_ask.as_ref() {
-            Some(ask) => {
-                for (mem_profile, mem_share) in MemProfileIterator::new() {
-                    if mem_profile == *ask {
-                        prof_match = Some((mem_profile, mem_share));
-                        break;
-                    } else if mem_profile > *ask {
-                        bail!("storage: profile must be power-of-two");
-                    }
-                }
-            }
-            None => {
-                for (mem_profile, mem_share) in MemProfileIterator::new() {
-                    if mem_share <= self.mem_avail {
-                        prof_match = Some((mem_profile, mem_share));
-                    } else {
-                        break;
-                    }
-                }
-                if prof_match.is_none() {
-                    bail!(
-                        "storage: mem_avail {} too small to run benchmarks",
-                        format_size(self.mem_avail)
+            Some(&ask) => {
+                if ask != STD_MEM_PROFILE {
+                    warn!(
+                        "storage: Using non-standard mem-profile {}, \
+                         the result won't be directly comparable",
+                        ask
                     );
                 }
+                Ok((ask, Self::mem_share(ask)?))
             }
+            None => Ok((STD_MEM_PROFILE, Self::mem_share(STD_MEM_PROFILE)?)),
         }
-        Ok(prof_match.unwrap())
     }
 
     fn measure_supportable_memory_size(&mut self, rctx: &RunCtx) -> Result<(usize, f64)> {
@@ -541,7 +516,7 @@ impl Job for StorageJob {
                     self.mem_avail = self.estimate_available_memory(rctx)?;
                     continue 'outer;
                 }
-                bail!("mem_avail too small for the memory profile, giving up");
+                bail!("mem_avail too small for the memory profile, use lower mem-profile");
             }
             info!(
                 "storage: Memory profile {}G (mem_share {}, mem_avail {})",
