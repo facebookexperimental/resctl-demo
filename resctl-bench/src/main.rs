@@ -3,11 +3,11 @@ use anyhow::{anyhow, bail, Result};
 use log::{debug, error, info, warn};
 use std::fs;
 use std::io::Write;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{exit, Command};
 use util::*;
 
-use resctl_bench_intf::{Args, JobSpec, Mode};
+use resctl_bench_intf::{Args, JobProps, JobSpec, Mode};
 
 mod bench;
 mod job;
@@ -15,7 +15,7 @@ mod progress;
 mod run;
 mod study;
 
-use job::JobCtx;
+use job::{JobCtx, JobData};
 use run::RunCtx;
 
 const RB_BENCH_FILENAME: &str = "rb-bench.json";
@@ -179,40 +179,125 @@ impl Program {
         }
     }
 
-    fn pop_matching_jctx(jctxs: &mut Vec<JobCtx>, spec: &JobSpec) -> Option<JobCtx> {
+    fn find_matching_jctx_idx(jctxs: &Vec<JobCtx>, spec: &JobSpec) -> Option<usize> {
         for (idx, jctx) in jctxs.iter().enumerate() {
-            if jctx.spec.kind == spec.kind && jctx.spec.id == spec.id {
-                return Some(jctxs.remove(idx));
+            if jctx.data.spec.kind == spec.kind && jctx.data.spec.id == spec.id {
+                return Some(idx);
             }
         }
         return None;
     }
 
-    fn format_jctx(jctx: &JobCtx, mode: Mode) {
-        // Format only the completed jobs.
-        if jctx.result.is_some() {
-            println!("{}\n\n{}", "=".repeat(90), &jctx.format(mode));
+    fn find_matching_jctx<'a>(jctxs: &'a Vec<JobCtx>, spec: &JobSpec) -> Option<&'a JobCtx> {
+        match Self::find_matching_jctx_idx(jctxs, spec) {
+            Some(idx) => Some(&jctxs[idx]),
+            None => None,
         }
     }
 
+    fn pop_matching_jctx(jctxs: &mut Vec<JobCtx>, spec: &JobSpec) -> Option<JobCtx> {
+        match Self::find_matching_jctx_idx(jctxs, spec) {
+            Some(idx) => Some(jctxs.remove(idx)),
+            None => None,
+        }
+    }
+
+    fn find_prev_data<'a>(jctxs: &'a Vec<JobCtx>, spec: &JobSpec) -> Option<&'a JobData> {
+        let jctx = match Self::find_matching_jctx(jctxs, spec) {
+            Some(jctx) => jctx,
+            None => return None,
+        };
+        if jctx.are_results_compatible(spec) && jctx.data.result_valid() {
+            Some(&jctx.data)
+        } else {
+            None
+        }
+    }
+
+    fn format_jctx(jctx: &JobCtx, mode: Mode, props: &JobProps) -> Result<()> {
+        // Format only the completed jobs.
+        if jctx.data.result_valid() {
+            println!("{}\n\n{}", "=".repeat(90), &jctx.format(mode, props)?);
+        }
+        Ok(())
+    }
+
     fn do_run(&mut self) {
-        let args = &self.args_file.data;
+        // Use alternate bench file to avoid clobbering resctl-demo bench
+        // results w/ e.g. fake_cpu_load ones.
+        let scr_devname = match self.args_file.data.dev.as_ref() {
+            Some(dev) => dev.clone(),
+            None => {
+                let mut scr_path = PathBuf::from(&self.args_file.data.dir);
+                scr_path.push("scratch");
+                while !scr_path.exists() {
+                    if !scr_path.pop() {
+                        panic!("failed to find existing ancestor dir for scratch path");
+                    }
+                }
+                path_to_devname(&scr_path.as_os_str().to_str().unwrap())
+                    .expect("failed to resolve device for scratch path")
+                    .into_string()
+                    .unwrap()
+            }
+        };
+        let scr_devnr = devname_to_devnr(&scr_devname)
+            .expect("failed to resolve device number for scratch device");
+        let iocost_sys_save =
+            IoCostSysSave::read_from_sys(scr_devnr).expect("failed to read iocost.model,qos");
+
+        let (mut base_bench, demo_bench_path, bench_path) =
+            match self.prep_base_bench(&scr_devname, &iocost_sys_save) {
+                Ok(v) => v,
+                Err(e) => {
+                    error!("Failed to prepare bench files ({})", &e);
+                    panic!();
+                }
+            };
 
         // Stash the result part for incremental result file updates.
         let mut inc_jctxs = self.job_ctxs.clone();
         let mut jctxs = vec![];
         std::mem::swap(&mut jctxs, &mut self.job_ctxs);
 
+        // Spec preprocessing gives the bench implementations a chance to
+        // add, remove and modify the scheduled benches. Preprocess is
+        // called once per scheduled bench.
+        let args = &mut self.args_file.data;
+        loop {
+            let mut idx = None;
+            for (i, spec) in args.job_specs.iter().enumerate() {
+                if !spec.preprocessed {
+                    idx = Some(i);
+                    break;
+                }
+            }
+            if idx.is_none() {
+                break;
+            }
+
+            let idx = idx.unwrap();
+            let spec = &mut args.job_specs[idx];
+            let prev_data = Self::find_prev_data(&jctxs, spec);
+            spec.preprocessed = true;
+
+            bench::find_bench(&spec.kind)
+                .unwrap()
+                .preprocess_run_specs(&mut args.job_specs, idx, &base_bench, prev_data)
+                .expect("preprocess_run_specs() failed");
+        }
+
         // Put jobs to run in self.job_ctxs.
+        let args = &self.args_file.data;
         for spec in args.job_specs.iter() {
             let mut new = JobCtx::new(spec);
             if let Err(e) = new.parse_job_spec() {
                 error!("{}: {}", spec, &e);
                 exit(1);
             }
-            match Self::pop_matching_jctx(&mut jctxs, &new.spec) {
+            match Self::pop_matching_jctx(&mut jctxs, &new.data.spec) {
                 Some(prev) => {
-                    debug!("{} has a matching entry in the result file", &new.spec);
+                    debug!("{} has a matching entry in the result file", &new.data.spec);
                     new.inc_job_idx = prev.inc_job_idx;
                     new.prev = Some(Box::new(prev));
                 }
@@ -233,54 +318,40 @@ impl Program {
 
         if self.job_ctxs.len() > 0 && !args.keep_reports {
             if let Err(e) = self.clean_up_report_files() {
-                error!("Failed to clean up report files ({})", &e);
-                panic!();
+                warn!("Failed to clean up report files ({})", &e);
             }
         }
 
-        // Use alternate bench file to avoid clobbering resctl-demo bench
-        // results w/ e.g. fake_cpu_load ones.
-        let scr_path = args.dir.clone() + "/scratch";
-        let scr_devname = path_to_devname(&scr_path)
-            .expect("failed to resolve device for scratch path")
-            .into_string()
-            .unwrap();
-        let scr_devnr = devname_to_devnr(&scr_devname)
-            .expect("failed to resolve device number for scratch device");
-        let iocost_sys_save =
-            IoCostSysSave::read_from_sys(scr_devnr).expect("failed to read iocost.model,qos");
-
-        let (mut base_bench, demo_bench_path, bench_path) =
-            match self.prep_base_bench(&scr_devname, &iocost_sys_save) {
-                Ok(v) => v,
-                Err(e) => {
-                    error!("Failed to prepare bench files ({})", &e);
-                    panic!();
-                }
-            };
-
         // Run the benches and print out the results.
-        for jctx in self.job_ctxs.iter_mut() {
+        let mut pending = vec![];
+        std::mem::swap(&mut pending, &mut self.job_ctxs);
+        for mut jctx in pending.into_iter() {
             // Always start with a fresh bench file.
             if let Err(e) = base_bench.save(&bench_path) {
                 error!("Failed to set up {:?} ({})", &bench_path, &e);
                 panic!();
             }
 
+            let mut data_forwards = vec![];
+            let mut sysreqs_forward = None;
+            for i in jctx.data.spec.forward_results_from.iter() {
+                let from = &self.job_ctxs[*i];
+                data_forwards.push(from.data.clone());
+                if sysreqs_forward.is_none() {
+                    sysreqs_forward = Some(from.data.sysreqs.clone());
+                }
+            }
+
             let mut rctx = RunCtx::new(
-                &args.dir,
-                args.dev.as_deref(),
-                args.linux_tar.as_deref(),
+                &args,
                 &base_bench,
                 &mut inc_jctxs,
                 jctx.inc_job_idx,
-                &args.result,
-                args.test,
-                args.verbosity,
+                data_forwards,
             );
 
-            if let Err(e) = jctx.run(&mut rctx) {
-                error!("Failed to run {} ({})", &jctx.spec, &e);
+            if let Err(e) = jctx.run(&mut rctx, sysreqs_forward) {
+                error!("Failed to run {} ({})", &jctx.data.spec, &e);
                 panic!();
             }
 
@@ -295,7 +366,8 @@ impl Program {
                     panic!();
                 }
             }
-            Self::format_jctx(jctx, Mode::Format);
+            Self::format_jctx(&jctx, Mode::Summary, &vec![Default::default()]).unwrap();
+            self.job_ctxs.push(jctx);
         }
 
         // Write the result file.
@@ -306,12 +378,13 @@ impl Program {
 
     fn do_format(&mut self, mode: Mode) {
         let specs = &self.args_file.data.job_specs;
+        let empty_props = vec![Default::default()];
         let mut to_format = vec![];
         let mut jctxs = vec![];
         std::mem::swap(&mut jctxs, &mut self.job_ctxs);
 
         if specs.len() == 0 {
-            to_format = jctxs;
+            to_format = jctxs.into_iter().map(|x| (x, &empty_props)).collect();
         } else {
             for spec in specs.iter() {
                 let jctx = match Self::pop_matching_jctx(&mut jctxs, &spec) {
@@ -321,17 +394,31 @@ impl Program {
                         exit(1);
                     }
                 };
-                // Formatting doesn't support per-bench properties (yet).
-                if jctx.spec.props[0].len() > 0 || jctx.spec.props.len() > 1 {
-                    error!("Unknown properties specified for formatting {}", &jctx.spec);
+
+                let desc = jctx.bench.as_ref().unwrap().desc();
+                if !desc.takes_format_props && spec.props[0].len() > 0 {
+                    error!(
+                        "Unknown properties specified for formatting {}",
+                        &jctx.data.spec
+                    );
                     exit(1);
                 }
-                to_format.push(jctx);
+                if !desc.takes_format_propsets && spec.props.len() > 1 {
+                    error!(
+                        "Multiple property sets not supported for formatting {}",
+                        &jctx.data.spec
+                    );
+                    exit(1);
+                }
+                to_format.push((jctx, &spec.props));
             }
         }
 
-        for jctx in to_format.iter() {
-            Self::format_jctx(&jctx, mode);
+        for (jctx, props) in to_format.iter() {
+            if let Err(e) = Self::format_jctx(jctx, mode, props) {
+                error!("Failed to format {}: {}", &jctx.data.spec, &e);
+                panic!();
+            }
         }
 
         self.commit_args();

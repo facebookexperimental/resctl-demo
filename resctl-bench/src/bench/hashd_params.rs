@@ -22,7 +22,7 @@ pub struct HashdParamsBench {}
 
 impl Bench for HashdParamsBench {
     fn desc(&self) -> BenchDesc {
-        BenchDesc::new("hashd-params")
+        BenchDesc::new("hashd-params").takes_run_props()
     }
 
     fn parse(&self, spec: &JobSpec) -> Result<Box<dyn Job>> {
@@ -41,7 +41,7 @@ impl Bench for HashdParamsBench {
 }
 
 impl Job for HashdParamsJob {
-    fn sysreqs(&self) -> HashSet<SysReq> {
+    fn sysreqs(&self) -> BTreeSet<SysReq> {
         HASHD_SYSREQS.clone()
     }
 
@@ -77,8 +77,14 @@ impl Job for HashdParamsJob {
         Ok(serde_json::to_value(&result).unwrap())
     }
 
-    fn format<'a>(&self, mut out: Box<dyn Write + 'a>, result: &serde_json::Value, _full: bool) {
-        let result = serde_json::from_value::<HashdKnobs>(result.to_owned()).unwrap();
+    fn format<'a>(
+        &self,
+        mut out: Box<dyn Write + 'a>,
+        data: &JobData,
+        _full: bool,
+        _props: &JobProps,
+    ) -> Result<()> {
+        let result = serde_json::from_value::<HashdKnobs>(data.result.clone()).unwrap();
 
         writeln!(
             out,
@@ -98,5 +104,7 @@ impl Job for HashdParamsJob {
             result.chunk_pages
         )
         .unwrap();
+
+        Ok(())
     }
 }

@@ -12,19 +12,13 @@ impl Bench for IoCostParamsBench {
         BenchDesc::new("iocost-params")
     }
 
-    fn parse(&self, spec: &JobSpec) -> Result<Box<dyn Job>> {
-        for (k, _v) in spec.props[0].iter() {
-            match k.as_str() {
-                k => bail!("unknown property key {:?}", k),
-            }
-        }
-
+    fn parse(&self, _spec: &JobSpec) -> Result<Box<dyn Job>> {
         Ok(Box::new(IoCostParamsJob {}))
     }
 }
 
 impl Job for IoCostParamsJob {
-    fn sysreqs(&self) -> HashSet<SysReq> {
+    fn sysreqs(&self) -> BTreeSet<SysReq> {
         Default::default()
     }
 
@@ -55,8 +49,14 @@ impl Job for IoCostParamsJob {
         Ok(serde_json::to_value(&result).unwrap())
     }
 
-    fn format<'a>(&self, mut out: Box<dyn Write + 'a>, result: &serde_json::Value, _full: bool) {
-        let result = serde_json::from_value::<IoCostKnobs>(result.to_owned()).unwrap();
+    fn format<'a>(
+        &self,
+        mut out: Box<dyn Write + 'a>,
+        data: &JobData,
+        _full: bool,
+        _props: &JobProps,
+    ) -> Result<()> {
+        let result = serde_json::from_value::<IoCostKnobs>(data.result.clone()).unwrap();
         let model = &result.model;
         let qos = &result.qos;
 
@@ -78,5 +78,7 @@ impl Job for IoCostParamsJob {
             qos.rpct, qos.rlat, qos.wpct, qos.wlat, qos.min, qos.max
         )
         .unwrap();
+
+        Ok(())
     }
 }

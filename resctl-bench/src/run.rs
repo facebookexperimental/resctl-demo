@@ -2,7 +2,7 @@
 #![allow(dead_code)]
 use anyhow::{anyhow, bail, Result};
 use log::{debug, error, warn};
-use std::collections::{HashSet, VecDeque};
+use std::collections::{BTreeSet, VecDeque};
 use std::process::Command;
 use std::sync::{Arc, Mutex};
 use std::thread::{spawn, JoinHandle};
@@ -11,7 +11,7 @@ use util::*;
 
 use super::progress::BenchProgress;
 use super::{Program, AGENT_BIN};
-use crate::job::JobCtx;
+use crate::job::{JobCtx, JobData};
 use rd_agent_intf::{
     AgentFiles, ReportIter, RunnerState, Slice, SysReq, AGENT_SVC_NAME, HASHD_BENCH_SVC_NAME,
     IOCOST_BENCH_SVC_NAME,
@@ -35,8 +35,8 @@ struct RunCtxInner {
     dev: Option<String>,
     linux_tar: Option<String>,
     verbosity: u32,
-    sysreqs: HashSet<SysReq>,
-    missed_sysreqs: HashSet<SysReq>,
+    sysreqs: BTreeSet<SysReq>,
+    missed_sysreqs: BTreeSet<SysReq>,
     need_linux_tar: bool,
     prep_testfiles: bool,
     bypass: bool,
@@ -151,7 +151,8 @@ pub struct RunCtx<'a> {
     inner: Arc<Mutex<RunCtxInner>>,
     agent_init_fns: Vec<Box<dyn FnOnce(&mut RunCtx)>>,
     base_bench: rd_agent_intf::BenchKnobs,
-    pub prev_result: Option<serde_json::Value>,
+    pub prev_data: Option<JobData>,
+    pub data_forwards: Vec<JobData>,
     inc_job_ctxs: &'a mut Vec<JobCtx>,
     inc_job_idx: usize,
     result_path: &'a str,
@@ -161,22 +162,18 @@ pub struct RunCtx<'a> {
 
 impl<'a> RunCtx<'a> {
     pub fn new(
-        dir: &str,
-        dev: Option<&str>,
-        linux_tar: Option<&str>,
+        args: &'a resctl_bench_intf::Args,
         base_bench: &rd_agent_intf::BenchKnobs,
         inc_job_ctxs: &'a mut Vec<JobCtx>,
         inc_job_idx: usize,
-        result_path: &'a str,
-        test: bool,
-        verbosity: u32,
+        data_forwards: Vec<JobData>,
     ) -> Self {
         Self {
             inner: Arc::new(Mutex::new(RunCtxInner {
-                dir: dir.into(),
-                dev: dev.map(Into::into),
-                linux_tar: linux_tar.map(Into::into),
-                verbosity,
+                dir: args.dir.clone(),
+                dev: args.dev.clone(),
+                linux_tar: args.linux_tar.clone(),
+                verbosity: args.verbosity,
                 sysreqs: Default::default(),
                 missed_sysreqs: Default::default(),
                 need_linux_tar: false,
@@ -184,7 +181,7 @@ impl<'a> RunCtx<'a> {
                 bypass: false,
                 passive_all: false,
                 passive_keep_crit_mem_prot: false,
-                agent_files: AgentFiles::new(dir),
+                agent_files: AgentFiles::new(&args.dir),
                 agent_svc: None,
                 minder_state: MinderState::Ok,
                 minder_jh: None,
@@ -194,16 +191,17 @@ impl<'a> RunCtx<'a> {
             })),
             base_bench: base_bench.clone(),
             agent_init_fns: vec![],
-            prev_result: None,
+            prev_data: None,
+            data_forwards,
             inc_job_ctxs,
             inc_job_idx,
-            result_path,
-            test,
+            result_path: &args.result,
+            test: args.test,
             commit_bench: false,
         }
     }
 
-    pub fn add_sysreqs(&mut self, sysreqs: HashSet<SysReq>) -> &mut Self {
+    pub fn add_sysreqs(&mut self, sysreqs: BTreeSet<SysReq>) -> &mut Self {
         self.inner
             .lock()
             .unwrap()
@@ -256,7 +254,7 @@ impl<'a> RunCtx<'a> {
     }
 
     pub fn update_incremental_result(&mut self, result: serde_json::Value) {
-        self.inc_job_ctxs[self.inc_job_idx].result = Some(result);
+        self.inc_job_ctxs[self.inc_job_idx].data.result = result;
         Program::save_results(self.result_path, self.inc_job_ctxs);
     }
 
@@ -606,7 +604,7 @@ impl<'a> RunCtx<'a> {
         self.inner.lock().unwrap().sysreqs_rep.clone()
     }
 
-    pub fn missed_sysreqs(&self) -> HashSet<SysReq> {
+    pub fn missed_sysreqs(&self) -> BTreeSet<SysReq> {
         self.inner.lock().unwrap().missed_sysreqs.clone()
     }
 

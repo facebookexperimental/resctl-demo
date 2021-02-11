@@ -1,5 +1,6 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
 use super::*;
+use rand::Rng;
 
 use super::storage::{StorageJob, StorageResult};
 use rd_agent_intf::BenchKnobs;
@@ -7,25 +8,66 @@ use std::collections::BTreeMap;
 
 // Gonna run storage bench multiple times with different parameters. Let's
 // run it just once by default.
-const DFL_VRATE_INTVS: u32 = 10;
+const DFL_VRATE_MAX: f64 = 100.0;
+const DFL_VRATE_INTVS: u32 = 5;
 const DFL_STORAGE_BASE_LOOPS: u32 = 3;
 const DFL_STORAGE_LOOPS: u32 = 1;
 const DFL_RETRIES: u32 = 2;
 
-#[derive(Debug, Default, Clone, PartialEq)]
-struct IoCostQoSOvr {
-    rpct: Option<f64>,
-    rlat: Option<u64>,
-    wpct: Option<f64>,
-    wlat: Option<u64>,
-    min: Option<f64>,
-    max: Option<f64>,
+// Don't go below 1% of the specified model when applying vrate-intvs.
+const VRATE_INTVS_MIN: f64 = 1.0;
+
+// The absolute minimum performance level this bench will probe. It's
+// roughly 5% of what a modern 7200rpm hard disk can do. The bench itself
+// needs some access to IOs and going significantly lower than this may
+// affect system and bench stability. seqiops are artificially lowered to
+// avoid limiting throttling of older SSDs which have similar seqiops as
+// hard drives.
+const ABS_MIN_PERF: IoCostModelParams = IoCostModelParams {
+    rbps: 8 << 20,
+    rseqiops: 16,
+    rrandiops: 16,
+    wbps: 8 << 20,
+    wseqiops: 16,
+    wrandiops: 16,
+};
+
+#[derive(Serialize, Deserialize, Debug, Default, Clone, PartialEq)]
+pub struct IoCostQoSOvr {
+    pub rpct: Option<f64>,
+    pub rlat: Option<u64>,
+    pub wpct: Option<f64>,
+    pub wlat: Option<u64>,
+    pub min: Option<f64>,
+    pub max: Option<f64>,
+
+    #[serde(skip)]
+    pub skip: bool,
+}
+
+impl IoCostQoSOvr {
+    /// See IoCostQoSParams::sanitize().
+    fn sanitize(&mut self) {
+        if let Some(rpct) = self.rpct.as_mut() {
+            *rpct = format!("{:.2}", rpct).parse::<f64>().unwrap();
+        }
+        if let Some(wpct) = self.wpct.as_mut() {
+            *wpct = format!("{:.2}", wpct).parse::<f64>().unwrap();
+        }
+        if let Some(min) = self.min.as_mut() {
+            *min = format!("{:.2}", min).parse::<f64>().unwrap();
+        }
+        if let Some(max) = self.max.as_mut() {
+            *max = format!("{:.2}", max).parse::<f64>().unwrap();
+        }
+    }
 }
 
 struct IoCostQoSJob {
     base_loops: u32,
     loops: u32,
     mem_profile: u32,
+    dither_dist: Option<f64>,
     retries: u32,
     allow_fail: bool,
     storage_job: StorageJob,
@@ -36,12 +78,110 @@ pub struct IoCostQoSBench {}
 
 impl Bench for IoCostQoSBench {
     fn desc(&self) -> BenchDesc {
-        BenchDesc::new("iocost-qos").takes_propsets().incremental()
+        BenchDesc::new("iocost-qos")
+            .takes_run_propsets()
+            .incremental()
+    }
+
+    fn preprocess_run_specs(
+        &self,
+        specs: &mut Vec<JobSpec>,
+        idx: usize,
+        base_bench: &BenchKnobs,
+        prev_data: Option<&JobData>,
+    ) -> Result<()> {
+        let prev_result = if prev_data.is_some() {
+            Some(serde_json::from_value::<IoCostQoSResult>(
+                prev_data.as_ref().unwrap().result.clone(),
+            )?)
+        } else {
+            None
+        };
+
+        // If dither is enabled without explicit dither_dist and prev has
+        // dither_dist set, use the prev dither_dist so that we can use
+        // results from it.
+        if let Some(pr) = prev_result.as_ref() {
+            if let Some(pdd) = pr.dither_dist.as_ref() {
+                for (k, v) in specs[idx].props[0].iter_mut() {
+                    if k == "dither" && v.len() == 0 {
+                        *v = format!("{}", pdd);
+                    }
+                }
+            }
+        }
+
+        // Is the bench result available or iocost-params already scheduled?
+        if base_bench.iocost_seq > 0 {
+            debug!("iocost-qos-pre: iocost parameters available");
+            return Ok(());
+        }
+        for i in (0..idx).rev() {
+            if specs[i].kind == "iocost-params" {
+                debug!("iocost-qos-pre: iocost-params already scheduled");
+                return Ok(());
+            }
+        }
+
+        // If prev has all the needed results, we don't need iocost-params.
+        if let Some(pr) = prev_result.as_ref() {
+            // Let the actual job parsing stage take care of it.
+            let job = match IoCostQoSJob::parse(&specs[idx]) {
+                Ok(job) => job,
+                Err(_) => return Ok(()),
+            };
+
+            if let Ok(()) = job.runs.iter().try_for_each(|ovr| {
+                IoCostQoSJob::find_matching_result(ovr.as_ref(), pr)
+                    .map(|_| ())
+                    .ok_or(anyhow!(""))
+            }) {
+                debug!("iocost-qos-pre: iocost params unavailable but no need to run more benches");
+                return Ok(());
+            }
+        }
+
+        info!("iocost-qos: iocost parameters missing, inserting iocost-params run");
+        specs.insert(
+            idx,
+            resctl_bench_intf::Args::parse_job_spec("iocost-params")?,
+        );
+        Ok(())
     }
 
     fn parse(&self, spec: &JobSpec) -> Result<Box<dyn Job>> {
+        Ok(Box::new(IoCostQoSJob::parse(spec)?))
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct IoCostQoSRun {
+    pub ovr: Option<IoCostQoSOvr>,
+    pub qos: Option<IoCostQoSParams>,
+    pub vrate_mean: f64,
+    pub vrate_stdev: f64,
+    pub vrate_pcts: BTreeMap<String, f64>,
+    pub storage: StorageResult,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct IoCostQoSResult {
+    pub base_model: IoCostModelParams,
+    pub base_qos: IoCostQoSParams,
+    pub mem_profile: u32,
+    pub dither_dist: Option<f64>,
+    pub results: Vec<Option<IoCostQoSRun>>,
+    inc_results: Vec<IoCostQoSRun>,
+}
+
+impl IoCostQoSJob {
+    const VRATE_PCTS: [&'static str; 9] = ["00", "01", "10", "16", "50", "84", "90", "99", "100"];
+
+    fn parse(spec: &JobSpec) -> Result<Self> {
         let mut storage_spec = JobSpec::new("storage".into(), None, vec![Default::default()]);
 
+        let mut vrate_min = 0.0;
+        let mut vrate_max = DFL_VRATE_MAX;
         let mut vrate_intvs = 0;
         let mut base_loops = DFL_STORAGE_BASE_LOOPS;
         let mut loops = DFL_STORAGE_LOOPS;
@@ -49,19 +189,33 @@ impl Bench for IoCostQoSBench {
         let mut retries = DFL_RETRIES;
         let mut allow_fail = false;
         let mut runs = vec![None];
+        let mut dither = false;
+        let mut dither_dist = None;
 
         for (k, v) in spec.props[0].iter() {
             match k.as_str() {
+                "vrate-min" => vrate_min = v.parse::<f64>()?,
+                "vrate-max" => vrate_max = v.parse::<f64>()?,
                 "vrate-intvs" => vrate_intvs = v.parse::<u32>()?,
                 "base-loops" => base_loops = v.parse::<u32>()?,
                 "loops" => loops = v.parse::<u32>()?,
                 "mem-profile" => mem_profile = v.parse::<u32>()?,
                 "retries" => retries = v.parse::<u32>()?,
                 "allow-fail" => allow_fail = v.parse::<bool>()?,
+                "dither" => {
+                    dither = true;
+                    if v.len() > 0 {
+                        dither_dist = Some(v.parse::<f64>()?);
+                    }
+                }
                 k => {
                     storage_spec.props[0].insert(k.into(), v.into());
                 }
             }
+        }
+
+        if vrate_min < 0.0 || vrate_max < 0.0 || vrate_min >= vrate_max {
+            bail!("invalid vrate range [{}, {}]", vrate_min, vrate_max);
         }
 
         for props in spec.props[1..].iter() {
@@ -88,84 +242,95 @@ impl Bench for IoCostQoSBench {
         }
 
         if vrate_intvs > 0 {
-            let click = 100.0 / vrate_intvs as f64;
-            for i in 0..vrate_intvs {
-                runs.push(Some(IoCostQoSOvr {
-                    min: Some(100.0 - i as f64 * click),
-                    max: Some(100.0 - i as f64 * click),
+            // min of 0 is special case and means that we start at one
+            // click, so if min is 0, max is 10 and intvs is 5, the sequence
+            // is (10, 7.5, 5, 2.5). If min > 0, the range is inclusive -
+            // min 5, max 10, intvs 5 => (10, 9, 8, 7, 6, 5).
+            let click;
+            let mut dither_shift = 0.0;
+            if vrate_min == 0.0 {
+                click = vrate_max / vrate_intvs as f64;
+                vrate_min = click;
+                dither_shift = -click / 2.0;
+            } else {
+                click = (vrate_max - vrate_min) / (vrate_intvs - 1) as f64;
+            };
+
+            if dither {
+                if dither_dist.is_none() {
+                    dither_dist = Some(
+                        rand::thread_rng().gen_range(-click / 2.0, click / 2.0) + dither_shift,
+                    );
+                }
+                vrate_min += dither_dist.as_ref().unwrap();
+                vrate_max += dither_dist.as_ref().unwrap();
+            }
+
+            vrate_min = vrate_min.max(VRATE_INTVS_MIN);
+
+            let mut vrate = vrate_max;
+            while vrate > vrate_min - 0.001 {
+                let mut ovr = IoCostQoSOvr {
+                    min: Some(vrate),
+                    max: Some(vrate),
                     ..Default::default()
-                }));
+                };
+                ovr.sanitize();
+                runs.push(Some(ovr));
+                vrate -= click;
             }
         }
 
-        Ok(Box::new(IoCostQoSJob {
+        Ok(IoCostQoSJob {
             base_loops,
             loops,
             mem_profile,
+            dither_dist,
             retries,
             allow_fail,
             storage_job,
             runs,
-        }))
+        })
     }
-}
 
-#[derive(Clone, Serialize, Deserialize)]
-struct IoCostQoSRun {
-    qos: Option<IoCostQoSParams>,
-    vrate_mean: f64,
-    vrate_stdev: f64,
-    vrate_pcts: BTreeMap<String, f64>,
-    storage: StorageResult,
-}
-
-#[derive(Serialize, Deserialize, Clone)]
-struct IoCostQoSResult {
-    model: IoCostModelParams,
-    base_qos: IoCostQoSParams,
-    results: Vec<Option<IoCostQoSRun>>,
-    inc_results: Vec<IoCostQoSRun>,
-}
-
-impl IoCostQoSJob {
-    const VRATE_PCTS: [&'static str; 9] = ["00", "01", "10", "16", "50", "84", "90", "99", "100"];
-
-    fn verify_prev_result(
-        &self,
-        pr: Option<serde_json::Value>,
-        bench: &BenchKnobs,
-    ) -> IoCostQoSResult {
-        let empty = IoCostQoSResult {
-            model: bench.iocost.model.clone(),
-            base_qos: bench.iocost.qos.clone(),
-            results: vec![],
-            inc_results: vec![],
-        };
-
-        if pr.is_none() {
-            return empty;
-        }
-        let pr = serde_json::from_value::<IoCostQoSResult>(pr.unwrap()).unwrap();
-
+    fn prev_matches(&self, pr: &IoCostQoSResult, bench: &BenchKnobs) -> bool {
+        // If @pr has't completed and only contains incremental results, its
+        // mem_profile isn't initialized yet. Obtain mem_profile from the
+        // base storage result instead.
         let base_result = if pr.results.len() > 0 && pr.results[0].is_some() {
             pr.results[0].as_ref().unwrap()
         } else if pr.inc_results.len() > 0 {
             &pr.inc_results[0]
         } else {
-            return empty;
+            return false;
         };
 
-        let msg = "iocost-qos: Ignoring existing result file due to";
-        if pr.model != bench.iocost.model || pr.base_qos != bench.iocost.qos {
-            warn!("{} {}", &msg, "iocost parameter mismatch");
-            return empty;
+        let msg = "iocost-qos: Existing result doesn't match the current configuration";
+        if pr.base_model != bench.iocost.model || pr.base_qos != bench.iocost.qos {
+            warn!("{} ({})", &msg, "iocost parameter mismatch");
+            return false;
         }
         if self.mem_profile > 0 && self.mem_profile != base_result.storage.mem_profile {
-            warn!("{} {}", &msg, "mem-profile mismatch");
-            return empty;
+            warn!("{} ({})", &msg, "mem-profile mismatch");
+            return false;
         }
 
-        pr
+        true
+    }
+
+    fn calc_abs_min_vrate(model: &IoCostModelParams) -> f64 {
+        format!(
+            "{:.2}",
+            (ABS_MIN_PERF.rbps as f64 / model.rbps as f64)
+                .max(ABS_MIN_PERF.rseqiops as f64 / model.rseqiops as f64)
+                .max(ABS_MIN_PERF.rrandiops as f64 / model.rrandiops as f64)
+                .max(ABS_MIN_PERF.wbps as f64 / model.wbps as f64)
+                .max(ABS_MIN_PERF.wseqiops as f64 / model.wseqiops as f64)
+                .max(ABS_MIN_PERF.wrandiops as f64 / model.wrandiops as f64)
+                * 100.0
+        )
+        .parse::<f64>()
+        .unwrap()
     }
 
     fn apply_qos_ovr(ovr: Option<&IoCostQoSOvr>, qos: &IoCostQoSParams) -> IoCostQoSParams {
@@ -193,6 +358,7 @@ impl IoCostQoSJob {
         if let Some(v) = ovr.max {
             qos.max = v;
         }
+        qos.sanitize();
         qos
     }
 
@@ -231,25 +397,16 @@ impl IoCostQoSJob {
 
     fn find_matching_result<'a>(
         ovr: Option<&IoCostQoSOvr>,
-        qos: &IoCostQoSParams,
         prev_result: &'a IoCostQoSResult,
     ) -> Option<&'a IoCostQoSRun> {
-        let qos = Self::apply_qos_ovr(ovr.clone(), qos);
-
         for r in prev_result
             .results
             .iter()
             .filter_map(|x| x.as_ref())
             .chain(prev_result.inc_results.iter())
         {
-            if ovr.is_none() {
-                if r.qos.is_none() {
-                    return Some(r);
-                }
-            } else {
-                if r.qos.is_some() && r.qos.as_ref().unwrap() == &qos {
-                    return Some(r);
-                }
+            if ovr == r.ovr.as_ref() {
+                return Some(r);
             }
         }
         None
@@ -305,6 +462,7 @@ impl IoCostQoSJob {
         let (vrate_mean, vrate_stdev, vrate_pcts) = study_vrate_mean_pcts.result(&Self::VRATE_PCTS);
 
         Ok(IoCostQoSRun {
+            ovr: ovr.cloned(),
             qos,
             vrate_mean,
             vrate_stdev,
@@ -321,26 +479,63 @@ impl IoCostQoSJob {
 }
 
 impl Job for IoCostQoSJob {
-    fn sysreqs(&self) -> HashSet<SysReq> {
+    fn sysreqs(&self) -> BTreeSet<SysReq> {
         StorageJob::default().sysreqs()
     }
 
     fn run(&mut self, rctx: &mut RunCtx) -> Result<serde_json::Value> {
         let bench = rctx.base_bench().clone();
-        if rctx.base_bench().iocost_seq == 0 {
-            bail!("iocost-qos: iocost parameters missing, run iocost-params first or use --iocost-from-sys");
-        }
-        let mut prev_result = self.verify_prev_result(rctx.prev_result.clone(), &bench);
+
+        let (prev_matches, mut prev_result) = match rctx.prev_data.as_ref() {
+            Some(pd) => {
+                let pr = serde_json::from_value::<IoCostQoSResult>(pd.result.clone()).unwrap();
+                (self.prev_matches(&pr, &bench), pr)
+            }
+            None => (
+                true,
+                IoCostQoSResult {
+                    base_model: bench.iocost.model.clone(),
+                    base_qos: bench.iocost.qos.clone(),
+                    mem_profile: 0,
+                    dither_dist: self.dither_dist,
+                    results: vec![],
+                    inc_results: vec![],
+                },
+            ),
+        };
+
         if prev_result.results.len() > 0 {
-            self.mem_profile = prev_result.results[0].as_ref().unwrap().storage.mem_profile;
+            self.mem_profile = prev_result.mem_profile;
         }
+
+        let abs_min_vrate = Self::calc_abs_min_vrate(&rctx.base_bench().iocost.model);
         let mut nr_to_run = 0;
 
         // Print out what to do beforehand so that the user can spot errors
         // without waiting for the benches to run.
-        for (i, ovr) in self.runs.iter().enumerate() {
+        for (i, ovr) in self.runs.iter_mut().enumerate() {
             let qos = &bench.iocost.qos;
-            let new = match Self::find_matching_result(ovr.as_ref(), qos, &prev_result) {
+
+            let mut extra_state = " ";
+
+            if let Some(ovr) = ovr.as_mut() {
+                if let Some(max) = ovr.max.as_mut() {
+                    if *max < abs_min_vrate {
+                        ovr.skip = true;
+                        extra_state = "s";
+                    }
+                }
+                if !ovr.skip {
+                    if let Some(min) = ovr.min.as_mut() {
+                        if *min < abs_min_vrate {
+                            *min = abs_min_vrate;
+                            extra_state = "a";
+                        }
+                    }
+                }
+            }
+
+            let new = match Self::find_matching_result(ovr.as_ref(), &prev_result) {
                 Some(_) => false,
                 None => {
                     nr_to_run += 1;
@@ -348,15 +543,31 @@ impl Job for IoCostQoSJob {
                 }
             };
             info!(
-                "iocost-qos[{:02}]: {} {}",
+                "iocost-qos[{:02}]: {}{} {}",
                 i,
                 if new { "+" } else { "-" },
-                Self::format_qos_ovr(ovr.as_ref(), qos)
+                extra_state,
+                Self::format_qos_ovr(ovr.as_ref(), qos),
             );
         }
 
         if nr_to_run > 0 {
-            info!("iocost-qos: {} storage benches to run", nr_to_run);
+            if rctx.base_bench().iocost_seq == 0 {
+                bail!(
+                    "iocost-qos: iocost parameters missing, run iocost-params first or \
+                       use --iocost-from-sys"
+                );
+            }
+
+            if prev_matches || nr_to_run == self.runs.len() {
+                info!("iocost-qos: {} storage benches to run", nr_to_run);
+            } else {
+                bail!(
+                    "iocost-qos: {} storage benches to run but existing result doesn't match \
+                       the current configuration, consider removing the result file",
+                    nr_to_run
+                );
+            }
         } else {
             info!("iocost-qos: All results are available in the result file, nothing to do");
         }
@@ -369,11 +580,13 @@ impl Job for IoCostQoSJob {
         };
 
         let mut results = vec![];
-        'outer: for (i, ovr) in self.runs.iter().enumerate() {
+        for (i, ovr) in self.runs.iter().enumerate() {
             let qos = &bench.iocost.qos;
-            let ovr = ovr.as_ref();
-            if let Some(result) = Self::find_matching_result(ovr, qos, &prev_result) {
+            if let Some(result) = Self::find_matching_result(ovr.as_ref(), &prev_result) {
                 results.push(Some(result.clone()));
+                continue;
+            } else if ovr.is_some() && ovr.as_ref().unwrap().skip {
+                results.push(None);
                 continue;
             }
 
@@ -381,7 +594,11 @@ impl Job for IoCostQoSJob {
                 "iocost-qos[{:02}]: Running storage benchmark with QoS parameters:",
                 i
             );
-            info!("iocost-qos[{:02}]: {}", i, Self::format_qos_ovr(ovr, qos));
+            info!(
+                "iocost-qos[{:02}]: {}",
+                i,
+                Self::format_qos_ovr(ovr.as_ref(), qos)
+            );
 
             let mut retries = self.retries;
             loop {
@@ -393,14 +610,14 @@ impl Job for IoCostQoSJob {
                     _ => self.loops,
                 };
 
-                match Self::run_one(rctx, &mut job, ovr) {
+                match Self::run_one(rctx, &mut job, ovr.as_ref()) {
                     Ok(result) => {
                         last_mem_profile = Some(result.storage.mem_profile);
                         last_mem_avail = result.storage.mem_avail;
 
                         // Sanity check QoS params.
                         if result.qos.is_some() {
-                            let target_qos = Self::apply_qos_ovr(ovr, qos);
+                            let target_qos = Self::apply_qos_ovr(ovr.as_ref(), qos);
                             if result.qos.as_ref().unwrap() != &target_qos {
                                 bail!(
                                     "iocost-qos: result qos ({}) != target qos ({})",
@@ -423,7 +640,8 @@ impl Job for IoCostQoSJob {
                             if !self.allow_fail {
                                 return Err(e);
                             }
-                            break 'outer;
+                            results.push(None);
+                            break;
                         }
                     }
                 }
@@ -432,10 +650,12 @@ impl Job for IoCostQoSJob {
 
         results.resize(self.runs.len(), None);
 
-        let (model, base_qos) = (bench.iocost.model, bench.iocost.qos);
+        let (base_model, base_qos) = (bench.iocost.model, bench.iocost.qos);
         let result = IoCostQoSResult {
-            model,
+            base_model,
             base_qos,
+            mem_profile: self.mem_profile,
+            dither_dist: self.dither_dist,
             results,
             inc_results: vec![],
         };
@@ -443,21 +663,27 @@ impl Job for IoCostQoSJob {
         Ok(serde_json::to_value(&result).unwrap())
     }
 
-    fn format<'a>(&self, mut out: Box<dyn Write + 'a>, result: &serde_json::Value, full: bool) {
-        let result = serde_json::from_value::<IoCostQoSResult>(result.to_owned()).unwrap();
+    fn format<'a>(
+        &self,
+        mut out: Box<dyn Write + 'a>,
+        data: &JobData,
+        full: bool,
+        _props: &JobProps,
+    ) -> Result<()> {
+        let result = serde_json::from_value::<IoCostQoSResult>(data.result.clone()).unwrap();
         if result.results.len() == 0
             || result.results[0].is_none()
             || result.results[0].as_ref().unwrap().qos.is_some()
         {
             error!("iocost-qos: Failed to format due to missing baseline");
-            return;
+            return Ok(());
         }
         let baseline = &result.results[0].as_ref().unwrap().storage;
 
         self.storage_job.format_header(&mut out, baseline);
 
         if full {
-            for (i, (ovr, run)) in self.runs.iter().zip(result.results.iter()).enumerate() {
+            for (i, run) in result.results.iter().enumerate() {
                 if run.is_none() {
                     continue;
                 }
@@ -470,7 +696,7 @@ impl Job for IoCostQoSJob {
                     ======\n\n\
                     QoS: {}\n",
                     i,
-                    Self::format_qos_ovr(ovr.as_ref(), &result.base_qos)
+                    Self::format_qos_ovr(run.ovr.as_ref(), &result.base_qos)
                 )
                 .unwrap();
                 self.format_one_storage(&mut out, &run.storage);
@@ -558,5 +784,7 @@ impl Job for IoCostQoSJob {
                 None => writeln!(out, "[{:02}]  failed", i).unwrap(),
             }
         }
+
+        Ok(())
     }
 }

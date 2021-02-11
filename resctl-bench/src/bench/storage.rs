@@ -3,6 +3,8 @@ use super::*;
 use rd_agent_intf::{HASHD_BENCH_SVC_NAME, ROOT_SLICE};
 use std::collections::{BTreeMap, VecDeque};
 
+const STD_MEM_PROFILE: u32 = 16;
+
 #[derive(Clone)]
 pub struct StorageJob {
     pub hash_size: usize,
@@ -68,7 +70,7 @@ pub struct StorageBench {}
 
 impl Bench for StorageBench {
     fn desc(&self) -> BenchDesc {
-        BenchDesc::new("storage")
+        BenchDesc::new("storage").takes_run_props()
     }
 
     fn parse(&self, spec: &JobSpec) -> Result<Box<dyn Job>> {
@@ -96,28 +98,6 @@ pub struct StorageResult {
     pub wbps_final: usize,
     pub final_mem_probe_periods: Vec<(u64, u64)>,
     pub io_lat_pcts: BTreeMap<String, BTreeMap<String, f64>>,
-}
-
-struct MemProfileIterator {
-    cur: u32,
-}
-
-impl MemProfileIterator {
-    fn new() -> Self {
-        Self { cur: 1 }
-    }
-}
-
-impl Iterator for MemProfileIterator {
-    type Item = (u32, usize);
-    fn next(&mut self) -> Option<Self::Item> {
-        let v = self.cur;
-        self.cur *= 2;
-        match v {
-            v if v <= 8 => Some((v, ((v as usize) << 30) / 2)),
-            v => Some((v, ((v as usize) - 8) << 30)),
-        }
-    }
 }
 
 struct HashdFakeCpuBench {
@@ -167,6 +147,7 @@ impl StorageJob {
                 "log-bps" => job.log_bps = v.parse::<u64>()?,
                 "loops" => job.loops = v.parse::<u32>()?,
                 "mem-profile" => job.mem_profile_ask = Some(v.parse::<u32>()?),
+                "mem-avail" => job.mem_avail = v.parse::<usize>()?,
                 "mem-avail-err-max" => job.mem_avail_err_max = v.parse::<f64>()?,
                 "mem-avail-inner-retries" => job.mem_avail_inner_retries = v.parse::<u32>()?,
                 "mem-avail-outer-retries" => job.mem_avail_outer_retries = v.parse::<u32>()?,
@@ -226,37 +207,32 @@ impl StorageJob {
         Ok(mem_usage)
     }
 
+    fn mem_share(mem_profile: u32) -> Result<usize> {
+        match mem_profile {
+            v if v == 0 || (v & (v - 1)) != 0 => Err(anyhow!(
+                "storage: invalid memory profile {}, must be positive power of two",
+                mem_profile
+            )),
+            v if v <= 4 => Ok(((v as usize) << 30) / 2),
+            v if v <= 16 => Ok(((v as usize) << 30) * 3 / 4),
+            v => Ok(((v as usize) - 8) << 30),
+        }
+    }
+
     fn select_memory_profile(&self) -> Result<(u32, usize)> {
-        // Select the matching memory profile.
-        let mut prof_match: Option<(u32, usize)> = None;
         match self.mem_profile_ask.as_ref() {
-            Some(ask) => {
-                for (mem_profile, mem_share) in MemProfileIterator::new() {
-                    if mem_profile == *ask {
-                        prof_match = Some((mem_profile, mem_share));
-                        break;
-                    } else if mem_profile > *ask {
-                        bail!("storage: profile must be power-of-two");
-                    }
-                }
-            }
-            None => {
-                for (mem_profile, mem_share) in MemProfileIterator::new() {
-                    if mem_share <= self.mem_avail {
-                        prof_match = Some((mem_profile, mem_share));
-                    } else {
-                        break;
-                    }
-                }
-                if prof_match.is_none() {
-                    bail!(
-                        "storage: mem_avail {} too small to run benchmarks",
-                        format_size(self.mem_avail)
+            Some(&ask) => {
+                if ask != STD_MEM_PROFILE {
+                    warn!(
+                        "storage: Using non-standard mem-profile {}, \
+                         the result won't be directly comparable",
+                        ask
                     );
                 }
+                Ok((ask, Self::mem_share(ask)?))
             }
+            None => Ok((STD_MEM_PROFILE, Self::mem_share(STD_MEM_PROFILE)?)),
         }
-        Ok(prof_match.unwrap())
     }
 
     fn measure_supportable_memory_size(&mut self, rctx: &RunCtx) -> Result<(usize, f64)> {
@@ -487,7 +463,7 @@ impl StorageJob {
 }
 
 impl Job for StorageJob {
-    fn sysreqs(&self) -> HashSet<SysReq> {
+    fn sysreqs(&self) -> BTreeSet<SysReq> {
         HASHD_SYSREQS.clone()
     }
 
@@ -530,7 +506,7 @@ impl Job for StorageJob {
             self.mem_profile = mp;
             self.mem_share = ms;
 
-            if self.mem_avail < self.mem_share {
+            if self.mem_avail < self.mem_share && !rctx.test {
                 if self.mem_avail_outer_retries > 0 {
                     warn!(
                         "storage: mem_avail {} too small for the memory profile, re-estimating",
@@ -540,7 +516,7 @@ impl Job for StorageJob {
                     self.mem_avail = self.estimate_available_memory(rctx)?;
                     continue 'outer;
                 }
-                bail!("mem_avail too small for the memory profile, giving up");
+                bail!("mem_avail too small for the memory profile, use lower mem-profile");
             }
             info!(
                 "storage: Memory profile {}G (mem_share {}, mem_avail {})",
@@ -559,7 +535,7 @@ impl Job for StorageJob {
                 let (mem_size, mem_avail_err) = self.measure_supportable_memory_size(rctx)?;
 
                 // check for both going over and under, see the above function
-                if mem_avail_err.abs() > self.mem_avail_err_max {
+                if mem_avail_err.abs() > self.mem_avail_err_max && !rctx.test {
                     warn!(
                         "storage: mem_avail error |{:.2}|% > {:.2}%, please keep system idle",
                         mem_avail_err * 100.0,
@@ -662,8 +638,14 @@ impl Job for StorageJob {
         Ok(serde_json::to_value(&result).unwrap())
     }
 
-    fn format<'a>(&self, mut out: Box<dyn Write + 'a>, result: &serde_json::Value, full: bool) {
-        let result = serde_json::from_value::<StorageResult>(result.to_owned()).unwrap();
+    fn format<'a>(
+        &self,
+        mut out: Box<dyn Write + 'a>,
+        data: &JobData,
+        full: bool,
+        _props: &JobProps,
+    ) -> Result<()> {
+        let result = serde_json::from_value::<StorageResult>(data.result.clone()).unwrap();
 
         self.format_header(&mut out, &result);
         writeln!(out, "").unwrap();
@@ -672,5 +654,7 @@ impl Job for StorageJob {
             writeln!(out, "").unwrap();
         }
         self.format_summaries(&mut out, &result);
+
+        Ok(())
     }
 }

@@ -276,6 +276,39 @@ pub fn format_pct_dashed(ratio: f64) -> String {
     format_pct_internal(ratio, "-")
 }
 
+pub fn parse_duration(input: &str) -> Result<f64> {
+    lazy_static::lazy_static! {
+        static ref UNITS: HashMap<char, f64> = [
+            ('n', 0.000_000_001),
+            ('u', 0.000_001),
+            ('m', 0.001),
+            ('s', 1.0),
+            ('M', 60.0),
+            ('H', 3600.0),
+            ('D', 3600.0 * 24.0),
+            ('Y', 3600.0 * 24.0 * 365.0),
+        ]
+            .iter()
+            .cloned()
+            .collect();
+    }
+
+    let mut num = String::new();
+    let mut sum = 0.0;
+    for ch in input.chars() {
+        if UNITS.contains_key(&ch) {
+            sum += num.trim().parse::<f64>()? * UNITS[&ch];
+            num.clear();
+        } else {
+            num.push(ch);
+        }
+    }
+    if num.trim().len() > 0 {
+        sum += num.trim().parse::<f64>()?;
+    }
+    Ok(sum)
+}
+
 fn is_executable<P: AsRef<Path>>(path_in: P) -> bool {
     let path = path_in.as_ref();
     match path.metadata() {
@@ -559,6 +592,27 @@ mod tests {
             let result = super::format_duration(pair.0);
             assert_eq!(&result, pair.1);
             println!("{} -> {} ({})", pair.0, &result, pair.1);
+        }
+    }
+
+    #[test]
+    fn test_parse_duration() {
+        for pair in &[
+            (0.0000039, "3.9u"),
+            (0.0044, "4.4m"),
+            (0.3, "300m"),
+            (2040.0, "34.0M"),
+            (3456000.0, "40.0D"),
+            (59918400.0, "1.9Y"),
+            (59918401.1, "1.9Y1s100m"),
+            (59918401.1, "1.9Y1.1s"),
+            (59918401.102, "1.9Y  1.1s  2000  u"),
+            (1.27, "1.27"),
+            (1.37, "100m1.27"),
+        ] {
+            let result = super::parse_duration(pair.1).unwrap();
+            assert_eq!(pair.0, result);
+            println!("{} -> {} ({})", pair.1, result, pair.0);
         }
     }
 }

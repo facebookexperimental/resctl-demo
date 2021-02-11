@@ -1163,7 +1163,10 @@ impl Bench {
             self.set_phase(Phase::BenchMemPrep);
             let tf = self.prep_tf(
                 max_size,
-                self.args_file.data.bench_preload_cache,
+                match mem_sat_cfg.test {
+                    false => self.args_file.data.bench_preload_cache,
+                    true => 0,
+                },
                 "Memory saturation bench",
             );
 

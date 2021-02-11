@@ -4,7 +4,7 @@ use enum_iterator::IntoEnumIterator;
 use glob::glob;
 use log::{debug, error, info, trace, warn};
 use scan_fmt::scan_fmt;
-use std::collections::HashSet;
+use std::collections::BTreeSet;
 use std::ffi::{OsStr, OsString};
 use std::fmt::Write;
 use std::fs;
@@ -16,7 +16,7 @@ use util::*;
 use super::{Config, EnforceConfig};
 use rd_agent_intf::{DisableSeqKnobs, MemoryKnob, Slice, SliceConfig, SliceKnobs, SysReq};
 
-pub fn check_other_io_controllers(sr_failed: &mut HashSet<SysReq>) {
+pub fn check_other_io_controllers(sr_failed: &mut BTreeSet<SysReq>) {
     let mut failed = None;
     let mut nr_fails = 0;
 
@@ -613,7 +613,7 @@ pub fn verify_and_fix_slices(
     }
 
     if cfg.enforce.all {
-        check_other_io_controllers(&mut HashSet::new());
+        check_other_io_controllers(&mut BTreeSet::new());
     }
     Ok(())
 }

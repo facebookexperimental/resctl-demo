@@ -17,6 +17,22 @@ pub struct IoCostModelParams {
     pub wrandiops: u64,
 }
 
+impl std::ops::Mul<f64> for IoCostModelParams {
+    type Output = Self;
+
+    fn mul(self, rhs: f64) -> Self {
+        let mul = |u: u64| (u as f64 * rhs).round() as u64;
+        Self {
+            rbps: mul(self.rbps),
+            rseqiops: mul(self.rseqiops),
+            rrandiops: mul(self.rrandiops),
+            wbps: mul(self.wbps),
+            wseqiops: mul(self.wseqiops),
+            wrandiops: mul(self.wrandiops),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 #[serde(default)]
 pub struct IoCostQoSParams {
@@ -35,6 +51,18 @@ impl std::fmt::Display for IoCostQoSParams {
             "rpct={:.2} rlat={} wpct={:.2} wlat={} min={:.2} max={:.2}",
             self.rpct, self.rlat, self.wpct, self.wlat, self.min, self.max
         )
+    }
+}
+
+impl IoCostQoSParams {
+    /// The kernel reads only two digits after the decimal point. Let's
+    /// rinse the floats through formatting and parsing so that they can be
+    /// tested for equality with values read from kernel.
+    pub fn sanitize(&mut self) {
+        self.rpct = format!("{:.2}", self.rpct).parse::<f64>().unwrap();
+        self.wpct = format!("{:.2}", self.wpct).parse::<f64>().unwrap();
+        self.min = format!("{:.2}", self.min).parse::<f64>().unwrap();
+        self.max = format!("{:.2}", self.max).parse::<f64>().unwrap();
     }
 }
 

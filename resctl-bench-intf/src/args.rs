@@ -78,7 +78,7 @@ impl Default for Args {
 }
 
 impl Args {
-    fn parse_job_spec(spec: &str) -> Result<JobSpec> {
+    pub fn parse_job_spec(spec: &str) -> Result<JobSpec> {
         let mut groups = spec.split(':');
 
         let kind = match groups.next() {
