@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 use std::fmt::Write;
 use std::fs;
-use std::io::Read;
+use std::io::{Read, Write as IoWrite};
 use std::sync::Arc;
 use std::time::{Duration, UNIX_EPOCH};
 use util::*;
@@ -131,22 +131,6 @@ impl JobCtx {
         self.job = Some(bench.parse(spec)?);
         self.bench = Some(bench);
         Ok(())
-    }
-
-    pub fn load_result_file(path: &str) -> Result<Vec<Self>> {
-        let mut f = fs::OpenOptions::new().read(true).open(path)?;
-        let mut buf = String::new();
-        f.read_to_string(&mut buf)?;
-
-        let mut results: Vec<Self> = serde_json::from_str(&buf)?;
-        for (idx, jctx) in results.iter_mut().enumerate() {
-            jctx.inc_job_idx = idx;
-            if let Err(e) = jctx.parse_job_spec() {
-                bail!("failed to parse {} ({})", &jctx.data.spec, &e);
-            }
-        }
-
-        Ok(results)
     }
 
     pub fn are_results_compatible(&self, other: &JobSpec) -> bool {
@@ -308,5 +292,76 @@ impl JobCtx {
             .format(Box::new(&mut buf), data, mode == Mode::Format, props)?;
 
         Ok(buf)
+    }
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct JobCtxs {
+    pub vec: Vec<JobCtx>,
+}
+
+impl JobCtxs {
+    fn find_matching_jctx_idx(&self, spec: &JobSpec) -> Option<usize> {
+        for (idx, jctx) in self.vec.iter().enumerate() {
+            if jctx.data.spec.kind == spec.kind && jctx.data.spec.id == spec.id {
+                return Some(idx);
+            }
+        }
+        return None;
+    }
+
+    pub fn find_matching_jctx<'a>(&'a self, spec: &JobSpec) -> Option<&'a JobCtx> {
+        match self.find_matching_jctx_idx(spec) {
+            Some(idx) => Some(&self.vec[idx]),
+            None => None,
+        }
+    }
+
+    pub fn pop_matching_jctx(&mut self, spec: &JobSpec) -> Option<JobCtx> {
+        match self.find_matching_jctx_idx(spec) {
+            Some(idx) => Some(self.vec.remove(idx)),
+            None => None,
+        }
+    }
+
+    pub fn find_prev_data<'a>(&'a self, spec: &JobSpec) -> Option<&'a JobData> {
+        let jctx = match self.find_matching_jctx(spec) {
+            Some(jctx) => jctx,
+            None => return None,
+        };
+        if jctx.are_results_compatible(spec) && jctx.data.result_valid() {
+            Some(&jctx.data)
+        } else {
+            None
+        }
+    }
+
+    pub fn load_results(path: &str) -> Result<Self> {
+        let mut f = fs::OpenOptions::new().read(true).open(path)?;
+        let mut buf = String::new();
+        f.read_to_string(&mut buf)?;
+
+        let mut vec: Vec<JobCtx> = serde_json::from_str(&buf)?;
+        for (idx, jctx) in vec.iter_mut().enumerate() {
+            jctx.inc_job_idx = idx;
+            if let Err(e) = jctx.parse_job_spec() {
+                bail!("failed to parse {} ({})", &jctx.data.spec, &e);
+            }
+        }
+
+        Ok(Self { vec })
+    }
+
+    pub fn save_results(&self, path: &str) {
+        let serialized =
+            serde_json::to_string_pretty(&self.vec).expect("Failed to serialize output");
+        let mut f = fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(path)
+            .expect("Failed to open output file");
+        f.write_all(serialized.as_ref())
+            .expect("Failed to write output file");
     }
 }

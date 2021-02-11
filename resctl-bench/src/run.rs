@@ -11,7 +11,7 @@ use util::*;
 
 use super::progress::BenchProgress;
 use super::{Program, AGENT_BIN};
-use crate::job::{JobCtx, JobData};
+use crate::job::{JobCtx, JobCtxs, JobData};
 use rd_agent_intf::{
     AgentFiles, ReportIter, RunnerState, Slice, SysReq, AGENT_SVC_NAME, HASHD_BENCH_SVC_NAME,
     IOCOST_BENCH_SVC_NAME,
@@ -153,7 +153,7 @@ pub struct RunCtx<'a> {
     base_bench: rd_agent_intf::BenchKnobs,
     pub prev_data: Option<JobData>,
     pub data_forwards: Vec<JobData>,
-    inc_job_ctxs: &'a mut Vec<JobCtx>,
+    inc_jctxs: &'a mut JobCtxs,
     inc_job_idx: usize,
     result_path: &'a str,
     pub test: bool,
@@ -164,7 +164,7 @@ impl<'a> RunCtx<'a> {
     pub fn new(
         args: &'a resctl_bench_intf::Args,
         base_bench: &rd_agent_intf::BenchKnobs,
-        inc_job_ctxs: &'a mut Vec<JobCtx>,
+        inc_jctxs: &'a mut JobCtxs,
         inc_job_idx: usize,
         data_forwards: Vec<JobData>,
     ) -> Self {
@@ -193,7 +193,7 @@ impl<'a> RunCtx<'a> {
             agent_init_fns: vec![],
             prev_data: None,
             data_forwards,
-            inc_job_ctxs,
+            inc_jctxs,
             inc_job_idx,
             result_path: &args.result,
             test: args.test,
@@ -249,13 +249,13 @@ impl<'a> RunCtx<'a> {
     }
 
     pub fn update_incremental_jctx(&mut self, jctx: &JobCtx) {
-        self.inc_job_ctxs[self.inc_job_idx] = jctx.clone();
-        Program::save_results(self.result_path, self.inc_job_ctxs);
+        self.inc_jctxs.vec[self.inc_job_idx] = jctx.clone();
+        self.inc_jctxs.save_results(self.result_path);
     }
 
     pub fn update_incremental_result(&mut self, result: serde_json::Value) {
-        self.inc_job_ctxs[self.inc_job_idx].data.result = result;
-        Program::save_results(self.result_path, self.inc_job_ctxs);
+        self.inc_jctxs.vec[self.inc_job_idx].data.result = result;
+        self.inc_jctxs.save_results(self.result_path);
     }
 
     pub fn base_bench(&self) -> &rd_agent_intf::BenchKnobs {
