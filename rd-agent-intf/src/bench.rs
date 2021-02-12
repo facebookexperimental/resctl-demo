@@ -25,7 +25,7 @@ const BENCH_DOC: &str = "\
 //
 ";
 
-#[derive(Clone, Default, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct HashdKnobs {
     pub hash_size: usize,
@@ -41,14 +41,14 @@ impl HashdKnobs {
     }
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 pub struct IoCostKnobs {
     pub devnr: String,
     pub model: IoCostModelParams,
     pub qos: IoCostQoSParams,
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct BenchKnobs {
     pub timestamp: DateTime<Local>,
     pub hashd_seq: u64,

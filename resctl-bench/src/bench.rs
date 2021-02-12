@@ -2,7 +2,7 @@
 
 // The individual bench implementations under bench/ inherits all uses from
 // this file. Make common stuff available.
-use anyhow::{anyhow, bail, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use log::{debug, error, info, warn};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;

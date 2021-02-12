@@ -16,7 +16,7 @@ use rd_agent_intf::{
     AgentFiles, ReportIter, RunnerState, Slice, SysReq, AGENT_SVC_NAME, HASHD_BENCH_SVC_NAME,
     IOCOST_BENCH_SVC_NAME,
 };
-use resctl_bench_intf::Mode;
+use resctl_bench_intf::{JobSpec, Mode};
 
 const MINDER_AGENT_TIMEOUT: Duration = Duration::from_secs(120);
 const CMD_TIMEOUT: Duration = Duration::from_secs(30);
@@ -148,6 +148,17 @@ impl RunCtxInner {
     }
 }
 
+fn run_nested_job_spec_int(
+    spec: &JobSpec,
+    args: &resctl_bench_intf::Args,
+    base_bench: &mut rd_agent_intf::BenchKnobs,
+    jobs: Arc<Mutex<Jobs>>,
+) -> Result<()> {
+    let mut rctx = RunCtx::new(args, base_bench, jobs);
+    let jctx = rctx.jobs.lock().unwrap().parse_job_spec_and_link(spec)?;
+    rctx.run_jctx(jctx)
+}
+
 pub struct RunCtx<'a> {
     inner: Arc<Mutex<RunCtxInner>>,
     agent_init_fns: Vec<Box<dyn FnOnce(&mut RunCtx)>>,
@@ -160,6 +171,7 @@ pub struct RunCtx<'a> {
     result_path: &'a str,
     pub test: bool,
     pub commit_bench: bool,
+    args: &'a resctl_bench_intf::Args,
 }
 
 impl<'a> RunCtx<'a> {
@@ -199,6 +211,7 @@ impl<'a> RunCtx<'a> {
             result_path: &args.result,
             test: args.test,
             commit_bench: false,
+            args,
         }
     }
 
@@ -654,6 +667,13 @@ impl<'a> RunCtx<'a> {
         self.jobs.lock().unwrap().done.vec.push(jctx);
 
         Ok(())
+    }
+
+    pub fn run_nested_job_spec(&mut self, spec: &JobSpec) -> Result<()> {
+        if self.inner.lock().unwrap().agent_svc.is_some() {
+            bail!("can't nest bench execution while rd-agent is already running for outer bench");
+        }
+        run_nested_job_spec_int(spec, self.args, self.base_bench, self.jobs.clone())
     }
 
     pub fn sysreqs_report(&self) -> Option<Arc<rd_agent_intf::SysReqsReport>> {
