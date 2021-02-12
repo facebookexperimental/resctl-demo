@@ -103,7 +103,7 @@ pub trait Bench: Send + Sync {
         Ok(())
     }
 
-    fn parse(&self, spec: &JobSpec) -> Result<Box<dyn Job>>;
+    fn parse(&self, spec: &JobSpec, prev_data: Option<&JobData>) -> Result<Box<dyn Job>>;
 }
 
 fn register_bench(bench: Box<dyn Bench>) -> () {

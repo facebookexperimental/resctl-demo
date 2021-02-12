@@ -12,7 +12,7 @@ impl Bench for IoCostParamsBench {
         BenchDesc::new("iocost-params")
     }
 
-    fn parse(&self, _spec: &JobSpec) -> Result<Box<dyn Job>> {
+    fn parse(&self, _spec: &JobSpec, _prev_data: Option<&JobData>) -> Result<Box<dyn Job>> {
         Ok(Box::new(IoCostParamsJob {}))
     }
 }

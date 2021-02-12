@@ -305,7 +305,7 @@ impl Bench for IoCostTuneBench {
         Ok(())
     }
 
-    fn parse(&self, spec: &JobSpec) -> Result<Box<dyn Job>> {
+    fn parse(&self, spec: &JobSpec, _prev_data: Option<&JobData>) -> Result<Box<dyn Job>> {
         let mut job = IoCostTuneJob::default();
 
         for (k, v) in spec.props[0].iter() {

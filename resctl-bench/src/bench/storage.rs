@@ -73,7 +73,7 @@ impl Bench for StorageBench {
         BenchDesc::new("storage").takes_run_props()
     }
 
-    fn parse(&self, spec: &JobSpec) -> Result<Box<dyn Job>> {
+    fn parse(&self, spec: &JobSpec, _prev_data: Option<&JobData>) -> Result<Box<dyn Job>> {
         Ok(Box::new(StorageJob::parse(spec)?))
     }
 }

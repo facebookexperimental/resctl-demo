@@ -89,22 +89,6 @@ impl std::fmt::Debug for JobCtx {
     }
 }
 
-impl std::clone::Clone for JobCtx {
-    fn clone(&self) -> Self {
-        let mut clone = Self {
-            data: self.data.clone(),
-            bench: None,
-            job: None,
-            incremental: self.incremental,
-            uid: Self::new_uid(),
-            prev_uid: None,
-            prev_used: false,
-        };
-        clone.parse_job_spec().unwrap();
-        clone
-    }
-}
-
 impl JobCtx {
     fn new_uid() -> u64 {
         static UID: AtomicU64 = AtomicU64::new(1);
@@ -123,7 +107,7 @@ impl JobCtx {
         }
     }
 
-    pub fn parse_job_spec(&mut self) -> Result<()> {
+    pub fn parse_job_spec(&mut self, prev_data: Option<&JobData>) -> Result<()> {
         let spec = &self.data.spec;
         let bench = super::bench::find_bench(&spec.kind)?;
         let desc = bench.desc();
@@ -134,9 +118,30 @@ impl JobCtx {
             bail!("multiple property sets not supported");
         }
         self.incremental = desc.incremental;
-        self.job = Some(bench.parse(spec)?);
+
+        let prev_data = match prev_data {
+            None => match self.data.result_valid() {
+                true => Some(&self.data),
+                false => None,
+            },
+            v => v,
+        };
+
+        self.job = Some(bench.parse(spec, prev_data)?);
         self.bench = Some(bench);
         Ok(())
+    }
+
+    pub fn weak_clone(&self) -> Self {
+        Self {
+            data: self.data.clone(),
+            bench: None,
+            job: None,
+            incremental: self.incremental,
+            uid: Self::new_uid(),
+            prev_uid: None,
+            prev_used: false,
+        }
     }
 
     pub fn are_results_compatible(&self, other: &JobSpec) -> bool {
@@ -315,7 +320,7 @@ impl JobCtx {
     }
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Debug, Default)]
 pub struct JobCtxs {
     pub vec: Vec<JobCtx>,
 }
@@ -398,7 +403,7 @@ impl JobCtxs {
         let mut vec: Vec<JobCtx> = serde_json::from_str(&buf)?;
         for jctx in vec.iter_mut() {
             jctx.uid = JobCtx::new_uid();
-            if let Err(e) = jctx.parse_job_spec() {
+            if let Err(e) = jctx.parse_job_spec(None) {
                 bail!("failed to parse {} ({})", &jctx.data.spec, &e);
             }
         }
