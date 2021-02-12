@@ -10,8 +10,8 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use util::*;
 
 use super::progress::BenchProgress;
-use super::{Program, AGENT_BIN};
-use crate::job::{JobCtx, JobCtxs, JobData};
+use super::{Jobs, Program, AGENT_BIN};
+use crate::job::{JobCtx, JobData};
 use rd_agent_intf::{
     AgentFiles, ReportIter, RunnerState, Slice, SysReq, AGENT_SVC_NAME, HASHD_BENCH_SVC_NAME,
     IOCOST_BENCH_SVC_NAME,
@@ -153,8 +153,8 @@ pub struct RunCtx<'a> {
     base_bench: rd_agent_intf::BenchKnobs,
     pub prev_data: Option<JobData>,
     pub data_forwards: Vec<JobData>,
-    inc_jctxs: &'a mut JobCtxs,
-    inc_job_idx: usize,
+    pub jobs: Arc<Mutex<Jobs>>,
+    pub inc_job_idx: Vec<usize>,
     result_path: &'a str,
     pub test: bool,
     pub commit_bench: bool,
@@ -164,8 +164,7 @@ impl<'a> RunCtx<'a> {
     pub fn new(
         args: &'a resctl_bench_intf::Args,
         base_bench: &rd_agent_intf::BenchKnobs,
-        inc_jctxs: &'a mut JobCtxs,
-        inc_job_idx: usize,
+        jobs: Arc<Mutex<Jobs>>,
         data_forwards: Vec<JobData>,
     ) -> Self {
         Self {
@@ -193,8 +192,8 @@ impl<'a> RunCtx<'a> {
             agent_init_fns: vec![],
             prev_data: None,
             data_forwards,
-            inc_jctxs,
-            inc_job_idx,
+            jobs,
+            inc_job_idx: vec![],
             result_path: &args.result,
             test: args.test,
             commit_bench: false,
@@ -249,13 +248,17 @@ impl<'a> RunCtx<'a> {
     }
 
     pub fn update_incremental_jctx(&mut self, jctx: &JobCtx) {
-        self.inc_jctxs.vec[self.inc_job_idx] = jctx.clone();
-        self.inc_jctxs.save_results(self.result_path);
+        let mut jobs = self.jobs.lock().unwrap();
+        jobs.prev.vec[jctx.inc_job_idx] = jctx.clone();
+        jobs.prev.save_results(self.result_path);
     }
 
     pub fn update_incremental_result(&mut self, result: serde_json::Value) {
-        self.inc_jctxs.vec[self.inc_job_idx].data.result = result;
-        self.inc_jctxs.save_results(self.result_path);
+        let mut jobs = self.jobs.lock().unwrap();
+        jobs.prev.vec[*self.inc_job_idx.iter().last().unwrap()]
+            .data
+            .result = result;
+        jobs.prev.save_results(self.result_path);
     }
 
     pub fn base_bench(&self) -> &rd_agent_intf::BenchKnobs {
