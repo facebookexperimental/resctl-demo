@@ -151,7 +151,6 @@ pub struct RunCtx<'a> {
     inner: Arc<Mutex<RunCtxInner>>,
     agent_init_fns: Vec<Box<dyn FnOnce(&mut RunCtx)>>,
     base_bench: rd_agent_intf::BenchKnobs,
-    pub prev_data: Option<JobData>,
     pub data_forwards: Vec<JobData>,
     pub jobs: Arc<Mutex<Jobs>>,
     pub prev_uid: Vec<u64>,
@@ -190,7 +189,6 @@ impl<'a> RunCtx<'a> {
             })),
             base_bench: base_bench.clone(),
             agent_init_fns: vec![],
-            prev_data: None,
             data_forwards,
             jobs,
             prev_uid: vec![],
@@ -601,6 +599,16 @@ impl<'a> RunCtx<'a> {
     }
 
     pub const BENCH_FAKE_CPU_RPS_MAX: u32 = 2000;
+
+    pub fn prev_data(&self) -> Option<JobData> {
+        let jobs = self.jobs.lock().unwrap();
+        let prev_uid = *self.prev_uid.iter().last().unwrap();
+        let prev = jobs.prev.by_uid(prev_uid).unwrap();
+        match prev.data.result_valid() {
+            true => Some(prev.data.clone()),
+            false => None,
+        }
+    }
 
     pub fn sysreqs_report(&self) -> Option<Arc<rd_agent_intf::SysReqsReport>> {
         self.inner.lock().unwrap().sysreqs_rep.clone()

@@ -149,30 +149,22 @@ impl JobCtx {
     }
 
     pub fn run(&mut self, rctx: &mut RunCtx, mut sysreqs_forward: Option<SysReqs>) -> Result<()> {
-        let jobs = rctx.jobs.lock().unwrap();
-        let prev = jobs.prev.by_uid(self.prev_uid.unwrap()).unwrap();
-        let mut prev_valid = false;
-        if self.are_results_compatible(&prev.data.spec) && prev.data.result_valid() {
-            if self.incremental {
-                rctx.prev_data = Some(prev.data.clone());
-                prev_valid = true;
-            } else {
-                *self = prev.clone();
-                return Ok(());
-            }
+        rctx.prev_uid.push(self.prev_uid.unwrap());
+        let pdata = rctx.prev_data();
+        if pdata.is_some() && !self.incremental {
+            self.data = pdata.unwrap();
+            assert!(rctx.prev_uid.pop().unwrap() == self.prev_uid.unwrap());
+            return Ok(());
         }
-        drop(jobs);
 
         let job = self.job.as_mut().unwrap();
         let data = &mut self.data;
         data.sysreqs.required = job.sysreqs();
         rctx.add_sysreqs(data.sysreqs.required.clone());
 
-        rctx.prev_uid.push(self.prev_uid.unwrap());
         data.started_at = unix_now();
         let result = job.run(rctx)?;
         data.ended_at = unix_now();
-        assert!(rctx.prev_uid.pop().unwrap() == self.prev_uid.unwrap());
 
         if rctx.sysreqs_report().is_some() {
             data.sysreqs.report = Some((*rctx.sysreqs_report().unwrap()).clone());
@@ -182,7 +174,7 @@ impl JobCtx {
             }
         } else if sysreqs_forward.is_some() {
             data.sysreqs = sysreqs_forward.take().unwrap();
-        } else if prev_valid {
+        } else if pdata.is_some() {
             data.sysreqs = rctx
                 .jobs
                 .lock()
@@ -201,6 +193,7 @@ impl JobCtx {
         }
         data.result = result;
         rctx.update_incremental_jctx(&self);
+        assert!(rctx.prev_uid.pop().unwrap() == self.prev_uid.unwrap());
         Ok(())
     }
 
@@ -347,7 +340,11 @@ impl JobCtxs {
         spec: &JobSpec,
     ) -> Option<&'a mut JobCtx> {
         for jctx in self.vec.iter_mut() {
-            if !jctx.prev_used && jctx.data.spec.kind == spec.kind && jctx.data.spec.id == spec.id {
+            if !jctx.prev_used
+                && jctx.data.spec.kind == spec.kind
+                && jctx.data.spec.id == spec.id
+                && jctx.are_results_compatible(spec)
+            {
                 return Some(jctx);
             }
         }
