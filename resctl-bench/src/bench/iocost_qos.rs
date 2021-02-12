@@ -98,19 +98,6 @@ impl Bench for IoCostQoSBench {
             None
         };
 
-        // If dither is enabled without explicit dither_dist and prev has
-        // dither_dist set, use the prev dither_dist so that we can use
-        // results from it.
-        if let Some(pr) = prev_result.as_ref() {
-            if let Some(pdd) = pr.dither_dist.as_ref() {
-                for (k, v) in specs[idx].props[0].iter_mut() {
-                    if k == "dither" && v.len() == 0 {
-                        *v = format!("{}", pdd);
-                    }
-                }
-            }
-        }
-
         // Is the bench result available or iocost-params already scheduled?
         if base_bench.iocost_seq > 0 {
             debug!("iocost-qos-pre: iocost parameters available");
@@ -126,7 +113,7 @@ impl Bench for IoCostQoSBench {
         // If prev has all the needed results, we don't need iocost-params.
         if let Some(pr) = prev_result.as_ref() {
             // Let the actual job parsing stage take care of it.
-            let job = match IoCostQoSJob::parse(&specs[idx]) {
+            let job = match IoCostQoSJob::parse(&specs[idx], prev_data) {
                 Ok(job) => job,
                 Err(_) => return Ok(()),
             };
@@ -149,8 +136,8 @@ impl Bench for IoCostQoSBench {
         Ok(())
     }
 
-    fn parse(&self, spec: &JobSpec, _prev_data: Option<&JobData>) -> Result<Box<dyn Job>> {
-        Ok(Box::new(IoCostQoSJob::parse(spec)?))
+    fn parse(&self, spec: &JobSpec, prev_data: Option<&JobData>) -> Result<Box<dyn Job>> {
+        Ok(Box::new(IoCostQoSJob::parse(spec, prev_data)?))
     }
 }
 
@@ -177,7 +164,7 @@ pub struct IoCostQoSResult {
 impl IoCostQoSJob {
     const VRATE_PCTS: [&'static str; 9] = ["00", "01", "10", "16", "50", "84", "90", "99", "100"];
 
-    fn parse(spec: &JobSpec) -> Result<Self> {
+    fn parse(spec: &JobSpec, prev_data: Option<&JobData>) -> Result<Self> {
         let mut storage_spec = JobSpec::new("storage".into(), None, vec![Default::default()]);
 
         let mut vrate_min = 0.0;
@@ -257,6 +244,16 @@ impl IoCostQoSJob {
             };
 
             if dither {
+                if dither_dist.is_none() {
+                    if let Some(pd) = prev_data.as_ref() {
+                        // If prev has dither_dist set, use the prev dither_dist
+                        // so that we can use results from it.
+                        let pr = serde_json::from_value::<IoCostQoSResult>(pd.result.clone())?;
+                        if let Some(pdd) = pr.dither_dist.as_ref() {
+                            dither_dist = Some(*pdd);
+                        }
+                    }
+                }
                 if dither_dist.is_none() {
                     dither_dist = Some(
                         rand::thread_rng().gen_range(-click / 2.0, click / 2.0) + dither_shift,
