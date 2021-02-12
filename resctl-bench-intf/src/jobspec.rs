@@ -9,9 +9,6 @@ pub struct JobSpec {
     pub kind: String,
     pub id: Option<String>,
     pub props: JobProps,
-
-    #[serde(skip)]
-    pub preprocessed: bool,
 }
 
 impl std::cmp::PartialEq for JobSpec {
@@ -29,7 +26,6 @@ impl JobSpec {
             kind,
             id,
             props,
-            preprocessed: false,
         }
     }
 }

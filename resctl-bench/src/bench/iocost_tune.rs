@@ -9,7 +9,7 @@ use std::collections::{BTreeMap, BTreeSet};
 mod graph;
 
 const DFL_IOCOST_QOS_VRATE_MAX: f64 = 125.0;
-const DFL_IOCOST_QOS_VRATE_INTVS: u32 = 50;
+const DFL_IOCOST_QOS_VRATE_INTVS: u32 = 25;
 const DFL_GRAN: f64 = 0.1;
 const DFL_VRATE_MIN: f64 = 1.0;
 const DFL_VRATE_MAX: f64 = 100.0;
@@ -269,40 +269,6 @@ impl Bench for IoCostTuneBench {
         BenchDesc::new("iocost-tune")
             .takes_run_propsets()
             .takes_format_props()
-    }
-
-    fn preprocess_run_specs(
-        &self,
-        specs: &mut Vec<JobSpec>,
-        idx: usize,
-        _base_bench: &BenchKnobs,
-        _prev_data: Option<&JobData>,
-    ) -> Result<()> {
-        for i in (0..idx).rev() {
-            let sp = &specs[i];
-            if sp.kind == "iocost-qos" {
-                return Ok(());
-            }
-        }
-
-        info!("iocost-tune: iocost-qos run not specified, inserting with preset params");
-
-        let mut extra_args = String::new();
-        for (k, v) in specs[idx].props[0].iter() {
-            if k == "mem-profile" {
-                extra_args += &format!(",{}={}", k, v);
-                break;
-            }
-        }
-
-        specs.insert(
-            idx,
-            resctl_bench_intf::Args::parse_job_spec(&format!(
-                "iocost-qos:vrate-max={},vrate-intvs={}{}",
-                DFL_IOCOST_QOS_VRATE_MAX, DFL_IOCOST_QOS_VRATE_INTVS, extra_args
-            ))?,
-        );
-        Ok(())
     }
 
     fn parse(&self, spec: &JobSpec, _prev_data: Option<&JobData>) -> Result<Box<dyn Job>> {
@@ -642,9 +608,27 @@ impl Job for IoCostTuneJob {
     }
 
     fn run(&mut self, rctx: &mut RunCtx) -> Result<serde_json::Value> {
-        let src: IoCostQoSResult =
-            serde_json::from_value(rctx.find_done_job_data("iocost-qos").unwrap().result)
-                .map_err(|e| anyhow!("failed to parse iocost-qos result ({})", &e))?;
+        let qos_data = match rctx.find_done_job_data("iocost-qos") {
+            Some(v) => v,
+            None => {
+                let mut spec = format!(
+                    "iocost-qos:dither,vrate-max={},vrate-intvs={}",
+                    DFL_IOCOST_QOS_VRATE_MAX, DFL_IOCOST_QOS_VRATE_INTVS,
+                );
+                if self.mem_profile > 0 {
+                    spec += &format!(",mem-profile={}", self.mem_profile);
+                }
+                info!("iocost-tune: iocost-qos run not specified, running the following");
+                info!("iocost-tune: {}", &spec);
+
+                rctx.run_nested_job_spec(&resctl_bench_intf::Args::parse_job_spec(&spec).unwrap())
+                    .context("Failed to run iocost-qos")?;
+                rctx.find_done_job_data("iocost-qos").unwrap()
+            }
+        };
+
+        let src: IoCostQoSResult = serde_json::from_value(qos_data.result)
+            .map_err(|e| anyhow!("failed to parse iocost-qos result ({})", &e))?;
         let mut data = BTreeMap::<DataSel, DataSeries>::default();
 
         if self.mem_profile == 0 {

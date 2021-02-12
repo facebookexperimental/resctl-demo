@@ -369,29 +369,10 @@ impl JobCtxs {
         None
     }
 
-    pub fn find_matching_jctx<'a>(&'a self, spec: &JobSpec) -> Option<&'a JobCtx> {
-        match self.find_matching_jctx_idx(spec) {
-            Some(idx) => Some(&self.vec[idx]),
-            None => None,
-        }
-    }
-
     pub fn pop_matching_jctx(&mut self, spec: &JobSpec) -> Option<JobCtx> {
         match self.find_matching_jctx_idx(spec) {
             Some(idx) => Some(self.vec.remove(idx)),
             None => None,
-        }
-    }
-
-    pub fn find_prev_data<'a>(&'a self, spec: &JobSpec) -> Option<&'a JobData> {
-        let jctx = match self.find_matching_jctx(spec) {
-            Some(jctx) => jctx,
-            None => return None,
-        };
-        if jctx.are_results_compatible(spec) && jctx.data.result_valid() {
-            Some(&jctx.data)
-        } else {
-            None
         }
     }
 

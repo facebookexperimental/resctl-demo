@@ -435,7 +435,15 @@ impl Job for IoCostQoSJob {
                 let pr = serde_json::from_value::<IoCostQoSResult>(pd.result).unwrap();
                 (self.prev_matches(&pr, &bench), pr)
             }
-            None => (true, IoCostQoSResult::default()),
+            None => (
+                true,
+                IoCostQoSResult {
+                    base_model: bench.iocost.model.clone(),
+                    base_qos: bench.iocost.qos.clone(),
+                    dither_dist: self.dither_dist,
+                    ..Default::default()
+                },
+            ),
         };
 
         if prev_result.results.len() > 0 {
@@ -464,6 +472,8 @@ impl Job for IoCostQoSJob {
                 .context("Failed to run iocost-params")?;
             }
             bench = rctx.base_bench().clone();
+            prev_result.base_model = bench.iocost.model.clone();
+            prev_result.base_qos = bench.iocost.qos.clone();
         }
 
         // Print out what to do beforehand so that the user can spot errors

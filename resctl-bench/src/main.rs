@@ -224,35 +224,8 @@ impl Program {
             }
         };
 
-        // Spec preprocessing gives the bench implementations a chance to
-        // add, remove and modify the scheduled benches. Preprocess is
-        // called once per scheduled bench.
-        let mut jobs = self.jobs.lock().unwrap();
-        let args = &mut self.args_file.data;
-        loop {
-            let mut idx = None;
-            for (i, spec) in args.job_specs.iter().enumerate() {
-                if !spec.preprocessed {
-                    idx = Some(i);
-                    break;
-                }
-            }
-            if idx.is_none() {
-                break;
-            }
-
-            let idx = idx.unwrap();
-            let spec = &mut args.job_specs[idx];
-            let prev_data = jobs.prev.find_prev_data(spec);
-            spec.preprocessed = true;
-
-            bench::find_bench(&spec.kind)
-                .unwrap()
-                .preprocess_run_specs(&mut args.job_specs, idx, &base_bench, prev_data)
-                .expect("preprocess_run_specs() failed");
-        }
-
         // Collect the pending jobs.
+        let mut jobs = self.jobs.lock().unwrap();
         let mut pending = JobCtxs::default();
         let args = &self.args_file.data;
         for spec in args.job_specs.iter() {
