@@ -11,7 +11,7 @@ use util::*;
 
 use super::progress::BenchProgress;
 use super::{Jobs, Program, AGENT_BIN};
-use crate::job::{JobCtx, JobData};
+use crate::job::{JobCtx, JobData, SysReqs};
 use rd_agent_intf::{
     AgentFiles, ReportIter, RunnerState, Slice, SysReq, AGENT_SVC_NAME, HASHD_BENCH_SVC_NAME,
     IOCOST_BENCH_SVC_NAME,
@@ -151,9 +151,9 @@ pub struct RunCtx<'a> {
     inner: Arc<Mutex<RunCtxInner>>,
     agent_init_fns: Vec<Box<dyn FnOnce(&mut RunCtx)>>,
     base_bench: rd_agent_intf::BenchKnobs,
-    pub data_forwards: Vec<JobData>,
     pub jobs: Arc<Mutex<Jobs>>,
     pub prev_uid: Vec<u64>,
+    pub sysreqs_forward: Option<SysReqs>,
     result_path: &'a str,
     pub test: bool,
     pub commit_bench: bool,
@@ -164,7 +164,6 @@ impl<'a> RunCtx<'a> {
         args: &'a resctl_bench_intf::Args,
         base_bench: &rd_agent_intf::BenchKnobs,
         jobs: Arc<Mutex<Jobs>>,
-        data_forwards: Vec<JobData>,
     ) -> Self {
         Self {
             inner: Arc::new(Mutex::new(RunCtxInner {
@@ -189,9 +188,9 @@ impl<'a> RunCtx<'a> {
             })),
             base_bench: base_bench.clone(),
             agent_init_fns: vec![],
-            data_forwards,
             jobs,
             prev_uid: vec![],
+            sysreqs_forward: None,
             result_path: &args.result,
             test: args.test,
             commit_bench: false,
@@ -600,7 +599,7 @@ impl<'a> RunCtx<'a> {
 
     pub const BENCH_FAKE_CPU_RPS_MAX: u32 = 2000;
 
-    pub fn prev_data(&self) -> Option<JobData> {
+    pub fn prev_job_data(&self) -> Option<JobData> {
         let jobs = self.jobs.lock().unwrap();
         let prev_uid = *self.prev_uid.iter().last().unwrap();
         let prev = jobs.prev.by_uid(prev_uid).unwrap();
@@ -608,6 +607,19 @@ impl<'a> RunCtx<'a> {
             true => Some(prev.data.clone()),
             false => None,
         }
+    }
+
+    pub fn find_cur_job_data(&mut self, kind: &str) -> Option<JobData> {
+        let jobs = self.jobs.lock().unwrap();
+        for jctx in jobs.cur.vec.iter().rev() {
+            if jctx.data.spec.kind == kind {
+                if self.sysreqs_forward.is_none() {
+                    self.sysreqs_forward = Some(jctx.data.sysreqs.clone());
+                }
+                return Some(jctx.data.clone());
+            }
+        }
+        None
     }
 
     pub fn sysreqs_report(&self) -> Option<Arc<rd_agent_intf::SysReqsReport>> {

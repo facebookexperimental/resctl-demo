@@ -304,20 +304,9 @@ impl Program {
                 panic!();
             }
 
-            let mut data_forwards = vec![];
-            let mut sysreqs_forward = None;
-            for i in jctx.data.spec.forward_results_from.iter() {
-                let jobs = self.jobs.lock().unwrap();
-                let from = &jobs.cur.vec[*i];
-                data_forwards.push(from.data.clone());
-                if sysreqs_forward.is_none() {
-                    sysreqs_forward = Some(from.data.sysreqs.clone());
-                }
-            }
+            let mut rctx = RunCtx::new(&args, &base_bench, self.jobs.clone());
 
-            let mut rctx = RunCtx::new(&args, &base_bench, self.jobs.clone(), data_forwards);
-
-            if let Err(e) = jctx.run(&mut rctx, sysreqs_forward) {
+            if let Err(e) = jctx.run(&mut rctx) {
                 error!("Failed to run {} ({})", &jctx.data.spec, &e);
                 panic!();
             }

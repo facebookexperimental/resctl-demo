@@ -281,7 +281,6 @@ impl Bench for IoCostTuneBench {
         for i in (0..idx).rev() {
             let sp = &specs[i];
             if sp.kind == "iocost-qos" {
-                specs[idx].forward_results_from.push(i);
                 return Ok(());
             }
         }
@@ -296,7 +295,6 @@ impl Bench for IoCostTuneBench {
             }
         }
 
-        specs[idx].forward_results_from.push(idx);
         specs.insert(
             idx,
             resctl_bench_intf::Args::parse_job_spec(&format!(
@@ -644,8 +642,9 @@ impl Job for IoCostTuneJob {
     }
 
     fn run(&mut self, rctx: &mut RunCtx) -> Result<serde_json::Value> {
-        let src: IoCostQoSResult = serde_json::from_value(rctx.data_forwards.pop().unwrap().result)
-            .map_err(|e| anyhow!("failed to parse iocost-qos result ({})", &e))?;
+        let src: IoCostQoSResult =
+            serde_json::from_value(rctx.find_cur_job_data("iocost-qos").unwrap().result)
+                .map_err(|e| anyhow!("failed to parse iocost-qos result ({})", &e))?;
         let mut data = BTreeMap::<DataSel, DataSeries>::default();
 
         if self.mem_profile == 0 {

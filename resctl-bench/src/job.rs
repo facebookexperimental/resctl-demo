@@ -148,9 +148,9 @@ impl JobCtx {
         self.incremental || &self.data.spec == other
     }
 
-    pub fn run(&mut self, rctx: &mut RunCtx, mut sysreqs_forward: Option<SysReqs>) -> Result<()> {
+    pub fn run(&mut self, rctx: &mut RunCtx) -> Result<()> {
         rctx.prev_uid.push(self.prev_uid.unwrap());
-        let pdata = rctx.prev_data();
+        let pdata = rctx.prev_job_data();
         if pdata.is_some() && !self.incremental {
             self.data = pdata.unwrap();
             assert!(rctx.prev_uid.pop().unwrap() == self.prev_uid.unwrap());
@@ -172,8 +172,8 @@ impl JobCtx {
             if let Some(rep) = rctx.report_sample() {
                 data.sysreqs.iocost = rep.iocost.clone();
             }
-        } else if sysreqs_forward.is_some() {
-            data.sysreqs = sysreqs_forward.take().unwrap();
+        } else if rctx.sysreqs_forward.is_some() {
+            data.sysreqs = rctx.sysreqs_forward.take().unwrap();
         } else if pdata.is_some() {
             data.sysreqs = rctx
                 .jobs

@@ -486,7 +486,7 @@ impl Job for IoCostQoSJob {
     fn run(&mut self, rctx: &mut RunCtx) -> Result<serde_json::Value> {
         let bench = rctx.base_bench().clone();
 
-        let (prev_matches, mut prev_result) = match rctx.prev_data() {
+        let (prev_matches, mut prev_result) = match rctx.prev_job_data() {
             Some(pd) => {
                 let pr = serde_json::from_value::<IoCostQoSResult>(pd.result).unwrap();
                 (self.prev_matches(&pr, &bench), pr)
