@@ -154,7 +154,7 @@ pub struct RunCtx<'a> {
     pub prev_data: Option<JobData>,
     pub data_forwards: Vec<JobData>,
     pub jobs: Arc<Mutex<Jobs>>,
-    pub inc_job_idx: Vec<usize>,
+    pub prev_uid: Vec<u64>,
     result_path: &'a str,
     pub test: bool,
     pub commit_bench: bool,
@@ -193,7 +193,7 @@ impl<'a> RunCtx<'a> {
             prev_data: None,
             data_forwards,
             jobs,
-            inc_job_idx: vec![],
+            prev_uid: vec![],
             result_path: &args.result,
             test: args.test,
             commit_bench: false,
@@ -249,15 +249,14 @@ impl<'a> RunCtx<'a> {
 
     pub fn update_incremental_jctx(&mut self, jctx: &JobCtx) {
         let mut jobs = self.jobs.lock().unwrap();
-        jobs.prev.vec[jctx.inc_job_idx] = jctx.clone();
+        jobs.prev.by_uid_mut(jctx.prev_uid.unwrap()).unwrap().data = jctx.data.clone();
         jobs.prev.save_results(self.result_path);
     }
 
     pub fn update_incremental_result(&mut self, result: serde_json::Value) {
+        let prev_uid = *self.prev_uid.iter().last().unwrap();
         let mut jobs = self.jobs.lock().unwrap();
-        jobs.prev.vec[*self.inc_job_idx.iter().last().unwrap()]
-            .data
-            .result = result;
+        jobs.prev.by_uid_mut(prev_uid).unwrap().data.result = result;
         jobs.prev.save_results(self.result_path);
     }
 

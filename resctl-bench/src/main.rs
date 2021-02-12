@@ -1,6 +1,7 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
 use anyhow::{anyhow, bail, Result};
 use log::{debug, error, info, warn};
+use std::fmt::Write;
 use std::path::{Path, PathBuf};
 use std::process::{exit, Command};
 use std::sync::{Arc, Mutex};
@@ -32,6 +33,20 @@ lazy_static::lazy_static! {
 pub struct Jobs {
     cur: JobCtxs,
     prev: JobCtxs,
+}
+
+impl Jobs {
+    pub fn format_ids(&self) -> String {
+        let mut buf = String::new();
+        write!(
+            buf,
+            "cur={}, prev={}",
+            &self.cur.format_ids(),
+            &self.prev.format_ids()
+        )
+        .unwrap();
+        buf
+    }
 }
 
 struct Program {
@@ -248,15 +263,16 @@ impl Program {
                 error!("{}: {}", spec, &e);
                 exit(1);
             }
-            match jobs.prev.find_matching_unused_jctx_idx(&new.data.spec) {
-                Some(idx) => {
+            match jobs.prev.find_matching_unused_jctx_mut(&new.data.spec) {
+                Some(prev) => {
                     debug!("{} has a matching entry in the result file", &new.data.spec);
-                    jobs.prev.vec[idx].inc_used = true;
-                    new.inc_job_idx = idx;
+                    prev.prev_used = true;
+                    new.prev_uid = Some(prev.uid);
                 }
                 None => {
-                    new.inc_job_idx = jobs.prev.vec.len();
-                    jobs.prev.vec.push(new.clone());
+                    let clone = new.clone();
+                    new.prev_uid = Some(clone.uid);
+                    jobs.prev.vec.push(clone);
                 }
             }
             jobs.cur.vec.push(new);
@@ -274,6 +290,8 @@ impl Program {
                 warn!("Failed to clean up report files ({})", &e);
             }
         }
+
+        debug!("job_ids: {}", &jobs.format_ids());
 
         // Run the benches and print out the results.
         let mut pending = vec![];
@@ -297,12 +315,7 @@ impl Program {
                 }
             }
 
-            let mut rctx = RunCtx::new(
-                &args,
-                &base_bench,
-                self.jobs.clone(),
-                data_forwards,
-            );
+            let mut rctx = RunCtx::new(&args, &base_bench, self.jobs.clone(), data_forwards);
 
             if let Err(e) = jctx.run(&mut rctx, sysreqs_forward) {
                 error!("Failed to run {} ({})", &jctx.data.spec, &e);
