@@ -6,7 +6,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 use std::fmt::Write;
 use std::fs;
-use std::io::Read;
+use std::io::{Read, Write as IoWrite};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, UNIX_EPOCH};
 use util::*;
@@ -72,9 +73,11 @@ pub struct JobCtx {
     #[serde(skip)]
     pub incremental: bool,
     #[serde(skip)]
-    pub inc_job_idx: usize,
+    pub uid: u64,
     #[serde(skip)]
-    pub prev: Option<Box<JobCtx>>,
+    pub prev_uid: Option<u64>,
+    #[serde(skip)]
+    pub prev_used: bool,
 }
 
 impl std::fmt::Debug for JobCtx {
@@ -86,38 +89,25 @@ impl std::fmt::Debug for JobCtx {
     }
 }
 
-impl std::clone::Clone for JobCtx {
-    fn clone(&self) -> Self {
-        let mut clone = Self {
-            data: self.data.clone(),
-            bench: None,
-            job: None,
-            incremental: self.incremental,
-            inc_job_idx: 0,
-            prev: None,
-        };
-        clone.parse_job_spec().unwrap();
-        clone
-    }
-}
-
 impl JobCtx {
-    pub fn with_data(data: JobData) -> Self {
-        Self {
-            data,
-            bench: None,
-            job: None,
-            incremental: false,
-            inc_job_idx: 0,
-            prev: None,
-        }
+    fn new_uid() -> u64 {
+        static UID: AtomicU64 = AtomicU64::new(1);
+        UID.fetch_add(1, Ordering::Relaxed)
     }
 
     pub fn new(spec: &JobSpec) -> Self {
-        Self::with_data(JobData::new(spec))
+        Self {
+            data: JobData::new(spec),
+            bench: None,
+            job: None,
+            incremental: false,
+            uid: Self::new_uid(),
+            prev_uid: None,
+            prev_used: false,
+        }
     }
 
-    pub fn parse_job_spec(&mut self) -> Result<()> {
+    pub fn parse_job_spec(&mut self, prev_data: Option<&JobData>) -> Result<()> {
         let spec = &self.data.spec;
         let bench = super::bench::find_bench(&spec.kind)?;
         let desc = bench.desc();
@@ -128,25 +118,30 @@ impl JobCtx {
             bail!("multiple property sets not supported");
         }
         self.incremental = desc.incremental;
-        self.job = Some(bench.parse(spec)?);
+
+        let prev_data = match prev_data {
+            None => match self.data.result_valid() {
+                true => Some(&self.data),
+                false => None,
+            },
+            v => v,
+        };
+
+        self.job = Some(bench.parse(spec, prev_data)?);
         self.bench = Some(bench);
         Ok(())
     }
 
-    pub fn load_result_file(path: &str) -> Result<Vec<Self>> {
-        let mut f = fs::OpenOptions::new().read(true).open(path)?;
-        let mut buf = String::new();
-        f.read_to_string(&mut buf)?;
-
-        let mut results: Vec<Self> = serde_json::from_str(&buf)?;
-        for (idx, jctx) in results.iter_mut().enumerate() {
-            jctx.inc_job_idx = idx;
-            if let Err(e) = jctx.parse_job_spec() {
-                bail!("failed to parse {} ({})", &jctx.data.spec, &e);
-            }
+    pub fn weak_clone(&self) -> Self {
+        Self {
+            data: self.data.clone(),
+            bench: None,
+            job: None,
+            incremental: self.incremental,
+            uid: Self::new_uid(),
+            prev_uid: None,
+            prev_used: false,
         }
-
-        Ok(results)
     }
 
     pub fn are_results_compatible(&self, other: &JobSpec) -> bool {
@@ -154,17 +149,13 @@ impl JobCtx {
         self.incremental || &self.data.spec == other
     }
 
-    pub fn run(&mut self, rctx: &mut RunCtx, mut sysreqs_forward: Option<SysReqs>) -> Result<()> {
-        if self.prev.is_some() {
-            let prev_data = &self.prev.as_ref().unwrap().data;
-            if self.are_results_compatible(&prev_data.spec) && prev_data.result_valid() {
-                if self.incremental {
-                    rctx.prev_data = Some(prev_data.clone());
-                } else {
-                    *self = *self.prev.take().unwrap();
-                    return Ok(());
-                }
-            }
+    pub fn run(&mut self, rctx: &mut RunCtx) -> Result<()> {
+        rctx.prev_uid.push(self.prev_uid.unwrap());
+        let pdata = rctx.prev_job_data();
+        if pdata.is_some() && !self.incremental {
+            self.data = pdata.unwrap();
+            assert!(rctx.prev_uid.pop().unwrap() == self.prev_uid.unwrap());
+            return Ok(());
         }
 
         let job = self.job.as_mut().unwrap();
@@ -182,10 +173,19 @@ impl JobCtx {
             if let Some(rep) = rctx.report_sample() {
                 data.sysreqs.iocost = rep.iocost.clone();
             }
-        } else if sysreqs_forward.is_some() {
-            data.sysreqs = sysreqs_forward.take().unwrap();
-        } else if self.prev.is_some() {
-            data.sysreqs = self.prev.as_ref().unwrap().data.sysreqs.clone();
+        } else if rctx.sysreqs_forward.is_some() {
+            data.sysreqs = rctx.sysreqs_forward.take().unwrap();
+        } else if pdata.is_some() {
+            data.sysreqs = rctx
+                .jobs
+                .lock()
+                .unwrap()
+                .prev
+                .by_uid(self.prev_uid.unwrap())
+                .unwrap()
+                .data
+                .sysreqs
+                .clone();
         } else {
             warn!(
                 "job: No sysreqs available for {:?} after completion",
@@ -194,6 +194,7 @@ impl JobCtx {
         }
         data.result = result;
         rctx.update_incremental_jctx(&self);
+        assert!(rctx.prev_uid.pop().unwrap() == self.prev_uid.unwrap());
         Ok(())
     }
 
@@ -308,5 +309,111 @@ impl JobCtx {
             .format(Box::new(&mut buf), data, mode == Mode::Format, props)?;
 
         Ok(buf)
+    }
+
+    pub fn print(&self, mode: Mode, props: &JobProps) -> Result<()> {
+        // Format only the completed jobs.
+        if self.data.result_valid() {
+            println!("{}\n\n{}", "=".repeat(90), &self.format(mode, props)?);
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct JobCtxs {
+    pub vec: Vec<JobCtx>,
+}
+
+impl JobCtxs {
+    pub fn by_uid<'a>(&'a self, uid: u64) -> Option<&'a JobCtx> {
+        for jctx in self.vec.iter() {
+            if jctx.uid == uid {
+                return Some(jctx);
+            }
+        }
+        None
+    }
+
+    pub fn by_uid_mut<'a>(&'a mut self, uid: u64) -> Option<&'a mut JobCtx> {
+        for jctx in self.vec.iter_mut() {
+            if jctx.uid == uid {
+                return Some(jctx);
+            }
+        }
+        None
+    }
+
+    pub fn find_matching_unused_jctx_mut<'a>(
+        &'a mut self,
+        spec: &JobSpec,
+    ) -> Option<&'a mut JobCtx> {
+        for jctx in self.vec.iter_mut() {
+            if !jctx.prev_used
+                && jctx.data.spec.kind == spec.kind
+                && jctx.data.spec.id == spec.id
+                && jctx.are_results_compatible(spec)
+            {
+                return Some(jctx);
+            }
+        }
+        None
+    }
+
+    fn find_matching_jctx_idx(&self, spec: &JobSpec) -> Option<usize> {
+        for (idx, jctx) in self.vec.iter().enumerate() {
+            if jctx.data.spec.kind == spec.kind && jctx.data.spec.id == spec.id {
+                return Some(idx);
+            }
+        }
+        None
+    }
+
+    pub fn pop_matching_jctx(&mut self, spec: &JobSpec) -> Option<JobCtx> {
+        match self.find_matching_jctx_idx(spec) {
+            Some(idx) => Some(self.vec.remove(idx)),
+            None => None,
+        }
+    }
+
+    pub fn load_results(path: &str) -> Result<Self> {
+        let mut f = fs::OpenOptions::new().read(true).open(path)?;
+        let mut buf = String::new();
+        f.read_to_string(&mut buf)?;
+
+        let mut vec: Vec<JobCtx> = serde_json::from_str(&buf)?;
+        for jctx in vec.iter_mut() {
+            jctx.uid = JobCtx::new_uid();
+            if let Err(e) = jctx.parse_job_spec(None) {
+                bail!("failed to parse {} ({})", &jctx.data.spec, &e);
+            }
+        }
+
+        Ok(Self { vec })
+    }
+
+    pub fn save_results(&self, path: &str) {
+        let serialized =
+            serde_json::to_string_pretty(&self.vec).expect("Failed to serialize output");
+        let mut f = fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(path)
+            .expect("Failed to open output file");
+        f.write_all(serialized.as_ref())
+            .expect("Failed to write output file");
+    }
+
+    pub fn format_ids(&self) -> String {
+        let mut buf = String::new();
+        for jctx in self.vec.iter() {
+            match jctx.prev_uid {
+                Some(puid) => write!(buf, "{}->{} ", jctx.uid, puid).unwrap(),
+                None => write!(buf, "{} ", jctx.uid).unwrap(),
+            }
+        }
+        buf.pop();
+        buf
     }
 }

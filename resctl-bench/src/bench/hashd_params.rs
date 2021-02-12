@@ -25,7 +25,7 @@ impl Bench for HashdParamsBench {
         BenchDesc::new("hashd-params").takes_run_props()
     }
 
-    fn parse(&self, spec: &JobSpec) -> Result<Box<dyn Job>> {
+    fn parse(&self, spec: &JobSpec, _prev_data: Option<&JobData>) -> Result<Box<dyn Job>> {
         let mut job = HashdParamsJob::default();
 
         for (k, v) in spec.props[0].iter() {

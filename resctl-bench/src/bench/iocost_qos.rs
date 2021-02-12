@@ -83,74 +83,8 @@ impl Bench for IoCostQoSBench {
             .incremental()
     }
 
-    fn preprocess_run_specs(
-        &self,
-        specs: &mut Vec<JobSpec>,
-        idx: usize,
-        base_bench: &BenchKnobs,
-        prev_data: Option<&JobData>,
-    ) -> Result<()> {
-        let prev_result = if prev_data.is_some() {
-            Some(serde_json::from_value::<IoCostQoSResult>(
-                prev_data.as_ref().unwrap().result.clone(),
-            )?)
-        } else {
-            None
-        };
-
-        // If dither is enabled without explicit dither_dist and prev has
-        // dither_dist set, use the prev dither_dist so that we can use
-        // results from it.
-        if let Some(pr) = prev_result.as_ref() {
-            if let Some(pdd) = pr.dither_dist.as_ref() {
-                for (k, v) in specs[idx].props[0].iter_mut() {
-                    if k == "dither" && v.len() == 0 {
-                        *v = format!("{}", pdd);
-                    }
-                }
-            }
-        }
-
-        // Is the bench result available or iocost-params already scheduled?
-        if base_bench.iocost_seq > 0 {
-            debug!("iocost-qos-pre: iocost parameters available");
-            return Ok(());
-        }
-        for i in (0..idx).rev() {
-            if specs[i].kind == "iocost-params" {
-                debug!("iocost-qos-pre: iocost-params already scheduled");
-                return Ok(());
-            }
-        }
-
-        // If prev has all the needed results, we don't need iocost-params.
-        if let Some(pr) = prev_result.as_ref() {
-            // Let the actual job parsing stage take care of it.
-            let job = match IoCostQoSJob::parse(&specs[idx]) {
-                Ok(job) => job,
-                Err(_) => return Ok(()),
-            };
-
-            if let Ok(()) = job.runs.iter().try_for_each(|ovr| {
-                IoCostQoSJob::find_matching_result(ovr.as_ref(), pr)
-                    .map(|_| ())
-                    .ok_or(anyhow!(""))
-            }) {
-                debug!("iocost-qos-pre: iocost params unavailable but no need to run more benches");
-                return Ok(());
-            }
-        }
-
-        info!("iocost-qos: iocost parameters missing, inserting iocost-params run");
-        specs.insert(
-            idx,
-            resctl_bench_intf::Args::parse_job_spec("iocost-params")?,
-        );
-        Ok(())
-    }
-
-    fn parse(&self, spec: &JobSpec) -> Result<Box<dyn Job>> {
-        Ok(Box::new(IoCostQoSJob::parse(spec)?))
+    fn parse(&self, spec: &JobSpec, prev_data: Option<&JobData>) -> Result<Box<dyn Job>> {
+        Ok(Box::new(IoCostQoSJob::parse(spec, prev_data)?))
     }
 }
 
@@ -164,7 +98,7 @@ pub struct IoCostQoSRun {
     pub storage: StorageResult,
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Default)]
 pub struct IoCostQoSResult {
     pub base_model: IoCostModelParams,
     pub base_qos: IoCostQoSParams,
@@ -177,7 +111,7 @@ pub struct IoCostQoSResult {
 impl IoCostQoSJob {
     const VRATE_PCTS: [&'static str; 9] = ["00", "01", "10", "16", "50", "84", "90", "99", "100"];
 
-    fn parse(spec: &JobSpec) -> Result<Self> {
+    fn parse(spec: &JobSpec, prev_data: Option<&JobData>) -> Result<Self> {
         let mut storage_spec = JobSpec::new("storage".into(), None, vec![Default::default()]);
 
         let mut vrate_min = 0.0;
@@ -257,6 +191,16 @@ impl IoCostQoSJob {
             };
 
             if dither {
+                if dither_dist.is_none() {
+                    if let Some(pd) = prev_data.as_ref() {
+                        // If prev has dither_dist set, use the prev dither_dist
+                        // so that we can use results from it.
+                        let pr = serde_json::from_value::<IoCostQoSResult>(pd.result.clone())?;
+                        if let Some(pdd) = pr.dither_dist.as_ref() {
+                            dither_dist = Some(*pdd);
+                        }
+                    }
+                }
                 if dither_dist.is_none() {
                     dither_dist = Some(
                         rand::thread_rng().gen_range(-click / 2.0, click / 2.0) + dither_shift,
@@ -484,11 +428,11 @@ impl Job for IoCostQoSJob {
     }
 
     fn run(&mut self, rctx: &mut RunCtx) -> Result<serde_json::Value> {
-        let bench = rctx.base_bench().clone();
+        let mut bench = rctx.base_bench().clone();
 
-        let (prev_matches, mut prev_result) = match rctx.prev_data.as_ref() {
+        let (prev_matches, mut prev_result) = match rctx.prev_job_data() {
             Some(pd) => {
-                let pr = serde_json::from_value::<IoCostQoSResult>(pd.result.clone()).unwrap();
+                let pr = serde_json::from_value::<IoCostQoSResult>(pd.result).unwrap();
                 (self.prev_matches(&pr, &bench), pr)
             }
             None => (
@@ -496,10 +440,8 @@ impl Job for IoCostQoSJob {
                 IoCostQoSResult {
                     base_model: bench.iocost.model.clone(),
                     base_qos: bench.iocost.qos.clone(),
-                    mem_profile: 0,
                     dither_dist: self.dither_dist,
-                    results: vec![],
-                    inc_results: vec![],
+                    ..Default::default()
                 },
             ),
         };
@@ -508,11 +450,36 @@ impl Job for IoCostQoSJob {
             self.mem_profile = prev_result.mem_profile;
         }
 
-        let abs_min_vrate = Self::calc_abs_min_vrate(&rctx.base_bench().iocost.model);
-        let mut nr_to_run = 0;
+        // Do we already have all results in prev? Otherwise, make sure we
+        // have iocost parameters available.
+        if rctx.base_bench().iocost_seq == 0 {
+            let mut has_all = true;
+            for ovr in self.runs.iter_mut() {
+                if Self::find_matching_result(ovr.as_ref(), &prev_result).is_none() {
+                    has_all = false;
+                    break;
+                }
+            }
+
+            if !has_all {
+                info!(
+                    "iocost-qos: iocost parameters missing and !--iocost-from-sys, \
+                     running iocost-params"
+                );
+                rctx.run_nested_job_spec(
+                    &resctl_bench_intf::Args::parse_job_spec("iocost-params").unwrap(),
+                )
+                .context("Failed to run iocost-params")?;
+            }
+            bench = rctx.base_bench().clone();
+            prev_result.base_model = bench.iocost.model.clone();
+            prev_result.base_qos = bench.iocost.qos.clone();
+        }
 
         // Print out what to do beforehand so that the user can spot errors
         // without waiting for the benches to run.
+        let abs_min_vrate = Self::calc_abs_min_vrate(&rctx.base_bench().iocost.model);
+        let mut nr_to_run = 0;
         for (i, ovr) in self.runs.iter_mut().enumerate() {
             let qos = &bench.iocost.qos;
 
@@ -552,13 +519,6 @@ impl Job for IoCostQoSJob {
         }
 
         if nr_to_run > 0 {
-            if rctx.base_bench().iocost_seq == 0 {
-                bail!(
-                    "iocost-qos: iocost parameters missing, run iocost-params first or \
-                       use --iocost-from-sys"
-                );
-            }
-
             if prev_matches || nr_to_run == self.runs.len() {
                 info!("iocost-qos: {} storage benches to run", nr_to_run);
             } else {

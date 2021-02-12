@@ -1,6 +1,6 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
 #![allow(dead_code)]
-use anyhow::{anyhow, bail, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use log::{debug, error, warn};
 use std::collections::{BTreeSet, VecDeque};
 use std::process::Command;
@@ -10,12 +10,13 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use util::*;
 
 use super::progress::BenchProgress;
-use super::{Program, AGENT_BIN};
-use crate::job::{JobCtx, JobData};
+use super::{Jobs, Program, AGENT_BIN};
+use crate::job::{JobCtx, JobData, SysReqs};
 use rd_agent_intf::{
     AgentFiles, ReportIter, RunnerState, Slice, SysReq, AGENT_SVC_NAME, HASHD_BENCH_SVC_NAME,
     IOCOST_BENCH_SVC_NAME,
 };
+use resctl_bench_intf::{JobSpec, Mode};
 
 const MINDER_AGENT_TIMEOUT: Duration = Duration::from_secs(120);
 const CMD_TIMEOUT: Duration = Duration::from_secs(30);
@@ -147,26 +148,37 @@ impl RunCtxInner {
     }
 }
 
+fn run_nested_job_spec_int(
+    spec: &JobSpec,
+    args: &resctl_bench_intf::Args,
+    base_bench: &mut rd_agent_intf::BenchKnobs,
+    jobs: Arc<Mutex<Jobs>>,
+) -> Result<()> {
+    let mut rctx = RunCtx::new(args, base_bench, jobs);
+    let jctx = rctx.jobs.lock().unwrap().parse_job_spec_and_link(spec)?;
+    rctx.run_jctx(jctx)
+}
+
 pub struct RunCtx<'a> {
     inner: Arc<Mutex<RunCtxInner>>,
     agent_init_fns: Vec<Box<dyn FnOnce(&mut RunCtx)>>,
-    base_bench: rd_agent_intf::BenchKnobs,
-    pub prev_data: Option<JobData>,
-    pub data_forwards: Vec<JobData>,
-    inc_job_ctxs: &'a mut Vec<JobCtx>,
-    inc_job_idx: usize,
+    base_bench: &'a mut rd_agent_intf::BenchKnobs,
+    bench_path: String,
+    demo_bench_path: String,
+    pub jobs: Arc<Mutex<Jobs>>,
+    pub prev_uid: Vec<u64>,
+    pub sysreqs_forward: Option<SysReqs>,
     result_path: &'a str,
     pub test: bool,
     pub commit_bench: bool,
+    args: &'a resctl_bench_intf::Args,
 }
 
 impl<'a> RunCtx<'a> {
     pub fn new(
         args: &'a resctl_bench_intf::Args,
-        base_bench: &rd_agent_intf::BenchKnobs,
-        inc_job_ctxs: &'a mut Vec<JobCtx>,
-        inc_job_idx: usize,
-        data_forwards: Vec<JobData>,
+        base_bench: &'a mut rd_agent_intf::BenchKnobs,
+        jobs: Arc<Mutex<Jobs>>,
     ) -> Self {
         Self {
             inner: Arc::new(Mutex::new(RunCtxInner {
@@ -189,15 +201,17 @@ impl<'a> RunCtx<'a> {
                 reports: VecDeque::new(),
                 report_sample: None,
             })),
-            base_bench: base_bench.clone(),
+            base_bench: base_bench,
+            bench_path: args.bench_path(),
+            demo_bench_path: args.demo_bench_path(),
             agent_init_fns: vec![],
-            prev_data: None,
-            data_forwards,
-            inc_job_ctxs,
-            inc_job_idx,
+            jobs,
+            prev_uid: vec![],
+            sysreqs_forward: None,
             result_path: &args.result,
             test: args.test,
             commit_bench: false,
+            args,
         }
     }
 
@@ -249,17 +263,20 @@ impl<'a> RunCtx<'a> {
     }
 
     pub fn update_incremental_jctx(&mut self, jctx: &JobCtx) {
-        self.inc_job_ctxs[self.inc_job_idx] = jctx.clone();
-        Program::save_results(self.result_path, self.inc_job_ctxs);
+        let mut jobs = self.jobs.lock().unwrap();
+        jobs.prev.by_uid_mut(jctx.prev_uid.unwrap()).unwrap().data = jctx.data.clone();
+        jobs.prev.save_results(self.result_path);
     }
 
     pub fn update_incremental_result(&mut self, result: serde_json::Value) {
-        self.inc_job_ctxs[self.inc_job_idx].data.result = result;
-        Program::save_results(self.result_path, self.inc_job_ctxs);
+        let prev_uid = *self.prev_uid.iter().last().unwrap();
+        let mut jobs = self.jobs.lock().unwrap();
+        jobs.prev.by_uid_mut(prev_uid).unwrap().data.result = result;
+        jobs.prev.save_results(self.result_path);
     }
 
     pub fn base_bench(&self) -> &rd_agent_intf::BenchKnobs {
-        &self.base_bench
+        self.base_bench
     }
 
     fn minder(inner: Arc<Mutex<RunCtxInner>>) {
@@ -599,6 +616,65 @@ impl<'a> RunCtx<'a> {
     }
 
     pub const BENCH_FAKE_CPU_RPS_MAX: u32 = 2000;
+
+    pub fn prev_job_data(&self) -> Option<JobData> {
+        let jobs = self.jobs.lock().unwrap();
+        let prev_uid = *self.prev_uid.iter().last().unwrap();
+        let prev = jobs.prev.by_uid(prev_uid).unwrap();
+        match prev.data.result_valid() {
+            true => Some(prev.data.clone()),
+            false => None,
+        }
+    }
+
+    pub fn find_done_job_data(&mut self, kind: &str) -> Option<JobData> {
+        let jobs = self.jobs.lock().unwrap();
+        for jctx in jobs.done.vec.iter().rev() {
+            if jctx.data.spec.kind == kind {
+                if self.sysreqs_forward.is_none() {
+                    self.sysreqs_forward = Some(jctx.data.sysreqs.clone());
+                }
+                return Some(jctx.data.clone());
+            }
+        }
+        None
+    }
+
+    pub fn run_jctx(&mut self, mut jctx: JobCtx) -> Result<()> {
+        // Always start with a fresh bench file.
+        if let Err(e) = self.base_bench.save(&self.bench_path) {
+            bail!("Failed to set up {:?} ({})", &self.bench_path, &e);
+        }
+
+        if let Err(e) = jctx.run(self) {
+            bail!("Failed to run ({})", &e);
+        }
+
+        if self.commit_bench {
+            *self.base_bench = rd_agent_intf::BenchKnobs::load(&self.bench_path)
+                .with_context(|| format!("Failed to load {:?}", &self.bench_path))?;
+            if let Err(e) = self.base_bench.save(&self.demo_bench_path) {
+                bail!(
+                    "Failed to commit bench result to {:?} ({})",
+                    self.demo_bench_path,
+                    &e
+                );
+            }
+        }
+
+        jctx.print(Mode::Summary, &vec![Default::default()])
+            .unwrap();
+        self.jobs.lock().unwrap().done.vec.push(jctx);
+
+        Ok(())
+    }
+
+    pub fn run_nested_job_spec(&mut self, spec: &JobSpec) -> Result<()> {
+        if self.inner.lock().unwrap().agent_svc.is_some() {
+            bail!("can't nest bench execution while rd-agent is already running for outer bench");
+        }
+        run_nested_job_spec_int(spec, self.args, self.base_bench, self.jobs.clone())
+    }
 
     pub fn sysreqs_report(&self) -> Option<Arc<rd_agent_intf::SysReqsReport>> {
         self.inner.lock().unwrap().sysreqs_rep.clone()

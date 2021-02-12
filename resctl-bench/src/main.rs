@@ -1,13 +1,12 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
 use anyhow::{anyhow, bail, Result};
 use log::{debug, error, info, warn};
-use std::fs;
-use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{exit, Command};
+use std::sync::{Arc, Mutex};
 use util::*;
 
-use resctl_bench_intf::{Args, JobProps, JobSpec, Mode};
+use resctl_bench_intf::{Args, JobSpec, Mode};
 
 mod bench;
 mod job;
@@ -15,10 +14,8 @@ mod progress;
 mod run;
 mod study;
 
-use job::{JobCtx, JobData};
+use job::{JobCtx, JobCtxs};
 use run::RunCtx;
-
-const RB_BENCH_FILENAME: &str = "rb-bench.json";
 
 lazy_static::lazy_static! {
     pub static ref AGENT_BIN: String =
@@ -29,10 +26,40 @@ lazy_static::lazy_static! {
         .to_string();
 }
 
+#[derive(Default)]
+pub struct Jobs {
+    done: JobCtxs,
+    prev: JobCtxs,
+}
+
+impl Jobs {
+    pub fn parse_job_spec_and_link(&mut self, spec: &JobSpec) -> Result<JobCtx> {
+        let mut new = JobCtx::new(spec);
+        let prev = match self.prev.find_matching_unused_jctx_mut(spec) {
+            Some(prev) => {
+                debug!("{} has a matching entry in the result file", &new.data.spec);
+                prev.prev_used = true;
+                new.prev_uid = Some(prev.uid);
+                Some(prev)
+            }
+            None => None,
+        };
+
+        new.parse_job_spec(prev.as_ref().map_or(None, |p| Some(&p.data)))?;
+
+        if prev.is_none() {
+            let clone = new.weak_clone();
+            new.prev_uid = Some(clone.uid);
+            self.prev.vec.push(clone);
+        }
+        Ok(new)
+    }
+}
+
 struct Program {
     args_file: JsonConfigFile<Args>,
     args_updated: bool,
-    job_ctxs: Vec<JobCtx>,
+    jobs: Arc<Mutex<Jobs>>,
 }
 
 impl Program {
@@ -41,7 +68,7 @@ impl Program {
             "--dir".into(),
             dir.into(),
             "--bench-file".into(),
-            RB_BENCH_FILENAME.into(),
+            Args::RB_BENCH_FILENAME.into(),
             "--force".into(),
             "--force-running".into(),
         ];
@@ -83,7 +110,7 @@ impl Program {
         &self,
         scr_devname: &str,
         iocost_sys_save: &IoCostSysSave,
-    ) -> Result<(rd_agent_intf::BenchKnobs, String, String)> {
+    ) -> Result<rd_agent_intf::BenchKnobs> {
         let args = &self.args_file.data;
 
         let (dev_model, dev_fwrev, dev_size) =
@@ -95,8 +122,7 @@ impl Program {
                 )
             })?;
 
-        let demo_bench_path = args.dir.clone() + "/" + rd_agent_intf::BENCH_FILENAME;
-        let bench_path = args.dir.clone() + "/" + RB_BENCH_FILENAME;
+        let demo_bench_path = args.demo_bench_path();
 
         let mut bench = match rd_agent_intf::BenchKnobs::load(&demo_bench_path) {
             Ok(v) => v,
@@ -153,20 +179,7 @@ impl Program {
             info!("Using iocost parameters from {:?}", &demo_bench_path);
         }
 
-        Ok((bench, demo_bench_path, bench_path))
-    }
-
-    pub fn save_results(path: &str, job_ctxs: &Vec<JobCtx>) {
-        let serialized =
-            serde_json::to_string_pretty(&job_ctxs).expect("Failed to serialize output");
-        let mut f = fs::OpenOptions::new()
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .open(path)
-            .expect("Failed to open output file");
-        f.write_all(serialized.as_ref())
-            .expect("Failed to write output file");
+        Ok(bench)
     }
 
     fn commit_args(&self) {
@@ -177,49 +190,6 @@ impl Program {
                 panic!();
             }
         }
-    }
-
-    fn find_matching_jctx_idx(jctxs: &Vec<JobCtx>, spec: &JobSpec) -> Option<usize> {
-        for (idx, jctx) in jctxs.iter().enumerate() {
-            if jctx.data.spec.kind == spec.kind && jctx.data.spec.id == spec.id {
-                return Some(idx);
-            }
-        }
-        return None;
-    }
-
-    fn find_matching_jctx<'a>(jctxs: &'a Vec<JobCtx>, spec: &JobSpec) -> Option<&'a JobCtx> {
-        match Self::find_matching_jctx_idx(jctxs, spec) {
-            Some(idx) => Some(&jctxs[idx]),
-            None => None,
-        }
-    }
-
-    fn pop_matching_jctx(jctxs: &mut Vec<JobCtx>, spec: &JobSpec) -> Option<JobCtx> {
-        match Self::find_matching_jctx_idx(jctxs, spec) {
-            Some(idx) => Some(jctxs.remove(idx)),
-            None => None,
-        }
-    }
-
-    fn find_prev_data<'a>(jctxs: &'a Vec<JobCtx>, spec: &JobSpec) -> Option<&'a JobData> {
-        let jctx = match Self::find_matching_jctx(jctxs, spec) {
-            Some(jctx) => jctx,
-            None => return None,
-        };
-        if jctx.are_results_compatible(spec) && jctx.data.result_valid() {
-            Some(&jctx.data)
-        } else {
-            None
-        }
-    }
-
-    fn format_jctx(jctx: &JobCtx, mode: Mode, props: &JobProps) -> Result<()> {
-        // Format only the completed jobs.
-        if jctx.data.result_valid() {
-            println!("{}\n\n{}", "=".repeat(90), &jctx.format(mode, props)?);
-        }
-        Ok(())
     }
 
     fn do_run(&mut self) {
@@ -246,133 +216,58 @@ impl Program {
         let iocost_sys_save =
             IoCostSysSave::read_from_sys(scr_devnr).expect("failed to read iocost.model,qos");
 
-        let (mut base_bench, demo_bench_path, bench_path) =
-            match self.prep_base_bench(&scr_devname, &iocost_sys_save) {
-                Ok(v) => v,
-                Err(e) => {
-                    error!("Failed to prepare bench files ({})", &e);
-                    panic!();
-                }
-            };
-
-        // Stash the result part for incremental result file updates.
-        let mut inc_jctxs = self.job_ctxs.clone();
-        let mut jctxs = vec![];
-        std::mem::swap(&mut jctxs, &mut self.job_ctxs);
-
-        // Spec preprocessing gives the bench implementations a chance to
-        // add, remove and modify the scheduled benches. Preprocess is
-        // called once per scheduled bench.
-        let args = &mut self.args_file.data;
-        loop {
-            let mut idx = None;
-            for (i, spec) in args.job_specs.iter().enumerate() {
-                if !spec.preprocessed {
-                    idx = Some(i);
-                    break;
-                }
+        let mut base_bench = match self.prep_base_bench(&scr_devname, &iocost_sys_save) {
+            Ok(v) => v,
+            Err(e) => {
+                error!("Failed to prepare bench files ({})", &e);
+                panic!();
             }
-            if idx.is_none() {
-                break;
-            }
+        };
 
-            let idx = idx.unwrap();
-            let spec = &mut args.job_specs[idx];
-            let prev_data = Self::find_prev_data(&jctxs, spec);
-            spec.preprocessed = true;
-
-            bench::find_bench(&spec.kind)
-                .unwrap()
-                .preprocess_run_specs(&mut args.job_specs, idx, &base_bench, prev_data)
-                .expect("preprocess_run_specs() failed");
-        }
-
-        // Put jobs to run in self.job_ctxs.
+        // Collect the pending jobs.
+        let mut jobs = self.jobs.lock().unwrap();
+        let mut pending = JobCtxs::default();
         let args = &self.args_file.data;
         for spec in args.job_specs.iter() {
-            let mut new = JobCtx::new(spec);
-            if let Err(e) = new.parse_job_spec() {
-                error!("{}: {}", spec, &e);
-                exit(1);
-            }
-            match Self::pop_matching_jctx(&mut jctxs, &new.data.spec) {
-                Some(prev) => {
-                    debug!("{} has a matching entry in the result file", &new.data.spec);
-                    new.inc_job_idx = prev.inc_job_idx;
-                    new.prev = Some(Box::new(prev));
-                }
-                None => {
-                    new.inc_job_idx = inc_jctxs.len();
-                    inc_jctxs.push(new.clone());
+            match jobs.parse_job_spec_and_link(spec) {
+                Ok(new) => pending.vec.push(new),
+                Err(e) => {
+                    error!("{}: {}", spec, &e);
+                    exit(1);
                 }
             }
-            self.job_ctxs.push(new);
         }
 
-        debug!(
-            "job_ctxs: nr_to_run={}\n{:#?}",
-            self.job_ctxs.len(),
-            &self.job_ctxs
-        );
+        debug!("job_ctxs: nr_to_run={}\n{:#?}", pending.vec.len(), &pending);
         self.commit_args();
 
-        if self.job_ctxs.len() > 0 && !args.keep_reports {
+        if pending.vec.len() > 0 && !args.keep_reports {
             if let Err(e) = self.clean_up_report_files() {
                 warn!("Failed to clean up report files ({})", &e);
             }
         }
 
+        debug!(
+            "job_ids: pending={} prev={}",
+            &pending.format_ids(),
+            jobs.prev.format_ids()
+        );
+
         // Run the benches and print out the results.
-        let mut pending = vec![];
-        std::mem::swap(&mut pending, &mut self.job_ctxs);
-        for mut jctx in pending.into_iter() {
-            // Always start with a fresh bench file.
-            if let Err(e) = base_bench.save(&bench_path) {
-                error!("Failed to set up {:?} ({})", &bench_path, &e);
+        drop(jobs);
+        for jctx in pending.vec.into_iter() {
+            let mut rctx = RunCtx::new(&args, &mut base_bench, self.jobs.clone());
+            let name = format!("{}", &jctx.data.spec);
+            if let Err(e) = rctx.run_jctx(jctx) {
+                error!("{}: {}", &name, &e);
                 panic!();
             }
-
-            let mut data_forwards = vec![];
-            let mut sysreqs_forward = None;
-            for i in jctx.data.spec.forward_results_from.iter() {
-                let from = &self.job_ctxs[*i];
-                data_forwards.push(from.data.clone());
-                if sysreqs_forward.is_none() {
-                    sysreqs_forward = Some(from.data.sysreqs.clone());
-                }
-            }
-
-            let mut rctx = RunCtx::new(
-                &args,
-                &base_bench,
-                &mut inc_jctxs,
-                jctx.inc_job_idx,
-                data_forwards,
-            );
-
-            if let Err(e) = jctx.run(&mut rctx, sysreqs_forward) {
-                error!("Failed to run {} ({})", &jctx.data.spec, &e);
-                panic!();
-            }
-
-            if rctx.commit_bench {
-                base_bench = rd_agent_intf::BenchKnobs::load(&bench_path)
-                    .expect(&format!("Failed to load {:?}", &bench_path));
-                if let Err(e) = base_bench.save(&demo_bench_path) {
-                    error!(
-                        "Failed to commit bench result to {:?} ({})",
-                        &demo_bench_path, &e
-                    );
-                    panic!();
-                }
-            }
-            Self::format_jctx(&jctx, Mode::Summary, &vec![Default::default()]).unwrap();
-            self.job_ctxs.push(jctx);
         }
 
         // Write the result file.
-        if !self.job_ctxs.is_empty() {
-            Self::save_results(&args.result, &self.job_ctxs);
+        let jobs = self.jobs.lock().unwrap();
+        if jobs.done.vec.len() > 0 {
+            jobs.done.save_results(&args.result);
         }
     }
 
@@ -380,14 +275,14 @@ impl Program {
         let specs = &self.args_file.data.job_specs;
         let empty_props = vec![Default::default()];
         let mut to_format = vec![];
-        let mut jctxs = vec![];
-        std::mem::swap(&mut jctxs, &mut self.job_ctxs);
+        let mut jctxs = JobCtxs::default();
+        std::mem::swap(&mut jctxs, &mut self.jobs.lock().unwrap().prev);
 
         if specs.len() == 0 {
-            to_format = jctxs.into_iter().map(|x| (x, &empty_props)).collect();
+            to_format = jctxs.vec.into_iter().map(|x| (x, &empty_props)).collect();
         } else {
             for spec in specs.iter() {
-                let jctx = match Self::pop_matching_jctx(&mut jctxs, &spec) {
+                let jctx = match jctxs.pop_matching_jctx(&spec) {
                     Some(v) => v,
                     None => {
                         error!("No matching result for {}", &spec);
@@ -415,7 +310,7 @@ impl Program {
         }
 
         for (jctx, props) in to_format.iter() {
-            if let Err(e) = Self::format_jctx(jctx, mode, props) {
+            if let Err(e) = jctx.print(mode, props) {
                 error!("Failed to format {}: {}", &jctx.data.spec, &e);
                 panic!();
             }
@@ -429,10 +324,11 @@ impl Program {
 
         // Load existing result file into job_ctxs.
         if Path::new(&args.result).exists() {
-            match JobCtx::load_result_file(&args.result) {
-                Ok(mut results) => {
-                    debug!("Loaded {} entries from result file", results.len());
-                    self.job_ctxs.append(&mut results);
+            let mut jobs = self.jobs.lock().unwrap();
+            jobs.prev = match JobCtxs::load_results(&args.result) {
+                Ok(jctxs) => {
+                    debug!("Loaded {} entries from result file", jctxs.vec.len());
+                    jctxs
                 }
                 Err(e) => {
                     error!(
@@ -464,7 +360,7 @@ fn main() {
     Program {
         args_file,
         args_updated,
-        job_ctxs: vec![],
+        jobs: Arc::new(Mutex::new(Jobs::default())),
     }
     .main();
 }

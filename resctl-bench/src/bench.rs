@@ -2,7 +2,7 @@
 
 // The individual bench implementations under bench/ inherits all uses from
 // this file. Make common stuff available.
-use anyhow::{anyhow, bail, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use log::{debug, error, info, warn};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
@@ -14,7 +14,7 @@ use super::job::{Job, JobData};
 use super::progress::BenchProgress;
 use super::run::RunCtx;
 use super::study::*;
-use rd_agent_intf::{BenchKnobs, SysReq};
+use rd_agent_intf::SysReq;
 use resctl_bench_intf::{JobProps, JobSpec};
 
 use util::*;
@@ -92,18 +92,7 @@ impl BenchDesc {
 
 pub trait Bench: Send + Sync {
     fn desc(&self) -> BenchDesc;
-
-    fn preprocess_run_specs(
-        &self,
-        _specs: &mut Vec<JobSpec>,
-        _idx: usize,
-        _base_bench: &BenchKnobs,
-        _prev_data: Option<&JobData>,
-    ) -> Result<()> {
-        Ok(())
-    }
-
-    fn parse(&self, spec: &JobSpec) -> Result<Box<dyn Job>>;
+    fn parse(&self, spec: &JobSpec, prev_data: Option<&JobData>) -> Result<Box<dyn Job>>;
 }
 
 fn register_bench(bench: Box<dyn Bench>) -> () {
