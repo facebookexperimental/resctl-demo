@@ -1,13 +1,12 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
 use anyhow::{anyhow, bail, Result};
 use log::{debug, error, info, warn};
-use std::fmt::Write;
 use std::path::{Path, PathBuf};
 use std::process::{exit, Command};
 use std::sync::{Arc, Mutex};
 use util::*;
 
-use resctl_bench_intf::{Args, JobProps, Mode};
+use resctl_bench_intf::{Args, JobSpec, Mode};
 
 mod bench;
 mod job;
@@ -17,8 +16,6 @@ mod study;
 
 use job::{JobCtx, JobCtxs};
 use run::RunCtx;
-
-const RB_BENCH_FILENAME: &str = "rb-bench.json";
 
 lazy_static::lazy_static! {
     pub static ref AGENT_BIN: String =
@@ -31,21 +28,27 @@ lazy_static::lazy_static! {
 
 #[derive(Default)]
 pub struct Jobs {
-    cur: JobCtxs,
+    done: JobCtxs,
     prev: JobCtxs,
 }
 
 impl Jobs {
-    pub fn format_ids(&self) -> String {
-        let mut buf = String::new();
-        write!(
-            buf,
-            "cur={}, prev={}",
-            &self.cur.format_ids(),
-            &self.prev.format_ids()
-        )
-        .unwrap();
-        buf
+    pub fn parse_job_spec_and_link(&mut self, spec: &JobSpec) -> Result<JobCtx> {
+        let mut new = JobCtx::new(spec);
+        new.parse_job_spec()?;
+        match self.prev.find_matching_unused_jctx_mut(&new.data.spec) {
+            Some(prev) => {
+                debug!("{} has a matching entry in the result file", &new.data.spec);
+                prev.prev_used = true;
+                new.prev_uid = Some(prev.uid);
+            }
+            None => {
+                let clone = new.clone();
+                new.prev_uid = Some(clone.uid);
+                self.prev.vec.push(clone);
+            }
+        }
+        Ok(new)
     }
 }
 
@@ -61,7 +64,7 @@ impl Program {
             "--dir".into(),
             dir.into(),
             "--bench-file".into(),
-            RB_BENCH_FILENAME.into(),
+            Args::RB_BENCH_FILENAME.into(),
             "--force".into(),
             "--force-running".into(),
         ];
@@ -103,7 +106,7 @@ impl Program {
         &self,
         scr_devname: &str,
         iocost_sys_save: &IoCostSysSave,
-    ) -> Result<(rd_agent_intf::BenchKnobs, String, String)> {
+    ) -> Result<rd_agent_intf::BenchKnobs> {
         let args = &self.args_file.data;
 
         let (dev_model, dev_fwrev, dev_size) =
@@ -115,8 +118,7 @@ impl Program {
                 )
             })?;
 
-        let demo_bench_path = args.dir.clone() + "/" + rd_agent_intf::BENCH_FILENAME;
-        let bench_path = args.dir.clone() + "/" + RB_BENCH_FILENAME;
+        let demo_bench_path = args.demo_bench_path();
 
         let mut bench = match rd_agent_intf::BenchKnobs::load(&demo_bench_path) {
             Ok(v) => v,
@@ -173,7 +175,7 @@ impl Program {
             info!("Using iocost parameters from {:?}", &demo_bench_path);
         }
 
-        Ok((bench, demo_bench_path, bench_path))
+        Ok(bench)
     }
 
     fn commit_args(&self) {
@@ -184,14 +186,6 @@ impl Program {
                 panic!();
             }
         }
-    }
-
-    fn format_jctx(jctx: &JobCtx, mode: Mode, props: &JobProps) -> Result<()> {
-        // Format only the completed jobs.
-        if jctx.data.result_valid() {
-            println!("{}\n\n{}", "=".repeat(90), &jctx.format(mode, props)?);
-        }
-        Ok(())
     }
 
     fn do_run(&mut self) {
@@ -218,14 +212,13 @@ impl Program {
         let iocost_sys_save =
             IoCostSysSave::read_from_sys(scr_devnr).expect("failed to read iocost.model,qos");
 
-        let (mut base_bench, demo_bench_path, bench_path) =
-            match self.prep_base_bench(&scr_devname, &iocost_sys_save) {
-                Ok(v) => v,
-                Err(e) => {
-                    error!("Failed to prepare bench files ({})", &e);
-                    panic!();
-                }
-            };
+        let mut base_bench = match self.prep_base_bench(&scr_devname, &iocost_sys_save) {
+            Ok(v) => v,
+            Err(e) => {
+                error!("Failed to prepare bench files ({})", &e);
+                panic!();
+            }
+        };
 
         // Spec preprocessing gives the bench implementations a chance to
         // add, remove and modify the scheduled benches. Preprocess is
@@ -255,81 +248,49 @@ impl Program {
                 .expect("preprocess_run_specs() failed");
         }
 
-        // Put jobs to run in self.jctxs.
+        // Collect the pending jobs.
+        let mut pending = JobCtxs::default();
         let args = &self.args_file.data;
         for spec in args.job_specs.iter() {
-            let mut new = JobCtx::new(spec);
-            if let Err(e) = new.parse_job_spec() {
-                error!("{}: {}", spec, &e);
-                exit(1);
-            }
-            match jobs.prev.find_matching_unused_jctx_mut(&new.data.spec) {
-                Some(prev) => {
-                    debug!("{} has a matching entry in the result file", &new.data.spec);
-                    prev.prev_used = true;
-                    new.prev_uid = Some(prev.uid);
-                }
-                None => {
-                    let clone = new.clone();
-                    new.prev_uid = Some(clone.uid);
-                    jobs.prev.vec.push(clone);
+            match jobs.parse_job_spec_and_link(spec) {
+                Ok(new) => pending.vec.push(new),
+                Err(e) => {
+                    error!("{}: {}", spec, &e);
+                    exit(1);
                 }
             }
-            jobs.cur.vec.push(new);
         }
 
-        debug!(
-            "job_ctxs: nr_to_run={}\n{:#?}",
-            jobs.cur.vec.len(),
-            &jobs.cur
-        );
+        debug!("job_ctxs: nr_to_run={}\n{:#?}", pending.vec.len(), &pending);
         self.commit_args();
 
-        if jobs.cur.vec.len() > 0 && !args.keep_reports {
+        if pending.vec.len() > 0 && !args.keep_reports {
             if let Err(e) = self.clean_up_report_files() {
                 warn!("Failed to clean up report files ({})", &e);
             }
         }
 
-        debug!("job_ids: {}", &jobs.format_ids());
+        debug!(
+            "job_ids: pending={} prev={}",
+            &pending.format_ids(),
+            jobs.prev.format_ids()
+        );
 
         // Run the benches and print out the results.
-        let mut pending = vec![];
-        std::mem::swap(&mut pending, &mut jobs.cur.vec);
         drop(jobs);
-        for mut jctx in pending.into_iter() {
-            // Always start with a fresh bench file.
-            if let Err(e) = base_bench.save(&bench_path) {
-                error!("Failed to set up {:?} ({})", &bench_path, &e);
+        for jctx in pending.vec.into_iter() {
+            let mut rctx = RunCtx::new(&args, &mut base_bench, self.jobs.clone());
+            let name = format!("{}", &jctx.data.spec);
+            if let Err(e) = rctx.run_jctx(jctx) {
+                error!("{}: {}", &name, &e);
                 panic!();
             }
-
-            let mut rctx = RunCtx::new(&args, &base_bench, self.jobs.clone());
-
-            if let Err(e) = jctx.run(&mut rctx) {
-                error!("Failed to run {} ({})", &jctx.data.spec, &e);
-                panic!();
-            }
-
-            if rctx.commit_bench {
-                base_bench = rd_agent_intf::BenchKnobs::load(&bench_path)
-                    .expect(&format!("Failed to load {:?}", &bench_path));
-                if let Err(e) = base_bench.save(&demo_bench_path) {
-                    error!(
-                        "Failed to commit bench result to {:?} ({})",
-                        &demo_bench_path, &e
-                    );
-                    panic!();
-                }
-            }
-            Self::format_jctx(&jctx, Mode::Summary, &vec![Default::default()]).unwrap();
-            self.jobs.lock().unwrap().cur.vec.push(jctx);
         }
 
         // Write the result file.
         let jobs = self.jobs.lock().unwrap();
-        if jobs.cur.vec.len() > 0 {
-            jobs.cur.save_results(&args.result);
+        if jobs.done.vec.len() > 0 {
+            jobs.done.save_results(&args.result);
         }
     }
 
@@ -338,7 +299,7 @@ impl Program {
         let empty_props = vec![Default::default()];
         let mut to_format = vec![];
         let mut jctxs = JobCtxs::default();
-        std::mem::swap(&mut jctxs, &mut self.jobs.lock().unwrap().cur);
+        std::mem::swap(&mut jctxs, &mut self.jobs.lock().unwrap().prev);
 
         if specs.len() == 0 {
             to_format = jctxs.vec.into_iter().map(|x| (x, &empty_props)).collect();
@@ -372,7 +333,7 @@ impl Program {
         }
 
         for (jctx, props) in to_format.iter() {
-            if let Err(e) = Self::format_jctx(jctx, mode, props) {
+            if let Err(e) = jctx.print(mode, props) {
                 error!("Failed to format {}: {}", &jctx.data.spec, &e);
                 panic!();
             }

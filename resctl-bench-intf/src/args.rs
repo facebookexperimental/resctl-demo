@@ -78,6 +78,16 @@ impl Default for Args {
 }
 
 impl Args {
+    pub const RB_BENCH_FILENAME: &'static str = "rb-bench.json";
+
+    pub fn demo_bench_path(&self) -> String {
+        self.dir.clone() + "/" + rd_agent_intf::BENCH_FILENAME
+    }
+
+    pub fn bench_path(&self) -> String {
+        self.dir.clone() + "/" + Self::RB_BENCH_FILENAME
+    }
+
     pub fn parse_job_spec(spec: &str) -> Result<JobSpec> {
         let mut groups = spec.split(':');
 

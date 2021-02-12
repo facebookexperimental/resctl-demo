@@ -111,9 +111,9 @@ impl JobCtx {
         UID.fetch_add(1, Ordering::Relaxed)
     }
 
-    pub fn with_data(data: JobData) -> Self {
+    pub fn new(spec: &JobSpec) -> Self {
         Self {
-            data,
+            data: JobData::new(spec),
             bench: None,
             job: None,
             incremental: false,
@@ -121,10 +121,6 @@ impl JobCtx {
             prev_uid: None,
             prev_used: false,
         }
-    }
-
-    pub fn new(spec: &JobSpec) -> Self {
-        Self::with_data(JobData::new(spec))
     }
 
     pub fn parse_job_spec(&mut self) -> Result<()> {
@@ -308,6 +304,14 @@ impl JobCtx {
             .format(Box::new(&mut buf), data, mode == Mode::Format, props)?;
 
         Ok(buf)
+    }
+
+    pub fn print(&self, mode: Mode, props: &JobProps) -> Result<()> {
+        // Format only the completed jobs.
+        if self.data.result_valid() {
+            println!("{}\n\n{}", "=".repeat(90), &self.format(mode, props)?);
+        }
+        Ok(())
     }
 }
 

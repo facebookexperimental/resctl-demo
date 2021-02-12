@@ -643,7 +643,7 @@ impl Job for IoCostTuneJob {
 
     fn run(&mut self, rctx: &mut RunCtx) -> Result<serde_json::Value> {
         let src: IoCostQoSResult =
-            serde_json::from_value(rctx.find_cur_job_data("iocost-qos").unwrap().result)
+            serde_json::from_value(rctx.find_done_job_data("iocost-qos").unwrap().result)
                 .map_err(|e| anyhow!("failed to parse iocost-qos result ({})", &e))?;
         let mut data = BTreeMap::<DataSel, DataSeries>::default();
 
