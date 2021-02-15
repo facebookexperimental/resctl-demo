@@ -296,15 +296,57 @@ pub fn parse_duration(input: &str) -> Result<f64> {
     let mut num = String::new();
     let mut sum = 0.0;
     for ch in input.chars() {
-        if UNITS.contains_key(&ch) {
-            sum += num.trim().parse::<f64>()? * UNITS[&ch];
-            num.clear();
-        } else {
-            num.push(ch);
+        match ch {
+            '_' => continue,
+            ch if UNITS.contains_key(&ch) => {
+                sum += num.trim().parse::<f64>()? * UNITS[&ch];
+                num.clear();
+            }
+            ch => num.push(ch),
         }
     }
     if num.trim().len() > 0 {
         sum += num.trim().parse::<f64>()?;
+    }
+    Ok(sum)
+}
+
+pub fn parse_size(input: &str) -> Result<u64> {
+    lazy_static::lazy_static! {
+        static ref UNITS: HashMap<char, u32> = [
+            ('B', 0),
+            ('K', 10),
+            ('M', 20),
+            ('G', 30),
+            ('T', 40),
+            ('P', 50),
+            ('E', 60),
+        ].iter().cloned().collect();
+    }
+
+    let parse_num = |num: &str, shift: u32| -> Result<u64> {
+        Ok(if num.contains(".") {
+            (num.parse::<f64>()? * (2u64.pow(shift) as f64)).round() as u64
+        } else {
+            num.parse::<u64>()? * (1 << shift)
+        })
+    };
+
+    let mut num = String::new();
+    let mut sum = 0;
+    for ch in input.chars() {
+        let ch = ch.to_uppercase().to_string().chars().next().unwrap();
+        match ch {
+            '_' => continue,
+            ch if UNITS.contains_key(&ch) => {
+                sum += parse_num(num.trim(), UNITS[&ch])?;
+                num.clear();
+            }
+            ch => num.push(ch),
+        }
+    }
+    if num.trim().len() > 0 {
+        sum += parse_num(num.trim(), 0)?;
     }
     Ok(sum)
 }
@@ -604,13 +646,26 @@ mod tests {
             (2040.0, "34.0M"),
             (3456000.0, "40.0D"),
             (59918400.0, "1.9Y"),
-            (59918401.1, "1.9Y1s100m"),
+            (59918401.1, "1.9Y_1s_100m"),
             (59918401.1, "1.9Y1.1s"),
             (59918401.102, "1.9Y  1.1s  2000  u"),
             (1.27, "1.27"),
             (1.37, "100m1.27"),
         ] {
             let result = super::parse_duration(pair.1).unwrap();
+            assert_eq!(pair.0, result);
+            println!("{} -> {} ({})", pair.1, result, pair.0);
+        }
+    }
+
+    #[test]
+    fn test_parse_size() {
+        for pair in &[
+            (4404019, "4.2m"),
+            (2164785152, "2G_16.5M"),
+            (1659790359820, "1.5t  9.8  G   248281"),
+        ] {
+            let result = super::parse_size(pair.1).unwrap();
             assert_eq!(pair.0, result);
             println!("{} -> {} ({})", pair.1, result, pair.0);
         }

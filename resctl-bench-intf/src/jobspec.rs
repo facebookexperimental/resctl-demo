@@ -22,11 +22,7 @@ impl std::cmp::Eq for JobSpec {}
 impl JobSpec {
     pub fn new(kind: String, id: Option<String>, props: JobProps) -> Self {
         assert!(props.len() > 0);
-        Self {
-            kind,
-            id,
-            props,
-        }
+        Self { kind, id, props }
     }
 }
 

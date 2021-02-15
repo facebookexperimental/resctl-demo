@@ -7,7 +7,6 @@ use log::{debug, error, info, warn};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 use std::fmt::Write;
-use std::iter::FromIterator;
 use std::sync::{Arc, Mutex};
 
 use super::job::{Job, JobData};
@@ -20,14 +19,14 @@ use resctl_bench_intf::{JobProps, JobSpec};
 use util::*;
 
 lazy_static::lazy_static! {
-    pub static ref HASHD_SYSREQS: BTreeSet<SysReq> = FromIterator::from_iter(
+    pub static ref HASHD_SYSREQS: BTreeSet<SysReq> =
         vec![
-                SysReq::AnonBalance,
-                SysReq::SwapOnScratch,
-                SysReq::Swap,
-                SysReq::HostCriticalServices,
-        ]
-    );
+            SysReq::AnonBalance,
+            SysReq::SwapOnScratch,
+            SysReq::Swap,
+            SysReq::HostCriticalServices,
+        ].into_iter().collect();
+    pub static ref ALL_SYSREQS: BTreeSet<SysReq> = rd_agent_intf::ALL_SYSREQS_SET.clone();
     static ref BENCHS: Mutex<Vec<Arc<Box<dyn Bench>>>> = Mutex::new(vec![]);
 }
 
@@ -103,6 +102,7 @@ mod hashd_params;
 mod iocost_params;
 mod iocost_qos;
 mod iocost_tune;
+mod protection;
 mod storage;
 
 pub fn init_benchs() -> () {
@@ -111,4 +111,5 @@ pub fn init_benchs() -> () {
     register_bench(Box::new(hashd_params::HashdParamsBench {}));
     register_bench(Box::new(iocost_qos::IoCostQoSBench {}));
     register_bench(Box::new(iocost_tune::IoCostTuneBench {}));
+    register_bench(Box::new(protection::ProtectionBench {}));
 }
