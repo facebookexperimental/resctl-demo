@@ -2,116 +2,95 @@
 use super::*;
 use std::collections::BTreeMap;
 
-#[derive(Debug)]
-enum IoBps {
-    Abs(u64),
-    Rel(f64),
+#[derive(Clone, Copy, Debug)]
+enum MemoryHogSpeed {
+    Hog10Pct,
+    Hog25Pct,
+    Hog50Pct,
+    Hog1x,
+    Hog2x,
 }
 
-impl IoBps {
-    fn parse(input: &str) -> Result<Self> {
-        let input = input.trim();
-        if input.ends_with("%") {
-            match input[0..input.len() - 1].parse::<f64>() {
-                Ok(v) => {
-                    if v < 0.0 {
-                        bail!("IoBps::Rel can't be negative");
-                    }
-                    Ok(Self::Rel(v / 100.0))
-                }
-                Err(e) => bail!("failed to parse IoBps::Rel {:?} ({})", input, &e),
-            }
-        } else {
-            match parse_size(input) {
-                Ok(v) => Ok(Self::Abs(v)),
-                Err(e) => bail!("failed to parse IoBps::Abs {:?} ({})", input, &e),
-            }
-        }
-    }
+#[derive(Clone, Debug)]
+enum ScenarioKind {
+    MemoryHog {
+        loops: u32,
+        load: f64,
+        speed: MemoryHogSpeed,
+    },
 }
 
-#[derive(Debug)]
-enum Bandit {
-    MemoryHog { rbps: IoBps, wbps: IoBps },
+#[derive(Clone, Debug)]
+struct Scenario {
+    kind: ScenarioKind,
 }
 
-impl Bandit {
-    fn parse(bandit: &str, props: &BTreeMap<String, String>) -> Result<Self> {
-        match bandit {
-            "memory-hog" => {
-                let (mut rbps, mut wbps) = (IoBps::Abs(0), IoBps::Abs(0));
-                for (k, v) in props.iter() {
-                    match k.as_str() {
-                        "rbps" => rbps = IoBps::parse(v)?,
-                        "wbps" => wbps = IoBps::parse(v)?,
-                        k => bail!("uknown memory-hog property {:?}", k),
-                    }
-                }
-                Ok(Self::MemoryHog { rbps, wbps })
-            }
-            bandit => bail!("unknown bandit type {:?}", bandit),
-        }
-    }
-}
-
-#[derive(Debug)]
-enum Phase {
-    WarmUp { load: f64, hold: f64 },
-    Bandit { bandit: Bandit, dur: f64 },
-}
-
-impl Phase {
+impl Scenario {
     fn parse(mut props: BTreeMap<String, String>) -> Result<Self> {
-        let parse_load = |input: &str| -> Result<f64> {
-            let mut input = input.trim();
-            let mut mult = 1.0;
-            if input.ends_with("%") {
-                input = &input[0..input.len() - 1];
-                mult = 0.01;
-            }
-            let load = input
-                .parse::<f64>()
-                .with_context(|| format!("failed to parse \"load={}\"", input))?
-                * mult;
-            if load < 0.0 || load > 1.0 {
-                bail!("load {} is beyond [0.0, 1.0]", load);
-            }
-            Ok(load)
-        };
-
-        let phase = props.remove("phase");
-        Ok(match phase.as_deref() {
-            Some("warmup") => {
-                let (mut load, mut hold) = (1.0, 0.0);
+        match props.remove("scenario").as_deref() {
+            Some("memory-hog") => {
+                let mut loops = 3;
+                let mut load = 1.0;
+                let mut speed = MemoryHogSpeed::Hog2x;
                 for (k, v) in props.iter() {
                     match k.as_str() {
-                        "hold" => {
-                            hold = parse_duration(v)
-                                .with_context(|| format!("failed to parse \"hold={}\"", v))?
+                        "loops" => loops = v.parse::<u32>()?,
+                        "load" => load = parse_frac(v)?,
+                        "speed" => {
+                            speed = match v.as_str() {
+                                "10%" => MemoryHogSpeed::Hog10Pct,
+                                "25%" => MemoryHogSpeed::Hog25Pct,
+                                "50%" => MemoryHogSpeed::Hog50Pct,
+                                "1x" => MemoryHogSpeed::Hog1x,
+                                "2x" => MemoryHogSpeed::Hog2x,
+                                _ => bail!("\"speed\" should be one of 10%, 25%, 50%, 1x or 2x"),
+                            };
                         }
-                        "load" => load = parse_load(v)?,
-                        k => bail!("unknown property {:?}", k),
+                        k => bail!("unknown memory-hog property {:?}", k),
+                    }
+                    if loops == 0 {
+                        bail!("\"loops\" can't be 0");
                     }
                 }
-                Self::WarmUp { load, hold }
+                Ok(Self {
+                    kind: ScenarioKind::MemoryHog { loops, load, speed },
+                })
             }
-            Some(bandit) => {
-                let mut dur = 0.0;
-                if let Some(v) = props.remove("dur") {
-                    dur = parse_duration(&v)
-                        .with_context(|| format!("failed to parse \"dur={}\"", v))?;
-                }
-                let bandit = Bandit::parse(bandit, &props)?;
-                Self::Bandit { bandit, dur }
+            _ => bail!("\"scenario\" invalid or missing"),
+        }
+    }
+
+    fn warm_up_hashd(&mut self, rctx: &mut RunCtx, load: f64) -> Result<()> {
+        rctx.start_hashd(load);
+        info!("protection: Stabilizing hashd at {:.2}%", load * TO_PCT);
+        rctx.stabilize_hashd(Some(load))
+    }
+
+    fn do_memory_hog(
+        &mut self,
+        rctx: &mut RunCtx,
+        loops: u32,
+        load: f64,
+        speed: MemoryHogSpeed,
+    ) -> Result<()> {
+        for idx in 0..loops {
+            self.warm_up_hashd(rctx, load)?;
+        }
+        Ok(())
+    }
+
+    fn run(&mut self, rctx: &mut RunCtx) -> Result<()> {
+        match self.kind {
+            ScenarioKind::MemoryHog { loops, load, speed } => {
+                self.do_memory_hog(rctx, loops, load, speed)
             }
-            None => bail!("\"phase\" missing"),
-        })
+        }
     }
 }
 
 #[derive(Default, Debug)]
 struct ProtectionJob {
-    phases: Vec<Phase>,
+    scenarios: Vec<Scenario>,
 }
 
 pub struct ProtectionBench {}
@@ -140,7 +119,7 @@ impl ProtectionJob {
         }
 
         for props in spec.props[1..].iter() {
-            job.phases.push(Phase::parse(props.clone())?);
+            job.scenarios.push(Scenario::parse(props.clone())?);
         }
 
         Ok(job)
@@ -152,9 +131,14 @@ impl Job for ProtectionJob {
         ALL_SYSREQS.clone()
     }
 
-    fn run(&mut self, _rctx: &mut RunCtx) -> Result<serde_json::Value> {
-        info!("job = {:?}", self);
-        bail!("not implemented yet");
+    fn run(&mut self, rctx: &mut RunCtx) -> Result<serde_json::Value> {
+        rctx.set_prep_testfiles().start_agent();
+
+        for scn in self.scenarios.iter_mut() {
+            scn.run(rctx)?;
+        }
+
+        Ok(serde_json::Value::Null)
     }
 
     fn format<'a>(
@@ -164,6 +148,7 @@ impl Job for ProtectionJob {
         _full: bool,
         _props: &JobProps,
     ) -> Result<()> {
-        bail!("not implemented yet");
+        warn!("protection: format not implemented yet");
+        Ok(())
     }
 }

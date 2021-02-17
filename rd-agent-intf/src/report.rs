@@ -58,7 +58,7 @@ const REPORT_DOC: &str = "\
 //
 ";
 
-#[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SvcStateReport {
     Running,
     Exited,

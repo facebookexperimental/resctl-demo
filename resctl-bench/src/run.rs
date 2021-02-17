@@ -13,8 +13,8 @@ use super::progress::BenchProgress;
 use super::{Jobs, Program, AGENT_BIN};
 use crate::job::{JobCtx, JobData, SysReqs};
 use rd_agent_intf::{
-    AgentFiles, ReportIter, RunnerState, Slice, SysReq, AGENT_SVC_NAME, HASHD_BENCH_SVC_NAME,
-    IOCOST_BENCH_SVC_NAME,
+    AgentFiles, ReportIter, RunnerState, Slice, SvcStateReport, SysReq, AGENT_SVC_NAME,
+    HASHD_A_SVC_NAME, HASHD_BENCH_SVC_NAME, IOCOST_BENCH_SVC_NAME,
 };
 use resctl_bench_intf::{JobSpec, Mode};
 
@@ -22,6 +22,7 @@ const MINDER_AGENT_TIMEOUT: Duration = Duration::from_secs(120);
 const CMD_TIMEOUT: Duration = Duration::from_secs(30);
 const REP_RECORD_CADENCE: u64 = 10;
 const REP_RECORD_RETENTION: usize = 3;
+const HASHD_SLOPER_SLOTS: usize = 10;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MinderState {
@@ -29,6 +30,78 @@ pub enum MinderState {
     AgentTimeout,
     AgentNotRunning(systemd::UnitState),
     ReportTimeout,
+}
+
+fn run_nested_job_spec_int(
+    spec: &JobSpec,
+    args: &resctl_bench_intf::Args,
+    base_bench: &mut rd_agent_intf::BenchKnobs,
+    jobs: Arc<Mutex<Jobs>>,
+) -> Result<()> {
+    let mut rctx = RunCtx::new(args, base_bench, jobs);
+    let jctx = rctx.jobs.lock().unwrap().parse_job_spec_and_link(spec)?;
+    rctx.run_jctx(jctx)
+}
+
+struct Sloper {
+    points: VecDeque<f64>,
+    errs: VecDeque<f64>,
+    retention: usize,
+}
+
+impl Sloper {
+    fn new(retention: usize) -> Self {
+        Self {
+            points: Default::default(),
+            errs: Default::default(),
+            retention,
+        }
+    }
+
+    fn push(&mut self, point: f64) -> Option<(f64, f64)> {
+        self.points.push_front(point);
+        self.points.truncate(self.retention);
+        if self.points.len() < 2 {
+            return None;
+        }
+
+        let points = self
+            .points
+            .iter()
+            .rev()
+            .enumerate()
+            .map(|(i, v)| (i as f64, *v))
+            .collect::<Vec<(f64, f64)>>();
+        let (slope, intcp): (f64, f64) = linreg::linear_regression_of(&points).unwrap();
+
+        let mut err: f64 = 0.0;
+        for (i, point) in points.iter() {
+            err += (point - (i * slope + intcp)).powi(2);
+        }
+        err = err.sqrt();
+
+        self.errs.push_front(err);
+        self.errs.truncate(self.retention);
+        if self.errs.len() < 2 {
+            return None;
+        }
+
+        let errs = self
+            .errs
+            .iter()
+            .rev()
+            .enumerate()
+            .map(|(i, v)| (i as f64, *v))
+            .collect::<Vec<(f64, f64)>>();
+        let (eslope, _): (f64, f64) = linreg::linear_regression_of(&errs).unwrap();
+
+        let mean = statistical::mean(&self.points.iter().cloned().collect::<Vec<f64>>());
+        if mean == 0.0 {
+            return None;
+        }
+
+        Some((slope / mean, eslope / mean))
+    }
 }
 
 struct RunCtxInner {
@@ -146,17 +219,6 @@ impl RunCtxInner {
             .push_front(self.agent_files.report.data.clone());
         self.reports.truncate(REP_RECORD_RETENTION);
     }
-}
-
-fn run_nested_job_spec_int(
-    spec: &JobSpec,
-    args: &resctl_bench_intf::Args,
-    base_bench: &mut rd_agent_intf::BenchKnobs,
-    jobs: Arc<Mutex<Jobs>>,
-) -> Result<()> {
-    let mut rctx = RunCtx::new(args, base_bench, jobs);
-    let jctx = rctx.jobs.lock().unwrap().parse_job_spec_and_link(spec)?;
-    rctx.run_jctx(jctx)
 }
 
 pub struct RunCtx<'a> {
@@ -613,6 +675,130 @@ impl<'a> RunCtx<'a> {
             None,
         )
         .expect("failed to stop hashd benchmark");
+    }
+
+    pub fn start_hashd(&self, load: f64) {
+        debug!("Starting hashd ({})", &HASHD_A_SVC_NAME);
+
+        self.access_agent_files(|af| {
+            af.cmd.data.cmd_seq += 1;
+            af.cmd.data.hashd[0].active = true;
+            af.cmd.data.hashd[0].rps_target_ratio = load;
+            af.cmd.save().unwrap();
+        });
+        self.cmd_barrier().unwrap();
+        self.wait_cond(
+            |af, _| af.report.data.hashd[0].svc.state == SvcStateReport::Running,
+            Some(CMD_TIMEOUT),
+            None,
+        )
+        .expect("failed to start hashd");
+    }
+
+    pub fn stabilize_hashd_with_params(
+        &self,
+        target_load: Option<(f64, f64)>,
+        rps_and_err_slope_thr: Option<(f64, f64)>,
+        mem_slope_thr: Option<(f64, f64)>,
+        timeout: Option<Duration>,
+    ) -> Result<()> {
+        let mut rps_sloper = Sloper::new(HASHD_SLOPER_SLOTS);
+        let mut mem_sloper = Sloper::new(HASHD_SLOPER_SLOTS);
+        let mut last_at = 0;
+        let mut err = None;
+
+        self.wait_cond(
+            |af, progress| {
+                let rep = &af.report.data;
+                let bench = &af.bench.data;
+                let ts = rep.timestamp.timestamp();
+                if ts == last_at {
+                    progress.set_status("Report stale");
+                    return false;
+                }
+                last_at = ts;
+
+                if rep.hashd[0].svc.state != SvcStateReport::Running {
+                    err = Some(anyhow!("hashd not running ({:?})", rep.hashd[0].svc.state));
+                    return true;
+                }
+
+                let load = rep.hashd[0].rps / bench.hashd.rps_max as f64;
+                let rps_slopes = rps_sloper.push(rep.hashd[0].rps);
+                let mem_slopes = mem_sloper.push(rep.usages[HASHD_A_SVC_NAME].mem_bytes as f64);
+
+                if rps_slopes.is_none() || mem_slopes.is_none() {
+                    progress.set_status("Stabilizing...");
+                   return false;
+                }
+                let (rps_slope, rps_eslope) = rps_slopes.unwrap();
+                let (mem_slope, mem_eslope) = mem_slopes.unwrap();
+
+                progress.set_status(&format!(
+                    "load:{:5.1}% rps-slp/err:{:+6.2}%/{:+6.2}% mem-sz/slp/err:{:>5}/{:+6.2}%/{:+6.2}%",
+                    load * TO_PCT,
+                    rps_slope * TO_PCT,
+                    rps_eslope * TO_PCT,
+                    format_size(rep.usages[HASHD_A_SVC_NAME].mem_bytes),
+                    mem_slope * TO_PCT,
+                    mem_eslope * TO_PCT,
+                ));
+
+                if rps_sloper.points.len() < HASHD_SLOPER_SLOTS {
+                    return false;
+                }
+                if let Some((rps_thr, rps_ethr)) = rps_and_err_slope_thr {
+                    if rps_slope.abs() > rps_thr || rps_eslope.abs() > rps_ethr {
+                        return false;
+                    }
+                }
+                if let Some((mem_thr, mem_ethr)) = mem_slope_thr {
+                    if mem_slope.abs() > mem_thr || mem_eslope.abs() > mem_ethr {
+                        return false;
+                    }
+                }
+                if let Some((target_load, target_thr)) = target_load {
+                    if (load - target_load).abs() > target_thr {
+                        return false;
+                    }
+                }
+                true
+            },
+            timeout,
+            Some(BenchProgress::new().monitor_systemd_unit(HASHD_A_SVC_NAME)),
+        )?;
+
+        if err.is_some() {
+            Err(err.unwrap())
+        } else {
+            Ok(())
+        }
+    }
+
+    pub fn stabilize_hashd(&self, target_load: Option<f64>) -> Result<()> {
+        self.stabilize_hashd_with_params(
+            target_load.map(|v| (v, 0.025)),
+            Some((0.0025, 0.025)),
+            Some((0.0025, 0.025)),
+            Some(Duration::from_secs(300)),
+        )
+    }
+
+    pub fn stop_hashd(&self) {
+        debug!("Stopping hashd ({})", &HASHD_A_SVC_NAME);
+
+        self.access_agent_files(|af| {
+            af.cmd.data.cmd_seq += 1;
+            af.cmd.data.hashd[0].active = false;
+            af.cmd.save().unwrap();
+        });
+        self.cmd_barrier().unwrap();
+        self.wait_cond(
+            |af, _| af.report.data.hashd[0].svc.state != SvcStateReport::Running,
+            Some(CMD_TIMEOUT),
+            None,
+        )
+        .expect("failed to start hashd");
     }
 
     pub const BENCH_FAKE_CPU_RPS_MAX: u32 = 2000;

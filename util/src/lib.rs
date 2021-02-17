@@ -1,5 +1,5 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
-use anyhow::{anyhow, bail, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use crossbeam::channel::Sender;
 use glob::glob;
 use log::{info, warn};
@@ -349,6 +349,23 @@ pub fn parse_size(input: &str) -> Result<u64> {
         sum += parse_num(num.trim(), 0)?;
     }
     Ok(sum)
+}
+
+pub fn parse_frac(input: &str) -> Result<f64> {
+    let mut input = input.trim();
+    let mut mult = 1.0;
+    if input.ends_with("%") {
+        input = &input[0..input.len() - 1];
+        mult = 0.01;
+    }
+    let v = input
+        .parse::<f64>()
+        .with_context(|| format!("failed to parse fractional \"{}\"", input))?
+        * mult;
+    if v < 0.0 {
+        bail!("fractional {} is negative", v);
+    }
+    Ok(v)
 }
 
 fn is_executable<P: AsRef<Path>>(path_in: P) -> bool {

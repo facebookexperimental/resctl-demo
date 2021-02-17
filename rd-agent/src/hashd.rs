@@ -138,6 +138,10 @@ impl Hashd {
             params.log_bps = cmd.log_bps;
             changed = true;
         }
+        if params.fake_cpu_load != knobs.fake_cpu_load {
+            params.fake_cpu_load = knobs.fake_cpu_load;
+            changed = true;
+        }
 
         if changed {
             info!(
