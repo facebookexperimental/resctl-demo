@@ -1110,14 +1110,14 @@ impl Bench {
         // cpu single bench
         //
         self.params.file_size_mean = match (args.bench_cpu_single, args.bench_hash_size) {
-            (true, 0) => self.bench_cpu(&cfg.cpu),
-            (false, 0) => dfl_params.file_size_mean,
-            (_, v) => v,
+            (true, None) => self.bench_cpu(&cfg.cpu),
+            (false, None) => dfl_params.file_size_mean,
+            (_, Some(v)) => v,
         };
         self.params.chunk_pages = match (args.bench_cpu_single, args.bench_chunk_pages) {
-            (true, 0) => Self::calc_chunk_pages(&cfg.cpu, &self.params),
-            (false, 0) => dfl_params.chunk_pages,
-            (_, v) => v,
+            (true, None) => Self::calc_chunk_pages(&cfg.cpu, &self.params),
+            (false, None) => dfl_params.chunk_pages,
+            (_, Some(v)) => v,
         };
         info!(
             "[ Single cpu result: hash size {:.2}M, anon access {:.2}M, chunk {} pages ]",
@@ -1130,12 +1130,12 @@ impl Bench {
         // cpu saturation bench
         //
         self.params.rps_max = match (args.bench_cpu, args.bench_rps_max) {
-            (true, 0) => self.bench_cpu_saturation(&cfg.cpu_sat),
-            (false, 0) => {
+            (true, None) => self.bench_cpu_saturation(&cfg.cpu_sat),
+            (false, None) => {
                 error!("rps_max unknown, either specify --bench-cpu or --bench-rps-max");
                 panic!();
             }
-            (_, v) => v,
+            (_, Some(v)) => v,
         };
         info!("[ CPU saturation result: rps {:.2} ]", self.params.rps_max);
 
@@ -1150,13 +1150,13 @@ impl Bench {
                 &cfg.mem_sat
             };
 
-            let orig_fake_cpu_load = self.params.fake_cpu_load;
             self.params.fake_cpu_load = self.args_file.data.bench_fake_cpu_load;
-            if self.args_file.data.bench_file_frac > 0.0 {
+            if self.args_file.data.bench_file_frac.is_some() {
                 self.params.file_frac = self
                     .args_file
                     .data
                     .bench_file_frac
+                    .unwrap()
                     .max(rd_hashd_intf::Params::FILE_FRAC_MIN);
             }
 
@@ -1164,7 +1164,7 @@ impl Bench {
             let tf = self.prep_tf(
                 max_size,
                 match mem_sat_cfg.test {
-                    false => self.args_file.data.bench_preload_cache,
+                    false => self.args_file.data.bench_preload_cache_size(),
                     true => 0,
                 },
                 "Memory saturation bench",
@@ -1196,8 +1196,6 @@ impl Bench {
                 to_gb(fsize),
                 to_gb(asize)
             );
-
-            self.params.fake_cpu_load = orig_fake_cpu_load;
         } else {
             self.params.mem_frac = self.params_file.data.mem_frac;
         }

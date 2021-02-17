@@ -100,41 +100,6 @@ pub struct StorageResult {
     pub io_lat_pcts: BTreeMap<String, BTreeMap<String, f64>>,
 }
 
-struct HashdFakeCpuBench {
-    size: u64,
-    balloon_size: usize,
-    preload_size: usize,
-    log_bps: u64,
-    log_size: u64,
-    hash_size: usize,
-    chunk_pages: usize,
-    rps_max: u32,
-    file_frac: f64,
-}
-
-impl HashdFakeCpuBench {
-    fn start(&self, rctx: &RunCtx) {
-        rctx.start_hashd_bench(
-            self.balloon_size,
-            self.log_bps,
-            // We should specify all the total_memory() dependent values in
-            // rd_hashd_intf::Args so that the behavior stays the same for
-            // the same mem_profile.
-            vec![
-                format!("--size={}", self.size),
-                format!("--bench-preload-cache={}", self.preload_size),
-                format!("--log-size={}", self.log_size),
-                "--bench-fake-cpu-load".into(),
-                format!("--bench-hash-size={}", self.hash_size),
-                format!("--bench-chunk-pages={}", self.chunk_pages),
-                format!("--bench-rps-max={}", self.rps_max),
-                format!("--bench-file-frac={}", self.file_frac),
-                format!("--file-max={}", self.file_frac),
-            ],
-        );
-    }
-}
-
 impl StorageJob {
     pub fn parse(spec: &JobSpec) -> Result<StorageJob> {
         let mut job = StorageJob::default();
@@ -236,20 +201,19 @@ impl StorageJob {
     }
 
     fn measure_supportable_memory_size(&mut self, rctx: &RunCtx) -> Result<(usize, f64)> {
-        let mem_size = (self.mem_profile as u64) << 30;
-        let file_frac = rd_hashd_intf::Params::default().file_frac;
-        let preload_size = (mem_size as f64 * (file_frac * 2.0).min(1.0)) as usize;
-
+        let mem_size = (self.mem_profile as usize) << 30;
+        let dfl_args = rd_hashd_intf::Args::with_mem_size(mem_size);
+        let dfl_params = rd_hashd_intf::Params::default();
         HashdFakeCpuBench {
-            size: rd_hashd_intf::Args::DFL_SIZE_MULT * mem_size as u64,
+            size: dfl_args.size,
             balloon_size: self.mem_avail.saturating_sub(self.mem_share),
-            preload_size,
+            preload_size: dfl_args.bench_preload_cache_size(),
             log_bps: self.log_bps,
-            log_size: mem_size / 2,
+            log_size: dfl_args.log_size,
             hash_size: self.hash_size,
             chunk_pages: self.chunk_pages,
             rps_max: self.rps_max,
-            file_frac,
+            file_frac: dfl_params.file_frac,
         }
         .start(rctx);
 

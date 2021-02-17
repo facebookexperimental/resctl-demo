@@ -18,6 +18,7 @@ use resctl_bench_intf::{JobProps, JobSpec};
 
 use util::*;
 
+// Helpers shared by bench implementations.
 lazy_static::lazy_static! {
     pub static ref HASHD_SYSREQS: BTreeSet<SysReq> =
         vec![
@@ -27,6 +28,45 @@ lazy_static::lazy_static! {
             SysReq::HostCriticalServices,
         ].into_iter().collect();
     pub static ref ALL_SYSREQS: BTreeSet<SysReq> = rd_agent_intf::ALL_SYSREQS_SET.clone();
+}
+
+struct HashdFakeCpuBench {
+    size: u64,
+    balloon_size: usize,
+    preload_size: usize,
+    log_bps: u64,
+    log_size: u64,
+    hash_size: usize,
+    chunk_pages: usize,
+    rps_max: u32,
+    file_frac: f64,
+}
+
+impl HashdFakeCpuBench {
+    fn start(&self, rctx: &RunCtx) {
+        rctx.start_hashd_bench(
+            self.balloon_size,
+            self.log_bps,
+            // We should specify all the total_memory() dependent values in
+            // rd_hashd_intf::Args so that the behavior stays the same for
+            // the same mem_profile.
+            vec![
+                format!("--size={}", self.size),
+                format!("--bench-preload-cache={}", self.preload_size),
+                format!("--log-size={}", self.log_size),
+                "--bench-fake-cpu-load".into(),
+                format!("--bench-hash-size={}", self.hash_size),
+                format!("--bench-chunk-pages={}", self.chunk_pages),
+                format!("--bench-rps-max={}", self.rps_max),
+                format!("--bench-file-frac={}", self.file_frac),
+                format!("--file-max={}", self.file_frac),
+            ],
+        );
+    }
+}
+
+// Benchmark registry.
+lazy_static::lazy_static! {
     static ref BENCHS: Mutex<Vec<Arc<Box<dyn Bench>>>> = Mutex::new(vec![]);
 }
 

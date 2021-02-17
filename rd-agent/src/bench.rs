@@ -81,6 +81,7 @@ pub fn update_hashd(knobs: &mut BenchKnobs, cfg: &Config, hashd_seq: u64) -> Res
     knobs.hashd.mem_size = args.size;
     knobs.hashd.mem_frac = params.mem_frac;
     knobs.hashd.chunk_pages = params.chunk_pages;
+    knobs.hashd.fake_cpu_load = params.fake_cpu_load;
 
     if hashd_seq == std::u64::MAX {
         knobs.hashd_seq += 1;

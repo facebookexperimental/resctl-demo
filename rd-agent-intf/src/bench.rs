@@ -19,6 +19,7 @@ const BENCH_DOC: &str = "\
 //  hashd[].mem_size: Memory size base
 //  hashd[].mem_frac: Memory size is mem_size * mem_frac, tune this if needed
 //  hashd[].chunk_pages: Memory access chunk size in pages
+//  hashd[].fake_cpu_load: Bench was run with --bench-fake-cpu-load
 //  iocost.devnr: Storage device devnr
 //  iocost.model: Model parameters
 //  iocost.qos: QoS parameters
@@ -33,6 +34,7 @@ pub struct HashdKnobs {
     pub mem_size: u64,
     pub mem_frac: f64,
     pub chunk_pages: usize,
+    pub fake_cpu_load: bool,
 }
 
 impl HashdKnobs {
