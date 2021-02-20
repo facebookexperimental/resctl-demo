@@ -2,6 +2,9 @@
 use super::*;
 use std::collections::BTreeMap;
 
+const MEMORY_HOG_DFL_LOOPS: u32 = 5;
+const MEMORY_HOG_DFL_LOAD: f64 = 1.0;
+
 #[derive(Clone, Copy, Debug)]
 enum MemoryHogSpeed {
     Hog10Pct,
@@ -9,6 +12,29 @@ enum MemoryHogSpeed {
     Hog50Pct,
     Hog1x,
     Hog2x,
+}
+
+impl MemoryHogSpeed {
+    fn from_str(input: &str) -> Result<Self> {
+        Ok(match input {
+            "10%" => MemoryHogSpeed::Hog10Pct,
+            "25%" => MemoryHogSpeed::Hog25Pct,
+            "50%" => MemoryHogSpeed::Hog50Pct,
+            "1x" => MemoryHogSpeed::Hog1x,
+            "2x" => MemoryHogSpeed::Hog2x,
+            _ => bail!("\"speed\" should be one of 10%, 25%, 50%, 1x or 2x"),
+        })
+    }
+
+    fn to_sideload_name(&self) -> &'static str {
+        match self {
+            MemoryHogSpeed::Hog10Pct => "memory-growth-10pct",
+            MemoryHogSpeed::Hog25Pct => "memory-growth-25pct",
+            MemoryHogSpeed::Hog50Pct => "memory-growth-50pct",
+            MemoryHogSpeed::Hog1x => "memory-growth-1x",
+            MemoryHogSpeed::Hog2x => "memory-growth-2x",
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -29,23 +55,14 @@ impl Scenario {
     fn parse(mut props: BTreeMap<String, String>) -> Result<Self> {
         match props.remove("scenario").as_deref() {
             Some("memory-hog") => {
-                let mut loops = 3;
-                let mut load = 1.0;
+                let mut loops = MEMORY_HOG_DFL_LOOPS;
+                let mut load = MEMORY_HOG_DFL_LOAD;
                 let mut speed = MemoryHogSpeed::Hog2x;
                 for (k, v) in props.iter() {
                     match k.as_str() {
                         "loops" => loops = v.parse::<u32>()?,
                         "load" => load = parse_frac(v)?,
-                        "speed" => {
-                            speed = match v.as_str() {
-                                "10%" => MemoryHogSpeed::Hog10Pct,
-                                "25%" => MemoryHogSpeed::Hog25Pct,
-                                "50%" => MemoryHogSpeed::Hog50Pct,
-                                "1x" => MemoryHogSpeed::Hog1x,
-                                "2x" => MemoryHogSpeed::Hog2x,
-                                _ => bail!("\"speed\" should be one of 10%, 25%, 50%, 1x or 2x"),
-                            };
-                        }
+                        "speed" => speed = MemoryHogSpeed::from_str(&v)?,
                         k => bail!("unknown memory-hog property {:?}", k),
                     }
                     if loops == 0 {
@@ -73,8 +90,11 @@ impl Scenario {
         load: f64,
         speed: MemoryHogSpeed,
     ) -> Result<()> {
-        for idx in 0..loops {
+        for _idx in 0..loops {
             self.warm_up_hashd(rctx, load)?;
+            rctx.start_sysload("memory-hog", speed.to_sideload_name())?;
+            rctx.wait_all_sysloads(&["memory-hog"], Some(Duration::from_secs(600)), None)?;
+            rctx.stop_sysload("memory-hog");
         }
         Ok(())
     }

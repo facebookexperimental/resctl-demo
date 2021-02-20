@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 use std::fmt::Write;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use super::job::{Job, JobData};
 use super::progress::BenchProgress;
