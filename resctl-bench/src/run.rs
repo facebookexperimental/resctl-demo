@@ -853,163 +853,6 @@ impl<'a> RunCtx<'a> {
         });
     }
 
-    fn wait_workloads_dfl_status(
-        _af: &AgentFiles,
-        loads: &[f64],
-        nr_sys_running: usize,
-        nr_side_running: usize,
-        remaining: Option<f64>,
-    ) -> Result<String> {
-        let mut status = String::new();
-        match (loads[0] > 0.0, loads[1] > 0.0) {
-            (true, false) => write!(status, "load: {:5.1}% ", loads[0]).unwrap(),
-            (false, true) => write!(status, "load: {:5.1}% ", loads[1]).unwrap(),
-            (true, true) => write!(status, "load: {:5.1}%/{:5.1}% ", loads[0], loads[1]).unwrap(),
-            _ => {}
-        }
-        if nr_sys_running > 0 {
-            write!(status, "sysloads: {} ", nr_sys_running).unwrap();
-        }
-        if nr_side_running > 0 {
-            write!(status, "sideloads: {} ", nr_side_running,).unwrap();
-        }
-        if let Some(rem) = remaining.as_ref() {
-            write!(status, "({} remaining)", format_duration(*rem)).unwrap();
-        }
-        Ok(status)
-    }
-
-    fn wait_workloads(
-        &self,
-        hashd: &[bool],
-        sysloads: &[&str],
-        sideloads: &[&str],
-        timeout: Option<Duration>,
-        status_fn: Option<
-            Box<dyn FnMut(&AgentFiles, &[f64], usize, usize, Option<f64>) -> Result<String>>,
-        >,
-        wait_all_sys_side: bool,
-    ) -> Result<bool> {
-        let started_at = SystemTime::now();
-        let mut progress = BenchProgress::new();
-
-        if hashd[0] {
-            progress = progress.monitor_systemd_unit(HASHD_A_SVC_NAME);
-        }
-        if hashd[1] {
-            progress = progress.monitor_systemd_unit(HASHD_B_SVC_NAME);
-        }
-        for name in sysloads.iter() {
-            progress =
-                progress.monitor_systemd_unit(&format!("{}{}.service", SYSLOAD_SVC_PREFIX, name));
-        }
-        for name in sideloads.iter() {
-            progress =
-                progress.monitor_systemd_unit(&format!("{}{}.service", SIDELOAD_SVC_PREFIX, name));
-        }
-
-        let mut status_fn = match status_fn {
-            Some(v) => v,
-            None => Box::new(Self::wait_workloads_dfl_status),
-        };
-
-        let mut result = Ok(());
-        let mut nr_sys_running = sysloads.len();
-        let mut nr_side_running = sideloads.len();
-
-        self.wait_cond(
-            |af, progress| {
-                let rep = &af.report.data;
-                let bench = &af.bench.data;
-
-                if (hashd[0] && rep.hashd[0].svc.state != SvcStateReport::Running)
-                    || (hashd[1] && rep.hashd[1].svc.state != SvcStateReport::Running)
-                {
-                    result = Err(anyhow!("hashd failed while waiting"));
-                    return true;
-                }
-
-                nr_sys_running = 0;
-                for name in sysloads.iter() {
-                    match rep.sysloads.get(&name.to_string()) {
-                        Some(srep) if srep.svc.state == SvcStateReport::Running => {
-                            nr_sys_running += 1
-                        }
-                        _ => {}
-                    }
-                }
-
-                nr_side_running = 0;
-                for name in sideloads.iter() {
-                    match rep.sideloads.get(&name.to_string()) {
-                        Some(srep) if srep.svc.state == SvcStateReport::Running => {
-                            nr_side_running += 1
-                        }
-                        _ => {}
-                    }
-                }
-
-                match wait_all_sys_side {
-                    true if nr_sys_running + nr_side_running == 0 => return true,
-                    false
-                        if nr_sys_running + nr_side_running != sysloads.len() + sideloads.len() =>
-                    {
-                        return true
-                    }
-                    _ => {}
-                }
-
-                let loads = [
-                    rep.hashd[0].rps / bench.hashd.rps_max as f64 * TO_PCT,
-                    rep.hashd[1].rps / bench.hashd.rps_max as f64 * TO_PCT,
-                ];
-                let remaining = match timeout.as_ref() {
-                    Some(timeout) => {
-                        let passed = SystemTime::now().duration_since(started_at).unwrap();
-                        if passed >= *timeout {
-                            return true;
-                        }
-                        Some((*timeout - passed).as_secs_f64())
-                    }
-                    None => None,
-                };
-
-                match status_fn(af, &loads, nr_sys_running, nr_side_running, remaining) {
-                    Ok(status) => {
-                        progress.set_status(&status);
-                        false
-                    }
-                    Err(e) => {
-                        result = Err(e);
-                        true
-                    }
-                }
-            },
-            timeout,
-            Some(progress),
-        )?;
-
-        if result.is_err() {
-            return Err(result.err().unwrap());
-        }
-
-        Ok(match wait_all_sys_side {
-            true => nr_sys_running + nr_side_running == 0,
-            false => nr_sys_running + nr_side_running != sysloads.len() + sideloads.len(),
-        })
-    }
-
-    pub fn wait_all_sysloads(
-        &self,
-        sysloads: &[&str],
-        timeout: Option<Duration>,
-        status_fn: Option<
-            Box<dyn FnMut(&AgentFiles, &[f64], usize, usize, Option<f64>) -> Result<String>>,
-        >,
-    ) -> Result<bool> {
-        self.wait_workloads(&[true, false], sysloads, &[], timeout, status_fn, true)
-    }
-
     pub fn prev_job_data(&self) -> Option<JobData> {
         let jobs = self.jobs.lock().unwrap();
         let prev_uid = *self.prev_uid.iter().last().unwrap();
@@ -1095,5 +938,219 @@ impl<'a> RunCtx<'a> {
 impl Drop for RunCtx<'_> {
     fn drop(&mut self) {
         self.stop_agent();
+    }
+}
+
+type WorkloadMonStatusFn = dyn FnMut(&WorkloadMon, &AgentFiles) -> Result<(bool, String)>;
+
+#[derive(Default)]
+pub struct WorkloadMon {
+    hashd: [bool; 2],
+    sysloads: Vec<String>,
+    sideloads: Vec<String>,
+    timeout: Option<Duration>,
+    exit_on_any: bool,
+    status_fn: Option<Box<WorkloadMonStatusFn>>,
+
+    pub hashd_loads: [f64; 2],
+    pub nr_sys_total: usize,
+    pub nr_sys_running: usize,
+    pub nr_side_total: usize,
+    pub nr_side_running: usize,
+    pub time_remaining: Option<Duration>,
+}
+
+impl WorkloadMon {
+    pub fn hashd(mut self) -> Self {
+        self.hashd[0] = true;
+        self
+    }
+
+    pub fn sysload(mut self, name: &str) -> Self {
+        self.sysloads.push(name.to_owned());
+        self
+    }
+
+    pub fn sideload(mut self, name: &str) -> Self {
+        self.sysloads.push(name.to_owned());
+        self
+    }
+
+    pub fn timeout(mut self, dur: Duration) -> Self {
+        self.timeout = Some(dur);
+        self
+    }
+
+    pub fn exit_on_any(mut self) -> Self {
+        self.exit_on_any = true;
+        self
+    }
+
+    pub fn status_fn(mut self, status_fn: Box<WorkloadMonStatusFn>) -> Self {
+        self.status_fn = Some(status_fn);
+        self
+    }
+
+    fn dfl_status(mon: &WorkloadMon, _af: &AgentFiles) -> Result<(bool, String)> {
+        let mut status = String::new();
+        match (mon.hashd[0], mon.hashd[1]) {
+            (true, false) => write!(status, "load: {:5.1}% ", mon.hashd_loads[0]).unwrap(),
+            (false, true) => write!(status, "load: {:5.1}% ", mon.hashd_loads[1]).unwrap(),
+            (true, true) => write!(
+                status,
+                "load: {:5.1}%/{:5.1}% ",
+                mon.hashd_loads[0], mon.hashd_loads[1]
+            )
+            .unwrap(),
+            _ => {}
+        }
+        if mon.nr_sys_total > 0 {
+            write!(
+                status,
+                "sysloads: {}/{} ",
+                mon.nr_sys_running, mon.nr_sys_total
+            )
+            .unwrap();
+        }
+        if mon.nr_side_total > 0 {
+            write!(
+                status,
+                "sideloads: {}/{} ",
+                mon.nr_side_running, mon.nr_side_total
+            )
+            .unwrap();
+        }
+        if let Some(rem) = mon.time_remaining.as_ref() {
+            write!(status, "({} remaining)", format_duration(rem.as_secs_f64())).unwrap();
+        }
+        Ok((false, status))
+    }
+
+    pub fn monitor(&mut self, rctx: &RunCtx) -> Result<bool> {
+        let started_at = SystemTime::now();
+        let mut progress = BenchProgress::new();
+
+        if self.hashd[0] {
+            progress = progress.monitor_systemd_unit(HASHD_A_SVC_NAME);
+        }
+        if self.hashd[1] {
+            progress = progress.monitor_systemd_unit(HASHD_B_SVC_NAME);
+        }
+        for name in self.sysloads.iter() {
+            progress =
+                progress.monitor_systemd_unit(&format!("{}{}.service", SYSLOAD_SVC_PREFIX, name));
+        }
+        for name in self.sideloads.iter() {
+            progress =
+                progress.monitor_systemd_unit(&format!("{}{}.service", SIDELOAD_SVC_PREFIX, name));
+        }
+
+        let restore_status_fn;
+        let mut status_fn = match self.status_fn.take() {
+            Some(v) => {
+                restore_status_fn = true;
+                v
+            }
+            None => {
+                restore_status_fn = false;
+                Box::new(Self::dfl_status)
+            }
+        };
+
+        let mut result = Ok(());
+        self.nr_sys_total = self.sysloads.len();
+        self.nr_side_total = self.sideloads.len();
+        self.nr_sys_running = self.nr_sys_total;
+        self.nr_side_running = self.nr_side_total;
+        let timeout = self.timeout.clone();
+
+        let wait_result = rctx.wait_cond(
+            |af, progress| {
+                let rep = &af.report.data;
+                let bench = &af.bench.data;
+
+                if (self.hashd[0] && rep.hashd[0].svc.state != SvcStateReport::Running)
+                    || (self.hashd[1] && rep.hashd[1].svc.state != SvcStateReport::Running)
+                {
+                    result = Err(anyhow!("hashd failed while waiting"));
+                    return true;
+                }
+
+                self.nr_sys_running = 0;
+                for name in self.sysloads.iter() {
+                    match rep.sysloads.get(&name.to_string()) {
+                        Some(srep) if srep.svc.state == SvcStateReport::Running => {
+                            self.nr_sys_running += 1
+                        }
+                        _ => {}
+                    }
+                }
+
+                self.nr_side_running = 0;
+                for name in self.sideloads.iter() {
+                    match rep.sideloads.get(&name.to_string()) {
+                        Some(srep) if srep.svc.state == SvcStateReport::Running => {
+                            self.nr_side_running += 1
+                        }
+                        _ => {}
+                    }
+                }
+
+                match self.exit_on_any {
+                    false if self.nr_sys_running == 0 && self.nr_side_running == 0 => return true,
+                    true if self.nr_sys_running != self.nr_sys_total
+                        || self.nr_side_running != self.nr_side_total =>
+                    {
+                        return true
+                    }
+                    _ => {}
+                }
+
+                self.hashd_loads = [
+                    rep.hashd[0].rps / bench.hashd.rps_max as f64 * TO_PCT,
+                    rep.hashd[1].rps / bench.hashd.rps_max as f64 * TO_PCT,
+                ];
+                self.time_remaining = match self.timeout.as_ref() {
+                    Some(timeout) => {
+                        let passed = SystemTime::now().duration_since(started_at).unwrap();
+                        if passed >= *timeout {
+                            return true;
+                        }
+                        Some(*timeout - passed)
+                    }
+                    None => None,
+                };
+
+                match status_fn(self, af) {
+                    Ok((done, status)) => {
+                        progress.set_status(&status);
+                        done
+                    }
+                    Err(e) => {
+                        result = Err(e);
+                        true
+                    }
+                }
+            },
+            timeout,
+            Some(progress),
+        );
+
+        if restore_status_fn {
+            self.status_fn = Some(status_fn);
+        }
+
+        if result.is_err() {
+            return Err(result.err().unwrap());
+        }
+        wait_result?;
+
+        Ok(match self.exit_on_any {
+            false => self.nr_sys_running == 0 && self.nr_side_running == 0,
+            true => {
+                self.nr_sys_running != self.nr_sys_total
+                    || self.nr_side_running != self.nr_side_total
+            }
+        })
     }
 }

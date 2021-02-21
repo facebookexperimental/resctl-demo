@@ -92,8 +92,13 @@ impl Scenario {
     ) -> Result<()> {
         for _idx in 0..loops {
             self.warm_up_hashd(rctx, load)?;
+
             rctx.start_sysload("memory-hog", speed.to_sideload_name())?;
-            rctx.wait_all_sysloads(&["memory-hog"], Some(Duration::from_secs(600)), None)?;
+            WorkloadMon::default()
+                .hashd()
+                .sysload("memory-hog")
+                .timeout(Duration::from_secs(600))
+                .monitor(rctx)?;
             rctx.stop_sysload("memory-hog");
         }
         Ok(())

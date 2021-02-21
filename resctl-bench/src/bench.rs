@@ -12,7 +12,7 @@ use std::time::Duration;
 
 use super::job::{Job, JobData};
 use super::progress::BenchProgress;
-use super::run::RunCtx;
+use super::run::{RunCtx, WorkloadMon};
 use super::study::*;
 use rd_agent_intf::SysReq;
 use resctl_bench_intf::{JobProps, JobSpec};
