@@ -189,6 +189,7 @@ pub struct UsageReport {
     pub cpu_usage: f64,
     pub mem_bytes: u64,
     pub swap_bytes: u64,
+    pub swap_free: u64,
     pub io_rbps: u64,
     pub io_wbps: u64,
     pub io_util: f64,
@@ -202,6 +203,7 @@ impl ops::AddAssign<&UsageReport> for UsageReport {
         self.cpu_usage += rhs.cpu_usage;
         self.mem_bytes += rhs.mem_bytes;
         self.swap_bytes += rhs.swap_bytes;
+        self.swap_free += rhs.swap_free;
         self.io_rbps += rhs.io_rbps;
         self.io_wbps += rhs.io_wbps;
         self.io_util += rhs.io_util;
@@ -220,6 +222,7 @@ impl<T: Into<f64>> ops::DivAssign<T> for UsageReport {
         self.cpu_usage /= div;
         self.mem_bytes = (self.mem_bytes as f64 / div).round() as u64;
         self.swap_bytes = (self.swap_bytes as f64 / div).round() as u64;
+        self.swap_free = (self.swap_free as f64 / div).round() as u64;
         self.io_rbps = (self.io_rbps as f64 / div).round() as u64;
         self.io_wbps = (self.io_wbps as f64 / div).round() as u64;
         self.io_util /= div;

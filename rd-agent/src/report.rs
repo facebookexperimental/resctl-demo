@@ -32,6 +32,7 @@ struct Usage {
     cpu_busy: f64,
     mem_bytes: u64,
     swap_bytes: u64,
+    swap_free: u64,
     io_rbytes: u64,
     io_wbytes: u64,
     io_usage: u64,
@@ -109,6 +110,7 @@ fn read_system_usage(devnr: (u32, u32)) -> Result<(Usage, f64)> {
             cpu_busy,
             mem_bytes,
             swap_bytes,
+            swap_free: mstat.swap_free,
             io_rbytes,
             io_wbytes,
             io_usage,
@@ -118,6 +120,34 @@ fn read_system_usage(devnr: (u32, u32)) -> Result<(Usage, f64)> {
         },
         cpu_total,
     ))
+}
+
+fn read_swap_free(cgrp: &str) -> Result<u64> {
+    // Walk up the hierarchy and take the min. We should expose this in
+    // memory.stat from kernel side eventually.
+    let mut free = procfs::Meminfo::new()?.swap_free;
+    let mut path = std::path::PathBuf::from(cgrp);
+    while path != std::path::Path::new("/sys/fs/cgroup") {
+        path.push("memory.swap.max");
+        let max = match read_one_line(path.to_str().unwrap())
+            .unwrap_or("max".to_owned())
+            .as_str()
+        {
+            "max" => std::u64::MAX,
+            line => scan_fmt!(line, "{}", u64)?,
+        };
+        path.pop();
+        path.push("memory.swap.current");
+        let cur = scan_fmt!(
+            &read_one_line(path.to_str().unwrap()).unwrap_or("0".to_owned()),
+            "{}",
+            u64
+        )?;
+        free = free.min(max.saturating_sub(cur));
+        path.pop();
+        path.pop();
+    }
+    Ok(free)
 }
 
 fn read_cgroup_usage(cgrp: &str, devnr: (u32, u32)) -> Usage {
@@ -139,6 +169,10 @@ fn read_cgroup_usage(cgrp: &str, devnr: (u32, u32)) -> Usage {
         if let Ok(v) = scan_fmt!(&line, "{}", u64) {
             usage.swap_bytes = v;
         }
+    }
+
+    if let Ok(v) = read_swap_free(cgrp) {
+        usage.swap_free = v;
     }
 
     if let Ok(is) = read_cgroup_nested_keyed_file(&(cgrp.to_string() + "/io.stat")) {
@@ -246,6 +280,7 @@ impl UsageTracker {
 
             rep.mem_bytes = cur.mem_bytes;
             rep.swap_bytes = cur.swap_bytes;
+            rep.swap_free = cur.swap_free;
 
             if dur > 0.0 {
                 if cur.io_rbytes >= last.io_rbytes {
