@@ -14,7 +14,7 @@ use super::job::{Job, JobData};
 use super::progress::BenchProgress;
 use super::run::{RunCtx, WorkloadMon};
 use super::study::*;
-use rd_agent_intf::SysReq;
+use rd_agent_intf::{AgentFiles, Slice, SysReq, ROOT_SLICE};
 use resctl_bench_intf::{JobProps, JobSpec};
 
 use util::*;

@@ -83,6 +83,32 @@ impl Scenario {
         rctx.stabilize_hashd(Some(load))
     }
 
+    fn ws_status(mon: &WorkloadMon, af: &AgentFiles) -> Result<(bool, String)> {
+        let mut status = String::new();
+        let rep = &af.report.data;
+        write!(
+            status,
+            "load:{:>5.1}% swap_free:{:>5}",
+            mon.hashd_loads[0], format_size(rep.usages[ROOT_SLICE].swap_free)
+        )
+        .unwrap();
+
+        let work = &rep.usages[&Slice::Work.name().to_owned()];
+        let sys = &rep.usages[&Slice::Sys.name().to_owned()];
+        write!(
+            status,
+            " w/s mem:{:>5}/{:>5} swap:{:>5}/{:>5} memp:{:>4}%/{:>4}%",
+            format_size(work.mem_bytes),
+            format_size(sys.mem_bytes),
+            format_size(work.swap_bytes),
+            format_size(sys.swap_bytes),
+            format_pct(work.mem_pressures.1),
+            format_pct(sys.mem_pressures.1)
+        )
+        .unwrap();
+        Ok((false, status))
+    }
+
     fn do_memory_hog(
         &mut self,
         rctx: &mut RunCtx,
@@ -98,6 +124,7 @@ impl Scenario {
                 .hashd()
                 .sysload("memory-hog")
                 .timeout(Duration::from_secs(600))
+                .status_fn(Self::ws_status)
                 .monitor(rctx)?;
             rctx.stop_sysload("memory-hog");
         }

@@ -780,12 +780,21 @@ impl<'a> RunCtx<'a> {
     }
 
     pub fn stabilize_hashd(&self, target_load: Option<f64>) -> Result<()> {
-        self.stabilize_hashd_with_params(
-            target_load.map(|v| (v, 0.025)),
-            Some((0.0025, 0.025)),
-            Some((0.0025, 0.025)),
-            Some(Duration::from_secs(300)),
-        )
+        if self.test {
+            self.stabilize_hashd_with_params(
+                target_load.map(|v| (v, 1.0)),
+                Some((1.0, 1.0)),
+                Some((1.0, 1.0)),
+                Some(Duration::from_secs(30)),
+            )
+        } else {
+            self.stabilize_hashd_with_params(
+                target_load.map(|v| (v, 0.025)),
+                Some((0.0025, 0.025)),
+                Some((0.0025, 0.025)),
+                Some(Duration::from_secs(300)),
+            )
+        }
     }
 
     pub fn stop_hashd(&self) {
@@ -941,8 +950,6 @@ impl Drop for RunCtx<'_> {
     }
 }
 
-type WorkloadMonStatusFn = dyn FnMut(&WorkloadMon, &AgentFiles) -> Result<(bool, String)>;
-
 #[derive(Default)]
 pub struct WorkloadMon {
     hashd: [bool; 2],
@@ -950,7 +957,7 @@ pub struct WorkloadMon {
     sideloads: Vec<String>,
     timeout: Option<Duration>,
     exit_on_any: bool,
-    status_fn: Option<Box<WorkloadMonStatusFn>>,
+    status_fn: Option<Box<dyn FnMut(&WorkloadMon, &AgentFiles) -> Result<(bool, String)>>>,
 
     pub hashd_loads: [f64; 2],
     pub nr_sys_total: usize,
@@ -986,8 +993,11 @@ impl WorkloadMon {
         self
     }
 
-    pub fn status_fn(mut self, status_fn: Box<WorkloadMonStatusFn>) -> Self {
-        self.status_fn = Some(status_fn);
+    pub fn status_fn<F>(mut self, status_fn: F) -> Self
+    where
+        F: FnMut(&WorkloadMon, &AgentFiles) -> Result<(bool, String)> + 'static,
+    {
+        self.status_fn = Some(Box::new(status_fn));
         self
     }
 
