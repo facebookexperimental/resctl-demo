@@ -379,6 +379,21 @@ impl SideRunner {
         Ok(())
     }
 
+    pub fn all_svcs(&self) -> HashSet<(String, String)> {
+        let mut svcs = HashSet::<(String, String)>::new();
+        for (name, _) in self.sysloads.iter() {
+            let name = sysload_svc_name(name);
+            let cgrp = format!("{}/{}", Slice::Sys.cgrp(), &name);
+            svcs.insert((name, cgrp));
+        }
+        for (name, _) in self.sideloads.iter() {
+            let name = sideload_svc_name(name);
+            let cgrp = format!("{}/{}", Slice::Side.cgrp(), &name);
+            svcs.insert((name, cgrp));
+        }
+        svcs
+    }
+
     pub fn report_sysloads(&mut self) -> Result<BTreeMap<String, SysloadReport>> {
         let mut rep = BTreeMap::new();
         for (name, sysload) in self.sysloads.iter_mut() {

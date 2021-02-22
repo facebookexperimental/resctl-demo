@@ -218,7 +218,7 @@ struct ClampedNormal {
 
 impl ClampedNormal {
     fn new(mean: f64, stdev: f64, left: f64, right: f64) -> Self {
-        assert!(left <= right);
+        assert!(left <= right, "ClampedNormal left={} right={}", left, right);
         Self {
             normal: Normal::new(mean, stdev).unwrap(),
             uniform: Uniform::new_inclusive(left, right),
@@ -960,7 +960,7 @@ impl Drop for Dispatch {
     fn drop(&mut self) {
         drop(self.cmd_tx.take());
         debug!("Dispatch::drop: joining dispatch thread");
-        self.dispatch_jh.take().unwrap().join().unwrap();
+        let _ = self.dispatch_jh.take().unwrap().join();
         debug!("Dispatch::drop: done");
     }
 }

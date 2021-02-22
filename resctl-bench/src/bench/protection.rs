@@ -89,7 +89,8 @@ impl Scenario {
         write!(
             status,
             "load:{:>5.1}% swap_free:{:>5}",
-            mon.hashd_loads[0], format_size(rep.usages[ROOT_SLICE].swap_free)
+            mon.hashd_loads[0],
+            format_size(rep.usages[ROOT_SLICE].swap_free)
         )
         .unwrap();
 

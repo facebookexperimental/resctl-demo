@@ -729,7 +729,10 @@ impl<'a> RunCtx<'a> {
 
                 let load = rep.hashd[0].rps / bench.hashd.rps_max as f64;
                 let rps_slopes = rps_sloper.push(rep.hashd[0].rps);
-                let mem_slopes = mem_sloper.push(rep.usages[HASHD_A_SVC_NAME].mem_bytes as f64);
+                let mem_slopes = mem_sloper.push(match rep.usages.get(HASHD_A_SVC_NAME) {
+                    Some (usage) => usage.mem_bytes as f64,
+                    None => 0.0,
+                });
 
                 if rps_slopes.is_none() || mem_slopes.is_none() {
                     progress.set_status("Stabilizing...");

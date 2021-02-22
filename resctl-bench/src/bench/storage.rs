@@ -123,8 +123,12 @@ impl StorageJob {
     }
 
     fn hashd_mem_usage_rep(rep: &rd_agent_intf::Report) -> usize {
-        rep.usages[HASHD_BENCH_SVC_NAME].mem_bytes as usize
+        match rep.usages.get(HASHD_BENCH_SVC_NAME) {
+            Some(usage) => usage.mem_bytes as usize,
+            None => 0,
+        }
     }
+
     fn hashd_mem_usage_rctx(rctx: &RunCtx) -> usize {
         rctx.access_agent_files(|af| Self::hashd_mem_usage_rep(&af.report.data))
     }

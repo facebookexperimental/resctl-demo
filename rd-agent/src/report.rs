@@ -1,5 +1,5 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, bail, Result};
 use chrono::prelude::*;
 use crossbeam::channel::{self, select, Receiver, Sender};
 use enum_iterator::IntoEnumIterator;
@@ -23,8 +23,7 @@ use super::cmd::Runner;
 use super::Config;
 use rd_agent_intf::{
     BenchHashdReport, BenchIoCostReport, HashdReport, IoCostReport, IoLatReport, Report,
-    ResCtlReport, Slice, UsageReport, HASHD_A_SVC_NAME, HASHD_BENCH_SVC_NAME, HASHD_B_SVC_NAME,
-    IOCOST_BENCH_SVC_NAME, ROOT_SLICE,
+    ResCtlReport, Slice, UsageReport, ROOT_SLICE,
 };
 
 #[derive(Debug, Default)]
@@ -123,6 +122,9 @@ fn read_system_usage(devnr: (u32, u32)) -> Result<(Usage, f64)> {
 }
 
 fn read_swap_free(cgrp: &str) -> Result<u64> {
+    if !cgrp.starts_with("/sys/fs/cgroup/") {
+        bail!("cgroup path doesn't start with /sys/fs/cgroup");
+    }
     // Walk up the hierarchy and take the min. We should expose this in
     // memory.stat from kernel side eventually.
     let mut free = procfs::Meminfo::new()?.swap_free;
@@ -207,30 +209,22 @@ pub struct UsageTracker {
     at: Instant,
     cpu_total: f64,
     usages: HashMap<String, Usage>,
+    runner: Runner,
 }
 
 impl UsageTracker {
-    const USAGE_SVCS: [&'static str; 4] = [
-        IOCOST_BENCH_SVC_NAME,
-        HASHD_BENCH_SVC_NAME,
-        HASHD_A_SVC_NAME,
-        HASHD_B_SVC_NAME,
-    ];
-
-    fn new(devnr: (u32, u32)) -> Self {
+    fn new(devnr: (u32, u32), runner: Runner) -> Self {
         let mut us = Self {
             devnr,
             at: Instant::now(),
             cpu_total: 0.0,
             usages: HashMap::new(),
+            runner,
         };
 
         us.usages.insert(ROOT_SLICE.into(), Default::default());
         for slice in Slice::into_enum_iter() {
             us.usages.insert(slice.name().into(), Default::default());
-        }
-        for svc in Self::USAGE_SVCS.iter() {
-            us.usages.insert((*svc).into(), Default::default());
         }
 
         if let Err(e) = us.update() {
@@ -250,9 +244,10 @@ impl UsageTracker {
                 read_cgroup_usage(slice.cgrp(), self.devnr),
             );
         }
-        for hashd in Self::USAGE_SVCS.iter() {
-            let cgrp = format!("{}/{}", Slice::Work.cgrp(), hashd);
-            usages.insert(hashd.to_string(), read_cgroup_usage(&cgrp, self.devnr));
+
+        let all_svcs = self.runner.data.lock().unwrap().all_svcs();
+        for (svc, cgrp) in all_svcs.into_iter() {
+            usages.insert(svc, read_cgroup_usage(&cgrp, self.devnr));
         }
         Ok((usages, cpu_total))
     }
@@ -263,13 +258,11 @@ impl UsageTracker {
         let now = Instant::now();
         let (usages, cpu_total) = self.read_usages()?;
         let dur = now.duration_since(self.at).as_secs_f64();
+        let zero_usage = Usage::default();
 
-        for (slice, cur) in usages.iter() {
+        for (unit, cur) in usages.iter() {
             let mut rep: UsageReport = Default::default();
-            let last = match self.usages.get(slice) {
-                Some(v) => v,
-                None => return Err(anyhow!("last usage for {} missing", slice)),
-            };
+            let last = self.usages.get(unit).unwrap_or(&zero_usage);
 
             let cpu_total = cpu_total - self.cpu_total;
             if cpu_total > 0.0 {
@@ -316,7 +309,7 @@ impl UsageTracker {
                 );
             }
 
-            reps.insert(slice.into(), rep);
+            reps.insert(unit.into(), rep);
         }
 
         self.at = now;
@@ -379,6 +372,7 @@ impl ReportFile {
         path: &str,
         d_path: &str,
         devnr: (u32, u32),
+        runner: Runner,
     ) -> ReportFile {
         let now = unix_now();
 
@@ -388,7 +382,7 @@ impl ReportFile {
             path: path.into(),
             d_path: d_path.into(),
             next_at: ((now / intv) + 1) * intv,
-            usage_tracker: UsageTracker::new(devnr),
+            usage_tracker: UsageTracker::new(devnr, runner),
             hashd_acc: Default::default(),
             iolat_acc: Default::default(),
             iocost_acc: Default::default(),
@@ -597,33 +591,45 @@ struct ReportWorker {
 impl ReportWorker {
     pub fn new(runner: Runner, term_rx: Receiver<()>) -> Result<Self> {
         let rdata = runner.data.lock().unwrap();
+        // ReportFile init may try to lock runner. Fetch all the needed data
+        // and unlock it.
         let cfg = &rdata.cfg;
+        let scr_devnr = cfg.scr_devnr;
+        let (rep_ret, rep_path, rep_d_path) = (
+            cfg.rep_retention,
+            cfg.report_path.clone(),
+            cfg.report_d_path.clone(),
+        );
+        let (rep_1min_ret, rep_1min_path, rep_1min_d_path) = (
+            cfg.rep_1min_retention,
+            cfg.report_1min_path.clone(),
+            cfg.report_1min_d_path.clone(),
+        );
+        drop(rdata);
 
         Ok(Self {
             term_rx,
             report_file: ReportFile::new(
                 1,
-                cfg.rep_retention,
-                &cfg.report_path,
-                &cfg.report_d_path,
-                cfg.scr_devnr,
+                rep_ret,
+                &rep_path,
+                &rep_d_path,
+                scr_devnr,
+                runner.clone(),
             ),
             report_file_1min: ReportFile::new(
                 60,
-                cfg.rep_1min_retention,
-                &cfg.report_1min_path,
-                &cfg.report_1min_d_path,
-                cfg.scr_devnr,
+                rep_1min_ret,
+                &rep_1min_path,
+                &rep_1min_d_path,
+                scr_devnr,
+                runner.clone(),
             ),
 
             iolat: Default::default(),
             iolat_cum: Default::default(),
-            iocost_devnr: cfg.scr_devnr,
-
-            runner: {
-                drop(rdata);
-                runner
-            },
+            iocost_devnr: scr_devnr,
+            runner,
         })
     }
 
