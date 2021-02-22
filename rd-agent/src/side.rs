@@ -314,6 +314,8 @@ impl SideRunner {
             )?;
             let scr_path = Self::prep_scr_dir(&self.cfg.sys_scr_path, name)?;
             svc.set_slice(Slice::Sys.name()).set_working_dir(&scr_path);
+            // Set default IO weight to enable IO accounting.
+            svc.unit.resctl.io_weight = Some(100);
 
             let mut sysload = Sysload { scr_path, svc };
             if let Err(e) = sysload.svc.start() {
