@@ -274,6 +274,8 @@ impl UsageTracker {
             rep.mem_bytes = cur.mem_bytes;
             rep.swap_bytes = cur.swap_bytes;
             rep.swap_free = cur.swap_free;
+            rep.io_rbytes = cur.io_rbytes;
+            rep.io_wbytes = cur.io_wbytes;
 
             if dur > 0.0 {
                 if cur.io_rbytes >= last.io_rbytes {
