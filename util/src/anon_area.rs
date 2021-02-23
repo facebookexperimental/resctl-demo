@@ -89,6 +89,7 @@ impl AnonArea {
     /// Return a mutable u8 reference to the position specified by the page
     /// index. The anon area is shared and there's no access control.
     pub fn access_page<'a, T>(&'a self, page_idx: usize) -> &'a mut [T] {
+        assert!(page_idx < self.size / *PAGE_SIZE);
         let pages_per_unit = Self::UNIT_SIZE / *PAGE_SIZE;
         let pos = (
             page_idx / pages_per_unit,

@@ -54,19 +54,36 @@ lazy_static::lazy_static! {
         dfl_rep_1m_ret = Args::default().rep_1min_retention as f64 / 3600.0,
     );
     static ref BANDIT_MEM_HOG_USAGE: String = format!(
-        "-w, --wbps=[BPS]             'Write BPS (memory growth rate)'
-         -r, --rbps=[BPS]             'Read BPS (re-read rate)'
+        "-w, --wbps=[BPS]             'Write BPS (memory growth rate, default 0)'
+         -r, --rbps=[BPS]             'Read BPS (re-read rate, default 0)'
+         -R, --readers=[NR]           'Number of readers (default: 1)'
+         -d, --debt=[DUR]             'Maximum debt accumulation (default, 10s)'
          -c, --compressibility=[FRAC] 'Content compressibility (default: 0)
          -r, --report=[PATH]          'Report file path'"
     );
 }
 
-#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BanditMemHogArgs {
     pub wbps: String,
     pub rbps: String,
+    pub max_debt: f64,
+    pub nr_readers: u32,
     pub comp: f64,
     pub report: Option<String>,
+}
+
+impl Default for BanditMemHogArgs {
+    fn default() -> Self {
+        Self {
+            wbps: "0".to_owned(),
+            rbps: "0".to_owned(),
+            max_debt: 10.0,
+            nr_readers: 1,
+            comp: 0.0,
+            report: None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -154,6 +171,14 @@ impl Args {
                 }
                 if let Some(v) = subm.value_of("rbps") {
                     args.rbps = v.to_owned();
+                    updated_base = true;
+                }
+                if let Some(v) = subm.value_of("readers") {
+                    args.nr_readers = v.parse::<u32>().expect("failed to parse \"readers\"");
+                    updated_base = true;
+                }
+                if let Some(v) = subm.value_of("debt") {
+                    args.max_debt = parse_duration(v).expect("failed to parse \"debt\"");
                     updated_base = true;
                 }
                 if let Some(v) = subm.value_of("compressibility") {
