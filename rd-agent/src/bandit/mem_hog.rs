@@ -1,7 +1,7 @@
 use anyhow::{anyhow, Context, Result};
 use log::{debug, info, trace};
 use rd_agent_intf::BanditMemHogArgs;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, RwLock};
 use std::thread::spawn;
 use std::time::{Duration, SystemTime};
@@ -10,6 +10,42 @@ use util::*;
 
 const ANON_SIZE_CLICK: usize = 1 << 30;
 const MAX_WRITE: usize = 1 << 20;
+
+struct Status {
+    debt: AtomicU64,
+    bytes: AtomicU64,
+    loss: AtomicU64,
+    pos: AtomicUsize,
+    sum: AtomicU64,
+}
+
+impl Status {
+    fn new() -> Self {
+        Self {
+            debt: AtomicU64::new(0),
+            loss: AtomicU64::new(0),
+            bytes: AtomicU64::new(0),
+            pos: AtomicUsize::new(0),
+            sum: AtomicU64::new(0),
+        }
+    }
+
+    fn update_debt(&self, dt: &DebtTracker, bps: usize) {
+        self.debt
+            .store((dt.debt * bps as f64).round() as u64, Ordering::Relaxed);
+        self.loss
+            .store((dt.loss * bps as f64).round() as u64, Ordering::Relaxed);
+    }
+
+    fn update_bytes(&self, bytes: u64, pos: usize) {
+        self.bytes.store(bytes, Ordering::Relaxed);
+        self.pos.store(pos, Ordering::Relaxed);
+    }
+
+    fn update_sum(&self, sum: u64) {
+        self.sum.store(sum, Ordering::Relaxed);
+    }
+}
 
 struct State {
     aa: AnonArea,
@@ -91,11 +127,13 @@ fn debt_bps_to_nr_pages_or_sleep(debt: f64, bps: usize) -> Option<usize> {
     }
 }
 
-fn writer(wbps: usize, max_debt: f64, state: Arc<RwLock<State>>) {
+fn writer(wbps: usize, max_debt: f64, state: Arc<RwLock<State>>, status: Arc<Status>) {
     let mut debt_tracker = DebtTracker::new(max_debt);
+    let mut total_bytes: u64 = 0;
 
     while !prog_exiting() {
         let debt = debt_tracker.update();
+        status.update_debt(&debt_tracker, wbps);
         let nr_pages = match debt_bps_to_nr_pages_or_sleep(debt, wbps) {
             Some(v) => v,
             None => continue,
@@ -104,6 +142,7 @@ fn writer(wbps: usize, max_debt: f64, state: Arc<RwLock<State>>) {
         let mut st = state.read().unwrap();
         let start_page = st.wpage_pos.load(Ordering::Relaxed);
         let end_page = start_page + nr_pages;
+
         if st.aa.size() < end_page * *PAGE_SIZE {
             drop(st);
             let mut wst = state.write().unwrap();
@@ -126,16 +165,26 @@ fn writer(wbps: usize, max_debt: f64, state: Arc<RwLock<State>>) {
 
         st.wpage_pos.store(end_page, Ordering::Relaxed);
         debt_tracker.pay((nr_pages * *PAGE_SIZE) as f64 / wbps as f64);
+        total_bytes += (nr_pages * *PAGE_SIZE) as u64;
+        status.update_bytes(total_bytes, end_page * *PAGE_SIZE);
     }
 }
 
-fn reader(range: (f64, f64), rbps: usize, max_debt: f64, state: Arc<RwLock<State>>) {
+fn reader(
+    range: (f64, f64),
+    rbps: usize,
+    max_debt: f64,
+    state: Arc<RwLock<State>>,
+    status: Arc<Status>,
+) {
     let mut debt_tracker = DebtTracker::new(max_debt);
+    let mut total_bytes: u64 = 0;
     let mut page_pos: usize = 0;
     let mut sum: u64 = 0;
 
     while !prog_exiting() {
         let debt = debt_tracker.update();
+        status.update_debt(&debt_tracker, rbps);
         let nr_pages = match debt_bps_to_nr_pages_or_sleep(debt, rbps) {
             Some(v) => v,
             None => continue,
@@ -166,6 +215,9 @@ fn reader(range: (f64, f64), rbps: usize, max_debt: f64, state: Arc<RwLock<State
         }
 
         debt_tracker.pay((nr_pages * *PAGE_SIZE) as f64 / rbps as f64);
+        total_bytes += (nr_pages * *PAGE_SIZE) as u64;
+        status.update_bytes(total_bytes, page_pos * *PAGE_SIZE);
+        status.update_sum(sum);
     }
 }
 
@@ -186,20 +238,78 @@ pub fn bandit_mem_hog(args: &BanditMemHogArgs) {
     );
 
     let mut jhs = vec![];
+    let wstatus = Arc::new(Status::new());
     if wbps > 0 {
         let max_debt = args.max_debt;
         let state_copy = state.clone();
-        jhs.push(spawn(move || writer(wbps, max_debt, state_copy)));
+        let wstatus_copy = wstatus.clone();
+        jhs.push(spawn(move || {
+            writer(wbps, max_debt, state_copy, wstatus_copy)
+        }));
     }
+    let mut rstatus = vec![];
     let rbps = (rbps as f64 / args.nr_readers as f64).ceil() as usize;
     if rbps > 0 {
         for i in 0..args.nr_readers {
+            let rst = Arc::new(Status::new());
+            rstatus.push(rst.clone());
+
             let section = 1.0 / args.nr_readers as f64;
             let range = (i as f64 * section, (i + 1) as f64 * section);
             let max_debt = args.max_debt;
             let state_copy = state.clone();
-            jhs.push(spawn(move || reader(range, rbps, max_debt, state_copy)));
+            jhs.push(spawn(move || {
+                reader(range, rbps, max_debt, state_copy, rst)
+            }));
         }
+    }
+
+    let mut last_at = SystemTime::now();
+    let (mut last_wbytes, mut last_rbytes): (u64, u64) = (0, 0);
+    let (mut last_wloss, mut last_rloss): (u64, u64) = (0, 0);
+    while wait_prog_state(Duration::from_secs(1)) != ProgState::Exiting {
+        let now = SystemTime::now();
+        let dur = match now.duration_since(last_at) {
+            Ok(dur) => dur.as_secs_f64(),
+            Err(_) => 0.0,
+        };
+        last_at = now;
+        if dur <= 0.0 {
+            continue;
+        }
+
+        let size = wstatus.pos.load(Ordering::Relaxed);
+        let wbytes = wstatus.bytes.load(Ordering::Relaxed);
+        let wdebt = wstatus.debt.load(Ordering::Relaxed);
+        let wloss = wstatus.loss.load(Ordering::Relaxed);
+
+        let (mut rbytes, mut rloss, mut rdebt) = (0, 0, 0);
+        for rst in rstatus.iter() {
+            rbytes += rst.bytes.load(Ordering::Relaxed);
+            rdebt += rst.debt.load(Ordering::Relaxed);
+            rloss += rst.loss.load(Ordering::Relaxed);
+        }
+
+        let wbps = (wbytes - last_wbytes) as f64 / dur;
+        let rbps = (rbytes - last_rbytes) as f64 / dur;
+        let wlossps = (wloss - last_wloss) as f64 / dur;
+        let rlossps = (rloss - last_rloss) as f64 / dur;
+
+        info!(
+            "size={:>5} wrbps={:>5}/{:>5} wrdebt={:>5}/{:>5} wrloss={:>5}/{:>5}",
+            format_size(size),
+            format_size(wbps),
+            format_size(rbps),
+            format_size(wdebt),
+            format_size(rdebt),
+            format_size(wlossps),
+            format_size(rlossps),
+        );
+
+        last_wbytes = wbytes;
+        last_rbytes = rbytes;
+        last_wloss = wloss;
+        last_rloss = rloss;
     }
 
     for jh in jhs.into_iter() {
