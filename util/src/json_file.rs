@@ -1,5 +1,5 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
-use anyhow::Result;
+use anyhow::{bail, Context, Result};
 use log::{debug, info};
 use serde::{de::DeserializeOwned, Serialize};
 use std::default::Default;
@@ -90,12 +90,26 @@ where
     }
 
     fn save<P: AsRef<Path>>(&self, path: P) -> Result<()> {
+        let path: &Path = path.as_ref();
+        let fname = match path.file_name() {
+            Some(v) => v,
+            None => bail!("can't save to null path"),
+        };
+
+        let mut tmp_path = PathBuf::from(path);
+        tmp_path.pop();
+        tmp_path.push(format!(".{}.json-save-staging", &fname.to_string_lossy()));
+
         let mut f = fs::OpenOptions::new()
             .write(true)
             .create(true)
             .truncate(true)
-            .open(&path)?;
-        f.write_all(self.as_json()?.as_ref())?;
+            .open(&tmp_path)
+            .with_context(|| format!("opening staging file {:?}", &tmp_path))?;
+        f.write_all(self.as_json()?.as_ref())
+            .with_context(|| format!("writing staging file {:?}", &tmp_path))?;
+        fs::rename(&tmp_path, path)
+            .with_context(|| format!("moving {:?} to {:?}", &tmp_path, path))?;
         Ok(())
     }
 }
