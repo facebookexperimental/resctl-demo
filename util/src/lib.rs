@@ -25,6 +25,7 @@ use std::thread_local;
 use std::time::{Duration, UNIX_EPOCH};
 use sysinfo::{self, SystemExt};
 
+pub mod anon_area;
 pub mod iocost;
 pub mod journal_tailer;
 pub mod json_file;

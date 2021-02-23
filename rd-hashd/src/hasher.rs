@@ -9,7 +9,6 @@ use rand::rngs::SmallRng;
 use rand::SeedableRng;
 use rand_distr::{Distribution, Normal, Uniform};
 use sha1::{Digest, Sha1};
-use std::alloc::{alloc, dealloc, Layout};
 use std::fs::File;
 use std::io::{prelude::*, SeekFrom};
 use std::path::Path;
@@ -18,6 +17,7 @@ use std::thread::{sleep, spawn, JoinHandle};
 use std::time::{Duration, Instant};
 
 use rd_hashd_intf::{Latencies, Params, Stat};
+use util::anon_area::AnonArea;
 use util::*;
 
 use super::bench::{Bench, Cfg};
@@ -111,97 +111,6 @@ impl Hasher {
         }
         trace!("hashed {} bytes, cpu_ratio={}", nr_bytes, self.cpu_ratio);
         hasher.digest()
-    }
-}
-
-struct AnonUnit {
-    data: *mut u8,
-    layout: Layout,
-}
-
-impl AnonUnit {
-    fn new(size: usize) -> Self {
-        let layout = Layout::from_size_align(size, *PAGE_SIZE).unwrap();
-        Self {
-            data: unsafe { alloc(layout) },
-            layout,
-        }
-    }
-}
-
-unsafe impl Send for AnonUnit {}
-unsafe impl Sync for AnonUnit {}
-
-impl Drop for AnonUnit {
-    fn drop(&mut self) {
-        unsafe {
-            dealloc(self.data, self.layout);
-        }
-    }
-}
-
-struct AnonArea {
-    units: Vec<AnonUnit>,
-    size: usize,
-    comp: f64,
-}
-
-/// Anonymous memory which can be shared by multiple threads with RwLock
-/// protection. Accesses to memory positions only require read locking for both
-/// reads and writes.
-impl AnonArea {
-    const UNIT_SIZE: usize = 32 << 20;
-
-    fn new(size: usize, comp: f64) -> Self {
-        let mut area = AnonArea {
-            units: Vec::new(),
-            size: 0,
-            comp,
-        };
-        area.resize(size);
-        area
-    }
-
-    fn resize(&mut self, mut size: usize) {
-        size = size.max(Self::UNIT_SIZE);
-        let nr = size.div_ceil(&Self::UNIT_SIZE);
-
-        self.units.truncate(nr);
-        self.units.reserve(nr);
-        for _ in self.units.len()..nr {
-            self.units.push(AnonUnit::new(Self::UNIT_SIZE));
-        }
-
-        self.size = size;
-    }
-
-    /// Determine the page given the relative position `rel` and `size` of
-    /// the anon area. `rel` is in the range [-1.0, 1.0] with the position
-    /// 0.0 mapping to the first page, positive positions to even slots and
-    /// negative odd so that modulating the amplitude of `rel` changes how
-    /// much area is accessed without shifting the center.
-    fn rel_to_page_idx(rel: f64, size: usize) -> usize {
-        let addr = ((size / 2) as f64 * rel.abs()) as usize;
-        let mut page_idx = (addr / *PAGE_SIZE) * 2;
-        if rel.is_sign_negative() {
-            page_idx += 1;
-        }
-        page_idx.min(size / *PAGE_SIZE - 1)
-    }
-
-    /// Return a mutable u8 reference to the position specified by the page
-    /// index. The anon area is shared and there's no access control.
-    fn access_page<'a, T>(&'a self, page_idx: usize) -> &'a mut [T] {
-        let pages_per_unit = Self::UNIT_SIZE / *PAGE_SIZE;
-        let pos = (
-            page_idx / pages_per_unit,
-            (page_idx % pages_per_unit) * *PAGE_SIZE,
-        );
-        unsafe {
-            let ptr = self.units[pos.0].data.offset(pos.1 as isize);
-            let ptr = ptr.cast::<T>();
-            std::slice::from_raw_parts_mut(ptr, *PAGE_SIZE / std::mem::size_of::<T>())
-        }
     }
 }
 
@@ -318,7 +227,7 @@ impl HasherThread {
             return;
         }
 
-        let rel = page_idx as f64 / (aa.size / *PAGE_SIZE) as f64;
+        let rel = page_idx as f64 / (aa.size() / *PAGE_SIZE) as f64;
         let slot = ((anon_dist.len() as f64 * rel) as usize).min(anon_dist.len() - 1);
 
         anon_dist[slot] += cnt as u64;
@@ -363,13 +272,13 @@ impl HasherThread {
         for _ in 0..self.anon_nr_chunks {
             let rel = anon_addr_normal.sample(&mut rng) * self.anon_addr_frac;
             let page_base =
-                AnonArea::rel_to_page_idx(rel, aa.size - (self.chunk_pages - 1) * *PAGE_SIZE);
+                AnonArea::rel_to_page_idx(rel, aa.size() - (self.chunk_pages - 1) * *PAGE_SIZE);
             let is_write = rw_uniform.sample(&mut rng) <= self.anon_write_frac;
 
             for page_idx in page_base..page_base + self.chunk_pages {
                 let page: &mut [u64] = aa.access_page(page_idx);
                 if page[0] == 0 {
-                    fill_area_with_random(page, aa.comp, &mut rng);
+                    aa.fill_page_with_random(page_idx);
                 }
                 if is_write {
                     page[0] = page[0].wrapping_add(1).max(1);
@@ -831,16 +740,15 @@ impl DispatchThread {
                                            nr_idle_workers: self.wq.nr_idle_workers(),
                                            file_size: self.tf.size,
                                            file_dist,
-                                           anon_size: self.anon_area.read().unwrap().size,
+                                           anon_size: self.anon_area.read().unwrap().size(),
                                            anon_dist,
                             })
                                 .unwrap();
                         }
                         Ok(DispatchCmd::FillAnon) => {
                             let aa = self.anon_area.read().unwrap();
-                            let mut rng = SmallRng::from_entropy();
-                            for i in 0 .. aa.size / *PAGE_SIZE {
-                                fill_area_with_random(aa.access_page::<u8>(i), aa.comp, &mut rng);
+                            for i in 0 .. aa.size() / *PAGE_SIZE {
+                                aa.fill_page_with_random(i);
                             }
                         }
                         Err(err) => {
