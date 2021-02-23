@@ -53,13 +53,14 @@ lazy_static::lazy_static! {
         dfl_rep_ret = Args::default().rep_retention as f64 / 3600.0,
         dfl_rep_1m_ret = Args::default().rep_1min_retention as f64 / 3600.0,
     );
+
     static ref BANDIT_MEM_HOG_USAGE: String = format!(
         "-w, --wbps=[BPS]             'Write BPS (memory growth rate, default 0)'
          -r, --rbps=[BPS]             'Read BPS (re-read rate, default 0)'
          -R, --readers=[NR]           'Number of readers (default: 1)'
          -d, --debt=[DUR]             'Maximum debt accumulation (default, 10s)'
          -c, --compressibility=[FRAC] 'Content compressibility (default: 0)
-         -r, --report=[PATH]          'Report file path'"
+         -p, --report=[PATH]          'Report file path'"
     );
 }
 

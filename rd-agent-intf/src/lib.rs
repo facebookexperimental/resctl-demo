@@ -5,6 +5,7 @@ use std::io;
 use util::*;
 
 pub mod args;
+pub mod bandit_report;
 pub mod bench;
 pub mod cmd;
 pub mod cmd_ack;
@@ -16,6 +17,7 @@ pub mod slices;
 pub mod sysreqs;
 
 pub use args::{Args, Bandit, BanditMemHogArgs};
+pub use bandit_report::BanditMemHogReport;
 pub use bench::{BenchKnobs, HashdKnobs, IoCostKnobs, BENCH_FILENAME};
 pub use cmd::{Cmd, HashdCmd, SideloaderCmd};
 pub use cmd_ack::CmdAck;
