@@ -53,6 +53,25 @@ lazy_static::lazy_static! {
         dfl_rep_ret = Args::default().rep_retention as f64 / 3600.0,
         dfl_rep_1m_ret = Args::default().rep_1min_retention as f64 / 3600.0,
     );
+    static ref BANDIT_MEM_HOG_USAGE: String = format!(
+        "-w, --wbps=[BPS]             'Write BPS (memory growth rate)'
+         -r, --rbps=[BPS]             'Read BPS (re-read rate)'
+         -c, --compressibility=[FRAC] 'Content compressibility (default: 0)
+         -r, --report=[PATH]          'Report file path'"
+    );
+}
+
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+pub struct BanditMemHogArgs {
+    pub wbps: String,
+    pub rbps: String,
+    pub comp: f64,
+    pub report: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum Bandit {
+    MemHog(BanditMemHogArgs),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -88,6 +107,8 @@ pub struct Args {
     pub keep_crit_mem_prot: bool,
     #[serde(skip)]
     pub verbosity: u32,
+
+    pub bandit: Option<Bandit>,
 }
 
 impl Default for Args {
@@ -110,12 +131,50 @@ impl Default for Args {
             passive: false,
             keep_crit_mem_prot: false,
             verbosity: 0,
+            bandit: None,
         }
     }
 }
 
 impl JsonLoad for Args {}
 impl JsonSave for Args {}
+
+impl Args {
+    fn process_bandit(&mut self, bandit: &str, subm: &clap::ArgMatches) -> bool {
+        let mut updated_base = false;
+        match bandit {
+            "bandit-mem-hog" => {
+                let mut args = match self.bandit.as_ref() {
+                    Some(Bandit::MemHog(args)) => args.clone(),
+                    None => Default::default(),
+                };
+                if let Some(v) = subm.value_of("wbps") {
+                    args.wbps = v.to_owned();
+                    updated_base = true;
+                }
+                if let Some(v) = subm.value_of("rbps") {
+                    args.rbps = v.to_owned();
+                    updated_base = true;
+                }
+                if let Some(v) = subm.value_of("compressibility") {
+                    args.comp = parse_frac(v).unwrap();
+                    updated_base = true;
+                }
+                if let Some(v) = subm.value_of("report") {
+                    args.report = if v.len() == 0 {
+                        None
+                    } else {
+                        Some(v.to_owned())
+                    };
+                    updated_base = true;
+                }
+                self.bandit = Some(Bandit::MemHog(args));
+            }
+            _ => {}
+        }
+        updated_base
+    }
+}
 
 impl JsonArgs for Args {
     fn match_cmdline() -> clap::ArgMatches<'static> {
@@ -124,6 +183,11 @@ impl JsonArgs for Args {
             .author(env!("CARGO_PKG_AUTHORS"))
             .about(HELP_BODY)
             .args_from_usage(&ARGS_STR)
+            .subcommand(
+                clap::SubCommand::with_name("bandit-mem-hog")
+                    .about("Bandit mode - keep bloating up memory")
+                    .args_from_usage(&BANDIT_MEM_HOG_USAGE),
+            )
             .setting(clap::AppSettings::UnifiedHelpMessage)
             .setting(clap::AppSettings::DeriveDisplayOrder)
             .get_matches()
@@ -200,6 +264,10 @@ impl JsonArgs for Args {
                     panic!("Unknown --passive value {:?}", &v);
                 }
             }
+        }
+
+        if let (bandit, Some(subm)) = matches.subcommand() {
+            updated_base |= self.process_bandit(bandit, subm);
         }
 
         updated_base

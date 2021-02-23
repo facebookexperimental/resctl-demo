@@ -16,6 +16,7 @@ use std::time::Duration;
 use sysinfo::{self, ProcessExt, SystemExt};
 use util::*;
 
+mod bandit;
 mod bench;
 mod cmd;
 mod hashd;
@@ -1140,6 +1141,11 @@ fn main() {
         error!("cfg: Failed to process args file ({:?})", &e);
         panic!();
     });
+
+    if let Some(bandit) = args_file.data.bandit.as_ref() {
+        bandit::bandit_main(bandit);
+        return;
+    }
 
     let mut cfg = Config::new(&args_file);
 

@@ -15,7 +15,7 @@ pub mod side_defs;
 pub mod slices;
 pub mod sysreqs;
 
-pub use args::Args;
+pub use args::{Args, Bandit, BanditMemHogArgs};
 pub use bench::{BenchKnobs, HashdKnobs, IoCostKnobs, BENCH_FILENAME};
 pub use cmd::{Cmd, HashdCmd, SideloaderCmd};
 pub use cmd_ack::CmdAck;
