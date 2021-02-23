@@ -189,10 +189,10 @@ where
 
         if size < unit {
             Some(zero.to_string())
-        } else if size < 100 * unit {
+        } else if size < (99.94999 * unit as f64) as u64 {
             Some(format!("{:.1}{}", size as f64 / unit as f64, suffix))
         } else if size < 1024 * unit {
-            Some(format!("{:}{}", size / unit, suffix))
+            Some(format!("{:.0}{}", size as f64 / unit as f64, suffix))
         } else {
             None
         }
@@ -227,10 +227,10 @@ fn format_duration_internal(dur: f64, zero: &str) -> String {
     let format_nsecs_helper = |nsecs: u64, unit: u64, max: u64, suffix: &str| -> Option<String> {
         if nsecs < unit {
             Some(zero.to_string())
-        } else if nsecs < 100 * unit {
+        } else if nsecs < (99.94999 * unit as f64) as u64 {
             Some(format!("{:.1}{}", nsecs as f64 / unit as f64, suffix))
         } else if nsecs < max * unit {
-            Some(format!("{:}{}", nsecs / unit, suffix))
+            Some(format!("{:.0}{}", nsecs as f64 / unit as f64, suffix))
         } else {
             None
         }
