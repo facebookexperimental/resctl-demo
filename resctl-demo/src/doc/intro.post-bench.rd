@@ -52,7 +52,7 @@ antagonist to our interactive rd-hashd.
 %% off mem-resctl
 %% off io-resctl
 %% on sysload compile-job build-linux-2x
-%% on sysload memory-hog memory-growth-50pct
+%% on sysload mem-hog mem-hog-50pct
 %% )
 
 See the graph for the steep drop in RPS for hashd: That's the competitions
@@ -73,7 +73,7 @@ control enabled and the compile job under the supervision of the sideloader:
 %% (                             : [ Start the competitions under full resource control ]
 %% reset resctl
 %% on sideload compile-job build-linux-2x
-%% on sysload memory-hog memory-growth-50pct
+%% on sysload mem-hog mem-hog-50pct
 %% )
 
 Watch the stable RPS. rd-hashd is now fully protected against the
@@ -87,7 +87,7 @@ later.
 Let's stop the memory hog and see what happens.
 
 %% (                             : [ Stop the memory hog ]
-%% off sysload memory-hog
+%% off sysload mem-hog
 %% )
 
 rd-hashd is still doing fine and the compile job is now making reasonable

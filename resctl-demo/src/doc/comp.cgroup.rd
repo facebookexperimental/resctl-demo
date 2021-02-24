@@ -29,15 +29,15 @@ utilization graph by pressing 'g'.
 
 Once the workload sufficiently ramps up, you can see how the system behaves
 without any protection, by selecting the button below to disable all
-resource control mechanisms and start a memory-hog program. The problematic
-program will start as rd-sysload-memory-hog.service under ___system___:
+resource control mechanisms and start a mem-hog program. The problematic
+program will start as rd-sysload-mem-hog.service under ___system___:
 
 %% (                             : [ Disable all resource control features and start memory hog ]
 %% off cpu-resctl
 %% off mem-resctl
 %% off io-resctl
 %% off oomd
-%% on sysload memory-hog memory-growth-1x
+%% on sysload mem-hog mem-hog-1x
 %% )
 
 ___***WARNING***___: Because the system is running without any protection,
@@ -171,7 +171,7 @@ rd-hashd should already be running at full tilt. Once ___workload___'s
 memory usage stops growing, let's start the same memory hog, but without
 touching anything else:
 
-%% on sysload memory-hog memory-growth-1x : [ Start memory hog ]
+%% on sysload mem-hog mem-hog-1x : [ Start memory hog ]
 
 Monitor the RPS and other resource consumption in the graph view ('g'). The
 RPS may go down a little and dip occasionally, but it'll stay close to full
@@ -180,7 +180,7 @@ memory hog will be killed off by OOMD. Try it multiple times by clearing the
 memory hog with the following button, and restarting it with the start
 button above:
 
-%% off sysload memory-hog       : [ Stop memory hog ]
+%% off sysload mem-hog           : [ Stop memory hog ]
 
 In this scenario, with resource control on, our site's not going down, and
 users probably aren't even noticing. If we have a working monitoring

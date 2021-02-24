@@ -177,11 +177,13 @@ impl<T: Into<f64>> ops::DivAssign<T> for HashdReport {
 #[derive(Clone, Serialize, Deserialize)]
 pub struct SysloadReport {
     pub svc: SvcReport,
+    pub scr_path: String,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct SideloadReport {
     pub svc: SvcReport,
+    pub scr_path: String,
 }
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]

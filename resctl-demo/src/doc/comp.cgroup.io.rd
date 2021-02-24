@@ -132,7 +132,7 @@ overpower even the high-end enterprise SSDs.
 
 %% (                             : [ Disable IO control and start the memory and IO hogs ]
 %% off io-resctl
-%% on sysload memory-hog memory-growth-1x
+%% on sysload mem-hog mem-hog-1x
 %% on sysload io-hog read-bomb
 %% )
 
@@ -151,7 +151,7 @@ Wait for the sysload count to drop to zero and rd-hashd's RPS and memory
 usage to stabilize, then launch the same memory and IO hogs again:
 
 %% (                         	: [ Start the memory and IO hogs ]
-%% on sysload memory-hog memory-growth-1x
+%% on sysload mem-hog mem-hog-1x
 %% on sysload io-hog read-bomb
 %% )
 

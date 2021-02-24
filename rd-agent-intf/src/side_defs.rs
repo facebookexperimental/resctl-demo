@@ -105,44 +105,44 @@ impl Default for SideloadDefs {
                     },
                 ),
                 (
-                    "memory-growth-10pct".into(),
+                    "mem-hog-10pct".into(),
                     SideloadSpec {
-                        args: vec!["memory-growth.py".into(), "0%".into(), "10%".into()],
+                        args: vec!["mem-hog.sh".into(), "10%".into(), "0%".into()],
                         frozen_exp: 30,
                     },
                 ),
                 (
-                    "memory-growth-25pct".into(),
+                    "mem-hog-25pct".into(),
                     SideloadSpec {
-                        args: vec!["memory-growth.py".into(), "0%".into(), "25%".into()],
+                        args: vec!["mem-hog.sh".into(), "25%".into(), "0%".into()],
                         frozen_exp: 30,
                     },
                 ),
                 (
-                    "memory-growth-50pct".into(),
+                    "mem-hog-50pct".into(),
                     SideloadSpec {
-                        args: vec!["memory-growth.py".into(), "0%".into(), "50%".into()],
+                        args: vec!["mem-hog.sh".into(), "50%".into(), "0%".into()],
                         frozen_exp: 30,
                     },
                 ),
                 (
-                    "memory-growth-1x".into(),
+                    "mem-hog-1x".into(),
                     SideloadSpec {
-                        args: vec!["memory-growth.py".into(), "0%".into(), "100%".into()],
+                        args: vec!["mem-hog.sh".into(), "100%".into(), "0%".into()],
                         frozen_exp: 30,
                     },
                 ),
                 (
-                    "memory-growth-2x".into(),
+                    "mem-hog-2x".into(),
                     SideloadSpec {
-                        args: vec!["memory-growth.py".into(), "0%".into(), "200%".into()],
+                        args: vec!["mem-hog.sh".into(), "200%".into(), "0%".into()],
                         frozen_exp: 30,
                     },
                 ),
                 (
-                    "memory-bloat-1x".into(),
+                    "mem-bloat-1x".into(),
                     SideloadSpec {
-                        args: vec!["memory-growth.py".into(), "1000%".into(), "100%".into()],
+                        args: vec!["mem-hog.sh".into(), "1000%".into(), "100%".into()],
                         frozen_exp: 30,
                     },
                 ),

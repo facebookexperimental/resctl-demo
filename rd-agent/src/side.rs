@@ -31,7 +31,7 @@ const LINUX_TAR_XZ_URL: &str = "https://cdn.kernel.org/pub/linux/kernel/v5.x/lin
 
 const SIDE_BINS: [(&str, &[u8]); 5] = [
     ("build-linux.sh", include_bytes!("side/build-linux.sh")),
-    ("memory-growth.py", include_bytes!("side/memory-growth.py")),
+    ("mem-hog.sh", include_bytes!("side/mem-hog.sh")),
     (
         "memory-balloon.py",
         include_bytes!("side/memory-balloon.py"),
@@ -272,6 +272,7 @@ impl SideRunner {
         let cfg = &self.cfg;
 
         vec![
+            format!("RD_AGENT_BIN={}", &cfg.agent_bin),
             format!("NR_CPUS={}", nr_cpus()),
             format!("TOTAL_MEMORY={}", total_memory()),
             format!("TOTAL_SWAP={}", total_swap()),
@@ -403,6 +404,7 @@ impl SideRunner {
                 name.into(),
                 SysloadReport {
                     svc: super::svc_refresh_and_report(&mut sysload.svc.unit)?,
+                    scr_path: format!("{}/{}", &self.cfg.sys_scr_path, name),
                 },
             );
         }
@@ -416,6 +418,7 @@ impl SideRunner {
                 name.into(),
                 SideloadReport {
                     svc: super::svc_refresh_and_report(&mut sideload.unit)?,
+                    scr_path: format!("{}/{}", &self.cfg.side_scr_path, name),
                 },
             );
         }

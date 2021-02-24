@@ -28,11 +28,11 @@ impl MemoryHogSpeed {
 
     fn to_sideload_name(&self) -> &'static str {
         match self {
-            MemoryHogSpeed::Hog10Pct => "memory-growth-10pct",
-            MemoryHogSpeed::Hog25Pct => "memory-growth-25pct",
-            MemoryHogSpeed::Hog50Pct => "memory-growth-50pct",
-            MemoryHogSpeed::Hog1x => "memory-growth-1x",
-            MemoryHogSpeed::Hog2x => "memory-growth-2x",
+            MemoryHogSpeed::Hog10Pct => "mem-hog-10pct",
+            MemoryHogSpeed::Hog25Pct => "mem-hog-25pct",
+            MemoryHogSpeed::Hog50Pct => "mem-hog-50pct",
+            MemoryHogSpeed::Hog1x => "mem-hog-1x",
+            MemoryHogSpeed::Hog2x => "mem-hog-2x",
         }
     }
 }
@@ -54,7 +54,7 @@ struct Scenario {
 impl Scenario {
     fn parse(mut props: BTreeMap<String, String>) -> Result<Self> {
         match props.remove("scenario").as_deref() {
-            Some("memory-hog") => {
+            Some("mem-hog") => {
                 let mut loops = MEMORY_HOG_DFL_LOOPS;
                 let mut load = MEMORY_HOG_DFL_LOAD;
                 let mut speed = MemoryHogSpeed::Hog2x;
@@ -63,7 +63,7 @@ impl Scenario {
                         "loops" => loops = v.parse::<u32>()?,
                         "load" => load = parse_frac(v)?,
                         "speed" => speed = MemoryHogSpeed::from_str(&v)?,
-                        k => bail!("unknown memory-hog property {:?}", k),
+                        k => bail!("unknown mem-hog property {:?}", k),
                     }
                     if loops == 0 {
                         bail!("\"loops\" can't be 0");
@@ -120,14 +120,14 @@ impl Scenario {
         for _idx in 0..loops {
             self.warm_up_hashd(rctx, load)?;
 
-            rctx.start_sysload("memory-hog", speed.to_sideload_name())?;
+            rctx.start_sysload("mem-hog", speed.to_sideload_name())?;
             WorkloadMon::default()
                 .hashd()
-                .sysload("memory-hog")
+                .sysload("mem-hog")
                 .timeout(Duration::from_secs(600))
                 .status_fn(Self::ws_status)
                 .monitor(rctx)?;
-            rctx.stop_sysload("memory-hog");
+            rctx.stop_sysload("mem-hog");
         }
         Ok(())
     }

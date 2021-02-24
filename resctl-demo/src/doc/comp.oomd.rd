@@ -138,7 +138,7 @@ memory hog:
 
 %% (                             : [ Start memory hog ]
 %% reset secondaries
-%% on sysload memory-hog memory-growth-1x
+%% on sysload mem-hog mem-hog-1x
 %% )
 
 Watch the ___system___ swap usage climbing. How quickly will depend on the
@@ -146,7 +146,7 @@ storage device performance. Eventually, it'll nearly fill up all the
 available swap and you'll see something like the following in the
 "Management logs" pane on the left:
 
-  [15:33:24 rd-oomd] [../src/oomd/Log.cpp:114] 50.85 49.35 30.53 system.slice/rd-sysload-memory-hog.service 6905962496 ruleset:[protection against low swap] detectorgroup:[free swap goes below 10 percent] killer:kill_by_swap_usage v2
+  [15:33:24 rd-oomd] [../src/oomd/Log.cpp:114] 50.85 49.35 30.53 system.slice/rd-sysload-mem-hog.service 6905962496 ruleset:[protection against low swap] detectorgroup:[free swap goes below 10 percent] killer:kill_by_swap_usage v2
 
 To view the full log, press 'l' and select "rd-oomd". This is OOMD killing
 the memory hog due to swap depletion. The system weathered it just fine and
@@ -156,7 +156,7 @@ thing, but without OOMD:
 %% (                             : [ Disable OOMD and start memory hog ]
 %% reset secondaries
 %% off oomd
-%% on sysload memory-hog memory-growth-1x
+%% on sysload mem-hog mem-hog-1x
 %% )
 
 Observe how ___system___'s memory usage keeps creeping up once swap is
@@ -166,7 +166,7 @@ suffocates rd-hashd and pushes RPS down to 0. After that, depending on the
 IO device performance and your luck, the kernel OOM killer might kick in and
 resolve the situation, leaving something like the following in `dmesg`:
 
-  [ 2808.411512] Out of memory: Killed process 45724 (memory-growth.p) total-vm:28805140kB, anon-rss:11815160kB, file-rss:4772kB, shmem-rss:0kB, UID:0 pgtables:55768kB oom_score_adj:0
+  [ 2808.411512] Out of memory: Killed process 45724 (mem-hog.sh) total-vm:28805140kB, anon-rss:11815160kB, file-rss:4772kB, shmem-rss:0kB, UID:0 pgtables:55768kB oom_score_adj:0
 
 Or the kernel might kill rd-hashd instead of the memory hog. There's also
 some chance your system might completely lock up, requiring a hard power

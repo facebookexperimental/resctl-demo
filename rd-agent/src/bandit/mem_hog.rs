@@ -228,29 +228,29 @@ pub fn bandit_mem_hog(args: &BanditMemHogArgs) {
         wpage_pos: AtomicUsize::new(0),
     }));
 
-    let wbps = parse_bps(&args.wbps, "IO_WBPS").unwrap();
-    let rbps = parse_bps(&args.rbps, "IO_RBPS").unwrap();
+    let target_wbps = parse_bps(&args.wbps, "IO_WBPS").unwrap();
+    let target_rbps = parse_bps(&args.rbps, "IO_RBPS").unwrap();
 
     info!(
         "Target wbps={} rbps={} readers={}",
-        format_size(wbps),
-        format_size(rbps),
+        format_size(target_wbps),
+        format_size(target_rbps),
         args.nr_readers,
     );
 
     let mut jhs = vec![];
     let wstatus = Arc::new(Status::new());
-    if wbps > 0 {
+    if target_wbps > 0 {
         let max_debt = args.max_debt;
         let state_copy = state.clone();
         let wstatus_copy = wstatus.clone();
         jhs.push(spawn(move || {
-            writer(wbps, max_debt, state_copy, wstatus_copy)
+            writer(target_wbps, max_debt, state_copy, wstatus_copy)
         }));
     }
     let mut rstatus = vec![];
-    let rbps = (rbps as f64 / args.nr_readers as f64).ceil() as usize;
-    if rbps > 0 {
+    if target_rbps > 0 && args.nr_readers > 0 {
+        let trbps = (target_rbps as f64 / args.nr_readers as f64).ceil() as usize;
         for i in 0..args.nr_readers {
             let rst = Arc::new(Status::new());
             rstatus.push(rst.clone());
@@ -260,7 +260,7 @@ pub fn bandit_mem_hog(args: &BanditMemHogArgs) {
             let max_debt = args.max_debt;
             let state_copy = state.clone();
             jhs.push(spawn(move || {
-                reader(range, rbps, max_debt, state_copy, rst)
+                reader(range, trbps, max_debt, state_copy, rst)
             }));
         }
     }
@@ -296,16 +296,26 @@ pub fn bandit_mem_hog(args: &BanditMemHogArgs) {
         let wlossps = ((wloss - last_wloss) as f64 / dur).round() as u64;
         let rlossps = ((rloss - last_rloss) as f64 / dur).round() as u64;
 
-        info!(
-            "size={:>5} wrbps={:>5}/{:>5} wrdebt={:>5}/{:>5} wrlossps={:>5}/{:>5}",
-            format_size(size),
-            format_size(wbps),
-            format_size(rbps),
-            format_size(wdebt),
-            format_size(rdebt),
-            format_size(wlossps),
-            format_size(rlossps),
-        );
+        if target_rbps == 0 || args.nr_readers == 0 {
+            info!(
+                "size={:>5} bps={:>5} debt={:>5} lossps={:>5}",
+                format_size(size),
+                format_size(wbps),
+                format_size(wdebt),
+                format_size(wlossps),
+            );
+        } else {
+            info!(
+                "size={:>5} wrbps={:>5}/{:>5} wrdebt={:>5}/{:>5} wrlossps={:>5}/{:>5}",
+                format_size(size),
+                format_size(wbps),
+                format_size(rbps),
+                format_size(wdebt),
+                format_size(rdebt),
+                format_size(wlossps),
+                format_size(rlossps),
+            );
+        }
 
         last_wbytes = wbytes;
         last_rbytes = rbytes;
