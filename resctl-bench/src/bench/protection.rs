@@ -71,16 +71,25 @@ fn ws_status(mon: &WorkloadMon, af: &AgentFiles) -> Result<(bool, String)> {
 }
 
 #[derive(Clone, Debug)]
+struct MemHogRun {
+    active_period: (u64, u64),
+    final_size: u64,
+}
+
+#[derive(Clone, Debug)]
 struct MemHog {
     loops: u32,
     load: f64,
     speed: MemHogSpeed,
+    runs: Vec<MemHogRun>,
 }
 
 impl MemHog {
     fn run(&mut self, rctx: &mut RunCtx) -> Result<()> {
         for _idx in 0..self.loops {
             warm_up_hashd(rctx, self.load)?;
+
+            let started_at = unix_now();
 
             rctx.start_sysload("mem-hog", self.speed.to_sideload_name())?;
             WorkloadMon::default()
@@ -89,8 +98,31 @@ impl MemHog {
                 .timeout(Duration::from_secs(600))
                 .status_fn(ws_status)
                 .monitor(rctx)?;
+
+            let mh_rep_path = rctx.access_agent_files::<_, Result<_>>(|af| {
+                Ok(af
+                    .report
+                    .data
+                    .sysloads
+                    .get("mem-hog")
+                    .context("can't find \"mem-hog\" sysload in report")?
+                    .scr_path
+                    .clone())
+            })?;
+            let mh_rep = rd_agent_intf::bandit_report::BanditMemHogReport::load(&mh_rep_path)
+                .with_context(|| {
+                    format!("failed to read bandit-mem-hog report {:?}", &mh_rep_path)
+                })?;
             rctx.stop_sysload("mem-hog");
+
+            let ended_at = unix_now();
+
+            self.runs.push(MemHogRun {
+                active_period: (started_at, ended_at),
+                final_size: mh_rep.wbytes,
+            });
         }
+        info!("XXX {:?}", &self.runs);
         Ok(())
     }
 }
@@ -124,7 +156,12 @@ impl Scenario {
                     }
                 }
                 Ok(Self {
-                    kind: ScenarioKind::MemHog(MemHog { loops, load, speed }),
+                    kind: ScenarioKind::MemHog(MemHog {
+                        loops,
+                        load,
+                        speed,
+                        runs: vec![],
+                    }),
                 })
             }
             _ => bail!("\"scenario\" invalid or missing"),

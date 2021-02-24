@@ -267,7 +267,6 @@ pub fn bandit_mem_hog(args: &BanditMemHogArgs) {
 
     let mut last_at = SystemTime::now();
     let (mut last_wbytes, mut last_rbytes): (u64, u64) = (0, 0);
-    let (mut last_wloss, mut last_rloss): (u64, u64) = (0, 0);
     while wait_prog_state(Duration::from_secs(1)) != ProgState::Exiting {
         let now = SystemTime::now();
         let dur = match now.duration_since(last_at) {
@@ -293,42 +292,36 @@ pub fn bandit_mem_hog(args: &BanditMemHogArgs) {
 
         let wbps = ((wbytes - last_wbytes) as f64 / dur).round() as u64;
         let rbps = ((rbytes - last_rbytes) as f64 / dur).round() as u64;
-        let wlossps = ((wloss - last_wloss) as f64 / dur).round() as u64;
-        let rlossps = ((rloss - last_rloss) as f64 / dur).round() as u64;
 
         if target_rbps == 0 || args.nr_readers == 0 {
             info!(
-                "size={:>5} bps={:>5} debt={:>5} lossps={:>5}",
+                "size={:>5} bps={:>5} debt={:>5} loss={:>5}",
                 format_size(size),
                 format_size(wbps),
                 format_size(wdebt),
-                format_size(wlossps),
+                format_size(wloss),
             );
         } else {
             info!(
-                "size={:>5} wrbps={:>5}/{:>5} wrdebt={:>5}/{:>5} wrlossps={:>5}/{:>5}",
+                "size={:>5} wrbps={:>5}/{:>5} wrdebt={:>5}/{:>5} wrloss={:>5}/{:>5}",
                 format_size(size),
                 format_size(wbps),
                 format_size(rbps),
                 format_size(wdebt),
                 format_size(rdebt),
-                format_size(wlossps),
-                format_size(rlossps),
+                format_size(wloss),
+                format_size(rloss),
             );
         }
 
         last_wbytes = wbytes;
         last_rbytes = rbytes;
-        last_wloss = wloss;
-        last_rloss = rloss;
 
         if let Some(path) = args.report.as_ref() {
             BanditMemHogReport {
                 timestamp: DateTime::from(now),
                 wbps,
                 rbps,
-                wlossps,
-                rlossps,
                 wbytes,
                 rbytes,
                 wdebt,
