@@ -6,7 +6,7 @@ const MEMORY_HOG_DFL_LOOPS: u32 = 5;
 const MEMORY_HOG_DFL_LOAD: f64 = 1.0;
 
 #[derive(Clone, Copy, Debug)]
-enum MemoryHogSpeed {
+enum MemHogSpeed {
     Hog10Pct,
     Hog25Pct,
     Hog50Pct,
@@ -14,36 +14,90 @@ enum MemoryHogSpeed {
     Hog2x,
 }
 
-impl MemoryHogSpeed {
+impl MemHogSpeed {
     fn from_str(input: &str) -> Result<Self> {
         Ok(match input {
-            "10%" => MemoryHogSpeed::Hog10Pct,
-            "25%" => MemoryHogSpeed::Hog25Pct,
-            "50%" => MemoryHogSpeed::Hog50Pct,
-            "1x" => MemoryHogSpeed::Hog1x,
-            "2x" => MemoryHogSpeed::Hog2x,
+            "10%" => MemHogSpeed::Hog10Pct,
+            "25%" => MemHogSpeed::Hog25Pct,
+            "50%" => MemHogSpeed::Hog50Pct,
+            "1x" => MemHogSpeed::Hog1x,
+            "2x" => MemHogSpeed::Hog2x,
             _ => bail!("\"speed\" should be one of 10%, 25%, 50%, 1x or 2x"),
         })
     }
 
     fn to_sideload_name(&self) -> &'static str {
         match self {
-            MemoryHogSpeed::Hog10Pct => "mem-hog-10pct",
-            MemoryHogSpeed::Hog25Pct => "mem-hog-25pct",
-            MemoryHogSpeed::Hog50Pct => "mem-hog-50pct",
-            MemoryHogSpeed::Hog1x => "mem-hog-1x",
-            MemoryHogSpeed::Hog2x => "mem-hog-2x",
+            MemHogSpeed::Hog10Pct => "mem-hog-10pct",
+            MemHogSpeed::Hog25Pct => "mem-hog-25pct",
+            MemHogSpeed::Hog50Pct => "mem-hog-50pct",
+            MemHogSpeed::Hog1x => "mem-hog-1x",
+            MemHogSpeed::Hog2x => "mem-hog-2x",
         }
+    }
+}
+
+fn warm_up_hashd(rctx: &mut RunCtx, load: f64) -> Result<()> {
+    rctx.start_hashd(load);
+    info!("protection: Stabilizing hashd at {:.2}%", load * TO_PCT);
+    rctx.stabilize_hashd(Some(load))
+}
+
+fn ws_status(mon: &WorkloadMon, af: &AgentFiles) -> Result<(bool, String)> {
+    let mut status = String::new();
+    let rep = &af.report.data;
+    write!(
+        status,
+        "load:{:>5.1}% swap_free:{:>5}",
+        mon.hashd_loads[0],
+        format_size(rep.usages[ROOT_SLICE].swap_free)
+    )
+    .unwrap();
+
+    let work = &rep.usages[&Slice::Work.name().to_owned()];
+    let sys = &rep.usages[&Slice::Sys.name().to_owned()];
+    write!(
+        status,
+        " w/s mem:{:>5}/{:>5} swap:{:>5}/{:>5} memp:{:>4}%/{:>4}%",
+        format_size(work.mem_bytes),
+        format_size(sys.mem_bytes),
+        format_size(work.swap_bytes),
+        format_size(sys.swap_bytes),
+        format_pct(work.mem_pressures.1),
+        format_pct(sys.mem_pressures.1)
+    )
+    .unwrap();
+    Ok((false, status))
+}
+
+#[derive(Clone, Debug)]
+struct MemHog {
+    loops: u32,
+    load: f64,
+    speed: MemHogSpeed,
+}
+
+impl MemHog {
+    fn run(&mut self, rctx: &mut RunCtx) -> Result<()> {
+        for _idx in 0..self.loops {
+            warm_up_hashd(rctx, self.load)?;
+
+            rctx.start_sysload("mem-hog", self.speed.to_sideload_name())?;
+            WorkloadMon::default()
+                .hashd()
+                .sysload("mem-hog")
+                .timeout(Duration::from_secs(600))
+                .status_fn(ws_status)
+                .monitor(rctx)?;
+            rctx.stop_sysload("mem-hog");
+        }
+        Ok(())
     }
 }
 
 #[derive(Clone, Debug)]
 enum ScenarioKind {
-    MemoryHog {
-        loops: u32,
-        load: f64,
-        speed: MemoryHogSpeed,
-    },
+    MemHog(MemHog),
 }
 
 #[derive(Clone, Debug)]
@@ -57,12 +111,12 @@ impl Scenario {
             Some("mem-hog") => {
                 let mut loops = MEMORY_HOG_DFL_LOOPS;
                 let mut load = MEMORY_HOG_DFL_LOAD;
-                let mut speed = MemoryHogSpeed::Hog2x;
+                let mut speed = MemHogSpeed::Hog2x;
                 for (k, v) in props.iter() {
                     match k.as_str() {
                         "loops" => loops = v.parse::<u32>()?,
                         "load" => load = parse_frac(v)?,
-                        "speed" => speed = MemoryHogSpeed::from_str(&v)?,
+                        "speed" => speed = MemHogSpeed::from_str(&v)?,
                         k => bail!("unknown mem-hog property {:?}", k),
                     }
                     if loops == 0 {
@@ -70,73 +124,16 @@ impl Scenario {
                     }
                 }
                 Ok(Self {
-                    kind: ScenarioKind::MemoryHog { loops, load, speed },
+                    kind: ScenarioKind::MemHog(MemHog { loops, load, speed }),
                 })
             }
             _ => bail!("\"scenario\" invalid or missing"),
         }
     }
 
-    fn warm_up_hashd(&mut self, rctx: &mut RunCtx, load: f64) -> Result<()> {
-        rctx.start_hashd(load);
-        info!("protection: Stabilizing hashd at {:.2}%", load * TO_PCT);
-        rctx.stabilize_hashd(Some(load))
-    }
-
-    fn ws_status(mon: &WorkloadMon, af: &AgentFiles) -> Result<(bool, String)> {
-        let mut status = String::new();
-        let rep = &af.report.data;
-        write!(
-            status,
-            "load:{:>5.1}% swap_free:{:>5}",
-            mon.hashd_loads[0],
-            format_size(rep.usages[ROOT_SLICE].swap_free)
-        )
-        .unwrap();
-
-        let work = &rep.usages[&Slice::Work.name().to_owned()];
-        let sys = &rep.usages[&Slice::Sys.name().to_owned()];
-        write!(
-            status,
-            " w/s mem:{:>5}/{:>5} swap:{:>5}/{:>5} memp:{:>4}%/{:>4}%",
-            format_size(work.mem_bytes),
-            format_size(sys.mem_bytes),
-            format_size(work.swap_bytes),
-            format_size(sys.swap_bytes),
-            format_pct(work.mem_pressures.1),
-            format_pct(sys.mem_pressures.1)
-        )
-        .unwrap();
-        Ok((false, status))
-    }
-
-    fn do_memory_hog(
-        &mut self,
-        rctx: &mut RunCtx,
-        loops: u32,
-        load: f64,
-        speed: MemoryHogSpeed,
-    ) -> Result<()> {
-        for _idx in 0..loops {
-            self.warm_up_hashd(rctx, load)?;
-
-            rctx.start_sysload("mem-hog", speed.to_sideload_name())?;
-            WorkloadMon::default()
-                .hashd()
-                .sysload("mem-hog")
-                .timeout(Duration::from_secs(600))
-                .status_fn(Self::ws_status)
-                .monitor(rctx)?;
-            rctx.stop_sysload("mem-hog");
-        }
-        Ok(())
-    }
-
     fn run(&mut self, rctx: &mut RunCtx) -> Result<()> {
-        match self.kind {
-            ScenarioKind::MemoryHog { loops, load, speed } => {
-                self.do_memory_hog(rctx, loops, load, speed)
-            }
+        match &mut self.kind {
+            ScenarioKind::MemHog(mem_hog) => mem_hog.run(rctx),
         }
     }
 }
