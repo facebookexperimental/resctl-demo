@@ -2,8 +2,10 @@
 use super::*;
 use std::collections::BTreeMap;
 
-const MEMORY_HOG_DFL_LOOPS: u32 = 5;
-const MEMORY_HOG_DFL_LOAD: f64 = 1.0;
+const MEM_HOG_DFL_LOOPS: u32 = 5;
+const MEM_HOG_DFL_LOAD: f64 = 1.0;
+const MEM_HOG_STABLE_HOLD: f64 = 10.0;
+const MEM_HOG_TIMEOUT: f64 = 100.0;
 
 #[derive(Clone, Copy, Debug)]
 enum MemHogSpeed {
@@ -39,18 +41,23 @@ impl MemHogSpeed {
 
 fn warm_up_hashd(rctx: &mut RunCtx, load: f64) -> Result<()> {
     rctx.start_hashd(load);
-    info!("protection: Stabilizing hashd at {:.2}%", load * TO_PCT);
     rctx.stabilize_hashd(Some(load))
 }
 
 fn ws_status(mon: &WorkloadMon, af: &AgentFiles) -> Result<(bool, String)> {
     let mut status = String::new();
     let rep = &af.report.data;
+    let swap_total = rep.usages[ROOT_SLICE].swap_bytes + rep.usages[ROOT_SLICE].swap_free;
+    let swap_usage = match swap_total {
+        0 => 0.0,
+        total => rep.usages[ROOT_SLICE].swap_bytes as f64 / total as f64,
+    };
     write!(
         status,
-        "load:{:>5.1}% swap_free:{:>5}",
-        mon.hashd_loads[0],
-        format_size(rep.usages[ROOT_SLICE].swap_free)
+        "load:{:>4}% lat:{:>5} swap:{:>4}%",
+        format_pct(mon.hashd_loads[0]),
+        format_duration(rep.hashd[0].lat.ctl),
+        format_pct_dashed(swap_usage)
     )
     .unwrap();
 
@@ -72,7 +79,9 @@ fn ws_status(mon: &WorkloadMon, af: &AgentFiles) -> Result<(bool, String)> {
 
 #[derive(Clone, Debug)]
 struct MemHogRun {
-    active_period: (u64, u64),
+    stable_at: u64,
+    hog_started_at: u64,
+    hog_ended_at: u64,
     final_size: u64,
 }
 
@@ -84,22 +93,52 @@ struct MemHog {
     runs: Vec<MemHogRun>,
 }
 
+#[derive(Debug, Default)]
+struct MemHogResult {
+    pub work_isol_pcts: BTreeMap<String, f64>,
+    pub lat_isol_pcts: BTreeMap<String, f64>,
+    pub work_isol_factor: f64,
+    pub work_csv_factor: f64,
+    pub lat_isol_factor: f64,
+}
+
 impl MemHog {
-    fn run(&mut self, rctx: &mut RunCtx) -> Result<()> {
-        for _idx in 0..self.loops {
+    fn run(&mut self, rctx: &mut RunCtx) -> Result<MemHogResult> {
+        for run_idx in 0..self.loops {
+            info!(
+                "protection: Stabilizing hashd at {}% for run {}/{}",
+                format_pct(self.load),
+                run_idx + 1,
+                self.loops
+            );
             warm_up_hashd(rctx, self.load)?;
 
-            let started_at = unix_now();
+            info!(
+                "protection: Holding hashd at {}% for {}",
+                format_pct(self.load),
+                format_duration(MEM_HOG_STABLE_HOLD)
+            );
+            WorkloadMon::default()
+                .hashd()
+                .timeout(Duration::from_secs_f64(MEM_HOG_STABLE_HOLD))
+                .monitor(rctx)?;
+
+            info!("protection: Starting memory hog");
+            let hog_started_at = unix_now();
+            let timeout = match rctx.test {
+                false => MEM_HOG_TIMEOUT,
+                true => 10.0,
+            };
 
             rctx.start_sysload("mem-hog", self.speed.to_sideload_name())?;
             WorkloadMon::default()
                 .hashd()
                 .sysload("mem-hog")
-                .timeout(Duration::from_secs(600))
+                .timeout(Duration::from_secs_f64(timeout))
                 .status_fn(ws_status)
                 .monitor(rctx)?;
 
-            let mh_rep_path = rctx.access_agent_files::<_, Result<_>>(|af| {
+            let mut mh_rep_path = rctx.access_agent_files::<_, Result<_>>(|af| {
                 Ok(af
                     .report
                     .data
@@ -109,21 +148,25 @@ impl MemHog {
                     .scr_path
                     .clone())
             })?;
+            mh_rep_path += "/report.json";
             let mh_rep = rd_agent_intf::bandit_report::BanditMemHogReport::load(&mh_rep_path)
                 .with_context(|| {
                     format!("failed to read bandit-mem-hog report {:?}", &mh_rep_path)
                 })?;
             rctx.stop_sysload("mem-hog");
 
-            let ended_at = unix_now();
+            let hog_ended_at = unix_now();
+
+            info!("protection: Memory hog terminated");
 
             self.runs.push(MemHogRun {
-                active_period: (started_at, ended_at),
+                stable_at: 0,
+                hog_started_at,
+                hog_ended_at,
                 final_size: mh_rep.wbytes,
             });
         }
-        info!("XXX {:?}", &self.runs);
-        Ok(())
+        Ok(Default::default())
     }
 }
 
@@ -141,8 +184,8 @@ impl Scenario {
     fn parse(mut props: BTreeMap<String, String>) -> Result<Self> {
         match props.remove("scenario").as_deref() {
             Some("mem-hog") => {
-                let mut loops = MEMORY_HOG_DFL_LOOPS;
-                let mut load = MEMORY_HOG_DFL_LOAD;
+                let mut loops = MEM_HOG_DFL_LOOPS;
+                let mut load = MEM_HOG_DFL_LOAD;
                 let mut speed = MemHogSpeed::Hog2x;
                 for (k, v) in props.iter() {
                     match k.as_str() {
@@ -170,8 +213,9 @@ impl Scenario {
 
     fn run(&mut self, rctx: &mut RunCtx) -> Result<()> {
         match &mut self.kind {
-            ScenarioKind::MemHog(mem_hog) => mem_hog.run(rctx),
-        }
+            ScenarioKind::MemHog(mem_hog) => mem_hog.run(rctx)?,
+        };
+        Ok(())
     }
 }
 

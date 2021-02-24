@@ -742,8 +742,9 @@ impl<'a> RunCtx<'a> {
                 let (mem_slope, mem_eslope) = mem_slopes.unwrap();
 
                 progress.set_status(&format!(
-                    "load:{:5.1}% rps-slp/err:{:+6.2}%/{:+6.2}% mem-sz/slp/err:{:>5}/{:+6.2}%/{:+6.2}%",
-                    load * TO_PCT,
+                    "load:{:>4}% lat:{:>5} rps-slp/err:{:+6.2}%/{:+6.2}% mem-sz/slp/err:{:>5}/{:+6.2}%/{:+6.2}%",
+                    format_pct(load),
+                    format_duration(rep.hashd[0].lat.ctl),
                     rps_slope * TO_PCT,
                     rps_eslope * TO_PCT,
                     format_size(rep.usages[HASHD_A_SVC_NAME].mem_bytes),
@@ -1004,15 +1005,31 @@ impl WorkloadMon {
         self
     }
 
-    fn dfl_status(mon: &WorkloadMon, _af: &AgentFiles) -> Result<(bool, String)> {
+    fn dfl_status(mon: &WorkloadMon, af: &AgentFiles) -> Result<(bool, String)> {
+        let rep = &af.report.data;
         let mut status = String::new();
         match (mon.hashd[0], mon.hashd[1]) {
-            (true, false) => write!(status, "load: {:5.1}% ", mon.hashd_loads[0]).unwrap(),
-            (false, true) => write!(status, "load: {:5.1}% ", mon.hashd_loads[1]).unwrap(),
+            (true, false) => write!(
+                status,
+                "load:{:>4}% lat:{:>5} ",
+                format_pct(mon.hashd_loads[0]),
+                format_duration(rep.hashd[0].lat.ctl)
+            )
+            .unwrap(),
+            (false, true) => write!(
+                status,
+                "load:{:>4}% lat:{:>5}",
+                format_pct(mon.hashd_loads[1]),
+                format_duration(rep.hashd[1].lat.ctl)
+            )
+            .unwrap(),
             (true, true) => write!(
                 status,
-                "load: {:5.1}%/{:5.1}% ",
-                mon.hashd_loads[0], mon.hashd_loads[1]
+                "load:{:>4}%/{:>4}% lat:{:>5}/{:>5}",
+                format_pct(mon.hashd_loads[0]),
+                format_pct(mon.hashd_loads[1]),
+                format_duration(rep.hashd[0].lat.ctl),
+                format_duration(rep.hashd[1].lat.ctl),
             )
             .unwrap(),
             _ => {}
@@ -1075,6 +1092,7 @@ impl WorkloadMon {
         self.nr_side_total = self.sideloads.len();
         self.nr_sys_running = self.nr_sys_total;
         self.nr_side_running = self.nr_side_total;
+        let exit_on_any = self.exit_on_any || (self.nr_sys_total == 0 && self.nr_side_total == 0);
         let timeout = self.timeout.clone();
 
         let wait_result = rctx.wait_cond(
@@ -1109,7 +1127,7 @@ impl WorkloadMon {
                     }
                 }
 
-                match self.exit_on_any {
+                match exit_on_any {
                     false if self.nr_sys_running == 0 && self.nr_side_running == 0 => return true,
                     true if self.nr_sys_running != self.nr_sys_total
                         || self.nr_side_running != self.nr_side_total =>
@@ -1120,8 +1138,8 @@ impl WorkloadMon {
                 }
 
                 self.hashd_loads = [
-                    rep.hashd[0].rps / bench.hashd.rps_max as f64 * TO_PCT,
-                    rep.hashd[1].rps / bench.hashd.rps_max as f64 * TO_PCT,
+                    rep.hashd[0].rps / bench.hashd.rps_max as f64,
+                    rep.hashd[1].rps / bench.hashd.rps_max as f64,
                 ];
                 self.time_remaining = match self.timeout.as_ref() {
                     Some(timeout) => {
@@ -1158,7 +1176,7 @@ impl WorkloadMon {
         }
         wait_result?;
 
-        Ok(match self.exit_on_any {
+        Ok(match exit_on_any {
             false => self.nr_sys_running == 0 && self.nr_side_running == 0,
             true => {
                 self.nr_sys_running != self.nr_sys_total
