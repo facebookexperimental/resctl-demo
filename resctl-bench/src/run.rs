@@ -1057,7 +1057,6 @@ impl WorkloadMon {
     }
 
     pub fn monitor(&mut self, rctx: &RunCtx) -> Result<bool> {
-        let started_at = SystemTime::now();
         let mut progress = BenchProgress::new();
 
         if self.hashd[0] {
@@ -1094,6 +1093,8 @@ impl WorkloadMon {
         self.nr_side_running = self.nr_side_total;
         let exit_on_any = self.exit_on_any || (self.nr_sys_total == 0 && self.nr_side_total == 0);
         let timeout = self.timeout.clone();
+
+        let started_at = SystemTime::now();
 
         let wait_result = rctx.wait_cond(
             |af, progress| {

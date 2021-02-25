@@ -540,7 +540,7 @@ impl Job for StorageJob {
         let in_final = |rep: &rd_agent_intf::Report| {
             let at = rep.timestamp.timestamp() as u64;
             for (start, end) in self.final_mem_probe_periods.iter() {
-                if *start <= at && at <= *end {
+                if *start <= at && at < *end {
                     return true;
                 }
             }

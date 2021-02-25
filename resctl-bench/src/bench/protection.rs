@@ -2,11 +2,6 @@
 use super::*;
 use std::collections::BTreeMap;
 
-const MEM_HOG_DFL_LOOPS: u32 = 5;
-const MEM_HOG_DFL_LOAD: f64 = 1.0;
-const MEM_HOG_STABLE_HOLD: f64 = 10.0;
-const MEM_HOG_TIMEOUT: f64 = 100.0;
-
 #[derive(Clone, Copy, Debug)]
 enum MemHogSpeed {
     Hog10Pct,
@@ -90,20 +85,40 @@ struct MemHog {
     loops: u32,
     load: f64,
     speed: MemHogSpeed,
+    main_started_at: u64,
+    main_ended_at: u64,
     runs: Vec<MemHogRun>,
 }
 
 #[derive(Debug, Default)]
 struct MemHogResult {
+    pub base_rps: f64,
+    pub base_rps_stdev: f64,
+    pub base_lat: f64,
+    pub base_lat_stdev: f64,
+
     pub work_isol_pcts: BTreeMap<String, f64>,
-    pub lat_isol_pcts: BTreeMap<String, f64>,
-    pub work_isol_factor: f64,
-    pub work_csv_factor: f64,
-    pub lat_isol_factor: f64,
+    pub work_isol_mean: f64,
+    pub work_isol_stdev: f64,
+
+    pub lat_impact_pcts: BTreeMap<String, f64>,
+    pub lat_impact_mean: f64,
+    pub lat_impact_stdev: f64,
+
+    pub work_csv_mean: f64,
 }
 
 impl MemHog {
+    const DFL_LOOPS: u32 = 5;
+    const DFL_LOAD: f64 = 1.0;
+    const STABLE_HOLD: f64 = 15.0;
+    const TIMEOUT: f64 = 100.0;
+    const PCTS: [&'static str; 13] = [
+        "00", "01", "05", "10", "16", "25", "50", "75", "84", "90", "95", "99", "100",
+    ];
+
     fn run(&mut self, rctx: &mut RunCtx) -> Result<MemHogResult> {
+        self.main_started_at = unix_now();
         for run_idx in 0..self.loops {
             info!(
                 "protection: Stabilizing hashd at {}% for run {}/{}",
@@ -116,17 +131,17 @@ impl MemHog {
             info!(
                 "protection: Holding hashd at {}% for {}",
                 format_pct(self.load),
-                format_duration(MEM_HOG_STABLE_HOLD)
+                format_duration(Self::STABLE_HOLD)
             );
             WorkloadMon::default()
                 .hashd()
-                .timeout(Duration::from_secs_f64(MEM_HOG_STABLE_HOLD))
+                .timeout(Duration::from_secs_f64(Self::STABLE_HOLD))
                 .monitor(rctx)?;
 
             info!("protection: Starting memory hog");
             let hog_started_at = unix_now();
             let timeout = match rctx.test {
-                false => MEM_HOG_TIMEOUT,
+                false => Self::TIMEOUT,
                 true => 10.0,
             };
 
@@ -166,7 +181,89 @@ impl MemHog {
                 final_size: mh_rep.wbytes,
             });
         }
-        Ok(Default::default())
+        self.main_ended_at = unix_now();
+
+        Ok(self.study(rctx))
+    }
+
+    fn study(&self, rctx: &RunCtx) -> MemHogResult {
+        let in_hold = |rep: &rd_agent_intf::Report| {
+            let at = rep.timestamp.timestamp() as u64;
+            for run in self.runs.iter() {
+                if run.stable_at <= at && at < run.hog_started_at {
+                    return true;
+                }
+            }
+            false
+        };
+        let in_hog = |rep: &rd_agent_intf::Report| {
+            let at = rep.timestamp.timestamp() as u64;
+            for run in self.runs.iter() {
+                if run.hog_started_at <= at && at < run.hog_ended_at {
+                    return true;
+                }
+            }
+            false
+        };
+
+        let mut study_base_rps = StudyMean::new(|rep| match in_hold(rep) {
+            true => Some(rep.hashd[0].rps),
+            false => None,
+        });
+        let mut study_base_lat = StudyMean::new(|rep| match in_hold(rep) {
+            true => Some(rep.hashd[0].lat.ctl),
+            false => None,
+        });
+        let mut studies = Studies::new();
+        studies
+            .add(&mut study_base_rps)
+            .add(&mut study_base_lat)
+            .run(rctx, self.main_started_at, self.main_ended_at);
+
+        let (base_rps, base_rps_stdev, _, _) = study_base_rps.result();
+        let (base_lat, base_lat_stdev, _, _) = study_base_lat.result();
+
+        let mut study_work_isol = StudyMeanPcts::new(
+            |rep| match in_hog(rep) {
+                true => Some((rep.hashd[0].rps / base_rps).min(1.0)),
+                false => None,
+            },
+            None,
+        );
+        let mut study_lat_impact = StudyMeanPcts::new(
+            |rep| match in_hog(rep) {
+                true => Some((rep.hashd[0].lat.ctl.max(base_lat) / base_lat - 1.0).max(0.0)),
+                false => None,
+            },
+            None,
+        );
+
+        let mut studies = Studies::new();
+        studies
+            .add(&mut study_work_isol)
+            .add(&mut study_lat_impact)
+            .run(rctx, self.main_started_at, self.main_ended_at);
+
+        let (work_isol_mean, work_isol_stdev, work_isol_pcts) = study_work_isol.result(&Self::PCTS);
+        let (lat_impact_mean, lat_impact_stdev, lat_impact_pcts) =
+            study_lat_impact.result(&Self::PCTS);
+
+        MemHogResult {
+            base_rps,
+            base_rps_stdev,
+            base_lat,
+            base_lat_stdev,
+
+            work_isol_pcts,
+            work_isol_mean,
+            work_isol_stdev,
+
+            lat_impact_pcts,
+            lat_impact_mean,
+            lat_impact_stdev,
+
+            work_csv_mean: 0.0,
+        }
     }
 }
 
@@ -184,8 +281,8 @@ impl Scenario {
     fn parse(mut props: BTreeMap<String, String>) -> Result<Self> {
         match props.remove("scenario").as_deref() {
             Some("mem-hog") => {
-                let mut loops = MEM_HOG_DFL_LOOPS;
-                let mut load = MEM_HOG_DFL_LOAD;
+                let mut loops = MemHog::DFL_LOOPS;
+                let mut load = MemHog::DFL_LOAD;
                 let mut speed = MemHogSpeed::Hog2x;
                 for (k, v) in props.iter() {
                     match k.as_str() {
@@ -203,6 +300,8 @@ impl Scenario {
                         loops,
                         load,
                         speed,
+                        main_started_at: 0,
+                        main_ended_at: 0,
                         runs: vec![],
                     }),
                 })
