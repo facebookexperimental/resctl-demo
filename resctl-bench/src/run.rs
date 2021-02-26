@@ -1092,7 +1092,6 @@ impl WorkloadMon {
         self.nr_sys_running = self.nr_sys_total;
         self.nr_side_running = self.nr_side_total;
         let exit_on_any = self.exit_on_any || (self.nr_sys_total == 0 && self.nr_side_total == 0);
-        let timeout = self.timeout.clone();
 
         let started_at = SystemTime::now();
 
@@ -1164,7 +1163,7 @@ impl WorkloadMon {
                     }
                 }
             },
-            timeout,
+            None,
             Some(progress),
         );
 
