@@ -232,7 +232,7 @@ pub fn bandit_mem_hog(args: &BanditMemHogArgs) {
     let target_rbps = parse_bps(&args.rbps, "IO_RBPS").unwrap();
 
     info!(
-        "Target wbps={} rbps={} readers={}",
+        "Target wbps:{} rbps:{} readers:{}",
         format_size(target_wbps),
         format_size(target_rbps),
         args.nr_readers,
@@ -295,7 +295,7 @@ pub fn bandit_mem_hog(args: &BanditMemHogArgs) {
 
         if target_rbps == 0 || args.nr_readers == 0 {
             info!(
-                "size={:>5} bps={:>5} debt={:>5} loss={:>5}",
+                "size:{:>5} bps:{:>5} debt:{:>5} loss:{:>5}",
                 format_size(size),
                 format_size(wbps),
                 format_size(wdebt),
@@ -303,7 +303,7 @@ pub fn bandit_mem_hog(args: &BanditMemHogArgs) {
             );
         } else {
             info!(
-                "size={:>5} wrbps={:>5}/{:>5} wrdebt={:>5}/{:>5} wrloss={:>5}/{:>5}",
+                "size:{:>5} wrbps:{:>5}/{:>5} wrdebt:{:>5}/{:>5} wrloss:{:>5}/{:>5}",
                 format_size(size),
                 format_size(wbps),
                 format_size(rbps),
