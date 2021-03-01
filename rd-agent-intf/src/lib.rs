@@ -50,6 +50,14 @@ pub const SIDELOADER_SVC_NAME: &str = "rd-sideloader.service";
 pub const SIDELOAD_SVC_PREFIX: &str = "rd-sideload-";
 pub const SYSLOAD_SVC_PREFIX: &str = "rd-sysload-";
 
+pub fn sysload_svc_name(name: &str) -> String {
+    format!("{}{}.service", SYSLOAD_SVC_PREFIX, name)
+}
+
+pub fn sideload_svc_name(name: &str) -> String {
+    format!("{}{}.service", SIDELOAD_SVC_PREFIX, name)
+}
+
 #[derive(Default)]
 pub struct AgentFiles {
     pub args_path: String,

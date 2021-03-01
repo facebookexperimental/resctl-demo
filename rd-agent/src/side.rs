@@ -11,17 +11,9 @@ use std::time::{Duration, Instant};
 use util::*;
 
 use rd_agent_intf::{
-    BenchKnobs, SideloadDefs, SideloadReport, SideloadSpec, Slice, SysReq, SysloadReport,
-    SIDELOAD_SVC_PREFIX, SYSLOAD_SVC_PREFIX,
+    sideload_svc_name, sysload_svc_name, BenchKnobs, SideloadDefs, SideloadReport, SideloadSpec,
+    Slice, SysReq, SysloadReport,
 };
-
-fn sysload_svc_name(name: &str) -> String {
-    format!("{}{}.service", SYSLOAD_SVC_PREFIX, name)
-}
-
-fn sideload_svc_name(name: &str) -> String {
-    format!("{}{}.service", SIDELOAD_SVC_PREFIX, name)
-}
 
 lazy_static::lazy_static! {
     static ref SIDE_NAME_RE: regex::Regex = regex::Regex::new("^[a-zA-Z0-9_-]+$").unwrap();

@@ -961,7 +961,6 @@ pub struct WorkloadMon {
     sideloads: Vec<String>,
     timeout: Option<Duration>,
     exit_on_any: bool,
-    status_fn: Option<Box<dyn FnMut(&WorkloadMon, &AgentFiles) -> Result<(bool, String)>>>,
 
     pub hashd_loads: [f64; 2],
     pub nr_sys_total: usize,
@@ -997,66 +996,10 @@ impl WorkloadMon {
         self
     }
 
-    pub fn status_fn<F>(mut self, status_fn: F) -> Self
+    pub fn monitor_with_status<F>(&mut self, rctx: &RunCtx, mut status_fn: F) -> Result<bool>
     where
-        F: FnMut(&WorkloadMon, &AgentFiles) -> Result<(bool, String)> + 'static,
+        F: FnMut(&WorkloadMon, &AgentFiles) -> Result<(bool, String)>,
     {
-        self.status_fn = Some(Box::new(status_fn));
-        self
-    }
-
-    fn dfl_status(mon: &WorkloadMon, af: &AgentFiles) -> Result<(bool, String)> {
-        let rep = &af.report.data;
-        let mut status = String::new();
-        match (mon.hashd[0], mon.hashd[1]) {
-            (true, false) => write!(
-                status,
-                "load:{:>4}% lat:{:>5} ",
-                format_pct(mon.hashd_loads[0]),
-                format_duration(rep.hashd[0].lat.ctl)
-            )
-            .unwrap(),
-            (false, true) => write!(
-                status,
-                "load:{:>4}% lat:{:>5}",
-                format_pct(mon.hashd_loads[1]),
-                format_duration(rep.hashd[1].lat.ctl)
-            )
-            .unwrap(),
-            (true, true) => write!(
-                status,
-                "load:{:>4}%/{:>4}% lat:{:>5}/{:>5}",
-                format_pct(mon.hashd_loads[0]),
-                format_pct(mon.hashd_loads[1]),
-                format_duration(rep.hashd[0].lat.ctl),
-                format_duration(rep.hashd[1].lat.ctl),
-            )
-            .unwrap(),
-            _ => {}
-        }
-        if mon.nr_sys_total > 0 {
-            write!(
-                status,
-                "sysloads: {}/{} ",
-                mon.nr_sys_running, mon.nr_sys_total
-            )
-            .unwrap();
-        }
-        if mon.nr_side_total > 0 {
-            write!(
-                status,
-                "sideloads: {}/{} ",
-                mon.nr_side_running, mon.nr_side_total
-            )
-            .unwrap();
-        }
-        if let Some(rem) = mon.time_remaining.as_ref() {
-            write!(status, "({} remaining)", format_duration(rem.as_secs_f64())).unwrap();
-        }
-        Ok((false, status))
-    }
-
-    pub fn monitor(&mut self, rctx: &RunCtx) -> Result<bool> {
         let mut progress = BenchProgress::new();
 
         if self.hashd[0] {
@@ -1073,18 +1016,6 @@ impl WorkloadMon {
             progress =
                 progress.monitor_systemd_unit(&format!("{}{}.service", SIDELOAD_SVC_PREFIX, name));
         }
-
-        let restore_status_fn;
-        let mut status_fn = match self.status_fn.take() {
-            Some(v) => {
-                restore_status_fn = true;
-                v
-            }
-            None => {
-                restore_status_fn = false;
-                Box::new(Self::dfl_status)
-            }
-        };
 
         let mut result = Ok(());
         self.nr_sys_total = self.sysloads.len();
@@ -1167,10 +1098,6 @@ impl WorkloadMon {
             Some(progress),
         );
 
-        if restore_status_fn {
-            self.status_fn = Some(status_fn);
-        }
-
         if result.is_err() {
             return Err(result.err().unwrap());
         }
@@ -1183,5 +1110,60 @@ impl WorkloadMon {
                     || self.nr_side_running != self.nr_side_total
             }
         })
+    }
+
+    fn dfl_status(mon: &WorkloadMon, af: &AgentFiles) -> Result<(bool, String)> {
+        let rep = &af.report.data;
+        let mut status = String::new();
+        match (mon.hashd[0], mon.hashd[1]) {
+            (true, false) => write!(
+                status,
+                "load:{:>4}% lat:{:>5} ",
+                format_pct(mon.hashd_loads[0]),
+                format_duration(rep.hashd[0].lat.ctl)
+            )
+            .unwrap(),
+            (false, true) => write!(
+                status,
+                "load:{:>4}% lat:{:>5}",
+                format_pct(mon.hashd_loads[1]),
+                format_duration(rep.hashd[1].lat.ctl)
+            )
+            .unwrap(),
+            (true, true) => write!(
+                status,
+                "load:{:>4}%/{:>4}% lat:{:>5}/{:>5}",
+                format_pct(mon.hashd_loads[0]),
+                format_pct(mon.hashd_loads[1]),
+                format_duration(rep.hashd[0].lat.ctl),
+                format_duration(rep.hashd[1].lat.ctl),
+            )
+            .unwrap(),
+            _ => {}
+        }
+        if mon.nr_sys_total > 0 {
+            write!(
+                status,
+                "sysloads: {}/{} ",
+                mon.nr_sys_running, mon.nr_sys_total
+            )
+            .unwrap();
+        }
+        if mon.nr_side_total > 0 {
+            write!(
+                status,
+                "sideloads: {}/{} ",
+                mon.nr_side_running, mon.nr_side_total
+            )
+            .unwrap();
+        }
+        if let Some(rem) = mon.time_remaining.as_ref() {
+            write!(status, "({} remaining)", format_duration(rem.as_secs_f64())).unwrap();
+        }
+        Ok((false, status))
+    }
+
+    pub fn monitor(&mut self, rctx: &RunCtx) -> Result<bool> {
+        self.monitor_with_status(rctx, Self::dfl_status)
     }
 }

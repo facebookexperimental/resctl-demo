@@ -1,5 +1,6 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
 use super::*;
+use rd_agent_intf::{bandit_report::BanditMemHogReport, Report};
 use std::collections::BTreeMap;
 
 #[derive(Clone, Copy, Debug)]
@@ -109,6 +110,7 @@ struct MemHogResult {
 }
 
 impl MemHog {
+    const NAME: &'static str = "mem-hog";
     const DFL_LOOPS: u32 = 5;
     const DFL_LOAD: f64 = 1.0;
     const STABLE_HOLD: f64 = 15.0;
@@ -116,6 +118,15 @@ impl MemHog {
     const PCTS: [&'static str; 13] = [
         "00", "01", "05", "10", "16", "25", "50", "75", "84", "90", "95", "99", "100",
     ];
+
+    fn read_mh_rep(rep: &Report) -> Result<BanditMemHogReport> {
+        let mh_rep_path = match rep.sysloads.get(Self::NAME) {
+            Some(sl) => format!("{}/report.json", &sl.scr_path),
+            None => bail!("agent report doesn't contain \"mem-hog\" sysload"),
+        };
+        BanditMemHogReport::load(&mh_rep_path)
+            .with_context(|| format!("failed to read bandit-mem-hog report {:?}", &mh_rep_path))
+    }
 
     fn run(&mut self, rctx: &mut RunCtx) -> Result<MemHogResult> {
         self.main_started_at = unix_now();
@@ -128,6 +139,9 @@ impl MemHog {
             );
             warm_up_hashd(rctx, self.load)?;
 
+            // hashd stabilized at the target load level. Hold for a bit to
+            // guarantee some idle time between runs. These periods are also
+            // used to determine the baseline load and latency.
             info!(
                 "protection: Holding hashd at {}% for {}",
                 format_pct(self.load),
@@ -146,28 +160,42 @@ impl MemHog {
             };
 
             rctx.start_sysload("mem-hog", self.speed.to_sideload_name())?;
+
+            let mh_svc_name = rd_agent_intf::sysload_svc_name(Self::NAME);
+            let mut first_mh_rep = Err(anyhow!("swap usage stayed zero"));
+
+            // Memory hog is running. Monitor it until it dies or the
+            // timeout expires. Record the memory hog report when the swap
+            // usage is first seen, which will be used as the baseline for
+            // calculating the total amount of needed and performed IOs.
             WorkloadMon::default()
                 .hashd()
                 .sysload("mem-hog")
                 .timeout(Duration::from_secs_f64(timeout))
-                .status_fn(ws_status)
-                .monitor(rctx)?;
+                .monitor_with_status(
+                    rctx,
+                    |wm: &WorkloadMon, af: &AgentFiles| -> Result<(bool, String)> {
+                        let rep = &af.report.data;
+                        if first_mh_rep.is_err() {
+                            match (rep.usages.get(&mh_svc_name), Self::read_mh_rep(rep)) {
+                                (Some(usage), Ok(mh_rep)) => {
+                                    if usage.swap_bytes > 0 {
+                                        first_mh_rep = Ok(mh_rep);
+                                    }
+                                }
+                                _ => {}
+                            }
+                        }
+                        ws_status(wm, af)
+                    },
+                )?;
 
-            let mut mh_rep_path = rctx.access_agent_files::<_, Result<_>>(|af| {
-                Ok(af
-                    .report
-                    .data
-                    .sysloads
-                    .get("mem-hog")
-                    .context("can't find \"mem-hog\" sysload in report")?
-                    .scr_path
-                    .clone())
-            })?;
-            mh_rep_path += "/report.json";
-            let mh_rep = rd_agent_intf::bandit_report::BanditMemHogReport::load(&mh_rep_path)
-                .with_context(|| {
-                    format!("failed to read bandit-mem-hog report {:?}", &mh_rep_path)
-                })?;
+            // Memory hog is dead. Unwrap the first report and read the last
+            // report to calculate delta.
+            let first_mh_rep = first_mh_rep?;
+            let last_mh_rep =
+                rctx.access_agent_files::<_, Result<_>>(|af| Self::read_mh_rep(&af.report.data))?;
+
             rctx.stop_sysload("mem-hog");
 
             let hog_ended_at = unix_now();
@@ -178,7 +206,7 @@ impl MemHog {
                 stable_at: 0,
                 hog_started_at,
                 hog_ended_at,
-                final_size: mh_rep.wbytes,
+                final_size: last_mh_rep.wbytes,
             });
         }
         self.main_ended_at = unix_now();
