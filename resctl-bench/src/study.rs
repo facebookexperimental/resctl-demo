@@ -213,6 +213,36 @@ where
     }
 }
 
+pub struct StudyMutFn<F>
+where
+    F: FnMut(&Report),
+{
+    func: F,
+}
+
+impl<F> StudyMutFn<F>
+where
+    F: FnMut(&Report),
+{
+    pub fn new(func: F) -> Self {
+        Self { func }
+    }
+}
+
+impl<F> Study for StudyMutFn<F>
+where
+    F: FnMut(&Report),
+{
+    fn study(&mut self, rep: &Report) -> Result<()> {
+        (self.func)(rep);
+        Ok(())
+    }
+
+    fn as_study_mut(&mut self) -> &mut dyn Study {
+        self
+    }
+}
+
 //
 // Helpers.
 //

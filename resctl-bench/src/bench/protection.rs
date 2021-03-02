@@ -1,7 +1,7 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
 use super::*;
 use rd_agent_intf::{bandit_report::BanditMemHogReport, Report};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, VecDeque};
 
 #[derive(Clone, Copy, Debug)]
 enum MemHogSpeed {
@@ -78,7 +78,9 @@ struct MemHogRun {
     stable_at: u64,
     hog_started_at: u64,
     hog_ended_at: u64,
-    final_size: u64,
+    first_mh_rep: BanditMemHogReport,
+    last_mh_rep: BanditMemHogReport,
+    last_mh_mem: usize,
 }
 
 #[derive(Clone, Debug)]
@@ -99,14 +101,24 @@ struct MemHogResult {
     pub base_lat_stdev: f64,
 
     pub work_isol_pcts: BTreeMap<String, f64>,
-    pub work_isol_mean: f64,
+    pub work_isol_factor: f64,
     pub work_isol_stdev: f64,
 
     pub lat_impact_pcts: BTreeMap<String, f64>,
-    pub lat_impact_mean: f64,
+    pub lat_impact_factor: f64,
     pub lat_impact_stdev: f64,
 
-    pub work_csv_mean: f64,
+    pub work_csv_factor: f64,
+
+    pub vrate_mean: f64,
+    pub vrate_stdev: f64,
+    pub io_usage: f64,
+    pub io_unused: f64,
+    pub mem_hog_bytes: u64,
+    pub mem_hog_lost_bytes: u64,
+    pub mem_hog_loss: f64,
+
+    pub runs: Vec<MemHogRun>,
 }
 
 impl MemHog {
@@ -115,6 +127,7 @@ impl MemHog {
     const DFL_LOAD: f64 = 1.0;
     const STABLE_HOLD: f64 = 15.0;
     const TIMEOUT: f64 = 100.0;
+    const MEM_AVG_PERIOD: usize = 5;
     const PCTS: [&'static str; 13] = [
         "00", "01", "05", "10", "16", "25", "50", "75", "84", "90", "95", "99", "100",
     ];
@@ -138,6 +151,7 @@ impl MemHog {
                 self.loops
             );
             warm_up_hashd(rctx, self.load)?;
+            let stable_at = unix_now();
 
             // hashd stabilized at the target load level. Hold for a bit to
             // guarantee some idle time between runs. These periods are also
@@ -163,6 +177,7 @@ impl MemHog {
 
             let mh_svc_name = rd_agent_intf::sysload_svc_name(Self::NAME);
             let mut first_mh_rep = Err(anyhow!("swap usage stayed zero"));
+            let mut mh_mem_rec = VecDeque::<usize>::new();
 
             // Memory hog is running. Monitor it until it dies or the
             // timeout expires. Record the memory hog report when the swap
@@ -176,14 +191,16 @@ impl MemHog {
                     rctx,
                     |wm: &WorkloadMon, af: &AgentFiles| -> Result<(bool, String)> {
                         let rep = &af.report.data;
-                        if first_mh_rep.is_err() {
-                            match (rep.usages.get(&mh_svc_name), Self::read_mh_rep(rep)) {
-                                (Some(usage), Ok(mh_rep)) => {
-                                    if usage.swap_bytes > 0 {
-                                        first_mh_rep = Ok(mh_rep);
-                                    }
+                        if let (Some(usage), Ok(mh_rep)) =
+                            (rep.usages.get(&mh_svc_name), Self::read_mh_rep(rep))
+                        {
+                            if first_mh_rep.is_err() {
+                                if usage.swap_bytes > 0 {
+                                    first_mh_rep = Ok(mh_rep);
                                 }
-                                _ => {}
+                            } else {
+                                mh_mem_rec.push_front(usage.mem_bytes as usize);
+                                mh_mem_rec.truncate(Self::MEM_AVG_PERIOD);
                             }
                         }
                         ws_status(wm, af)
@@ -195,6 +212,7 @@ impl MemHog {
             let first_mh_rep = first_mh_rep?;
             let last_mh_rep =
                 rctx.access_agent_files::<_, Result<_>>(|af| Self::read_mh_rep(&af.report.data))?;
+            let last_mh_mem = mh_mem_rec.iter().sum::<usize>() / mh_mem_rec.len();
 
             rctx.stop_sysload("mem-hog");
 
@@ -203,10 +221,12 @@ impl MemHog {
             info!("protection: Memory hog terminated");
 
             self.runs.push(MemHogRun {
-                stable_at: 0,
+                stable_at,
                 hog_started_at,
                 hog_ended_at,
-                final_size: last_mh_rep.wbytes,
+                first_mh_rep,
+                last_mh_rep,
+                last_mh_mem,
             });
         }
         self.main_ended_at = unix_now();
@@ -218,22 +238,27 @@ impl MemHog {
         let in_hold = |rep: &rd_agent_intf::Report| {
             let at = rep.timestamp.timestamp() as u64;
             for run in self.runs.iter() {
-                if run.stable_at <= at && at < run.hog_started_at {
+                if run.stable_at <= at && at <= run.hog_started_at {
                     return true;
                 }
             }
             false
         };
         let in_hog = |rep: &rd_agent_intf::Report| {
-            let at = rep.timestamp.timestamp() as u64;
+            let at = rep.timestamp.timestamp();
             for run in self.runs.iter() {
-                if run.hog_started_at <= at && at < run.hog_ended_at {
+                if run.first_mh_rep.timestamp.timestamp() <= at
+                    && at <= run.last_mh_rep.timestamp.timestamp()
+                {
                     return true;
                 }
             }
             false
         };
 
+        // Determine the baseline rps and latency by averaging them over all
+        // hold periods. We need these values for the isolation and latency
+        // impact studies. Run these first.
         let mut study_base_rps = StudyMean::new(|rep| match in_hold(rep) {
             true => Some(rep.hashd[0].rps),
             false => None,
@@ -251,6 +276,11 @@ impl MemHog {
         let (base_rps, base_rps_stdev, _, _) = study_base_rps.result();
         let (base_lat, base_lat_stdev, _, _) = study_base_lat.result();
 
+        // Study work isolation and latency impact. The former is defined as
+        // observed rps divided by the baseline, [0.0, 1.0] with 1.0
+        // indicating the perfect isolation. The latter is defined as the
+        // proportion of the latency increase over the baseline, [0.0, 1.0]
+        // with 0.0 indicating no latency impact.
         let mut study_work_isol = StudyMeanPcts::new(
             |rep| match in_hog(rep) {
                 true => Some((rep.hashd[0].rps / base_rps).min(1.0)),
@@ -266,15 +296,75 @@ impl MemHog {
             None,
         );
 
+        // Collect IO usage and unused budgets which will be used to
+        // calculate work conservation factor.
+        let mh_svc_name = rd_agent_intf::sysload_svc_name(Self::NAME);
+        let mut io_usage = 0.0_f64;
+        let mut io_unused = 0.0_f64;
+        let mut mh_io_usage = 0.0_f64;
+        let mut study_io_usages = StudyMutFn::new(|rep| {
+            if in_hog(rep) {
+                let vrate = rep.iocost.vrate;
+                let root_util = rep.usages[ROOT_SLICE].io_util;
+                // The reported IO utilization is relative to the effective
+                // vrate. Scale so that the values are relative to the
+                // absolute model parameters. As vrate is sampled, if it
+                // fluctuates at high frequency, this can introduce
+                // significant errors.
+                io_usage += root_util * vrate / 100.0;
+                io_unused += (1.0 - root_util).max(0.0) * vrate / 100.0;
+                if let Some(usage) = rep.usages.get(&mh_svc_name) {
+                    mh_io_usage += usage.io_util * vrate / 100.0;
+                }
+            }
+        });
+
+        // vrate mean isn't used in the process but report to help
+        // visibility.
+        let mut study_vrate_mean = StudyMean::new(|rep| match in_hog(rep) {
+            true => Some(rep.iocost.vrate),
+            false => None,
+        });
+
         let mut studies = Studies::new();
         studies
             .add(&mut study_work_isol)
             .add(&mut study_lat_impact)
+            .add(&mut study_io_usages)
+            .add(&mut study_vrate_mean)
             .run(rctx, self.main_started_at, self.main_ended_at);
 
-        let (work_isol_mean, work_isol_stdev, work_isol_pcts) = study_work_isol.result(&Self::PCTS);
-        let (lat_impact_mean, lat_impact_stdev, lat_impact_pcts) =
+        let (work_isol_factor, work_isol_stdev, work_isol_pcts) =
+            study_work_isol.result(&Self::PCTS);
+        let (lat_impact_factor, lat_impact_stdev, lat_impact_pcts) =
             study_lat_impact.result(&Self::PCTS);
+
+        // Collect how many bytes the memory hogs put out to swap and how
+        // much their growth was limited.
+        let mut mh_bytes = 0;
+        let mut mh_lost_bytes = 0;
+        for run in self.runs.iter() {
+            // Total bytes put out to swap is total size sans what was on
+            // physical memory.
+            mh_bytes += run
+                .last_mh_rep
+                .wbytes
+                .saturating_sub(run.last_mh_mem as u64);
+            mh_lost_bytes += run.last_mh_rep.wloss;
+        }
+
+        // Determine iocost per each byte and map the number of lost bytes
+        // to iocost.
+        let mh_cost_per_byte = mh_io_usage as f64 / mh_bytes as f64;
+        let mh_loss = mh_lost_bytes as f64 * mh_cost_per_byte;
+
+        // If work conservation is 100%, mem-hog would have used all the
+        // left over IOs that it could. The conservation factor is defined
+        // as the actual usage divided by this maximum possible usage.
+        let usage_possible = io_usage + io_unused.min(mh_loss);
+        let work_csv_factor = io_usage as f64 / usage_possible as f64;
+
+        let (vrate_mean, vrate_stdev, _, _) = study_vrate_mean.result();
 
         MemHogResult {
             base_rps,
@@ -283,14 +373,24 @@ impl MemHog {
             base_lat_stdev,
 
             work_isol_pcts,
-            work_isol_mean,
+            work_isol_factor,
             work_isol_stdev,
 
             lat_impact_pcts,
-            lat_impact_mean,
+            lat_impact_factor,
             lat_impact_stdev,
 
-            work_csv_mean: 0.0,
+            work_csv_factor,
+
+            vrate_mean,
+            vrate_stdev,
+            io_usage,
+            io_unused,
+            mem_hog_bytes: mh_bytes,
+            mem_hog_lost_bytes: mh_lost_bytes,
+            mem_hog_loss: mh_loss,
+
+            runs: self.runs.clone(),
         }
     }
 }
