@@ -321,28 +321,12 @@ impl StudyIoLatPcts {
             .map(|pct| (pct.len() + 1).max(5))
             .collect();
 
-        let fmt_pct = |pct: &str| -> String {
-            match pct {
-                "cum" | "mean" | "stdev" => pct.to_string(),
-                pct => {
-                    let pctf = pct.parse::<f64>().unwrap();
-                    if pctf == 0.0 {
-                        "min".to_string()
-                    } else if pctf == 100.0 {
-                        "max".to_string()
-                    } else {
-                        format!("p{}", pct)
-                    }
-                }
-            }
-        };
-
         for (pct, width) in time_pcts.clone().zip(widths.iter()) {
-            write!(out, " {:>1$}", &fmt_pct(*pct), width).unwrap();
+            write!(out, " {:>1$}", &format_percentile(*pct), width).unwrap();
         }
 
         for lat_pct in Self::LAT_PCTS.iter() {
-            write!(out, "\n{:<7}", &fmt_pct(*lat_pct)).unwrap();
+            write!(out, "\n{:<7}", &format_percentile(*lat_pct)).unwrap();
             for (time_pct, width) in time_pcts.clone().zip(widths.iter()) {
                 write!(
                     out,

@@ -277,6 +277,21 @@ pub fn format_pct_dashed(ratio: f64) -> String {
     format_pct_internal(ratio, "-")
 }
 
+pub fn format_percentile(pct: &str) -> String {
+    match pct.parse::<f64>() {
+        Ok(pctf) => {
+            if pctf == 0.0 {
+                "min".to_string()
+            } else if pctf == 100.0 {
+                "max".to_string()
+            } else {
+                format!("p{}", pct)
+            }
+        }
+        _ => pct.to_string(),
+    }
+}
+
 pub fn parse_duration(input: &str) -> Result<f64> {
     lazy_static::lazy_static! {
         static ref UNITS: HashMap<char, f64> = [

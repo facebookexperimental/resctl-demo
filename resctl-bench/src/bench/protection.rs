@@ -15,23 +15,39 @@ enum MemHogSpeed {
 impl MemHogSpeed {
     fn from_str(input: &str) -> Result<Self> {
         Ok(match input {
-            "10%" => MemHogSpeed::Hog10Pct,
-            "25%" => MemHogSpeed::Hog25Pct,
-            "50%" => MemHogSpeed::Hog50Pct,
-            "1x" => MemHogSpeed::Hog1x,
-            "2x" => MemHogSpeed::Hog2x,
+            "10%" => Self::Hog10Pct,
+            "25%" => Self::Hog25Pct,
+            "50%" => Self::Hog50Pct,
+            "1x" => Self::Hog1x,
+            "2x" => Self::Hog2x,
             _ => bail!("\"speed\" should be one of 10%, 25%, 50%, 1x or 2x"),
         })
     }
 
     fn to_sideload_name(&self) -> &'static str {
         match self {
-            MemHogSpeed::Hog10Pct => "mem-hog-10pct",
-            MemHogSpeed::Hog25Pct => "mem-hog-25pct",
-            MemHogSpeed::Hog50Pct => "mem-hog-50pct",
-            MemHogSpeed::Hog1x => "mem-hog-1x",
-            MemHogSpeed::Hog2x => "mem-hog-2x",
+            Self::Hog10Pct => "mem-hog-10pct",
+            Self::Hog25Pct => "mem-hog-25pct",
+            Self::Hog50Pct => "mem-hog-50pct",
+            Self::Hog1x => "mem-hog-1x",
+            Self::Hog2x => "mem-hog-2x",
         }
+    }
+}
+
+impl std::fmt::Display for MemHogSpeed {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}",
+            match self {
+                Self::Hog10Pct => "10%",
+                Self::Hog25Pct => "25%",
+                Self::Hog50Pct => "50%",
+                Self::Hog1x => "1x",
+                Self::Hog2x => "2x",
+            }
+        )
     }
 }
 
@@ -73,14 +89,14 @@ fn ws_status(mon: &WorkloadMon, af: &AgentFiles) -> Result<(bool, String)> {
     Ok((false, status))
 }
 
-#[derive(Clone, Debug)]
-struct MemHogRun {
-    stable_at: u64,
-    hog_started_at: u64,
-    hog_ended_at: u64,
-    first_mh_rep: BanditMemHogReport,
-    last_mh_rep: BanditMemHogReport,
-    last_mh_mem: usize,
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct MemHogRun {
+    pub stable_at: u64,
+    pub hog_started_at: u64,
+    pub hog_ended_at: u64,
+    pub first_mh_rep: BanditMemHogReport,
+    pub last_mh_rep: BanditMemHogReport,
+    pub last_mh_mem: usize,
 }
 
 #[derive(Clone, Debug)]
@@ -93,8 +109,8 @@ struct MemHog {
     runs: Vec<MemHogRun>,
 }
 
-#[derive(Debug, Default)]
-struct MemHogResult {
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct MemHogResult {
     pub base_rps: f64,
     pub base_rps_stdev: f64,
     pub base_lat: f64,
@@ -110,13 +126,16 @@ struct MemHogResult {
 
     pub work_csv_factor: f64,
 
+    pub main_started_at: u64,
+    pub main_ended_at: u64,
     pub vrate_mean: f64,
     pub vrate_stdev: f64,
     pub io_usage: f64,
     pub io_unused: f64,
+    pub mem_hog_io_usage: f64,
+    pub mem_hog_io_loss: f64,
     pub mem_hog_bytes: u64,
     pub mem_hog_lost_bytes: u64,
-    pub mem_hog_loss: f64,
 
     pub runs: Vec<MemHogRun>,
 }
@@ -231,13 +250,30 @@ impl MemHog {
         }
         self.main_ended_at = unix_now();
 
-        Ok(self.study(rctx))
+        let mut result = Self::study(
+            self.runs.iter(),
+            self.main_started_at,
+            self.main_ended_at,
+            rctx,
+        );
+        result.runs = self.runs.clone();
+        Ok(result)
     }
 
-    fn study(&self, rctx: &RunCtx) -> MemHogResult {
+    fn study<'a, I>(
+        runs: I,
+        main_started_at: u64,
+        main_ended_at: u64,
+        rctx: &RunCtx,
+    ) -> MemHogResult
+    where
+        I: Iterator<Item = &'a MemHogRun>,
+    {
+        let runs: Vec<&MemHogRun> = runs.collect();
+
         let in_hold = |rep: &rd_agent_intf::Report| {
             let at = rep.timestamp.timestamp() as u64;
-            for run in self.runs.iter() {
+            for run in runs.iter() {
                 if run.stable_at <= at && at <= run.hog_started_at {
                     return true;
                 }
@@ -246,7 +282,7 @@ impl MemHog {
         };
         let in_hog = |rep: &rd_agent_intf::Report| {
             let at = rep.timestamp.timestamp();
-            for run in self.runs.iter() {
+            for run in runs.iter() {
                 if run.first_mh_rep.timestamp.timestamp() <= at
                     && at <= run.last_mh_rep.timestamp.timestamp()
                 {
@@ -271,7 +307,7 @@ impl MemHog {
         studies
             .add(&mut study_base_rps)
             .add(&mut study_base_lat)
-            .run(rctx, self.main_started_at, self.main_ended_at);
+            .run(rctx, main_started_at, main_ended_at);
 
         let (base_rps, base_rps_stdev, _, _) = study_base_rps.result();
         let (base_lat, base_lat_stdev, _, _) = study_base_lat.result();
@@ -332,7 +368,7 @@ impl MemHog {
             .add(&mut study_lat_impact)
             .add(&mut study_io_usages)
             .add(&mut study_vrate_mean)
-            .run(rctx, self.main_started_at, self.main_ended_at);
+            .run(rctx, main_started_at, main_ended_at);
 
         let (work_isol_factor, work_isol_stdev, work_isol_pcts) =
             study_work_isol.result(&Self::PCTS);
@@ -343,7 +379,7 @@ impl MemHog {
         // much their growth was limited.
         let mut mh_bytes = 0;
         let mut mh_lost_bytes = 0;
-        for run in self.runs.iter() {
+        for run in runs.iter() {
             // Total bytes put out to swap is total size sans what was on
             // physical memory.
             mh_bytes += run
@@ -356,12 +392,12 @@ impl MemHog {
         // Determine iocost per each byte and map the number of lost bytes
         // to iocost.
         let mh_cost_per_byte = mh_io_usage as f64 / mh_bytes as f64;
-        let mh_loss = mh_lost_bytes as f64 * mh_cost_per_byte;
+        let mh_io_loss = mh_lost_bytes as f64 * mh_cost_per_byte;
 
         // If work conservation is 100%, mem-hog would have used all the
         // left over IOs that it could. The conservation factor is defined
         // as the actual usage divided by this maximum possible usage.
-        let usage_possible = io_usage + io_unused.min(mh_loss);
+        let usage_possible = io_usage + io_unused.min(mh_io_loss);
         let work_csv_factor = io_usage as f64 / usage_possible as f64;
 
         let (vrate_mean, vrate_stdev, _, _) = study_vrate_mean.result();
@@ -382,22 +418,114 @@ impl MemHog {
 
             work_csv_factor,
 
+            main_started_at,
+            main_ended_at,
             vrate_mean,
             vrate_stdev,
             io_usage,
             io_unused,
+            mem_hog_io_usage: mh_io_usage,
+            mem_hog_io_loss: mh_io_loss,
             mem_hog_bytes: mh_bytes,
             mem_hog_lost_bytes: mh_lost_bytes,
-            mem_hog_loss: mh_loss,
 
-            runs: self.runs.clone(),
+            runs: vec![],
         }
+    }
+
+    fn format_params<'a>(&self, out: &mut Box<dyn Write + 'a>) {
+        writeln!(
+            out,
+            "Params: loops={} load={} speed={}",
+            self.loops, self.load, self.speed
+        )
+        .unwrap();
+    }
+
+    fn format_info<'a>(out: &mut Box<dyn Write + 'a>, result: &MemHogResult) {
+        writeln!(
+            out,
+            "Info: baseline_rps={:.2}:{:.2} baseline_lat={}:{} vrate={:.2}:{:.2}",
+            result.base_rps,
+            result.base_rps_stdev,
+            format_duration(result.base_lat),
+            format_duration(result.base_lat_stdev),
+            result.vrate_mean,
+            result.vrate_stdev,
+        )
+        .unwrap();
+        writeln!(
+            out,
+            "      io_usage={:.1} io_unused={:.1} mem_hog_io_usage={:.1} mem_hog_io_loss={:.1}",
+            result.io_usage, result.io_unused, result.mem_hog_io_usage, result.mem_hog_io_loss
+        )
+        .unwrap();
+        writeln!(
+            out,
+            "      mem_hog_bytes={} mem_hog_lost_bytes={}\n",
+            format_size(result.mem_hog_bytes),
+            format_size(result.mem_hog_lost_bytes)
+        )
+        .unwrap();
+    }
+
+    fn format_result<'a>(out: &mut Box<dyn Write + 'a>, result: &MemHogResult, full: bool) {
+        if full {
+            Self::format_info(out, result);
+        }
+        writeln!(out, "Work isolation and Latency impact distributions:\n").unwrap();
+        writeln!(
+            out,
+            "           {}",
+            Self::PCTS
+                .iter()
+                .map(|x| format!("{:>5}", format_percentile(*x)))
+                .collect::<Vec<String>>()
+                .join(" ")
+        )
+        .unwrap();
+
+        write!(out, "Work isol  ").unwrap();
+        for pct in Self::PCTS.iter() {
+            write!(out, "{:>5.2} ", result.work_isol_pcts[*pct]).unwrap();
+        }
+        writeln!(out, "").unwrap();
+
+        write!(out, "Lat impact ").unwrap();
+        for pct in Self::PCTS.iter() {
+            write!(out, "{:>5.2} ", result.lat_impact_pcts[*pct]).unwrap();
+        }
+        writeln!(out, "").unwrap();
+
+        writeln!(
+            out,
+            "\nWork isolation factor: {:.2} stdev={:.2}",
+            result.work_isol_factor, result.work_isol_stdev
+        )
+        .unwrap();
+        writeln!(
+            out,
+            "Latency impact factor: {:.2} stdev={:.2}",
+            result.lat_impact_factor, result.lat_impact_stdev
+        )
+        .unwrap();
+        writeln!(
+            out,
+            "Work conservation factor: {:.2}",
+            result.work_csv_factor
+        )
+        .unwrap();
     }
 }
 
 #[derive(Clone, Debug)]
 enum ScenarioKind {
     MemHog(MemHog),
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+enum ScenarioResult {
+    MemHog(MemHogResult),
 }
 
 #[derive(Clone, Debug)]
@@ -438,11 +566,10 @@ impl Scenario {
         }
     }
 
-    fn run(&mut self, rctx: &mut RunCtx) -> Result<()> {
-        match &mut self.kind {
-            ScenarioKind::MemHog(mem_hog) => mem_hog.run(rctx)?,
-        };
-        Ok(())
+    fn run(&mut self, rctx: &mut RunCtx) -> Result<ScenarioResult> {
+        Ok(match &mut self.kind {
+            ScenarioKind::MemHog(mem_hog) => ScenarioResult::MemHog(mem_hog.run(rctx)?),
+        })
     }
 }
 
@@ -463,8 +590,11 @@ impl Bench for ProtectionBench {
     }
 }
 
-#[derive(Clone, Serialize, Deserialize)]
-pub struct ProtectionResult {}
+#[derive(Clone, Default, Serialize, Deserialize)]
+pub struct ProtectionResult {
+    results: Vec<ScenarioResult>,
+    combined_mem_hog_result: Option<MemHogResult>,
+}
 
 impl ProtectionJob {
     fn parse(spec: &JobSpec, _prev_data: Option<&JobData>) -> Result<Self> {
@@ -480,6 +610,34 @@ impl ProtectionJob {
             job.scenarios.push(Scenario::parse(props.clone())?);
         }
 
+        if job.scenarios.len() == 0 {
+            info!("protection: Using default scenario set");
+            job.scenarios.push(
+                Scenario::parse(
+                    [
+                        ("scenario".to_owned(), "mem-hog".to_owned()),
+                        ("load".to_owned(), "1.0".to_owned()),
+                    ]
+                    .iter()
+                    .cloned()
+                    .collect(),
+                )
+                .unwrap(),
+            );
+            job.scenarios.push(
+                Scenario::parse(
+                    [
+                        ("scenario".to_owned(), "mem-hog".to_owned()),
+                        ("load".to_owned(), "0.8".to_owned()),
+                    ]
+                    .iter()
+                    .cloned()
+                    .collect(),
+                )
+                .unwrap(),
+            );
+        }
+
         Ok(job)
     }
 }
@@ -492,21 +650,76 @@ impl Job for ProtectionJob {
     fn run(&mut self, rctx: &mut RunCtx) -> Result<serde_json::Value> {
         rctx.set_prep_testfiles().start_agent();
 
+        let mut result = ProtectionResult::default();
+
         for scn in self.scenarios.iter_mut() {
-            scn.run(rctx)?;
+            result.results.push(scn.run(rctx)?);
         }
 
-        Ok(serde_json::Value::Null)
+        let mut mh_iter: Box<dyn Iterator<Item = &MemHogRun>> = Box::new(std::iter::empty());
+        let (mut mh_started_at, mut mh_ended_at) = (std::u64::MAX, 0_u64);
+        for result in result.results.iter() {
+            match result {
+                ScenarioResult::MemHog(mh) => {
+                    mh_iter = Box::new(mh_iter.chain(mh.runs.iter()));
+                    mh_started_at = mh_started_at.min(mh.main_started_at);
+                    mh_ended_at = mh_ended_at.max(mh.main_ended_at);
+                }
+            }
+        }
+
+        if mh_started_at < std::u64::MAX {
+            result.combined_mem_hog_result =
+                Some(MemHog::study(mh_iter, mh_started_at, mh_ended_at, rctx));
+        }
+
+        Ok(serde_json::to_value(&result).unwrap())
     }
 
     fn format<'a>(
         &self,
-        _out: Box<dyn Write + 'a>,
-        _data: &JobData,
-        _full: bool,
+        mut out: Box<dyn Write + 'a>,
+        data: &JobData,
+        full: bool,
         _props: &JobProps,
     ) -> Result<()> {
-        warn!("protection: format not implemented yet");
+        let result = serde_json::from_value::<ProtectionResult>(data.result.clone()).unwrap();
+
+        if full {
+            for (idx, (scn, res)) in self.scenarios.iter().zip(result.results.iter()).enumerate() {
+                match (scn, res) {
+                    (
+                        Scenario {
+                            kind: ScenarioKind::MemHog(mh),
+                        },
+                        ScenarioResult::MemHog(mhr),
+                    ) => {
+                        writeln!(
+                            out,
+                            "\nScenario {:2}/{:2} - Memory hog\n\
+                             ===========================\n",
+                            idx + 1,
+                            self.scenarios.len()
+                        )
+                        .unwrap();
+                        mh.format_params(&mut out);
+                        writeln!(out, "").unwrap();
+                        MemHog::format_result(&mut out, mhr, true);
+                    }
+                }
+            }
+        }
+
+        if let Some(mh_result) = result.combined_mem_hog_result.as_ref() {
+            writeln!(
+                out,
+                "\nMemory hog summary\n\
+                           ==================\n"
+            )
+            .unwrap();
+            MemHog::format_result(&mut out, mh_result, false);
+        }
+
         Ok(())
     }
 }
