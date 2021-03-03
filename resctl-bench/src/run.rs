@@ -1,7 +1,7 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
 #![allow(dead_code)]
 use anyhow::{anyhow, bail, Context, Result};
-use log::{debug, error, warn};
+use log::{debug, error, info, warn};
 use std::collections::{BTreeSet, VecDeque};
 use std::fmt::Write;
 use std::process::Command;
@@ -923,6 +923,14 @@ impl<'a> RunCtx<'a> {
             bail!("can't nest bench execution while rd-agent is already running for outer bench");
         }
         run_nested_job_spec_int(spec, self.args, self.base_bench, self.jobs.clone())
+    }
+
+    pub fn run_nested_iocost_params(&mut self) -> Result<()> {
+        info!(
+            "iocost-qos: iocost parameters missing and !--iocost-from-sys, running iocost-params"
+        );
+        self.run_nested_job_spec(&resctl_bench_intf::Args::parse_job_spec("iocost-params").unwrap())
+            .context("Failed to run iocost-params")
     }
 
     pub fn sysreqs_report(&self) -> Option<Arc<rd_agent_intf::SysReqsReport>> {

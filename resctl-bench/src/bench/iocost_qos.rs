@@ -462,14 +462,7 @@ impl Job for IoCostQoSJob {
             }
 
             if !has_all {
-                info!(
-                    "iocost-qos: iocost parameters missing and !--iocost-from-sys, \
-                     running iocost-params"
-                );
-                rctx.run_nested_job_spec(
-                    &resctl_bench_intf::Args::parse_job_spec("iocost-params").unwrap(),
-                )
-                .context("Failed to run iocost-params")?;
+                rctx.run_nested_iocost_params()?;
             }
             bench = rctx.base_bench().clone();
             prev_result.base_model = bench.iocost.model.clone();

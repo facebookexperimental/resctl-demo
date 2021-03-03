@@ -648,6 +648,10 @@ impl Job for ProtectionJob {
     }
 
     fn run(&mut self, rctx: &mut RunCtx) -> Result<serde_json::Value> {
+        if rctx.base_bench().iocost_seq == 0 {
+            rctx.run_nested_iocost_params()?;
+        }
+
         rctx.set_prep_testfiles().start_agent();
 
         let mut result = ProtectionResult::default();
