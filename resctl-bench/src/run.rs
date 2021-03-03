@@ -296,6 +296,16 @@ impl<'a> RunCtx<'a> {
         self
     }
 
+    pub fn set_balloon_size(&mut self, size: usize) -> &mut Self {
+        let ballon_ratio = size as f64 / total_memory() as f64;
+        self.add_agent_init_fn(move |rctx| {
+            rctx.access_agent_files(|af| {
+                af.cmd.data.balloon_ratio = ballon_ratio;
+                af.cmd.save().unwrap();
+            });
+        })
+    }
+
     pub fn set_need_linux_tar(&mut self) -> &mut Self {
         self.inner.lock().unwrap().need_linux_tar = true;
         self
@@ -925,12 +935,24 @@ impl<'a> RunCtx<'a> {
         run_nested_job_spec_int(spec, self.args, self.base_bench, self.jobs.clone())
     }
 
-    pub fn run_nested_iocost_params(&mut self) -> Result<()> {
+    pub fn maybe_run_nested_iocost_params(&mut self) -> Result<()> {
+        if self.base_bench().iocost_seq > 0 {
+            return Ok(());
+        }
         info!(
             "iocost-qos: iocost parameters missing and !--iocost-from-sys, running iocost-params"
         );
         self.run_nested_job_spec(&resctl_bench_intf::Args::parse_job_spec("iocost-params").unwrap())
             .context("Failed to run iocost-params")
+    }
+
+    pub fn maybe_run_nested_hashd_params(&mut self) -> Result<()> {
+        if self.base_bench().hashd_seq > 0 {
+            return Ok(());
+        }
+        info!("iocost-qos: hashd parameters missing, running hashd-params");
+        self.run_nested_job_spec(&resctl_bench_intf::Args::parse_job_spec("hashd-params").unwrap())
+            .context("Failed to run hashd-params")
     }
 
     pub fn sysreqs_report(&self) -> Option<Arc<rd_agent_intf::SysReqsReport>> {

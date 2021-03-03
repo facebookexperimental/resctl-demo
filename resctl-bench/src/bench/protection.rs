@@ -575,6 +575,8 @@ impl Scenario {
 
 #[derive(Default, Debug)]
 struct ProtectionJob {
+    passive: bool,
+    balloon_size: usize,
     scenarios: Vec<Scenario>,
 }
 
@@ -600,8 +602,10 @@ impl ProtectionJob {
     fn parse(spec: &JobSpec, _prev_data: Option<&JobData>) -> Result<Self> {
         let mut job = Self::default();
 
-        for (k, _v) in spec.props[0].iter() {
+        for (k, v) in spec.props[0].iter() {
             match k.as_str() {
+                "passive" => job.passive = v.len() == 0 || v.parse::<bool>()?,
+                "balloon" => job.balloon_size = parse_size(v)? as usize,
                 k => bail!("unknown property key {:?}", k),
             }
         }
@@ -648,10 +652,14 @@ impl Job for ProtectionJob {
     }
 
     fn run(&mut self, rctx: &mut RunCtx) -> Result<serde_json::Value> {
-        if rctx.base_bench().iocost_seq == 0 {
-            rctx.run_nested_iocost_params()?;
-        }
+        rctx.maybe_run_nested_hashd_params()?;
 
+        if self.passive {
+            rctx.set_passive_keep_crit_mem_prot();
+        }
+        if self.balloon_size > 0 {
+            rctx.set_balloon_size(self.balloon_size);
+        }
         rctx.set_prep_testfiles().start_agent();
 
         let mut result = ProtectionResult::default();

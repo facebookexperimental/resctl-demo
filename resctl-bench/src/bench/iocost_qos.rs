@@ -363,8 +363,8 @@ impl IoCostQoSJob {
     ) -> Result<IoCostQoSRun> {
         // Set up init function to configure qos after agent startup.
         let ovr_copy = ovr.cloned();
-        rctx.add_agent_init_fn(|rctx| {
-            rctx.access_agent_files(move |af| {
+        rctx.add_agent_init_fn(move |rctx| {
+            rctx.access_agent_files(|af| {
                 let bench = &mut af.bench.data;
                 let slices = &mut af.slices.data;
                 let rep = &af.report.data;
@@ -462,7 +462,7 @@ impl Job for IoCostQoSJob {
             }
 
             if !has_all {
-                rctx.run_nested_iocost_params()?;
+                rctx.maybe_run_nested_iocost_params()?;
             }
             bench = rctx.base_bench().clone();
             prev_result.base_model = bench.iocost.model.clone();
