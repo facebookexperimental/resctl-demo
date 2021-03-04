@@ -431,7 +431,7 @@ impl IoCostQoSJob {
                             &e
                         );
                     } else {
-                        bail!("protection benchmark failed ({:#}), giving up...", &e);
+                        return Err(e.context("protection benchmark failed, giving up..."));
                     }
                 }
             };
