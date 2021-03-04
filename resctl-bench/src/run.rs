@@ -408,12 +408,12 @@ impl<'a> RunCtx<'a> {
                         if SystemTime::now().duration_since(last_status_at).unwrap()
                             <= MINDER_AGENT_TIMEOUT
                         {
-                            warn!("minder: failed to refresh agent status ({})", &e);
+                            warn!("minder: failed to refresh agent status ({:#})", &e);
                             break 'status;
                         }
 
                         error!(
-                            "minder: failed to update agent status for over {}s, giving up ({})",
+                            "minder: failed to update agent status for over {}s, giving up ({:#})",
                             MINDER_AGENT_TIMEOUT.as_secs(),
                             &e
                         );
@@ -485,7 +485,7 @@ impl<'a> RunCtx<'a> {
             None,
         ) {
             self.stop_agent();
-            bail!("rd-agent failed to report back after startup ({})", &e);
+            bail!("rd-agent failed to report back after startup ({:?})", &e);
         }
 
         let mut ctx = self.inner.lock().unwrap();
@@ -516,7 +516,7 @@ impl<'a> RunCtx<'a> {
             }
             if let Err(e) = self.cmd_barrier() {
                 self.stop_agent();
-                bail!("rd-agent failed after running init functions ({})", &e);
+                bail!("rd-agent failed after running init functions ({:?})", &e);
             }
         }
 
@@ -528,7 +528,7 @@ impl<'a> RunCtx<'a> {
 
     pub fn start_agent(&mut self) {
         if let Err(e) = self.start_agent_fallible(vec![]) {
-            error!("Failed to start rd-agent ({})", &e);
+            error!("Failed to start rd-agent ({:?})", &e);
             panic!();
         }
     }
@@ -902,11 +902,11 @@ impl<'a> RunCtx<'a> {
     pub fn run_jctx(&mut self, mut jctx: JobCtx) -> Result<()> {
         // Always start with a fresh bench file.
         if let Err(e) = self.base_bench.save(&self.bench_path) {
-            bail!("Failed to set up {:?} ({})", &self.bench_path, &e);
+            bail!("Failed to set up {:?} ({:?})", &self.bench_path, &e);
         }
 
         if let Err(e) = jctx.run(self) {
-            bail!("Failed to run ({})", &e);
+            bail!("Failed to run ({:?})", &e);
         }
 
         if self.commit_bench {
@@ -914,7 +914,7 @@ impl<'a> RunCtx<'a> {
                 .with_context(|| format!("Failed to load {:?}", &self.bench_path))?;
             if let Err(e) = self.base_bench.save(&self.demo_bench_path) {
                 bail!(
-                    "Failed to commit bench result to {:?} ({})",
+                    "Failed to commit bench result to {:?} ({:?})",
                     self.demo_bench_path,
                     &e
                 );

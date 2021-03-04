@@ -15,6 +15,7 @@ const DFL_STORAGE_BASE_LOOPS: u32 = 3;
 const DFL_STORAGE_LOOPS: u32 = 1;
 const DFL_PROT_LOOPS: u32 = 5;
 const DFL_RETRIES: u32 = 2;
+const PROT_RETRIES: u32 = 2;
 
 // Don't go below 1% of the specified model when applying vrate-intvs.
 const VRATE_INTVS_MIN: f64 = 1.0;
@@ -415,11 +416,27 @@ impl IoCostQoSJob {
         let (vrate_mean, vrate_stdev, vrate_pcts) = study_vrate_mean_pcts.result(&Self::VRATE_PCTS);
 
         // Run the protection bench.
-        pjob.balloon_size = storage.mem_avail.saturating_sub(storage.mem_share);
-        let result = pjob.run(rctx);
-        rctx.stop_agent();
-        let protection = serde_json::from_value::<ProtectionResult>(result?)?;
-        rctx.stop_agent();
+        let mut retries = PROT_RETRIES;
+        let result = loop {
+            pjob.balloon_size = storage.mem_avail.saturating_sub(storage.mem_share);
+            let result = pjob.run(rctx);
+            rctx.stop_agent();
+            match result {
+                Ok(r) => break r,
+                Err(e) => {
+                    if retries > 0 {
+                        retries -= 1;
+                        warn!(
+                            "iocost-qos: protection benchmark failed ({:#}), retrying...",
+                            &e
+                        );
+                    } else {
+                        bail!("protection benchmark failed ({:#}), giving up...", &e);
+                    }
+                }
+            };
+        };
+        let protection = serde_json::from_value::<ProtectionResult>(result)?;
 
         let qos = match ovr.as_ref() {
             Some(_) => Some(rctx.access_agent_files(|af| af.bench.data.iocost.qos.clone())),
@@ -616,9 +633,9 @@ impl Job for IoCostQoSJob {
                     Err(e) => {
                         if retries > 0 {
                             retries -= 1;
-                            warn!("iocost-qos[{:02}]: Failed ({}), retrying...", i, &e);
+                            warn!("iocost-qos[{:02}]: Failed ({:#}), retrying...", i, &e);
                         } else {
-                            error!("iocost-qos[{:02}]: Failed ({}), giving up...", i, &e);
+                            error!("iocost-qos[{:02}]: Failed ({:?}), giving up...", i, &e);
                             if !self.allow_fail {
                                 return Err(e);
                             }

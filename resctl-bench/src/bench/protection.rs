@@ -145,7 +145,8 @@ impl MemHog {
     const DFL_LOOPS: u32 = 5;
     const DFL_LOAD: f64 = 1.0;
     const STABLE_HOLD: f64 = 15.0;
-    const TIMEOUT: f64 = 100.0;
+    const TIMEOUT: f64 = 600.0;
+    const COOL_DOWN: f64 = 60.0;
     const MEM_AVG_PERIOD: usize = 5;
     const PCTS: [&'static str; 13] = [
         "00", "01", "05", "10", "16", "25", "50", "75", "84", "90", "95", "99", "100",
@@ -169,7 +170,7 @@ impl MemHog {
                 run_idx + 1,
                 self.loops
             );
-            warm_up_hashd(rctx, self.load)?;
+            warm_up_hashd(rctx, self.load).context("warming up hashd")?;
             let stable_at = unix_now();
 
             // hashd stabilized at the target load level. Hold for a bit to
@@ -183,7 +184,8 @@ impl MemHog {
             WorkloadMon::default()
                 .hashd()
                 .timeout(Duration::from_secs_f64(Self::STABLE_HOLD))
-                .monitor(rctx)?;
+                .monitor(rctx)
+                .context("holding")?;
 
             info!("protection: Starting memory hog");
             let hog_started_at = unix_now();
@@ -224,7 +226,8 @@ impl MemHog {
                         }
                         ws_status(wm, af)
                     },
-                )?;
+                )
+                .context("monitoring mem-hog")?;
 
             // Memory hog is dead. Unwrap the first report and read the last
             // report to calculate delta.
@@ -247,6 +250,20 @@ impl MemHog {
                 last_mh_rep,
                 last_mh_mem,
             });
+
+            // The system could be struggling after the memory hog is
+            // killed. e.g. It could have freed a signficant amount of swap
+            // causing sudden discard spike which is choking the device.
+            // Give the system a breather.
+            info!(
+                "protection: Cooling down for {}",
+                format_duration(Self::COOL_DOWN)
+            );
+            WorkloadMon::default()
+                .hashd()
+                .timeout(Duration::from_secs_f64(Self::STABLE_HOLD))
+                .monitor(rctx)
+                .context("holding")?;
         }
         self.main_ended_at = unix_now();
 
