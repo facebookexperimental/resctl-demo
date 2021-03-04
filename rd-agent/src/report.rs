@@ -738,13 +738,27 @@ impl ReportWorker {
         let mut sleep_dur = Duration::from_secs(0);
         let mut iolat_retries = crate::misc::BCC_RETRIES;
         let mut iolat_cum_retries = crate::misc::BCC_RETRIES;
+        let mut iolat_cum_kicked_at = UNIX_EPOCH;
 
         'outer: loop {
             select! {
                 recv(iolat.rx.as_ref().unwrap()) -> res => {
                     // the cumulative instance doesn't have an interval,
-                    // kick it and run it at the same pace as the 1s one.
-                    iolat_cum.kick();
+                    // kick it and run it at the same pace as the 1s one. If
+                    // we stalled for a while, we may busy loop here kicking
+                    // iolat_cum repeatedly causing the python signal
+                    // handler to hit maximum recursion limit and fail.
+                    // Don't kick in quick succession.
+                    let now = SystemTime::now();
+                    match now.duration_since(iolat_cum_kicked_at) {
+                        Ok(dur) => {
+                            if dur.as_secs_f64() > 0.1 {
+                                iolat_cum.kick();
+                                iolat_cum_kicked_at = now;
+                            }
+                        }
+                        Err(_) => iolat_cum_kicked_at = now,
+                    }
 
                     match res {
                         Ok(line) => {
