@@ -4,7 +4,7 @@ use rd_agent_intf::{bandit_report::BanditMemHogReport, Report};
 use std::collections::{BTreeMap, VecDeque};
 
 #[derive(Clone, Copy, Debug)]
-enum MemHogSpeed {
+pub enum MemHogSpeed {
     Hog10Pct,
     Hog25Pct,
     Hog50Pct,
@@ -100,13 +100,13 @@ pub struct MemHogRun {
 }
 
 #[derive(Clone, Debug)]
-struct MemHog {
-    loops: u32,
-    load: f64,
-    speed: MemHogSpeed,
-    main_started_at: u64,
-    main_ended_at: u64,
-    runs: Vec<MemHogRun>,
+pub struct MemHog {
+    pub loops: u32,
+    pub load: f64,
+    pub speed: MemHogSpeed,
+    pub main_started_at: u64,
+    pub main_ended_at: u64,
+    pub runs: Vec<MemHogRun>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -519,18 +519,13 @@ impl MemHog {
 }
 
 #[derive(Clone, Debug)]
-enum ScenarioKind {
+pub enum Scenario {
     MemHog(MemHog),
 }
 
 #[derive(Clone, Serialize, Deserialize)]
-enum ScenarioResult {
+pub enum ScenarioResult {
     MemHog(MemHogResult),
-}
-
-#[derive(Clone, Debug)]
-struct Scenario {
-    kind: ScenarioKind,
 }
 
 impl Scenario {
@@ -551,33 +546,31 @@ impl Scenario {
                         bail!("\"loops\" can't be 0");
                     }
                 }
-                Ok(Self {
-                    kind: ScenarioKind::MemHog(MemHog {
-                        loops,
-                        load,
-                        speed,
-                        main_started_at: 0,
-                        main_ended_at: 0,
-                        runs: vec![],
-                    }),
-                })
+                Ok(Self::MemHog(MemHog {
+                    loops,
+                    load,
+                    speed,
+                    main_started_at: 0,
+                    main_ended_at: 0,
+                    runs: vec![],
+                }))
             }
             _ => bail!("\"scenario\" invalid or missing"),
         }
     }
 
     fn run(&mut self, rctx: &mut RunCtx) -> Result<ScenarioResult> {
-        Ok(match &mut self.kind {
-            ScenarioKind::MemHog(mem_hog) => ScenarioResult::MemHog(mem_hog.run(rctx)?),
+        Ok(match self {
+            Self::MemHog(mem_hog) => ScenarioResult::MemHog(mem_hog.run(rctx)?),
         })
     }
 }
 
-#[derive(Default, Debug)]
-struct ProtectionJob {
-    passive: bool,
-    balloon_size: usize,
-    scenarios: Vec<Scenario>,
+#[derive(Clone, Debug, Default)]
+pub struct ProtectionJob {
+    pub passive: bool,
+    pub balloon_size: usize,
+    pub scenarios: Vec<Scenario>,
 }
 
 pub struct ProtectionBench {}
@@ -587,19 +580,19 @@ impl Bench for ProtectionBench {
         BenchDesc::new("protection").takes_run_propsets()
     }
 
-    fn parse(&self, spec: &JobSpec, prev_data: Option<&JobData>) -> Result<Box<dyn Job>> {
-        Ok(Box::new(ProtectionJob::parse(spec, prev_data)?))
+    fn parse(&self, spec: &JobSpec, _prev_data: Option<&JobData>) -> Result<Box<dyn Job>> {
+        Ok(Box::new(ProtectionJob::parse(spec)?))
     }
 }
 
 #[derive(Clone, Default, Serialize, Deserialize)]
 pub struct ProtectionResult {
-    results: Vec<ScenarioResult>,
-    combined_mem_hog_result: Option<MemHogResult>,
+    pub results: Vec<ScenarioResult>,
+    pub combined_mem_hog_result: Option<MemHogResult>,
 }
 
 impl ProtectionJob {
-    fn parse(spec: &JobSpec, _prev_data: Option<&JobData>) -> Result<Self> {
+    pub fn parse(spec: &JobSpec) -> Result<Self> {
         let mut job = Self::default();
 
         for (k, v) in spec.props[0].iter() {
@@ -700,12 +693,7 @@ impl Job for ProtectionJob {
         if full {
             for (idx, (scn, res)) in self.scenarios.iter().zip(result.results.iter()).enumerate() {
                 match (scn, res) {
-                    (
-                        Scenario {
-                            kind: ScenarioKind::MemHog(mh),
-                        },
-                        ScenarioResult::MemHog(mhr),
-                    ) => {
+                    (Scenario::MemHog(mh), ScenarioResult::MemHog(mhr)) => {
                         writeln!(
                             out,
                             "\nScenario {:2}/{:2} - Memory hog\n\
