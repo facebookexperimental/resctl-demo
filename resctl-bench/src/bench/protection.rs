@@ -142,7 +142,7 @@ pub struct MemHogResult {
 
 impl MemHog {
     const NAME: &'static str = "mem-hog";
-    const DFL_LOOPS: u32 = 5;
+    const DFL_LOOPS: u32 = 3;
     const DFL_LOAD: f64 = 1.0;
     const STABLE_HOLD: f64 = 15.0;
     const TIMEOUT: f64 = 600.0;
@@ -215,7 +215,7 @@ impl MemHog {
                             (rep.usages.get(&mh_svc_name), Self::read_mh_rep(rep))
                         {
                             if first_mh_rep.is_err() {
-                                if usage.swap_bytes > 0 {
+                                if usage.swap_bytes > 0 || rctx.test {
                                     first_mh_rep = Ok(mh_rep);
                                 }
                             } else {
@@ -399,8 +399,12 @@ impl MemHog {
         // If work conservation is 100%, mem-hog would have used all the
         // left over IOs that it could. The conservation factor is defined
         // as the actual usage divided by this maximum possible usage.
-        let usage_possible = io_usage + io_unused.min(mh_io_loss);
-        let work_csv_factor = io_usage as f64 / usage_possible as f64;
+        let work_csv_factor = if io_usage > 0.0 {
+            let usage_possible = io_usage + io_unused.min(mh_io_loss);
+            io_usage as f64 / usage_possible as f64
+        } else {
+            0.0
+        };
 
         let (vrate_mean, vrate_stdev, _, _) = study_vrate_mean.result();
 

@@ -1,6 +1,7 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
-use anyhow::{anyhow, bail, Result};
+use anyhow::{anyhow, bail, Context, Error, Result};
 use log::{debug, error, info, warn};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{exit, Command};
 use std::sync::{Arc, Mutex};
@@ -24,6 +25,26 @@ lazy_static::lazy_static! {
         .to_str()
         .expect("non UTF-8 in rd-agent path")
         .to_string();
+}
+
+pub fn parse_json_value_or_dump<T>(value: serde_json::Value) -> Result<T>
+where
+    T: serde::de::DeserializeOwned,
+{
+    const DUMP_PATH: &str = "/tmp/rb-debug-dump.json";
+
+    match serde_json::from_value::<T>(value.clone()) {
+        Ok(v) => Ok(v),
+        Err(e) => {
+            let mut f = std::fs::OpenOptions::new()
+                .write(true)
+                .open(DUMP_PATH)
+                .unwrap();
+            f.write_all(serde_json::to_string_pretty(&value).unwrap().as_bytes())
+                .unwrap();
+            Err(Error::new(e)).with_context(|| format!("content dumped to {:?}", DUMP_PATH))
+        }
+    }
 }
 
 #[derive(Default)]

@@ -15,7 +15,7 @@ const DFL_STORAGE_BASE_LOOPS: u32 = 3;
 const DFL_STORAGE_LOOPS: u32 = 1;
 const DFL_PROT_LOOPS: u32 = 5;
 const DFL_RETRIES: u32 = 2;
-const PROT_MEM_TRIES: u32 = 5;
+const PROT_MEM_TRIES: u32 = 4;
 const PROT_OTHER_TRIES: u32 = 2;
 const PROT_MEM_STEP: f64 = 0.05;
 
@@ -409,7 +409,9 @@ impl IoCostQoSJob {
         Self::apply_ovr(rctx, &ovr);
         let result = sjob.run(rctx);
         rctx.stop_agent();
-        let mut storage = serde_json::from_value::<StorageResult>(result?)?;
+        let mut storage = parse_json_value_or_dump::<StorageResult>(result?)
+            .context("parsing storage result")
+            .unwrap();
 
         // Stash the bench result for the protection runs. This needs to be
         // done manually because storage bench runs use fake-cpu-load which
@@ -470,7 +472,9 @@ impl IoCostQoSJob {
                 },
             }
         };
-        let protection = serde_json::from_value::<ProtectionResult>(result)?;
+        let protection = parse_json_value_or_dump::<ProtectionResult>(result)
+            .context("parsing protection result")
+            .unwrap();
 
         let qos = match ovr.as_ref() {
             Some(_) => Some(rctx.access_agent_files(|af| af.bench.data.iocost.qos.clone())),

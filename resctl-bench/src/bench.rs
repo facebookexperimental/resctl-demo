@@ -11,6 +11,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use super::job::{Job, JobData};
+use super::parse_json_value_or_dump;
 use super::progress::BenchProgress;
 use super::run::{RunCtx, RunCtxErr, WorkloadMon};
 use super::study::*;
