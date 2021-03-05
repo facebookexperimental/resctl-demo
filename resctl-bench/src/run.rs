@@ -8,6 +8,7 @@ use std::process::Command;
 use std::sync::{Arc, Mutex};
 use std::thread::{spawn, JoinHandle};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use thiserror::Error;
 use util::*;
 
 use super::progress::BenchProgress;
@@ -25,6 +26,14 @@ const CMD_TIMEOUT: Duration = Duration::from_secs(30);
 const REP_RECORD_CADENCE: u64 = 10;
 const REP_RECORD_RETENTION: usize = 3;
 const HASHD_SLOPER_SLOTS: usize = 10;
+
+#[derive(Error, Debug)]
+pub enum RunCtxErr {
+    #[error("wait_cond didn't finish in {timeout:?}")]
+    WaitCondTimeout { timeout: Duration },
+    #[error("Hashd stabilization didn't finish in {timeout:?}")]
+    HashdStabilizationTimeout { timeout: Duration },
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MinderState {
@@ -227,6 +236,7 @@ pub struct RunCtx<'a> {
     inner: Arc<Mutex<RunCtxInner>>,
     agent_init_fns: Vec<Box<dyn FnOnce(&mut RunCtx)>>,
     base_bench: &'a mut rd_agent_intf::BenchKnobs,
+    bench: rd_agent_intf::BenchKnobs,
     bench_path: String,
     demo_bench_path: String,
     pub jobs: Arc<Mutex<Jobs>>,
@@ -265,6 +275,7 @@ impl<'a> RunCtx<'a> {
                 reports: VecDeque::new(),
                 report_sample: None,
             })),
+            bench: base_bench.clone(),
             base_bench: base_bench,
             bench_path: args.bench_path(),
             demo_bench_path: args.demo_bench_path(),
@@ -349,8 +360,8 @@ impl<'a> RunCtx<'a> {
         jobs.prev.save_results(self.result_path);
     }
 
-    pub fn base_bench(&self) -> &rd_agent_intf::BenchKnobs {
-        self.base_bench
+    pub fn bench(&self) -> &rd_agent_intf::BenchKnobs {
+        &self.bench
     }
 
     fn minder(inner: Arc<Mutex<RunCtxInner>>) {
@@ -582,7 +593,7 @@ impl<'a> RunCtx<'a> {
 
             let dur = match expires.duration_since(SystemTime::now()) {
                 Ok(v) => v,
-                _ => bail!("timeout"),
+                _ => return Err(RunCtxErr::WaitCondTimeout { timeout }.into()),
             };
             if wait_prog_state(dur) == ProgState::Exiting {
                 bail!("exiting");
@@ -721,7 +732,7 @@ impl<'a> RunCtx<'a> {
         let mut last_at = 0;
         let mut err = None;
 
-        self.wait_cond(
+        if let Err(e) = self.wait_cond(
             |af, progress| {
                 let rep = &af.report.data;
                 let bench = &af.bench.data;
@@ -784,7 +795,14 @@ impl<'a> RunCtx<'a> {
             },
             timeout,
             Some(BenchProgress::new().monitor_systemd_unit(HASHD_A_SVC_NAME)),
-        )?;
+        ) {
+            match e.downcast_ref::<RunCtxErr>() {
+                Some(RunCtxErr::WaitCondTimeout { timeout }) => {
+                    return Err(RunCtxErr::HashdStabilizationTimeout { timeout: *timeout }.into());
+                }
+                Some(_) | None => return Err(e),
+            }
+        }
 
         if err.is_some() {
             Err(err.unwrap())
@@ -899,9 +917,35 @@ impl<'a> RunCtx<'a> {
         None
     }
 
+    fn save_bench(&self, path: &str) -> Result<()> {
+        self.bench.save(path).with_context(|| {
+            format!(
+                "failed to commit bench result to {:?}",
+                self.demo_bench_path
+            )
+        })
+    }
+
+    pub fn load_bench(&mut self) -> Result<()> {
+        self.bench = rd_agent_intf::BenchKnobs::load(&self.bench_path)
+            .with_context(|| format!("Failed to load {:?}", &self.bench_path))?;
+        Ok(())
+    }
+
+    pub fn update_bench_from_mem_size(&mut self, mem_size: usize) -> Result<()> {
+        let hb = &mut self.bench.hashd;
+        let old_mem_frac = hb.mem_frac;
+        hb.mem_frac = mem_size as f64 / hb.mem_size as f64;
+        let result = self.save_bench(&self.bench_path);
+        if result.is_err() {
+            self.bench.hashd.mem_frac = old_mem_frac;
+        }
+        result.with_context(|| format!("failed to update {:?}", &self.bench_path))
+    }
+
     pub fn run_jctx(&mut self, mut jctx: JobCtx) -> Result<()> {
         // Always start with a fresh bench file.
-        self.base_bench
+        self.bench
             .save(&self.bench_path)
             .with_context(|| format!("failed to set up {:?}", &self.bench_path))?;
 
@@ -910,16 +954,9 @@ impl<'a> RunCtx<'a> {
         }
 
         if self.commit_bench {
-            *self.base_bench = rd_agent_intf::BenchKnobs::load(&self.bench_path)
-                .with_context(|| format!("Failed to load {:?}", &self.bench_path))?;
-            self.base_bench
-                .save(&self.demo_bench_path)
-                .with_context(|| {
-                    format!(
-                        "failed to commit bench result to {:?}",
-                        self.demo_bench_path
-                    )
-                })?;
+            self.load_bench()?;
+            *self.base_bench = self.bench.clone();
+            self.save_bench(&self.demo_bench_path)?;
         }
 
         jctx.print(Mode::Summary, &vec![Default::default()])
@@ -933,11 +970,11 @@ impl<'a> RunCtx<'a> {
         if self.inner.lock().unwrap().agent_svc.is_some() {
             bail!("can't nest bench execution while rd-agent is already running for outer bench");
         }
-        run_nested_job_spec_int(spec, self.args, self.base_bench, self.jobs.clone())
+        run_nested_job_spec_int(spec, self.args, &mut self.bench, self.jobs.clone())
     }
 
     pub fn maybe_run_nested_iocost_params(&mut self) -> Result<()> {
-        if self.base_bench().iocost_seq > 0 {
+        if self.bench().iocost_seq > 0 {
             return Ok(());
         }
         info!(
@@ -948,7 +985,7 @@ impl<'a> RunCtx<'a> {
     }
 
     pub fn maybe_run_nested_hashd_params(&mut self) -> Result<()> {
-        if self.base_bench().hashd_seq > 0 {
+        if self.bench().hashd_seq > 0 {
             return Ok(());
         }
         info!("iocost-qos: hashd parameters missing, running hashd-params");

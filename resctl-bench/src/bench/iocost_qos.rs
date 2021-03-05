@@ -15,7 +15,9 @@ const DFL_STORAGE_BASE_LOOPS: u32 = 3;
 const DFL_STORAGE_LOOPS: u32 = 1;
 const DFL_PROT_LOOPS: u32 = 5;
 const DFL_RETRIES: u32 = 2;
-const PROT_RETRIES: u32 = 2;
+const PROT_MEM_TRIES: u32 = 5;
+const PROT_OTHER_TRIES: u32 = 2;
+const PROT_MEM_STEP: f64 = 0.05;
 
 // Don't go below 1% of the specified model when applying vrate-intvs.
 const VRATE_INTVS_MIN: f64 = 1.0;
@@ -373,12 +375,7 @@ impl IoCostQoSJob {
         None
     }
 
-    fn run_one(
-        rctx: &mut RunCtx,
-        sjob: &mut StorageJob,
-        pjob: &mut ProtectionJob,
-        ovr: Option<&IoCostQoSOvr>,
-    ) -> Result<IoCostQoSRun> {
+    fn apply_ovr(rctx: &mut RunCtx, ovr: &Option<&IoCostQoSOvr>) {
         // Set up init function to configure qos after agent startup.
         let ovr_copy = ovr.cloned();
         rctx.add_agent_init_fn(move |rctx| {
@@ -400,11 +397,24 @@ impl IoCostQoSJob {
                 }
             });
         });
+    }
 
+    fn run_one(
+        rctx: &mut RunCtx,
+        sjob: &mut StorageJob,
+        pjob: &mut ProtectionJob,
+        ovr: Option<&IoCostQoSOvr>,
+    ) -> Result<IoCostQoSRun> {
         // Run the storage bench.
+        Self::apply_ovr(rctx, &ovr);
         let result = sjob.run(rctx);
         rctx.stop_agent();
-        let storage = serde_json::from_value::<StorageResult>(result?)?;
+        let mut storage = serde_json::from_value::<StorageResult>(result?)?;
+
+        // Stash the bench result for the protection runs. This needs to be
+        // done manually because storage bench runs use fake-cpu-load which
+        // don't get committed to the base bench.
+        rctx.load_bench()?;
 
         // Study the vrate distribution.
         let mut study_vrate_mean_pcts = StudyMeanPcts::new(|rep| Some(rep.iocost.vrate), None);
@@ -416,25 +426,49 @@ impl IoCostQoSJob {
         let (vrate_mean, vrate_stdev, vrate_pcts) = study_vrate_mean_pcts.result(&Self::VRATE_PCTS);
 
         // Run the protection bench.
-        let mut retries = PROT_RETRIES;
+        let mem_step = (storage.mem_size_mean as f64 * PROT_MEM_STEP).round() as usize;
+        let mut tries = 0;
         let result = loop {
+            tries += 1;
+            // The saved bench result is of the last run of the storage
+            // bench. Update it with the current mean size.
+            rctx.update_bench_from_mem_size(storage.mem_size_mean)?;
+
+            // Storage benches ran with mem_target but protection runs get
+            // full mem_share.
             pjob.balloon_size = storage.mem_avail.saturating_sub(storage.mem_share);
+            Self::apply_ovr(rctx, &ovr);
             let result = pjob.run(rctx);
             rctx.stop_agent();
             match result {
                 Ok(r) => break r,
-                Err(e) => {
-                    if retries > 0 {
-                        retries -= 1;
-                        warn!(
-                            "iocost-qos: protection benchmark failed ({:#}), retrying...",
-                            &e
-                        );
-                    } else {
-                        return Err(e.context("protection benchmark failed, giving up..."));
+                Err(e) => match e.downcast_ref::<RunCtxErr>() {
+                    Some(RunCtxErr::HashdStabilizationTimeout { timeout: _ }) => {
+                        if tries < PROT_MEM_TRIES {
+                            storage.mem_size_mean -= mem_step;
+                            storage.mem_offload_factor =
+                                storage.mem_size_mean as f64 / storage.mem_usage_mean as f64;
+                            warn!(
+                                "iocost-qos: Hashd stabilization timed out, \
+                                 reducing memory size to {} and retrying...",
+                                format_size(storage.mem_size_mean),
+                            );
+                        } else {
+                            return Err(e.context("Protection benchmark failed too many times"));
+                        }
                     }
-                }
-            };
+                    _ => {
+                        if tries < PROT_OTHER_TRIES {
+                            warn!(
+                                "iocost-qos: Protection benchmark failed ({:#}), retrying...",
+                                &e
+                            );
+                        } else {
+                            return Err(e.context("Protection benchmark failed too many times"));
+                        }
+                    }
+                },
+            }
         };
         let protection = serde_json::from_value::<ProtectionResult>(result)?;
 
@@ -467,7 +501,7 @@ impl Job for IoCostQoSJob {
     }
 
     fn run(&mut self, rctx: &mut RunCtx) -> Result<serde_json::Value> {
-        let mut bench = rctx.base_bench().clone();
+        let mut bench = rctx.bench().clone();
 
         let (prev_matches, mut prev_result) = match rctx.prev_job_data() {
             Some(pd) => {
@@ -491,7 +525,7 @@ impl Job for IoCostQoSJob {
 
         // Do we already have all results in prev? Otherwise, make sure we
         // have iocost parameters available.
-        if rctx.base_bench().iocost_seq == 0 {
+        if rctx.bench().iocost_seq == 0 {
             let mut has_all = true;
             for ovr in self.runs.iter_mut() {
                 if Self::find_matching_result(ovr.as_ref(), &prev_result).is_none() {
@@ -503,14 +537,14 @@ impl Job for IoCostQoSJob {
             if !has_all {
                 rctx.maybe_run_nested_iocost_params()?;
             }
-            bench = rctx.base_bench().clone();
+            bench = rctx.bench().clone();
             prev_result.base_model = bench.iocost.model.clone();
             prev_result.base_qos = bench.iocost.qos.clone();
         }
 
         // Print out what to do beforehand so that the user can spot errors
         // without waiting for the benches to run.
-        let abs_min_vrate = Self::calc_abs_min_vrate(&rctx.base_bench().iocost.model);
+        let abs_min_vrate = Self::calc_abs_min_vrate(&rctx.bench().iocost.model);
         let mut nr_to_run = 0;
         for (i, ovr) in self.runs.iter_mut().enumerate() {
             let qos = &bench.iocost.qos;

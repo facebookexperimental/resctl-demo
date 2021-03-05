@@ -21,6 +21,7 @@ pub struct StorageJob {
 
     first_try: bool,
     mem_share: usize,
+    mem_target: usize,
     mem_profile: u32,
     mem_usage: usize,
     mem_probe_at: u64,
@@ -52,6 +53,7 @@ impl Default for StorageJob {
             first_try: true,
             mem_avail: 0,
             mem_share: 0,
+            mem_target: 0,
             mem_profile: 0,
             mem_usage: 0,
             prev_mem_avail: 0,
@@ -83,6 +85,7 @@ pub struct StorageResult {
     pub mem_avail: usize,
     pub mem_profile: u32,
     pub mem_share: usize,
+    pub mem_target: usize,
     pub main_started_at: u64,
     pub main_ended_at: u64,
     pub mem_offload_factor: f64,
@@ -188,7 +191,22 @@ impl StorageJob {
         }
     }
 
-    fn select_memory_profile(&self) -> Result<(u32, usize)> {
+    fn mem_target(mem_share: usize) -> usize {
+        // We want to pretend that the system has only @mem_share bytes
+        // available to hashd. However, when rd-agent runs hashd benches
+        // with default parameters, it configures a small balloon to give
+        // the system and hashd some breathing room as longer runs with the
+        // benchmarked parameters tend to need a bit more memory to run
+        // reliably.
+        //
+        // We want to maintain the same slack to keep results consistent
+        // with the default parameter runs and ensure that the system has
+        // enough breathing room for e.g. reliable protection benchs.
+        let slack = rd_agent_intf::Cmd::bench_hashd_memory_slack(mem_share);
+        mem_share - slack
+    }
+
+    fn select_memory_profile(&self) -> Result<(u32, usize, usize)> {
         match self.mem_profile_ask.as_ref() {
             Some(&ask) => {
                 if ask != STD_MEM_PROFILE {
@@ -198,9 +216,13 @@ impl StorageJob {
                         ask
                     );
                 }
-                Ok((ask, Self::mem_share(ask)?))
+                let ms = Self::mem_share(ask)?;
+                Ok((ask, ms, Self::mem_target(ms)))
             }
-            None => Ok((STD_MEM_PROFILE, Self::mem_share(STD_MEM_PROFILE)?)),
+            None => {
+                let ms = Self::mem_share(STD_MEM_PROFILE)?;
+                Ok((STD_MEM_PROFILE, ms, Self::mem_target(ms)))
+            }
         }
     }
 
@@ -208,9 +230,10 @@ impl StorageJob {
         let mem_size = (self.mem_profile as usize) << 30;
         let dfl_args = rd_hashd_intf::Args::with_mem_size(mem_size);
         let dfl_params = rd_hashd_intf::Params::default();
+
         HashdFakeCpuBench {
             size: dfl_args.size,
-            balloon_size: self.mem_avail.saturating_sub(self.mem_share),
+            balloon_size: self.mem_avail.saturating_sub(self.mem_target),
             preload_size: dfl_args.bench_preload_cache_size(),
             log_bps: self.log_bps,
             log_size: dfl_args.log_size,
@@ -239,7 +262,7 @@ impl StorageJob {
 
                 if !rctx.test {
                     mem_avail_err =
-                        (self.mem_usage as f64 - self.mem_share as f64) / self.mem_share as f64;
+                        (self.mem_usage as f64 - self.mem_target as f64) / self.mem_target as f64;
                 }
 
                 // Abort early iff we go over. Memory usage may keep rising
@@ -284,7 +307,7 @@ impl StorageJob {
     }
 
     fn process_retry(&mut self) -> Result<bool> {
-        let cur_mem_avail = self.mem_avail + self.mem_usage - self.mem_share;
+        let cur_mem_avail = self.mem_avail + self.mem_usage - self.mem_target;
         let consistent = (cur_mem_avail as f64 - self.prev_mem_avail as f64).abs()
             < self.mem_avail_err_max * cur_mem_avail as f64;
 
@@ -346,10 +369,11 @@ impl StorageJob {
         .unwrap();
         writeln!(
             out,
-            "        mem_profile={} mem_avail={} mem_share={}",
+            "        mem_profile={} mem_avail={} mem_share={} mem_target={}",
             result.mem_profile,
             format_size(result.mem_avail),
-            format_size(result.mem_share)
+            format_size(result.mem_share),
+            format_size(result.mem_target),
         )
         .unwrap();
     }
@@ -470,11 +494,12 @@ impl Job for StorageJob {
             self.mem_avail_inner_retries = saved_mem_avail_inner_retries;
             self.main_started_at = unix_now();
 
-            let (mp, ms) = self.select_memory_profile()?;
+            let (mp, ms, mt) = self.select_memory_profile()?;
             self.mem_profile = mp;
             self.mem_share = ms;
+            self.mem_target = mt;
 
-            if self.mem_avail < self.mem_share && !rctx.test {
+            if self.mem_avail < self.mem_target && !rctx.test {
                 if self.mem_avail_outer_retries > 0 {
                     warn!(
                         "storage: mem_avail {} too small for the memory profile, re-estimating",
@@ -487,10 +512,11 @@ impl Job for StorageJob {
                 bail!("mem_avail too small for the memory profile, use lower mem-profile");
             }
             info!(
-                "storage: Memory profile {}G (mem_share {}, mem_avail {})",
+                "storage: Memory profile {}G (mem_avail {}, mem_share {}, mem_target {})",
                 self.mem_profile,
+                format_size(self.mem_avail),
                 format_size(self.mem_share),
-                format_size(self.mem_avail)
+                format_size(self.mem_target),
             );
 
             // We now know all the parameters. Let's run the actual benchmark.
@@ -586,6 +612,7 @@ impl Job for StorageJob {
             mem_avail: self.mem_avail,
             mem_profile: self.mem_profile,
             mem_share: self.mem_share,
+            mem_target: self.mem_target,
             main_started_at: self.main_started_at,
             main_ended_at: self.main_ended_at,
             mem_offload_factor: mem_size_mean as f64 / mem_usage_mean as f64,
