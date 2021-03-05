@@ -48,10 +48,11 @@ fn run_nested_job_spec_int(
     args: &resctl_bench_intf::Args,
     base_bench: &mut rd_agent_intf::BenchKnobs,
     jobs: Arc<Mutex<Jobs>>,
-) -> Result<()> {
+) -> Result<bool> {
     let mut rctx = RunCtx::new(args, base_bench, jobs);
     let jctx = rctx.jobs.lock().unwrap().parse_job_spec_and_link(spec)?;
-    rctx.run_jctx(jctx)
+    rctx.run_jctx(jctx)?;
+    Ok(rctx.commit_bench)
 }
 
 struct Sloper {
@@ -970,7 +971,18 @@ impl<'a> RunCtx<'a> {
         if self.inner.lock().unwrap().agent_svc.is_some() {
             bail!("can't nest bench execution while rd-agent is already running for outer bench");
         }
-        run_nested_job_spec_int(spec, self.args, &mut self.bench, self.jobs.clone())
+        match run_nested_job_spec_int(spec, self.args, &mut self.bench, self.jobs.clone()) {
+            Ok(true) => {
+                // Nested job finished successfully and updated self.bench
+                // and the demo bench file. Propagate it to our base_bench
+                // too. The demo bench file update and propagation might
+                // need to become finer grained in the future.
+                *self.base_bench = self.bench.clone();
+                Ok(())
+            }
+            Ok(false) => Ok(()),
+            Err(e) => Err(e)
+        }
     }
 
     pub fn maybe_run_nested_iocost_params(&mut self) -> Result<()> {
