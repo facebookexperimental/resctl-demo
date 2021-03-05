@@ -728,16 +728,13 @@ impl Job for IoCostQoSJob {
 
                 writeln!(
                     out,
-                    "\n\n\
-                    RUN {:02}\n\
-                    ======\n\n\
-                    QoS: {}\n",
-                    i,
+                    "\n\n{}\nQoS: {}\n",
+                    &double_underline(&format!("RUN {:02}", i)),
                     Self::format_qos_ovr(run.ovr.as_ref(), &result.base_qos)
                 )
                 .unwrap();
+                writeln!(out, "{}", underline(&format!("RUN {:02} - Storage", i))).unwrap();
                 self.format_one_storage(&mut out, &run.storage);
-
                 if run.qos.is_some() {
                     write!(out, "\nvrate:").unwrap();
                     for pct in &Self::VRATE_PCTS {
@@ -750,27 +747,43 @@ impl Job for IoCostQoSJob {
                         .unwrap();
                     }
                     writeln!(out, "").unwrap();
+                }
+                self.prot_job.format_result(
+                    &mut out,
+                    &run.protection,
+                    true,
+                    &format!("RUN {:02} - Protection ", i),
+                );
+
+                if run.qos.is_some() {
+                    writeln!(out, "\n{}", underline(&format!("RUN {:02} - Result", i))).unwrap();
 
                     writeln!(
-                    out,
-                    "\nQoS result: mem_offload_factor={:.3}@{}({:.3}x) vrate_mean/stdev={:.2}/{:.2}",
-                    run.storage.mem_offload_factor,
-                    run.storage.mem_profile,
-                    run.storage.mem_offload_factor / baseline.mem_offload_factor,
-                    run.vrate_mean,
-                    run.vrate_stdev
-                )
+                        out,
+                        "QoS result: mem_offload_factor={:.3}@{}({:.3}x) vrate_mean={:.2}:{:.2}",
+                        run.storage.mem_offload_factor,
+                        run.storage.mem_profile,
+                        run.storage.mem_offload_factor / baseline.mem_offload_factor,
+                        run.vrate_mean,
+                        run.vrate_stdev,
+                    )
+                    .unwrap();
+
+                    let mhr = run.protection.combined_mem_hog_result.as_ref().unwrap();
+                    writeln!(
+                        out,
+                        "            work_isol={:.3}:{:.3} lat_impact={:.3}:{:.3} work_csv={:.3}",
+                        mhr.work_isol_factor,
+                        mhr.work_isol_stdev,
+                        mhr.lat_impact_factor,
+                        mhr.lat_impact_stdev,
+                        mhr.work_csv_factor,
+                    )
                     .unwrap();
                 }
             }
 
-            writeln!(
-                out,
-                "\n\n\
-                 Summary\n\
-                 =======\n"
-            )
-            .unwrap();
+            writeln!(out, "\n\n{}", double_underline("Summary")).unwrap();
         } else {
             writeln!(out, "").unwrap();
         }

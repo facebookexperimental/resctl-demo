@@ -463,7 +463,7 @@ impl MemHog {
         writeln!(
             out,
             "      io_usage={:.1} io_unused={:.1} mem_hog_io_usage={:.1} mem_hog_io_loss={:.1}",
-            result.io_usage, result.io_unused, result.mem_hog_io_usage, result.mem_hog_io_loss
+            result.io_usage, result.io_unused, result.mem_hog_io_usage, result.mem_hog_io_loss,
         )
         .unwrap();
         writeln!(
@@ -635,6 +635,55 @@ impl ProtectionJob {
 
         Ok(job)
     }
+
+    pub fn format_result<'a>(
+        &self,
+        mut out: &mut Box<dyn Write + 'a>,
+        result: &ProtectionResult,
+        full: bool,
+        prefix: &str,
+    ) {
+        let underline_char = match prefix.len() {
+            0 => "=",
+            _ => "-",
+        };
+
+        if full {
+            for (idx, (scn, res)) in self.scenarios.iter().zip(result.results.iter()).enumerate() {
+                match (scn, res) {
+                    (Scenario::MemHog(mh), ScenarioResult::MemHog(mhr)) => {
+                        writeln!(
+                            out,
+                            "\n{}",
+                            custom_underline(
+                                &format!(
+                                    "{}Scenario {}/{} - Memory Hog",
+                                    prefix,
+                                    idx + 1,
+                                    self.scenarios.len()
+                                ),
+                                underline_char
+                            )
+                        )
+                        .unwrap();
+                        mh.format_params(&mut out);
+                        writeln!(out, "").unwrap();
+                        MemHog::format_result(out, mhr, true);
+                    }
+                }
+            }
+        }
+
+        if let Some(mh_result) = result.combined_mem_hog_result.as_ref() {
+            writeln!(
+                out,
+                "\n{}",
+                custom_underline(&format!("{}Memory Hog Summary", prefix), underline_char)
+            )
+            .unwrap();
+            MemHog::format_result(out, mh_result, false);
+        }
+    }
 }
 
 impl Job for ProtectionJob {
@@ -687,37 +736,7 @@ impl Job for ProtectionJob {
         _props: &JobProps,
     ) -> Result<()> {
         let result = serde_json::from_value::<ProtectionResult>(data.result.clone()).unwrap();
-
-        if full {
-            for (idx, (scn, res)) in self.scenarios.iter().zip(result.results.iter()).enumerate() {
-                match (scn, res) {
-                    (Scenario::MemHog(mh), ScenarioResult::MemHog(mhr)) => {
-                        writeln!(
-                            out,
-                            "\nScenario {:2}/{:2} - Memory hog\n\
-                             ===========================\n",
-                            idx + 1,
-                            self.scenarios.len()
-                        )
-                        .unwrap();
-                        mh.format_params(&mut out);
-                        writeln!(out, "").unwrap();
-                        MemHog::format_result(&mut out, mhr, true);
-                    }
-                }
-            }
-        }
-
-        if let Some(mh_result) = result.combined_mem_hog_result.as_ref() {
-            writeln!(
-                out,
-                "\nMemory hog summary\n\
-                           ==================\n"
-            )
-            .unwrap();
-            MemHog::format_result(&mut out, mh_result, false);
-        }
-
+        self.format_result(&mut out, &result, full, "");
         Ok(())
     }
 }

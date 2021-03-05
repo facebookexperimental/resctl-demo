@@ -981,7 +981,7 @@ impl<'a> RunCtx<'a> {
                 Ok(())
             }
             Ok(false) => Ok(()),
-            Err(e) => Err(e)
+            Err(e) => Err(e),
         }
     }
 

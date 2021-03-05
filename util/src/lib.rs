@@ -180,6 +180,25 @@ where
     num::clamp(T::from_f64(v).unwrap(), left, right)
 }
 
+pub fn custom_underline(content: &str, line_char: &str) -> String {
+    let nr_spaces = content.chars().take_while(|c| *c == ' ').count();
+    let len = content.chars().count() - nr_spaces;
+    format!(
+        "{}\n{}{}\n",
+        content,
+        " ".repeat(nr_spaces),
+        line_char.repeat(len)
+    )
+}
+
+pub fn underline(content: &str) -> String {
+    custom_underline(content, "-")
+}
+
+pub fn double_underline(content: &str) -> String {
+    custom_underline(content, "=")
+}
+
 fn format_size_internal<T>(size: T, zero: &str) -> String
 where
     T: num::ToPrimitive,
