@@ -357,16 +357,27 @@ impl StorageJob {
         Ok(retry_outer)
     }
 
-    pub fn format_header<'a>(&self, out: &mut Box<dyn Write + 'a>, result: &StorageResult) {
-        writeln!(
+    pub fn format_header<'a>(
+        &self,
+        out: &mut Box<dyn Write + 'a>,
+        include_loops: bool,
+        result: &StorageResult,
+    ) {
+        write!(
             out,
-            "Params: hash_size={} rps_max={} log_bps={} loops={}",
+            "Params: hash_size={} rps_max={} log_bps={}",
             format_size(self.hash_size),
             self.rps_max,
-            format_size(self.log_bps),
-            self.loops
+            format_size(self.log_bps)
         )
         .unwrap();
+
+        if include_loops {
+            writeln!(out, " loops={}", self.loops).unwrap();
+        } else {
+            writeln!(out, "").unwrap();
+        }
+
         writeln!(
             out,
             "        mem_profile={} mem_avail={} mem_share={} mem_target={}",
@@ -642,7 +653,7 @@ impl Job for StorageJob {
     ) -> Result<()> {
         let result = serde_json::from_value::<StorageResult>(data.result.clone()).unwrap();
 
-        self.format_header(&mut out, &result);
+        self.format_header(&mut out, true, &result);
         writeln!(out, "").unwrap();
         if full {
             self.format_lat_dist(&mut out, &result);

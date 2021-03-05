@@ -717,7 +717,7 @@ impl Job for IoCostQoSJob {
         }
         let baseline = &result.results[0].as_ref().unwrap().storage;
 
-        self.stor_job.format_header(&mut out, baseline);
+        self.stor_job.format_header(&mut out, false, baseline);
 
         if full {
             for (i, run) in result.results.iter().enumerate() {
