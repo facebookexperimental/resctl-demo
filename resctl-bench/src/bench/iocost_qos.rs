@@ -762,7 +762,7 @@ impl Job for IoCostQoSJob {
                     )
                     .unwrap();
 
-                    let mhr = run.protection.combined_mem_hog_result.as_ref().unwrap();
+                    let mhr = run.protection.combined_mem_hog.as_ref().unwrap();
                     writeln!(
                         out,
                         "            work_isol={:.3}:{:.3} lat_impact={:.3}:{:.3} work_csv={:.3}",
@@ -802,7 +802,7 @@ impl Job for IoCostQoSJob {
         for (i, run) in result.results.iter().enumerate() {
             match run {
                 Some(run) => {
-                    let mhr = run.protection.combined_mem_hog_result.as_ref().unwrap();
+                    let mhr = run.protection.combined_mem_hog.as_ref().unwrap();
                     writeln!(
                         out,
                         "[{:02}] {:>7.3}  {:>5.3}:{:>5.3}  {:>5.3}:{:>5.3}     {:>5.3}",

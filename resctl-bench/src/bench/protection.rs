@@ -575,8 +575,8 @@ impl Bench for ProtectionBench {
 
 #[derive(Clone, Default, Serialize, Deserialize)]
 pub struct ProtectionResult {
-    pub results: Vec<ScenarioResult>,
-    pub combined_mem_hog_result: Option<MemHogResult>,
+    pub scenarios: Vec<ScenarioResult>,
+    pub combined_mem_hog: Option<MemHogResult>,
 }
 
 impl ProtectionJob {
@@ -639,7 +639,12 @@ impl ProtectionJob {
         };
 
         if full {
-            for (idx, (scn, res)) in self.scenarios.iter().zip(result.results.iter()).enumerate() {
+            for (idx, (scn, res)) in self
+                .scenarios
+                .iter()
+                .zip(result.scenarios.iter())
+                .enumerate()
+            {
                 match (scn, res) {
                     (Scenario::MemHog(mh), ScenarioResult::MemHog(mhr)) => {
                         writeln!(
@@ -664,7 +669,7 @@ impl ProtectionJob {
             }
         }
 
-        if let Some(mh_result) = result.combined_mem_hog_result.as_ref() {
+        if let Some(mh_result) = result.combined_mem_hog.as_ref() {
             writeln!(
                 out,
                 "\n{}",
@@ -695,12 +700,12 @@ impl Job for ProtectionJob {
         let mut result = ProtectionResult::default();
 
         for scn in self.scenarios.iter_mut() {
-            result.results.push(scn.run(rctx)?);
+            result.scenarios.push(scn.run(rctx)?);
         }
 
         let mut mh_iter: Box<dyn Iterator<Item = &MemHogRun>> = Box::new(std::iter::empty());
         let mut mh_period = (std::u64::MAX, 0_u64);
-        for result in result.results.iter() {
+        for result in result.scenarios.iter() {
             match result {
                 ScenarioResult::MemHog(mh) => {
                     mh_iter = Box::new(mh_iter.chain(mh.runs.iter()));
@@ -713,7 +718,7 @@ impl Job for ProtectionJob {
         }
 
         if mh_period.0 < std::u64::MAX {
-            result.combined_mem_hog_result = Some(MemHog::study(rctx, mh_iter, mh_period));
+            result.combined_mem_hog = Some(MemHog::study(rctx, mh_iter, mh_period));
         }
 
         Ok(serde_json::to_value(&result).unwrap())
