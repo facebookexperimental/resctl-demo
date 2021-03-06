@@ -307,6 +307,7 @@ impl StudyIoLatPcts {
         out: &mut Box<dyn Write + 'a>,
         result: &BTreeMap<String, BTreeMap<String, f64>>,
         time_pcts: Option<&[&str]>,
+        title: &str,
     ) {
         let time_pcts = time_pcts
             .unwrap_or(&Self::TIME_FORMAT_PCTS)
@@ -314,7 +315,7 @@ impl StudyIoLatPcts {
             .chain(Some("cum").iter())
             .chain(Some("mean").iter())
             .chain(Some("stdev").iter());
-        write!(out, "       ").unwrap();
+        write!(out, "{:6} ", title.chars().take(6).collect::<String>()).unwrap();
 
         let widths: Vec<usize> = time_pcts
             .clone()

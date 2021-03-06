@@ -44,6 +44,9 @@ pub const TO_MSEC: f64 = 1000.0;
 pub const TO_PCT: f64 = 100.0;
 pub const MSEC: f64 = 1.0 / 1000.0;
 
+pub const READ: usize = 0;
+pub const WRITE: usize = 1;
+
 lazy_static::lazy_static! {
     pub static ref TOTAL_SYSTEM_MEMORY: usize = {
         let mut sys = sysinfo::System::new();

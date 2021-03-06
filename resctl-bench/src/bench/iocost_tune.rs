@@ -92,7 +92,7 @@ impl DataSel {
     fn select(&self, storage: &StorageResult) -> f64 {
         match self {
             Self::MOF => storage.mem_offload_factor,
-            Self::Lat(lat_pct, time_pct) => storage.io_lat_pcts[lat_pct][time_pct],
+            Self::Lat(lat_pct, time_pct) => storage.io_lat_pcts[READ][lat_pct][time_pct],
         }
     }
 
