@@ -104,8 +104,7 @@ pub struct MemHog {
     pub loops: u32,
     pub load: f64,
     pub speed: MemHogSpeed,
-    pub main_started_at: u64,
-    pub main_ended_at: u64,
+    pub main_period: (u64, u64),
     pub runs: Vec<MemHogRun>,
 }
 
@@ -126,8 +125,10 @@ pub struct MemHogResult {
 
     pub work_csv_factor: f64,
 
-    pub main_started_at: u64,
-    pub main_ended_at: u64,
+    pub iolat_pcts: [BTreeMap<String, BTreeMap<String, f64>>; 2],
+
+    pub main_period: (u64, u64),
+    pub mem_hog_periods: Vec<(u64, u64)>,
     pub vrate_mean: f64,
     pub vrate_stdev: f64,
     pub io_usage: f64,
@@ -161,7 +162,7 @@ impl MemHog {
     }
 
     fn run(&mut self, rctx: &mut RunCtx) -> Result<MemHogResult> {
-        self.main_started_at = unix_now();
+        self.main_period.0 = unix_now();
         for run_idx in 0..self.loops {
             info!(
                 "protection: Stabilizing hashd at {}% for run {}/{}",
@@ -250,24 +251,14 @@ impl MemHog {
                 last_mh_mem,
             });
         }
-        self.main_ended_at = unix_now();
+        self.main_period.1 = unix_now();
 
-        let mut result = Self::study(
-            self.runs.iter(),
-            self.main_started_at,
-            self.main_ended_at,
-            rctx,
-        );
+        let mut result = Self::study(rctx, self.runs.iter(), self.main_period);
         result.runs = self.runs.clone();
         Ok(result)
     }
 
-    fn study<'a, I>(
-        runs: I,
-        main_started_at: u64,
-        main_ended_at: u64,
-        rctx: &RunCtx,
-    ) -> MemHogResult
+    fn study<'a, I>(rctx: &RunCtx, runs: I, main_period: (u64, u64)) -> MemHogResult
     where
         I: Iterator<Item = &'a MemHogRun>,
     {
@@ -283,7 +274,7 @@ impl MemHog {
             .add(&mut study_base_rps)
             .add(&mut study_base_lat);
         for run in runs.iter() {
-            studies.run(rctx, run.stable_at, run.hog_started_at);
+            studies.run(rctx, (run.stable_at, run.hog_started_at));
         }
 
         let (base_rps, base_rps_stdev, _, _) = study_base_rps.result();
@@ -326,18 +317,29 @@ impl MemHog {
         // visibility.
         let mut study_vrate_mean = StudyMean::new(|rep| Some(rep.iocost.vrate));
 
+        let mut study_read_lat_pcts = StudyIoLatPcts::new("read", None);
+        let mut study_write_lat_pcts = StudyIoLatPcts::new("write", None);
+
         let mut studies = Studies::new()
             .add(&mut study_work_isol)
             .add(&mut study_lat_impact)
             .add(&mut study_io_usages)
-            .add(&mut study_vrate_mean);
+            .add(&mut study_vrate_mean)
+            .add_multiple(&mut study_read_lat_pcts.studies())
+            .add_multiple(&mut study_write_lat_pcts.studies());
 
-        for run in runs.iter() {
-            studies.run(
-                rctx,
-                run.first_mh_rep.timestamp.timestamp() as u64,
-                run.last_mh_rep.timestamp.timestamp() as u64,
-            );
+        let mem_hog_periods: Vec<(u64, u64)> = runs
+            .iter()
+            .map(|run| {
+                (
+                    run.first_mh_rep.timestamp.timestamp() as u64,
+                    run.last_mh_rep.timestamp.timestamp() as u64,
+                )
+            })
+            .collect();
+
+        for per in mem_hog_periods.iter() {
+            studies.run(rctx, (per.0, per.1));
         }
 
         let (work_isol_factor, work_isol_stdev, work_isol_pcts) =
@@ -376,6 +378,11 @@ impl MemHog {
 
         let (vrate_mean, vrate_stdev, _, _) = study_vrate_mean.result();
 
+        let iolat_pcts = [
+            study_read_lat_pcts.result(rctx, None),
+            study_write_lat_pcts.result(rctx, None),
+        ];
+
         MemHogResult {
             base_rps,
             base_rps_stdev,
@@ -392,8 +399,10 @@ impl MemHog {
 
             work_csv_factor,
 
-            main_started_at,
-            main_ended_at,
+            iolat_pcts,
+
+            main_period,
+            mem_hog_periods,
             vrate_mean,
             vrate_stdev,
             io_usage,
@@ -446,8 +455,22 @@ impl MemHog {
     fn format_result<'a>(out: &mut Box<dyn Write + 'a>, result: &MemHogResult, full: bool) {
         if full {
             Self::format_info(out, result);
+
+            let iolat_pcts = &result.iolat_pcts.as_ref();
+            writeln!(out, "IO Latency Distribution:\n").unwrap();
+            StudyIoLatPcts::format_table(out, &iolat_pcts[READ], None, "READ");
+            writeln!(out, "").unwrap();
+            StudyIoLatPcts::format_table(out, &iolat_pcts[WRITE], None, "WRITE");
+            writeln!(out, "").unwrap();
         }
-        writeln!(out, "Work isolation and Latency impact distributions:\n").unwrap();
+
+        StudyIoLatPcts::format_rw_summary(out, &result.iolat_pcts, None);
+
+        writeln!(
+            out,
+            "\nWork Isolation and Request Latency Impact Distributions:\n"
+        )
+        .unwrap();
         writeln!(
             out,
             "           {}",
@@ -459,13 +482,13 @@ impl MemHog {
         )
         .unwrap();
 
-        write!(out, "Work isol  ").unwrap();
+        write!(out, "Work Isol  ").unwrap();
         for pct in Self::PCTS.iter() {
             write!(out, "{:>5.2} ", result.work_isol_pcts[*pct]).unwrap();
         }
         writeln!(out, "").unwrap();
 
-        write!(out, "Lat impact ").unwrap();
+        write!(out, "Lat Impact ").unwrap();
         for pct in Self::PCTS.iter() {
             write!(out, "{:>5.2} ", result.lat_impact_pcts[*pct]).unwrap();
         }
@@ -516,8 +539,7 @@ impl Scenario {
                     loops,
                     load,
                     speed,
-                    main_started_at: 0,
-                    main_ended_at: 0,
+                    main_period: (0, 0),
                     runs: vec![],
                 }))
             }
@@ -636,7 +658,7 @@ impl ProtectionJob {
                         .unwrap();
                         mh.format_params(&mut out);
                         writeln!(out, "").unwrap();
-                        MemHog::format_result(out, mhr, true);
+                        MemHog::format_result(out, mhr, full);
                     }
                 }
             }
@@ -649,7 +671,7 @@ impl ProtectionJob {
                 custom_underline(&format!("{}Memory Hog Summary", prefix), underline_char)
             )
             .unwrap();
-            MemHog::format_result(out, mh_result, false);
+            MemHog::format_result(out, mh_result, full);
         }
     }
 }
@@ -677,20 +699,21 @@ impl Job for ProtectionJob {
         }
 
         let mut mh_iter: Box<dyn Iterator<Item = &MemHogRun>> = Box::new(std::iter::empty());
-        let (mut mh_started_at, mut mh_ended_at) = (std::u64::MAX, 0_u64);
+        let mut mh_period = (std::u64::MAX, 0_u64);
         for result in result.results.iter() {
             match result {
                 ScenarioResult::MemHog(mh) => {
                     mh_iter = Box::new(mh_iter.chain(mh.runs.iter()));
-                    mh_started_at = mh_started_at.min(mh.main_started_at);
-                    mh_ended_at = mh_ended_at.max(mh.main_ended_at);
+                    mh_period = (
+                        mh_period.0.min(mh.main_period.0),
+                        mh_period.1.max(mh.main_period.1),
+                    );
                 }
             }
         }
 
-        if mh_started_at < std::u64::MAX {
-            result.combined_mem_hog_result =
-                Some(MemHog::study(mh_iter, mh_started_at, mh_ended_at, rctx));
+        if mh_period.0 < std::u64::MAX {
+            result.combined_mem_hog_result = Some(MemHog::study(rctx, mh_iter, mh_period));
         }
 
         Ok(serde_json::to_value(&result).unwrap())

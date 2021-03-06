@@ -20,9 +20,28 @@ impl std::cmp::PartialEq for JobSpec {
 impl std::cmp::Eq for JobSpec {}
 
 impl JobSpec {
-    pub fn new(kind: String, id: Option<String>, props: JobProps) -> Self {
+    pub fn props(input: &[&[(&str, &str)]]) -> Vec<BTreeMap<String, String>> {
+        if input.len() == 0 {
+            vec![Default::default()]
+        } else {
+            input
+                .iter()
+                .map(|ps| {
+                    ps.iter()
+                        .map(|(k, v)| (k.to_string(), v.to_string()))
+                        .collect()
+                })
+                .collect()
+        }
+    }
+
+    pub fn new(kind: &str, id: Option<&str>, props: JobProps) -> Self {
         assert!(props.len() > 0);
-        Self { kind, id, props }
+        Self {
+            kind: kind.to_owned(),
+            id: id.map(Into::into),
+            props,
+        }
     }
 }
 

@@ -120,7 +120,8 @@ impl IoCostQoSJob {
     const VRATE_PCTS: [&'static str; 9] = ["00", "01", "10", "16", "50", "84", "90", "99", "100"];
 
     fn parse(spec: &JobSpec, prev_data: Option<&JobData>) -> Result<Self> {
-        let mut storage_spec = JobSpec::new("storage".into(), None, vec![Default::default()]);
+        let mut storage_spec = JobSpec::new("storage", None, JobSpec::props(&[&[("active", "")]]));
+        let protection_spec = JobSpec::new("protection", None, JobSpec::props(&[]));
 
         let mut vrate_min = 0.0;
         let mut vrate_max = DFL_VRATE_MAX;
@@ -179,14 +180,8 @@ impl IoCostQoSJob {
             runs.push(Some(ovr));
         }
 
-        let mut stor_job = StorageJob::parse(&storage_spec)?;
-        stor_job.active = true;
-
-        let prot_job = ProtectionJob::parse(&JobSpec::new(
-            "protection".into(),
-            None,
-            vec![Default::default()],
-        ))?;
+        let stor_job = StorageJob::parse(&storage_spec)?;
+        let prot_job = ProtectionJob::parse(&protection_spec)?;
 
         if runs.len() == 1 && vrate_intvs == 0 {
             vrate_intvs = DFL_VRATE_INTVS;
@@ -420,11 +415,9 @@ impl IoCostQoSJob {
 
         // Study the vrate distribution.
         let mut study_vrate_mean_pcts = StudyMeanPcts::new(|rep| Some(rep.iocost.vrate), None);
-        Studies::new().add(&mut study_vrate_mean_pcts).run(
-            rctx,
-            storage.main_started_at,
-            storage.main_ended_at,
-        );
+        Studies::new()
+            .add(&mut study_vrate_mean_pcts)
+            .run(rctx, storage.main_period);
         let (vrate_mean, vrate_stdev, vrate_pcts) = study_vrate_mean_pcts.result(&Self::VRATE_PCTS);
 
         // Run the protection bench.
@@ -836,24 +829,26 @@ impl Job for IoCostQoSJob {
 
         for (i, run) in result.results.iter().enumerate() {
             match run {
-                Some(run) =>
+                Some(run) => {
+                    let iolat_pcts = &run.storage.iolat_pcts.as_ref()[READ];
                     writeln!(
                         out,
                         "[{:02}] {:>5}:{:>5}/{:>5}  {:>5}:{:>5}/{:>5}  {:>5}:{:>5}/{:>5}  {:>5}:{:>5}/{:>5}",
                         i,
-                        format_duration(run.storage.io_lat_pcts[READ]["50"]["mean"]),
-                        format_duration(run.storage.io_lat_pcts[READ]["50"]["stdev"]),
-                        format_duration(run.storage.io_lat_pcts[READ]["50"]["100"]),
-                        format_duration(run.storage.io_lat_pcts[READ]["90"]["mean"]),
-                        format_duration(run.storage.io_lat_pcts[READ]["90"]["stdev"]),
-                        format_duration(run.storage.io_lat_pcts[READ]["90"]["100"]),
-                        format_duration(run.storage.io_lat_pcts[READ]["99"]["mean"]),
-                        format_duration(run.storage.io_lat_pcts[READ]["99"]["stdev"]),
-                        format_duration(run.storage.io_lat_pcts[READ]["99"]["100"]),
-                        format_duration(run.storage.io_lat_pcts[READ]["100"]["mean"]),
-                        format_duration(run.storage.io_lat_pcts[READ]["100"]["stdev"]),
-                        format_duration(run.storage.io_lat_pcts[READ]["100"]["100"])
-                    ).unwrap(),
+                        format_duration(iolat_pcts["50"]["mean"]),
+                        format_duration(iolat_pcts["50"]["stdev"]),
+                        format_duration(iolat_pcts["50"]["100"]),
+                        format_duration(iolat_pcts["90"]["mean"]),
+                        format_duration(iolat_pcts["90"]["stdev"]),
+                        format_duration(iolat_pcts["90"]["100"]),
+                        format_duration(iolat_pcts["99"]["mean"]),
+                        format_duration(iolat_pcts["99"]["stdev"]),
+                        format_duration(iolat_pcts["99"]["100"]),
+                        format_duration(iolat_pcts["100"]["mean"]),
+                        format_duration(iolat_pcts["100"]["stdev"]),
+                        format_duration(iolat_pcts["100"]["100"])
+                    ).unwrap()
+                }
                 None => writeln!(out, "[{:02}]  failed", i).unwrap(),
             }
         }

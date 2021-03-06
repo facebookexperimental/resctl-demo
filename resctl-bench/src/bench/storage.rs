@@ -27,8 +27,7 @@ pub struct StorageJob {
     mem_probe_at: u64,
     prev_mem_avail: usize,
 
-    main_started_at: u64,
-    main_ended_at: u64,
+    main_period: (u64, u64),
     final_mem_probe_periods: Vec<(u64, u64)>,
     mem_usages: Vec<f64>,
     mem_sizes: Vec<f64>,
@@ -59,8 +58,7 @@ impl Default for StorageJob {
             prev_mem_avail: 0,
             mem_probe_at: 0,
 
-            main_started_at: 0,
-            main_ended_at: 0,
+            main_period: (0, 0),
             final_mem_probe_periods: vec![],
             mem_usages: vec![],
             mem_sizes: vec![],
@@ -86,8 +84,7 @@ pub struct StorageResult {
     pub mem_profile: u32,
     pub mem_share: usize,
     pub mem_target: usize,
-    pub main_started_at: u64,
-    pub main_ended_at: u64,
+    pub main_period: (u64, u64),
     pub mem_offload_factor: f64,
     pub mem_usage_mean: usize,
     pub mem_usage_stdev: usize,
@@ -100,7 +97,7 @@ pub struct StorageResult {
     pub rbps_final: usize,
     pub wbps_final: usize,
     pub final_mem_probe_periods: Vec<(u64, u64)>,
-    pub io_lat_pcts: [BTreeMap<String, BTreeMap<String, f64>>; 2],
+    pub iolat_pcts: [BTreeMap<String, BTreeMap<String, f64>>; 2],
 }
 
 impl StorageJob {
@@ -119,6 +116,7 @@ impl StorageJob {
                 "mem-avail-err-max" => job.mem_avail_err_max = v.parse::<f64>()?,
                 "mem-avail-inner-retries" => job.mem_avail_inner_retries = v.parse::<u32>()?,
                 "mem-avail-outer-retries" => job.mem_avail_outer_retries = v.parse::<u32>()?,
+                "active" => job.active = v.len() == 0 || v.parse::<bool>()?,
                 k => bail!("unknown property key {:?}", k),
             }
         }
@@ -390,41 +388,11 @@ impl StorageJob {
     }
 
     pub fn format_lat_dist<'a>(&self, out: &mut Box<dyn Write + 'a>, result: &StorageResult) {
+        let iolat_pcts = &result.iolat_pcts;
         writeln!(out, "IO Latency Distribution:\n").unwrap();
-        StudyIoLatPcts::format_table(out, &result.io_lat_pcts[READ], None, "READ");
+        StudyIoLatPcts::format_table(out, &iolat_pcts[READ], None, "READ");
         writeln!(out, "").unwrap();
-        StudyIoLatPcts::format_table(out, &result.io_lat_pcts[WRITE], None, "WRITE");
-    }
-
-    fn format_lat_summary_one<'a>(
-        out: &mut Box<dyn Write + 'a>,
-        lat_pcts: &BTreeMap<String, BTreeMap<String, f64>>,
-    ) {
-        write!(
-            out,
-            "p50={}:{}/{} p90={}:{}/{} p99={}:{}/{} max={}:{}/{}",
-            format_duration(lat_pcts["50"]["mean"]),
-            format_duration(lat_pcts["50"]["stdev"]),
-            format_duration(lat_pcts["50"]["100"]),
-            format_duration(lat_pcts["90"]["mean"]),
-            format_duration(lat_pcts["90"]["stdev"]),
-            format_duration(lat_pcts["90"]["100"]),
-            format_duration(lat_pcts["99"]["mean"]),
-            format_duration(lat_pcts["99"]["stdev"]),
-            format_duration(lat_pcts["99"]["100"]),
-            format_duration(lat_pcts["100"]["mean"]),
-            format_duration(lat_pcts["100"]["stdev"]),
-            format_duration(lat_pcts["100"]["100"]),
-        )
-        .unwrap();
-    }
-
-    pub fn format_lat_summary<'a>(&self, out: &mut Box<dyn Write + 'a>, result: &StorageResult) {
-        write!(out, "IO Latency: R ").unwrap();
-        Self::format_lat_summary_one(out, &result.io_lat_pcts[READ]);
-        write!(out, "\n            W ").unwrap();
-        Self::format_lat_summary_one(out, &result.io_lat_pcts[WRITE]);
-        writeln!(out, "").unwrap();
+        StudyIoLatPcts::format_table(out, &iolat_pcts[WRITE], None, "WRITE");
     }
 
     pub fn format_io_summary<'a>(&self, out: &mut Box<dyn Write + 'a>, result: &StorageResult) {
@@ -468,7 +436,7 @@ impl StorageJob {
     }
 
     pub fn format_summaries<'a>(&self, out: &mut Box<dyn Write + 'a>, result: &StorageResult) {
-        self.format_lat_summary(out, result);
+        StudyIoLatPcts::format_rw_summary(out, &result.iolat_pcts, None);
 
         writeln!(out, "").unwrap();
         self.format_io_summary(out, result);
@@ -516,7 +484,7 @@ impl Job for StorageJob {
             self.mem_usages.clear();
             self.mem_sizes.clear();
             self.mem_avail_inner_retries = saved_mem_avail_inner_retries;
-            self.main_started_at = unix_now();
+            self.main_period.0 = unix_now();
 
             let (mp, ms, mt) = self.select_memory_profile()?;
             self.mem_profile = mp;
@@ -584,19 +552,21 @@ impl Job for StorageJob {
             }
         }
 
-        self.main_ended_at = unix_now();
+        self.main_period.1 = unix_now();
 
         // Study and record the results.
         let mut study_rbps_all = StudyMean::new(|rep| Some(rep.usages[ROOT_SLICE].io_rbps));
         let mut study_wbps_all = StudyMean::new(|rep| Some(rep.usages[ROOT_SLICE].io_wbps));
         let mut study_read_lat_pcts = StudyIoLatPcts::new("read", None);
         let mut study_write_lat_pcts = StudyIoLatPcts::new("write", None);
-        Studies::new()
+
+        let mut studies = Studies::new()
             .add(&mut study_rbps_all)
             .add(&mut study_wbps_all)
             .add_multiple(&mut study_read_lat_pcts.studies())
-            .add_multiple(&mut study_write_lat_pcts.studies())
-            .run(rctx, self.main_started_at, self.main_ended_at);
+            .add_multiple(&mut study_write_lat_pcts.studies());
+
+        studies.run(rctx, self.main_period);
 
         let mut study_rbps_final = StudyMean::new(|rep| Some(rep.usages[ROOT_SLICE].io_rbps));
         let mut study_wbps_final = StudyMean::new(|rep| Some(rep.usages[ROOT_SLICE].io_wbps));
@@ -605,7 +575,7 @@ impl Job for StorageJob {
             .add(&mut study_wbps_final);
 
         for (start, end) in self.final_mem_probe_periods.iter() {
-            studies.run(rctx, *start, *end);
+            studies.run(rctx, (*start, *end));
         }
 
         let mem_usage_mean = statistical::mean(&self.mem_usages);
@@ -627,8 +597,7 @@ impl Job for StorageJob {
             mem_profile: self.mem_profile,
             mem_share: self.mem_share,
             mem_target: self.mem_target,
-            main_started_at: self.main_started_at,
-            main_ended_at: self.main_ended_at,
+            main_period: self.main_period,
             mem_offload_factor: mem_size_mean as f64 / mem_usage_mean as f64,
             mem_usage_mean: mem_usage_mean as usize,
             mem_usage_stdev: mem_usage_stdev as usize,
@@ -641,7 +610,7 @@ impl Job for StorageJob {
             rbps_final: study_rbps_final.result().0 as usize,
             wbps_final: study_wbps_final.result().0 as usize,
             final_mem_probe_periods: self.final_mem_probe_periods.clone(),
-            io_lat_pcts: [
+            iolat_pcts: [
                 study_read_lat_pcts.result(rctx, None),
                 study_write_lat_pcts.result(rctx, None),
             ],

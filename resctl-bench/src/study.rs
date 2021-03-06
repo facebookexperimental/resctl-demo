@@ -258,6 +258,7 @@ impl StudyIoLatPcts {
     ];
     pub const TIME_FORMAT_PCTS: [&'static str; 9] =
         ["00", "16", "50", "84", "90", "95", "99", "99.9", "100"];
+    pub const LAT_SUMMARY_PCTS: [&'static str; 4] = ["50", "90", "99", "100"];
 
     pub fn new(io_type: &str, error: Option<f64>) -> Self {
         Self {
@@ -340,6 +341,36 @@ impl StudyIoLatPcts {
         }
         writeln!(out, "").unwrap();
     }
+
+    pub fn format_summary<'a>(
+        out: &mut Box<dyn Write + 'a>,
+        result: &BTreeMap<String, BTreeMap<String, f64>>,
+        lat_pcts: Option<&[&str]>,
+    ) {
+        for pct in lat_pcts.unwrap_or(&Self::LAT_SUMMARY_PCTS) {
+            write!(
+                out,
+                "{}={}:{}/{}",
+                &format_percentile(*pct),
+                format_duration(result[*pct]["mean"]),
+                format_duration(result[*pct]["stdev"]),
+                format_duration(result[*pct]["100"]),
+            )
+            .unwrap();
+        }
+    }
+
+    pub fn format_rw_summary<'a>(
+        out: &mut Box<dyn Write + 'a>,
+        result: &[BTreeMap<String, BTreeMap<String, f64>>],
+        lat_pcts: Option<&[&str]>,
+    ) {
+        write!(out, "IO Latency: R ").unwrap();
+        Self::format_summary(out, &result[READ], lat_pcts);
+        write!(out, "\n            W ").unwrap();
+        Self::format_summary(out, &result[WRITE], lat_pcts);
+        writeln!(out, "").unwrap();
+    }
 }
 
 //
@@ -385,7 +416,7 @@ impl<'a> Studies<'a> {
         Ok(nr_missed)
     }
 
-    pub fn run(&mut self, run: &RunCtx, start: u64, end: u64) -> u64 {
+    pub fn run(&mut self, run: &RunCtx, (start, end): (u64, u64)) -> u64 {
         match self.run_fallible(run, start, end) {
             Ok(v) => v,
             Err(e) => {
