@@ -273,43 +273,18 @@ impl MemHog {
     {
         let runs: Vec<&MemHogRun> = runs.collect();
 
-        let in_hold = |rep: &rd_agent_intf::Report| {
-            let at = rep.timestamp.timestamp() as u64;
-            for run in runs.iter() {
-                if run.stable_at <= at && at <= run.hog_started_at {
-                    return true;
-                }
-            }
-            false
-        };
-        let in_hog = |rep: &rd_agent_intf::Report| {
-            let at = rep.timestamp.timestamp();
-            for run in runs.iter() {
-                if run.first_mh_rep.timestamp.timestamp() <= at
-                    && at <= run.last_mh_rep.timestamp.timestamp()
-                {
-                    return true;
-                }
-            }
-            false
-        };
-
         // Determine the baseline rps and latency by averaging them over all
         // hold periods. We need these values for the isolation and latency
         // impact studies. Run these first.
-        let mut study_base_rps = StudyMean::new(|rep| match in_hold(rep) {
-            true => Some(rep.hashd[0].rps),
-            false => None,
-        });
-        let mut study_base_lat = StudyMean::new(|rep| match in_hold(rep) {
-            true => Some(rep.hashd[0].lat.ctl),
-            false => None,
-        });
-        let mut studies = Studies::new();
-        studies
+        let mut study_base_rps = StudyMean::new(|rep| Some(rep.hashd[0].rps));
+        let mut study_base_lat = StudyMean::new(|rep| Some(rep.hashd[0].lat.ctl));
+
+        let mut studies = Studies::new()
             .add(&mut study_base_rps)
-            .add(&mut study_base_lat)
-            .run(rctx, main_started_at, main_ended_at);
+            .add(&mut study_base_lat);
+        for run in runs.iter() {
+            studies.run(rctx, run.stable_at, run.hog_started_at);
+        }
 
         let (base_rps, base_rps_stdev, _, _) = study_base_rps.result();
         let (base_lat, base_lat_stdev, _, _) = study_base_lat.result();
@@ -319,18 +294,10 @@ impl MemHog {
         // indicating the perfect isolation. The latter is defined as the
         // proportion of the latency increase over the baseline, [0.0, 1.0]
         // with 0.0 indicating no latency impact.
-        let mut study_work_isol = StudyMeanPcts::new(
-            |rep| match in_hog(rep) {
-                true => Some((rep.hashd[0].rps / base_rps).min(1.0)),
-                false => None,
-            },
-            None,
-        );
+        let mut study_work_isol =
+            StudyMeanPcts::new(|rep| Some((rep.hashd[0].rps / base_rps).min(1.0)), None);
         let mut study_lat_impact = StudyMeanPcts::new(
-            |rep| match in_hog(rep) {
-                true => Some((rep.hashd[0].lat.ctl.max(base_lat) / base_lat - 1.0).max(0.0)),
-                false => None,
-            },
+            |rep| Some((rep.hashd[0].lat.ctl.max(base_lat) / base_lat - 1.0).max(0.0)),
             None,
         );
 
@@ -341,36 +308,37 @@ impl MemHog {
         let mut io_unused = 0.0_f64;
         let mut mh_io_usage = 0.0_f64;
         let mut study_io_usages = StudyMutFn::new(|rep| {
-            if in_hog(rep) {
-                let vrate = rep.iocost.vrate;
-                let root_util = rep.usages[ROOT_SLICE].io_util;
-                // The reported IO utilization is relative to the effective
-                // vrate. Scale so that the values are relative to the
-                // absolute model parameters. As vrate is sampled, if it
-                // fluctuates at high frequency, this can introduce
-                // significant errors.
-                io_usage += root_util * vrate / 100.0;
-                io_unused += (1.0 - root_util).max(0.0) * vrate / 100.0;
-                if let Some(usage) = rep.usages.get(&mh_svc_name) {
-                    mh_io_usage += usage.io_util * vrate / 100.0;
-                }
+            let vrate = rep.iocost.vrate;
+            let root_util = rep.usages[ROOT_SLICE].io_util;
+            // The reported IO utilization is relative to the effective
+            // vrate. Scale so that the values are relative to the
+            // absolute model parameters. As vrate is sampled, if it
+            // fluctuates at high frequency, this can introduce
+            // significant errors.
+            io_usage += root_util * vrate / 100.0;
+            io_unused += (1.0 - root_util).max(0.0) * vrate / 100.0;
+            if let Some(usage) = rep.usages.get(&mh_svc_name) {
+                mh_io_usage += usage.io_util * vrate / 100.0;
             }
         });
 
         // vrate mean isn't used in the process but report to help
         // visibility.
-        let mut study_vrate_mean = StudyMean::new(|rep| match in_hog(rep) {
-            true => Some(rep.iocost.vrate),
-            false => None,
-        });
+        let mut study_vrate_mean = StudyMean::new(|rep| Some(rep.iocost.vrate));
 
-        let mut studies = Studies::new();
-        studies
+        let mut studies = Studies::new()
             .add(&mut study_work_isol)
             .add(&mut study_lat_impact)
             .add(&mut study_io_usages)
-            .add(&mut study_vrate_mean)
-            .run(rctx, main_started_at, main_ended_at);
+            .add(&mut study_vrate_mean);
+
+        for run in runs.iter() {
+            studies.run(
+                rctx,
+                run.first_mh_rep.timestamp.timestamp() as u64,
+                run.last_mh_rep.timestamp.timestamp() as u64,
+            );
+        }
 
         let (work_isol_factor, work_isol_stdev, work_isol_pcts) =
             study_work_isol.result(&Self::PCTS);

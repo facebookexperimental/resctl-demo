@@ -354,12 +354,12 @@ impl<'a> Studies<'a> {
         Self { studies: vec![] }
     }
 
-    pub fn add(&mut self, study: &'a mut dyn Study) -> &mut Self {
+    pub fn add(mut self, study: &'a mut dyn Study) -> Self {
         self.studies.push(study);
         self
     }
 
-    pub fn add_multiple(&mut self, studies: &mut Vec<&'a mut dyn Study>) -> &mut Self {
+    pub fn add_multiple(mut self, studies: &mut Vec<&'a mut dyn Study>) -> Self {
         self.studies.append(studies);
         self
     }

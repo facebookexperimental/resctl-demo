@@ -587,38 +587,26 @@ impl Job for StorageJob {
         self.main_ended_at = unix_now();
 
         // Study and record the results.
-        let in_final = |rep: &rd_agent_intf::Report| {
-            let at = rep.timestamp.timestamp() as u64;
-            for (start, end) in self.final_mem_probe_periods.iter() {
-                if *start <= at && at <= *end {
-                    return true;
-                }
-            }
-            false
-        };
-
         let mut study_rbps_all = StudyMean::new(|rep| Some(rep.usages[ROOT_SLICE].io_rbps));
         let mut study_wbps_all = StudyMean::new(|rep| Some(rep.usages[ROOT_SLICE].io_wbps));
-        let mut study_rbps_final = StudyMean::new(|rep| match in_final(rep) {
-            true => Some(rep.usages[ROOT_SLICE].io_rbps),
-            false => None,
-        });
-        let mut study_wbps_final = StudyMean::new(|rep| match in_final(rep) {
-            true => Some(rep.usages[ROOT_SLICE].io_wbps),
-            false => None,
-        });
         let mut study_read_lat_pcts = StudyIoLatPcts::new("read", None);
         let mut study_write_lat_pcts = StudyIoLatPcts::new("write", None);
-
-        let mut studies = Studies::new();
-        studies
+        Studies::new()
             .add(&mut study_rbps_all)
             .add(&mut study_wbps_all)
-            .add(&mut study_rbps_final)
-            .add(&mut study_wbps_final)
             .add_multiple(&mut study_read_lat_pcts.studies())
             .add_multiple(&mut study_write_lat_pcts.studies())
             .run(rctx, self.main_started_at, self.main_ended_at);
+
+        let mut study_rbps_final = StudyMean::new(|rep| Some(rep.usages[ROOT_SLICE].io_rbps));
+        let mut study_wbps_final = StudyMean::new(|rep| Some(rep.usages[ROOT_SLICE].io_wbps));
+        let mut studies = Studies::new()
+            .add(&mut study_rbps_final)
+            .add(&mut study_wbps_final);
+
+        for (start, end) in self.final_mem_probe_periods.iter() {
+            studies.run(rctx, *start, *end);
+        }
 
         let mem_usage_mean = statistical::mean(&self.mem_usages);
         let mem_usage_stdev = if self.mem_usages.len() > 1 {
