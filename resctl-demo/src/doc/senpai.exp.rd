@@ -22,7 +22,7 @@ Sysload toggles:
 %% toggle sysload compile-job build-linux-2x : allmodconfig linux build
 %% toggle sysload compile-job-1 build-linux-allnoconfig-2x : allnoconfig linux build
 %% toggle sysload compile-job-2 build-linux-defconfig-2x : allmodconfig linux build
-%% toggle sysload memory-hog memory-growth-50pct : Memory hog
+%% toggle sysload mem-hog mem-hog-50pct : Memory hog
 %% toggle sysload io-hog read-bomb : IO hog
 
 

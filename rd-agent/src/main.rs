@@ -16,6 +16,7 @@ use std::time::Duration;
 use sysinfo::{self, ProcessExt, SystemExt};
 use util::*;
 
+mod bandit;
 mod bench;
 mod cmd;
 mod hashd;
@@ -158,6 +159,7 @@ pub struct Config {
     pub report_1min_d_path: String,
     pub bench_path: String,
     pub slices_path: String,
+    pub agent_bin: String,
     pub hashd_paths: [HashdPaths; 2],
     pub misc_bin_path: String,
     pub biolatpcts_bin: Option<String>,
@@ -304,6 +306,12 @@ impl Config {
                 .to_string(),
         };
 
+        let agent_bin = find_bin("rd-agent", exe_dir().ok())
+            .expect("Failed to find rd-agent bin")
+            .to_str()
+            .unwrap()
+            .to_owned();
+
         let hashd_bin = find_bin("rd-hashd", exe_dir().ok())
             .unwrap_or_else(|| {
                 error!("cfg: Failed to find rd-hashd binary");
@@ -381,6 +389,7 @@ impl Config {
             report_1min_d_path,
             bench_path,
             slices_path: top_path.clone() + "/slices.json",
+            agent_bin,
             hashd_paths: [
                 HashdPaths {
                     bin: hashd_bin.clone(),
@@ -1140,6 +1149,11 @@ fn main() {
         error!("cfg: Failed to process args file ({:?})", &e);
         panic!();
     });
+
+    if let Some(bandit) = args_file.data.bandit.as_ref() {
+        bandit::bandit_main(bandit);
+        return;
+    }
 
     let mut cfg = Config::new(&args_file);
 

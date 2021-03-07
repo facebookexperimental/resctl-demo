@@ -5,6 +5,7 @@ use std::io;
 use util::*;
 
 pub mod args;
+pub mod bandit_report;
 pub mod bench;
 pub mod cmd;
 pub mod cmd_ack;
@@ -15,7 +16,8 @@ pub mod side_defs;
 pub mod slices;
 pub mod sysreqs;
 
-pub use args::Args;
+pub use args::{Args, Bandit, BanditMemHogArgs};
+pub use bandit_report::BanditMemHogReport;
 pub use bench::{BenchKnobs, HashdKnobs, IoCostKnobs, BENCH_FILENAME};
 pub use cmd::{Cmd, HashdCmd, SideloaderCmd};
 pub use cmd_ack::CmdAck;
@@ -47,6 +49,14 @@ pub const OOMD_SVC_NAME: &str = "rd-oomd.service";
 pub const SIDELOADER_SVC_NAME: &str = "rd-sideloader.service";
 pub const SIDELOAD_SVC_PREFIX: &str = "rd-sideload-";
 pub const SYSLOAD_SVC_PREFIX: &str = "rd-sysload-";
+
+pub fn sysload_svc_name(name: &str) -> String {
+    format!("{}{}.service", SYSLOAD_SVC_PREFIX, name)
+}
+
+pub fn sideload_svc_name(name: &str) -> String {
+    format!("{}{}.service", SIDELOAD_SVC_PREFIX, name)
+}
 
 #[derive(Default)]
 pub struct AgentFiles {

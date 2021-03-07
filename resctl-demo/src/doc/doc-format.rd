@@ -78,9 +78,9 @@ workload.
 
 %% toggle sideload compile-job build-linux-2x     : Toggle a 2x linux build sideload
 %% toggle sideload compile-job-1 build-linux-32x  : Toggle a 32x linux build sideload
-%% toggle sideload memory-hog memory-growth-50pct : Toggle a 50% memory growth sideload
-%% toggle sideload memory-hog-1 memory-growth-1x  : Toggle a 1x memory growth sideload
-%% toggle sideload memory-hog-hot memory-bloat-1x : Toggle a hot memory hog sideload
+%% toggle sideload mem-hog mem-hog-50pct          : Toggle a 50% memory hog sideload
+%% toggle sideload mem-hog-1 mem-hog-1x           : Toggle a 1x memory hog sideload
+%% toggle sideload mem-hog-hot mem-bloat-1x       : Toggle a hot memory hog sideload
 %% toggle sideload io-hog read-bomb               : Toggle a read hog sideload
 %% toggle sideload cpu-hog burn-cpus-50pct        : Toggle a 50% cpu hog sideload
 %% toggle sideload cpu-hog-1 burn-cpus-1x         : Toggle a 1x cpu hog sideload
@@ -92,9 +92,9 @@ protection or the need for sideloader.
 
 %% toggle sysload compile-job build-linux-2x     : Toggle a 2x linux build sysload
 %% toggle sysload compile-job-1 build-linux-32x  : Toggle a 32x linux build sysload
-%% toggle sysload memory-hog memory-growth-50pct : Toggle a 50% memory growth sysload
-%% toggle sysload memory-hog-1 memory-growth-1x  : Toggle a 1x memory growth sysload
-%% toggle sysload memory-hog-hot memory-bloat-1x : Toggle a hot memory hog sysload
+%% toggle sysload mem-hog mem-hog-50pct          : Toggle a 50% memory hog sysload
+%% toggle sysload mem-hog-1 mem-hog-1x           : Toggle a 1x memory hog sysload
+%% toggle sysload mem-hog-hot mem-bloat-1x       : Toggle a hot memory hog sysload
 %% toggle sysload io-hog read-bomb               : Toggle a read hog sysload
 %% toggle sysload cpu-hog burn-cpus-50pct        : Toggle a 50% cpu hog sysload
 %% toggle sysload cpu-hog-1 burn-cpus-1x         : Toggle a 1x cpu hog sysload

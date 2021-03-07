@@ -1,7 +1,7 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
 #![allow(dead_code)]
 use anyhow::{bail, Result};
-use log::error;
+use log::{error, warn};
 use num_traits::cast::AsPrimitive;
 use quantiles::ckms::CKMS;
 use std::collections::BTreeMap;
@@ -213,6 +213,36 @@ where
     }
 }
 
+pub struct StudyMutFn<F>
+where
+    F: FnMut(&Report),
+{
+    func: F,
+}
+
+impl<F> StudyMutFn<F>
+where
+    F: FnMut(&Report),
+{
+    pub fn new(func: F) -> Self {
+        Self { func }
+    }
+}
+
+impl<F> Study for StudyMutFn<F>
+where
+    F: FnMut(&Report),
+{
+    fn study(&mut self, rep: &Report) -> Result<()> {
+        (self.func)(rep);
+        Ok(())
+    }
+
+    fn as_study_mut(&mut self) -> &mut dyn Study {
+        self
+    }
+}
+
 //
 // Helpers.
 //
@@ -228,6 +258,7 @@ impl StudyIoLatPcts {
     ];
     pub const TIME_FORMAT_PCTS: [&'static str; 9] =
         ["00", "16", "50", "84", "90", "95", "99", "99.9", "100"];
+    pub const LAT_SUMMARY_PCTS: [&'static str; 4] = ["50", "90", "99", "100"];
 
     pub fn new(io_type: &str, error: Option<f64>) -> Self {
         Self {
@@ -277,6 +308,7 @@ impl StudyIoLatPcts {
         out: &mut Box<dyn Write + 'a>,
         result: &BTreeMap<String, BTreeMap<String, f64>>,
         time_pcts: Option<&[&str]>,
+        title: &str,
     ) {
         let time_pcts = time_pcts
             .unwrap_or(&Self::TIME_FORMAT_PCTS)
@@ -284,35 +316,19 @@ impl StudyIoLatPcts {
             .chain(Some("cum").iter())
             .chain(Some("mean").iter())
             .chain(Some("stdev").iter());
-        write!(out, "       ").unwrap();
+        write!(out, "{:6} ", title.chars().take(6).collect::<String>()).unwrap();
 
         let widths: Vec<usize> = time_pcts
             .clone()
             .map(|pct| (pct.len() + 1).max(5))
             .collect();
 
-        let fmt_pct = |pct: &str| -> String {
-            match pct {
-                "cum" | "mean" | "stdev" => pct.to_string(),
-                pct => {
-                    let pctf = pct.parse::<f64>().unwrap();
-                    if pctf == 0.0 {
-                        "min".to_string()
-                    } else if pctf == 100.0 {
-                        "max".to_string()
-                    } else {
-                        format!("p{}", pct)
-                    }
-                }
-            }
-        };
-
         for (pct, width) in time_pcts.clone().zip(widths.iter()) {
-            write!(out, " {:>1$}", &fmt_pct(*pct), width).unwrap();
+            write!(out, " {:>1$}", &format_percentile(*pct), width).unwrap();
         }
 
         for lat_pct in Self::LAT_PCTS.iter() {
-            write!(out, "\n{:<7}", &fmt_pct(*lat_pct)).unwrap();
+            write!(out, "\n{:<7}", &format_percentile(*lat_pct)).unwrap();
             for (time_pct, width) in time_pcts.clone().zip(widths.iter()) {
                 write!(
                     out,
@@ -324,6 +340,63 @@ impl StudyIoLatPcts {
             }
         }
         writeln!(out, "").unwrap();
+    }
+
+    pub fn format_summary<'a>(
+        out: &mut Box<dyn Write + 'a>,
+        result: &BTreeMap<String, BTreeMap<String, f64>>,
+        lat_pcts: Option<&[&str]>,
+    ) {
+        let mut first = true;
+        for pct in lat_pcts.unwrap_or(&Self::LAT_SUMMARY_PCTS) {
+            write!(
+                out,
+                "{}{}={}:{}/{}",
+                if first { "" } else { " " },
+                &format_percentile(*pct),
+                format_duration(result[*pct]["mean"]),
+                format_duration(result[*pct]["stdev"]),
+                format_duration(result[*pct]["100"]),
+            )
+            .unwrap();
+            first = false;
+        }
+    }
+
+    pub fn format_rw_tables<'a>(
+        out: &mut Box<dyn Write + 'a>,
+        result: &[BTreeMap<String, BTreeMap<String, f64>>],
+        lat_pcts: Option<&[&str]>,
+    ) {
+        writeln!(out, "IO Latency Distribution:\n").unwrap();
+        Self::format_table(out, &result[READ], lat_pcts, "READ");
+        writeln!(out, "").unwrap();
+        Self::format_table(out, &result[WRITE], lat_pcts, "WRITE");
+    }
+
+    pub fn format_rw_summary<'a>(
+        out: &mut Box<dyn Write + 'a>,
+        result: &[BTreeMap<String, BTreeMap<String, f64>>],
+        lat_pcts: Option<&[&str]>,
+    ) {
+        write!(out, "IO Latency: R ").unwrap();
+        Self::format_summary(out, &result[READ], lat_pcts);
+        write!(out, "\n            W ").unwrap();
+        Self::format_summary(out, &result[WRITE], lat_pcts);
+        writeln!(out, "").unwrap();
+    }
+
+    pub fn format_rw<'a>(
+        out: &mut Box<dyn Write + 'a>,
+        result: &[BTreeMap<String, BTreeMap<String, f64>>],
+        full: bool,
+        lat_pcts: Option<&[&str]>,
+    ) {
+        if full {
+            Self::format_rw_tables(out, result, lat_pcts);
+            writeln!(out, "").unwrap();
+        }
+        Self::format_rw_summary(out, result, lat_pcts);
     }
 }
 
@@ -339,22 +412,24 @@ impl<'a> Studies<'a> {
         Self { studies: vec![] }
     }
 
-    pub fn add(&mut self, study: &'a mut dyn Study) -> &mut Self {
+    pub fn add(mut self, study: &'a mut dyn Study) -> Self {
         self.studies.push(study);
         self
     }
 
-    pub fn add_multiple(&mut self, studies: &mut Vec<&'a mut dyn Study>) -> &mut Self {
+    pub fn add_multiple(mut self, studies: &mut Vec<&'a mut dyn Study>) -> Self {
         self.studies.append(studies);
         self
     }
 
-    pub fn run_fallible(&mut self, run: &RunCtx, start: u64, end: u64) -> Result<u64> {
+    pub fn run_fallible(&mut self, run: &RunCtx, period: (u64, u64)) -> Result<(u64, u64)> {
+        let mut nr_reps = 0;
         let mut nr_missed = 0;
 
-        for (rep, _) in run.report_iter(start, end) {
+        for (rep, _) in run.report_iter(period) {
             match rep {
                 Ok(rep) => {
+                    nr_reps += 1;
                     for study in self.studies.iter_mut() {
                         study.study(&rep)?;
                     }
@@ -363,15 +438,24 @@ impl<'a> Studies<'a> {
             }
         }
 
-        if start + nr_missed >= end {
-            bail!("no report available between {} and {}", start, end);
+        if nr_reps == 0 {
+            bail!("no report available between {} and {}", period.0, period.1);
         }
 
-        Ok(nr_missed)
+        if nr_missed > 0 {
+            warn!(
+                "study: {} reports missing between {:?} and {:?}",
+                nr_missed,
+                format_unix_time(period.0),
+                format_unix_time(period.1),
+            );
+        }
+
+        Ok((nr_reps, nr_missed))
     }
 
-    pub fn run(&mut self, run: &RunCtx, start: u64, end: u64) -> u64 {
-        match self.run_fallible(run, start, end) {
+    pub fn run(&mut self, run: &RunCtx, period: (u64, u64)) -> (u64, u64) {
+        match self.run_fallible(run, period) {
             Ok(v) => v,
             Err(e) => {
                 error!("Failed to study the reports ({})", &e);

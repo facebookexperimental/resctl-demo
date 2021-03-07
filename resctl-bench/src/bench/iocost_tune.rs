@@ -92,7 +92,7 @@ impl DataSel {
     fn select(&self, storage: &StorageResult) -> f64 {
         match self {
             Self::MOF => storage.mem_offload_factor,
-            Self::Lat(lat_pct, time_pct) => storage.io_lat_pcts[lat_pct][time_pct],
+            Self::Lat(lat_pct, time_pct) => storage.iolat_pcts.as_ref()[READ][lat_pct][time_pct],
         }
     }
 
@@ -719,15 +719,6 @@ impl Job for IoCostTuneJob {
         _full: bool,
         props: &JobProps,
     ) -> Result<()> {
-        let result = serde_json::from_value::<IoCostTuneResult>(data.result.clone()).unwrap();
-
-        write!(
-            out,
-            "Graphs (circle: data points, cross: fitted line)\n\
-             ================================================\n\n"
-        )
-        .unwrap();
-
         let mut graph_prefix = None;
         for (k, v) in props[0].iter() {
             match k.as_ref() {
@@ -739,6 +730,15 @@ impl Job for IoCostTuneJob {
                 k => bail!("unknown format parameter {:?}", k),
             }
         }
+
+        let result = serde_json::from_value::<IoCostTuneResult>(data.result.clone()).unwrap();
+
+        write!(
+            out,
+            "Graphs (circle: data points, cross: fitted line)\n\
+             ================================================\n\n"
+        )
+        .unwrap();
 
         let mut grapher = graph::Grapher::new(out, graph_prefix.as_deref());
         grapher.plot(data, &result)?;

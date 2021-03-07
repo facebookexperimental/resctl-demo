@@ -1,5 +1,6 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
-use anyhow::{anyhow, bail, Result};
+use anyhow::{anyhow, bail, Context, Result};
+use chrono::{DateTime, Local};
 use crossbeam::channel::Sender;
 use glob::glob;
 use log::{info, warn};
@@ -25,6 +26,7 @@ use std::thread_local;
 use std::time::{Duration, UNIX_EPOCH};
 use sysinfo::{self, SystemExt};
 
+pub mod anon_area;
 pub mod iocost;
 pub mod journal_tailer;
 pub mod json_file;
@@ -42,6 +44,9 @@ pub use systemd::TransientService;
 pub const TO_MSEC: f64 = 1000.0;
 pub const TO_PCT: f64 = 100.0;
 pub const MSEC: f64 = 1.0 / 1000.0;
+
+pub const READ: usize = 0;
+pub const WRITE: usize = 1;
 
 lazy_static::lazy_static! {
     pub static ref TOTAL_SYSTEM_MEMORY: usize = {
@@ -179,6 +184,25 @@ where
     num::clamp(T::from_f64(v).unwrap(), left, right)
 }
 
+pub fn custom_underline(content: &str, line_char: &str) -> String {
+    let nr_spaces = content.chars().take_while(|c| *c == ' ').count();
+    let len = content.chars().count() - nr_spaces;
+    format!(
+        "{}\n{}{}\n",
+        content,
+        " ".repeat(nr_spaces),
+        line_char.repeat(len)
+    )
+}
+
+pub fn underline(content: &str) -> String {
+    custom_underline(content, "-")
+}
+
+pub fn double_underline(content: &str) -> String {
+    custom_underline(content, "=")
+}
+
 fn format_size_internal<T>(size: T, zero: &str) -> String
 where
     T: num::ToPrimitive,
@@ -188,10 +212,10 @@ where
 
         if size < unit {
             Some(zero.to_string())
-        } else if size < 100 * unit {
+        } else if size < (99.94999 * unit as f64) as u64 {
             Some(format!("{:.1}{}", size as f64 / unit as f64, suffix))
         } else if size < 1024 * unit {
-            Some(format!("{:}{}", size / unit, suffix))
+            Some(format!("{:.0}{}", size as f64 / unit as f64, suffix))
         } else {
             None
         }
@@ -226,10 +250,10 @@ fn format_duration_internal(dur: f64, zero: &str) -> String {
     let format_nsecs_helper = |nsecs: u64, unit: u64, max: u64, suffix: &str| -> Option<String> {
         if nsecs < unit {
             Some(zero.to_string())
-        } else if nsecs < 100 * unit {
+        } else if nsecs < (99.94999 * unit as f64) as u64 {
             Some(format!("{:.1}{}", nsecs as f64 / unit as f64, suffix))
         } else if nsecs < max * unit {
-            Some(format!("{:}{}", nsecs / unit, suffix))
+            Some(format!("{:.0}{}", nsecs as f64 / unit as f64, suffix))
         } else {
             None
         }
@@ -276,6 +300,21 @@ pub fn format_pct_dashed(ratio: f64) -> String {
     format_pct_internal(ratio, "-")
 }
 
+pub fn format_percentile(pct: &str) -> String {
+    match pct.parse::<f64>() {
+        Ok(pctf) => {
+            if pctf == 0.0 {
+                "min".to_string()
+            } else if pctf == 100.0 {
+                "max".to_string()
+            } else {
+                format!("p{}", pct)
+            }
+        }
+        _ => pct.to_string(),
+    }
+}
+
 pub fn parse_duration(input: &str) -> Result<f64> {
     lazy_static::lazy_static! {
         static ref UNITS: HashMap<char, f64> = [
@@ -296,17 +335,76 @@ pub fn parse_duration(input: &str) -> Result<f64> {
     let mut num = String::new();
     let mut sum = 0.0;
     for ch in input.chars() {
-        if UNITS.contains_key(&ch) {
-            sum += num.trim().parse::<f64>()? * UNITS[&ch];
-            num.clear();
-        } else {
-            num.push(ch);
+        match ch {
+            '_' => continue,
+            ch if UNITS.contains_key(&ch) => {
+                sum += num.trim().parse::<f64>()? * UNITS[&ch];
+                num.clear();
+            }
+            ch => num.push(ch),
         }
     }
     if num.trim().len() > 0 {
         sum += num.trim().parse::<f64>()?;
     }
     Ok(sum)
+}
+
+pub fn parse_size(input: &str) -> Result<u64> {
+    lazy_static::lazy_static! {
+        static ref UNITS: HashMap<char, u32> = [
+            ('B', 0),
+            ('K', 10),
+            ('M', 20),
+            ('G', 30),
+            ('T', 40),
+            ('P', 50),
+            ('E', 60),
+        ].iter().cloned().collect();
+    }
+
+    let parse_num = |num: &str, shift: u32| -> Result<u64> {
+        Ok(if num.contains(".") {
+            (num.parse::<f64>()? * (2u64.pow(shift) as f64)).round() as u64
+        } else {
+            num.parse::<u64>()? * (1 << shift)
+        })
+    };
+
+    let mut num = String::new();
+    let mut sum = 0;
+    for ch in input.chars() {
+        let ch = ch.to_uppercase().to_string().chars().next().unwrap();
+        match ch {
+            '_' => continue,
+            ch if UNITS.contains_key(&ch) => {
+                sum += parse_num(num.trim(), UNITS[&ch])?;
+                num.clear();
+            }
+            ch => num.push(ch),
+        }
+    }
+    if num.trim().len() > 0 {
+        sum += parse_num(num.trim(), 0)?;
+    }
+    Ok(sum)
+}
+
+pub fn parse_frac(input: &str) -> Result<f64> {
+    let mut input = input.trim();
+    let mut mult = 1.0;
+    if input.ends_with("%") {
+        input = &input[0..input.len() - 1];
+        mult = 0.01;
+    }
+    let v = input
+        .parse::<f64>()
+        .with_context(|| format!("failed to parse fractional \"{}\"", input))?
+        * mult;
+    if v < 0.0 {
+        bail!("fractional {} is negative", v);
+    }
+    Ok(v)
 }
 
 fn is_executable<P: AsRef<Path>>(path_in: P) -> bool {
@@ -390,6 +488,12 @@ pub fn write_one_line<P: AsRef<Path>>(path: P, line: &str) -> Result<()> {
 
 pub fn unix_now() -> u64 {
     UNIX_EPOCH.elapsed().unwrap().as_secs()
+}
+
+pub fn format_unix_time(time: u64) -> String {
+    DateTime::<Local>::from(UNIX_EPOCH + Duration::from_secs(time))
+        .format("%x %T")
+        .to_string()
 }
 
 pub fn init_logging(verbosity: u32) {
@@ -604,13 +708,26 @@ mod tests {
             (2040.0, "34.0M"),
             (3456000.0, "40.0D"),
             (59918400.0, "1.9Y"),
-            (59918401.1, "1.9Y1s100m"),
+            (59918401.1, "1.9Y_1s_100m"),
             (59918401.1, "1.9Y1.1s"),
             (59918401.102, "1.9Y  1.1s  2000  u"),
             (1.27, "1.27"),
             (1.37, "100m1.27"),
         ] {
             let result = super::parse_duration(pair.1).unwrap();
+            assert_eq!(pair.0, result);
+            println!("{} -> {} ({})", pair.1, result, pair.0);
+        }
+    }
+
+    #[test]
+    fn test_parse_size() {
+        for pair in &[
+            (4404019, "4.2m"),
+            (2164785152, "2G_16.5M"),
+            (1659790359820, "1.5t  9.8  G   248281"),
+        ] {
+            let result = super::parse_size(pair.1).unwrap();
             assert_eq!(pair.0, result);
             println!("{} -> {} ({})", pair.1, result, pair.0);
         }

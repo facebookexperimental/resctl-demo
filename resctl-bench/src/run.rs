@@ -1,20 +1,23 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
 #![allow(dead_code)]
 use anyhow::{anyhow, bail, Context, Result};
-use log::{debug, error, warn};
+use log::{debug, error, info, warn};
 use std::collections::{BTreeSet, VecDeque};
+use std::fmt::Write;
 use std::process::Command;
 use std::sync::{Arc, Mutex};
 use std::thread::{spawn, JoinHandle};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use thiserror::Error;
 use util::*;
 
 use super::progress::BenchProgress;
 use super::{Jobs, Program, AGENT_BIN};
 use crate::job::{JobCtx, JobData, SysReqs};
 use rd_agent_intf::{
-    AgentFiles, ReportIter, RunnerState, Slice, SysReq, AGENT_SVC_NAME, HASHD_BENCH_SVC_NAME,
-    IOCOST_BENCH_SVC_NAME,
+    AgentFiles, ReportIter, RunnerState, Slice, SvcStateReport, SysReq, AGENT_SVC_NAME,
+    HASHD_A_SVC_NAME, HASHD_BENCH_SVC_NAME, HASHD_B_SVC_NAME, IOCOST_BENCH_SVC_NAME,
+    SIDELOAD_SVC_PREFIX, SYSLOAD_SVC_PREFIX,
 };
 use resctl_bench_intf::{JobSpec, Mode};
 
@@ -22,6 +25,15 @@ const MINDER_AGENT_TIMEOUT: Duration = Duration::from_secs(120);
 const CMD_TIMEOUT: Duration = Duration::from_secs(30);
 const REP_RECORD_CADENCE: u64 = 10;
 const REP_RECORD_RETENTION: usize = 3;
+const HASHD_SLOPER_SLOTS: usize = 10;
+
+#[derive(Error, Debug)]
+pub enum RunCtxErr {
+    #[error("wait_cond didn't finish in {timeout:?}")]
+    WaitCondTimeout { timeout: Duration },
+    #[error("Hashd stabilization didn't finish in {timeout:?}")]
+    HashdStabilizationTimeout { timeout: Duration },
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MinderState {
@@ -29,6 +41,79 @@ pub enum MinderState {
     AgentTimeout,
     AgentNotRunning(systemd::UnitState),
     ReportTimeout,
+}
+
+fn run_nested_job_spec_int(
+    spec: &JobSpec,
+    args: &resctl_bench_intf::Args,
+    base_bench: &mut rd_agent_intf::BenchKnobs,
+    jobs: Arc<Mutex<Jobs>>,
+) -> Result<bool> {
+    let mut rctx = RunCtx::new(args, base_bench, jobs);
+    let jctx = rctx.jobs.lock().unwrap().parse_job_spec_and_link(spec)?;
+    rctx.run_jctx(jctx)?;
+    Ok(rctx.commit_bench)
+}
+
+struct Sloper {
+    points: VecDeque<f64>,
+    errs: VecDeque<f64>,
+    retention: usize,
+}
+
+impl Sloper {
+    fn new(retention: usize) -> Self {
+        Self {
+            points: Default::default(),
+            errs: Default::default(),
+            retention,
+        }
+    }
+
+    fn push(&mut self, point: f64) -> Option<(f64, f64)> {
+        self.points.push_front(point);
+        self.points.truncate(self.retention);
+        if self.points.len() < 2 {
+            return None;
+        }
+
+        let points = self
+            .points
+            .iter()
+            .rev()
+            .enumerate()
+            .map(|(i, v)| (i as f64, *v))
+            .collect::<Vec<(f64, f64)>>();
+        let (slope, intcp): (f64, f64) = linreg::linear_regression_of(&points).unwrap();
+
+        let mut err: f64 = 0.0;
+        for (i, point) in points.iter() {
+            err += (point - (i * slope + intcp)).powi(2);
+        }
+        err = err.sqrt();
+
+        self.errs.push_front(err);
+        self.errs.truncate(self.retention);
+        if self.errs.len() < 2 {
+            return None;
+        }
+
+        let errs = self
+            .errs
+            .iter()
+            .rev()
+            .enumerate()
+            .map(|(i, v)| (i as f64, *v))
+            .collect::<Vec<(f64, f64)>>();
+        let (eslope, _): (f64, f64) = linreg::linear_regression_of(&errs).unwrap();
+
+        let mean = statistical::mean(&self.points.iter().cloned().collect::<Vec<f64>>());
+        if mean == 0.0 {
+            return None;
+        }
+
+        Some((slope / mean, eslope / mean))
+    }
 }
 
 struct RunCtxInner {
@@ -148,21 +233,11 @@ impl RunCtxInner {
     }
 }
 
-fn run_nested_job_spec_int(
-    spec: &JobSpec,
-    args: &resctl_bench_intf::Args,
-    base_bench: &mut rd_agent_intf::BenchKnobs,
-    jobs: Arc<Mutex<Jobs>>,
-) -> Result<()> {
-    let mut rctx = RunCtx::new(args, base_bench, jobs);
-    let jctx = rctx.jobs.lock().unwrap().parse_job_spec_and_link(spec)?;
-    rctx.run_jctx(jctx)
-}
-
 pub struct RunCtx<'a> {
     inner: Arc<Mutex<RunCtxInner>>,
     agent_init_fns: Vec<Box<dyn FnOnce(&mut RunCtx)>>,
     base_bench: &'a mut rd_agent_intf::BenchKnobs,
+    bench: rd_agent_intf::BenchKnobs,
     bench_path: String,
     demo_bench_path: String,
     pub jobs: Arc<Mutex<Jobs>>,
@@ -201,6 +276,7 @@ impl<'a> RunCtx<'a> {
                 reports: VecDeque::new(),
                 report_sample: None,
             })),
+            bench: base_bench.clone(),
             base_bench: base_bench,
             bench_path: args.bench_path(),
             demo_bench_path: args.demo_bench_path(),
@@ -230,6 +306,16 @@ impl<'a> RunCtx<'a> {
     {
         self.agent_init_fns.push(Box::new(init_fn));
         self
+    }
+
+    pub fn set_balloon_size(&mut self, size: usize) -> &mut Self {
+        let ballon_ratio = size as f64 / total_memory() as f64;
+        self.add_agent_init_fn(move |rctx| {
+            rctx.access_agent_files(|af| {
+                af.cmd.data.balloon_ratio = ballon_ratio;
+                af.cmd.save().unwrap();
+            });
+        })
     }
 
     pub fn set_need_linux_tar(&mut self) -> &mut Self {
@@ -275,8 +361,8 @@ impl<'a> RunCtx<'a> {
         jobs.prev.save_results(self.result_path);
     }
 
-    pub fn base_bench(&self) -> &rd_agent_intf::BenchKnobs {
-        self.base_bench
+    pub fn bench(&self) -> &rd_agent_intf::BenchKnobs {
+        &self.bench
     }
 
     fn minder(inner: Arc<Mutex<RunCtxInner>>) {
@@ -334,12 +420,12 @@ impl<'a> RunCtx<'a> {
                         if SystemTime::now().duration_since(last_status_at).unwrap()
                             <= MINDER_AGENT_TIMEOUT
                         {
-                            warn!("minder: failed to refresh agent status ({})", &e);
+                            warn!("minder: failed to refresh agent status ({:#})", &e);
                             break 'status;
                         }
 
                         error!(
-                            "minder: failed to update agent status for over {}s, giving up ({})",
+                            "minder: failed to update agent status for over {}s, giving up ({:#})",
                             MINDER_AGENT_TIMEOUT.as_secs(),
                             &e
                         );
@@ -411,7 +497,7 @@ impl<'a> RunCtx<'a> {
             None,
         ) {
             self.stop_agent();
-            bail!("rd-agent failed to report back after startup ({})", &e);
+            return Err(e.context("rd-agent failed to report back after startup"));
         }
 
         let mut ctx = self.inner.lock().unwrap();
@@ -442,7 +528,7 @@ impl<'a> RunCtx<'a> {
             }
             if let Err(e) = self.cmd_barrier() {
                 self.stop_agent();
-                bail!("rd-agent failed after running init functions ({})", &e);
+                return Err(e.context("rd-agent failed after running init functions"));
             }
         }
 
@@ -454,7 +540,7 @@ impl<'a> RunCtx<'a> {
 
     pub fn start_agent(&mut self) {
         if let Err(e) = self.start_agent_fallible(vec![]) {
-            error!("Failed to start rd-agent ({})", &e);
+            error!("Failed to start rd-agent ({:#})", &e);
             panic!();
         }
     }
@@ -508,7 +594,7 @@ impl<'a> RunCtx<'a> {
 
             let dur = match expires.duration_since(SystemTime::now()) {
                 Ok(v) => v,
-                _ => bail!("timeout"),
+                _ => return Err(RunCtxErr::WaitCondTimeout { timeout }.into()),
             };
             if wait_prog_state(dur) == ProgState::Exiting {
                 bail!("exiting");
@@ -563,6 +649,8 @@ impl<'a> RunCtx<'a> {
         .expect("failed to stop iocost benchmark");
     }
 
+    pub const BENCH_FAKE_CPU_RPS_MAX: u32 = 2000;
+
     pub fn start_hashd_bench(&self, ballon_size: usize, log_bps: u64, mut extra_args: Vec<String>) {
         debug!("Starting hashd benchmark ({})", &HASHD_BENCH_SVC_NAME);
 
@@ -615,7 +703,197 @@ impl<'a> RunCtx<'a> {
         .expect("failed to stop hashd benchmark");
     }
 
-    pub const BENCH_FAKE_CPU_RPS_MAX: u32 = 2000;
+    pub fn start_hashd(&self, load: f64) {
+        debug!("Starting hashd ({})", &HASHD_A_SVC_NAME);
+
+        self.access_agent_files(|af| {
+            af.cmd.data.cmd_seq += 1;
+            af.cmd.data.hashd[0].active = true;
+            af.cmd.data.hashd[0].rps_target_ratio = load;
+            af.cmd.save().unwrap();
+        });
+        self.cmd_barrier().unwrap();
+        self.wait_cond(
+            |af, _| af.report.data.hashd[0].svc.state == SvcStateReport::Running,
+            Some(CMD_TIMEOUT),
+            None,
+        )
+        .expect("failed to start hashd");
+    }
+
+    pub fn stabilize_hashd_with_params(
+        &self,
+        target_load: Option<(f64, f64)>,
+        rps_and_err_slope_thr: Option<(f64, f64)>,
+        mem_slope_thr: Option<(f64, f64)>,
+        timeout: Option<Duration>,
+    ) -> Result<()> {
+        let mut rps_sloper = Sloper::new(HASHD_SLOPER_SLOTS);
+        let mut mem_sloper = Sloper::new(HASHD_SLOPER_SLOTS);
+        let mut last_at = 0;
+        let mut err = None;
+
+        if let Err(e) = self.wait_cond(
+            |af, progress| {
+                let rep = &af.report.data;
+                let bench = &af.bench.data;
+                let ts = rep.timestamp.timestamp();
+                if ts == last_at {
+                    progress.set_status("Report stale");
+                    return false;
+                }
+                last_at = ts;
+
+                if rep.hashd[0].svc.state != SvcStateReport::Running {
+                    err = Some(anyhow!("hashd not running ({:?})", rep.hashd[0].svc.state));
+                    return true;
+                }
+
+                let load = rep.hashd[0].rps / bench.hashd.rps_max as f64;
+                let rps_slopes = rps_sloper.push(rep.hashd[0].rps);
+                let mem_slopes = mem_sloper.push(match rep.usages.get(HASHD_A_SVC_NAME) {
+                    Some (usage) => usage.mem_bytes as f64,
+                    None => 0.0,
+                });
+
+                if rps_slopes.is_none() || mem_slopes.is_none() {
+                    progress.set_status("Stabilizing...");
+                   return false;
+                }
+                let (rps_slope, rps_eslope) = rps_slopes.unwrap();
+                let (mem_slope, mem_eslope) = mem_slopes.unwrap();
+
+                progress.set_status(&format!(
+                    "load:{:>4}% lat:{:>5} rps-slp/err:{:+6.2}%/{:+6.2}% mem-sz/slp/err:{:>5}/{:+6.2}%/{:+6.2}%",
+                    format_pct(load),
+                    format_duration(rep.hashd[0].lat.ctl),
+                    rps_slope * TO_PCT,
+                    rps_eslope * TO_PCT,
+                    format_size(rep.usages[HASHD_A_SVC_NAME].mem_bytes),
+                    mem_slope * TO_PCT,
+                    mem_eslope * TO_PCT,
+                ));
+
+                if rps_sloper.points.len() < HASHD_SLOPER_SLOTS {
+                    return false;
+                }
+                if let Some((rps_thr, rps_ethr)) = rps_and_err_slope_thr {
+                    if rps_slope.abs() > rps_thr || rps_eslope.abs() > rps_ethr {
+                        return false;
+                    }
+                }
+                if let Some((mem_thr, mem_ethr)) = mem_slope_thr {
+                    if mem_slope.abs() > mem_thr || mem_eslope.abs() > mem_ethr {
+                        return false;
+                    }
+                }
+                if let Some((target_load, target_thr)) = target_load {
+                    if (load - target_load).abs() > target_thr {
+                        return false;
+                    }
+                }
+                true
+            },
+            timeout,
+            Some(BenchProgress::new().monitor_systemd_unit(HASHD_A_SVC_NAME)),
+        ) {
+            match e.downcast_ref::<RunCtxErr>() {
+                Some(RunCtxErr::WaitCondTimeout { timeout }) => {
+                    return Err(RunCtxErr::HashdStabilizationTimeout { timeout: *timeout }.into());
+                }
+                Some(_) | None => return Err(e),
+            }
+        }
+
+        if err.is_some() {
+            Err(err.unwrap())
+        } else {
+            Ok(())
+        }
+    }
+
+    pub fn stabilize_hashd(&self, target_load: Option<f64>) -> Result<()> {
+        if self.test {
+            self.stabilize_hashd_with_params(
+                target_load.map(|v| (v, 1.0)),
+                Some((1.0, 1.0)),
+                Some((1.0, 1.0)),
+                Some(Duration::from_secs(30)),
+            )
+        } else {
+            self.stabilize_hashd_with_params(
+                target_load.map(|v| (v, 0.025)),
+                Some((0.0025, 0.025)),
+                Some((0.0025, 0.025)),
+                Some(Duration::from_secs(300)),
+            )
+        }
+    }
+
+    pub fn stop_hashd(&self) {
+        debug!("Stopping hashd ({})", HASHD_A_SVC_NAME);
+
+        self.access_agent_files(|af| {
+            af.cmd.data.cmd_seq += 1;
+            af.cmd.data.hashd[0].active = false;
+            af.cmd.save().unwrap();
+        });
+        self.cmd_barrier().unwrap();
+        self.wait_cond(
+            |af, _| af.report.data.hashd[0].svc.state != SvcStateReport::Running,
+            Some(CMD_TIMEOUT),
+            None,
+        )
+        .expect("failed to start hashd");
+    }
+
+    pub fn start_sysload(&self, name: &str, kind: &str) -> Result<()> {
+        debug!("Starting sysload {}:{}", name, kind);
+
+        self.access_agent_files(|af| {
+            af.cmd.data.cmd_seq += 1;
+            af.cmd
+                .data
+                .sysloads
+                .insert(name.to_owned(), kind.to_owned());
+            af.cmd.save().unwrap();
+        });
+        self.cmd_barrier().unwrap();
+        let mut state = SvcStateReport::Other;
+        self.wait_cond(
+            |af, _| match af.report.data.sysloads.get(name) {
+                Some(rep) => {
+                    state = rep.svc.state;
+                    true
+                }
+                None => false,
+            },
+            Some(CMD_TIMEOUT),
+            None,
+        )
+        .expect("failed to start sysload");
+
+        if state != SvcStateReport::Running {
+            self.stop_sysload(name);
+            bail!(
+                "failed to start sysload {}:{}, state={:?}",
+                name,
+                kind,
+                state
+            );
+        }
+        Ok(())
+    }
+
+    pub fn stop_sysload(&self, name: &str) {
+        debug!("Stopping sysload {}", name);
+
+        self.access_agent_files(|af| {
+            af.cmd.data.cmd_seq += 1;
+            af.cmd.data.sysloads.remove(&name.to_owned());
+            af.cmd.save().unwrap();
+        });
+    }
 
     pub fn prev_job_data(&self) -> Option<JobData> {
         let jobs = self.jobs.lock().unwrap();
@@ -640,26 +918,46 @@ impl<'a> RunCtx<'a> {
         None
     }
 
+    fn save_bench(&self, path: &str) -> Result<()> {
+        self.bench.save(path).with_context(|| {
+            format!(
+                "failed to commit bench result to {:?}",
+                self.demo_bench_path
+            )
+        })
+    }
+
+    pub fn load_bench(&mut self) -> Result<()> {
+        self.bench = rd_agent_intf::BenchKnobs::load(&self.bench_path)
+            .with_context(|| format!("Failed to load {:?}", &self.bench_path))?;
+        Ok(())
+    }
+
+    pub fn update_bench_from_mem_size(&mut self, mem_size: usize) -> Result<()> {
+        let hb = &mut self.bench.hashd;
+        let old_mem_frac = hb.mem_frac;
+        hb.mem_frac = mem_size as f64 / hb.mem_size as f64;
+        let result = self.save_bench(&self.bench_path);
+        if result.is_err() {
+            self.bench.hashd.mem_frac = old_mem_frac;
+        }
+        result.with_context(|| format!("failed to update {:?}", &self.bench_path))
+    }
+
     pub fn run_jctx(&mut self, mut jctx: JobCtx) -> Result<()> {
         // Always start with a fresh bench file.
-        if let Err(e) = self.base_bench.save(&self.bench_path) {
-            bail!("Failed to set up {:?} ({})", &self.bench_path, &e);
-        }
+        self.bench
+            .save(&self.bench_path)
+            .with_context(|| format!("failed to set up {:?}", &self.bench_path))?;
 
         if let Err(e) = jctx.run(self) {
-            bail!("Failed to run ({})", &e);
+            bail!("Failed to run ({:#})", &e);
         }
 
         if self.commit_bench {
-            *self.base_bench = rd_agent_intf::BenchKnobs::load(&self.bench_path)
-                .with_context(|| format!("Failed to load {:?}", &self.bench_path))?;
-            if let Err(e) = self.base_bench.save(&self.demo_bench_path) {
-                bail!(
-                    "Failed to commit bench result to {:?} ({})",
-                    self.demo_bench_path,
-                    &e
-                );
-            }
+            self.load_bench()?;
+            *self.base_bench = self.bench.clone();
+            self.save_bench(&self.demo_bench_path)?;
         }
 
         jctx.print(Mode::Summary, &vec![Default::default()])
@@ -673,7 +971,38 @@ impl<'a> RunCtx<'a> {
         if self.inner.lock().unwrap().agent_svc.is_some() {
             bail!("can't nest bench execution while rd-agent is already running for outer bench");
         }
-        run_nested_job_spec_int(spec, self.args, self.base_bench, self.jobs.clone())
+        match run_nested_job_spec_int(spec, self.args, &mut self.bench, self.jobs.clone()) {
+            Ok(true) => {
+                // Nested job finished successfully and updated self.bench
+                // and the demo bench file. Propagate it to our base_bench
+                // too. The demo bench file update and propagation might
+                // need to become finer grained in the future.
+                *self.base_bench = self.bench.clone();
+                Ok(())
+            }
+            Ok(false) => Ok(()),
+            Err(e) => Err(e),
+        }
+    }
+
+    pub fn maybe_run_nested_iocost_params(&mut self) -> Result<()> {
+        if self.bench().iocost_seq > 0 {
+            return Ok(());
+        }
+        info!(
+            "iocost-qos: iocost parameters missing and !--iocost-from-sys, running iocost-params"
+        );
+        self.run_nested_job_spec(&resctl_bench_intf::Args::parse_job_spec("iocost-params").unwrap())
+            .context("Failed to run iocost-params")
+    }
+
+    pub fn maybe_run_nested_hashd_params(&mut self) -> Result<()> {
+        if self.bench().hashd_seq > 0 {
+            return Ok(());
+        }
+        info!("iocost-qos: hashd parameters missing, running hashd-params");
+        self.run_nested_job_spec(&resctl_bench_intf::Args::parse_job_spec("hashd-params").unwrap())
+            .context("Failed to run hashd-params")
     }
 
     pub fn sysreqs_report(&self) -> Option<Arc<rd_agent_intf::SysReqsReport>> {
@@ -693,14 +1022,228 @@ impl<'a> RunCtx<'a> {
         ctx.report_sample.clone()
     }
 
-    pub fn report_iter(&self, start: u64, end: u64) -> ReportIter {
+    pub fn report_iter(&self, period: (u64, u64)) -> ReportIter {
         let ctx = self.inner.lock().unwrap();
-        ReportIter::new(&ctx.agent_files.index.data.report_d, start, end)
+        ReportIter::new(&ctx.agent_files.index.data.report_d, period)
     }
 }
 
 impl Drop for RunCtx<'_> {
     fn drop(&mut self) {
         self.stop_agent();
+    }
+}
+
+#[derive(Default)]
+pub struct WorkloadMon {
+    hashd: [bool; 2],
+    sysloads: Vec<String>,
+    sideloads: Vec<String>,
+    timeout: Option<Duration>,
+    exit_on_any: bool,
+
+    pub hashd_loads: [f64; 2],
+    pub nr_sys_total: usize,
+    pub nr_sys_running: usize,
+    pub nr_side_total: usize,
+    pub nr_side_running: usize,
+    pub time_remaining: Option<Duration>,
+}
+
+impl WorkloadMon {
+    pub fn hashd(mut self) -> Self {
+        self.hashd[0] = true;
+        self
+    }
+
+    pub fn sysload(mut self, name: &str) -> Self {
+        self.sysloads.push(name.to_owned());
+        self
+    }
+
+    pub fn sideload(mut self, name: &str) -> Self {
+        self.sysloads.push(name.to_owned());
+        self
+    }
+
+    pub fn timeout(mut self, dur: Duration) -> Self {
+        self.timeout = Some(dur);
+        self
+    }
+
+    pub fn exit_on_any(mut self) -> Self {
+        self.exit_on_any = true;
+        self
+    }
+
+    pub fn monitor_with_status<F>(&mut self, rctx: &RunCtx, mut status_fn: F) -> Result<bool>
+    where
+        F: FnMut(&WorkloadMon, &AgentFiles) -> Result<(bool, String)>,
+    {
+        let mut progress = BenchProgress::new();
+
+        if self.hashd[0] {
+            progress = progress.monitor_systemd_unit(HASHD_A_SVC_NAME);
+        }
+        if self.hashd[1] {
+            progress = progress.monitor_systemd_unit(HASHD_B_SVC_NAME);
+        }
+        for name in self.sysloads.iter() {
+            progress =
+                progress.monitor_systemd_unit(&format!("{}{}.service", SYSLOAD_SVC_PREFIX, name));
+        }
+        for name in self.sideloads.iter() {
+            progress =
+                progress.monitor_systemd_unit(&format!("{}{}.service", SIDELOAD_SVC_PREFIX, name));
+        }
+
+        let mut result = Ok(());
+        self.nr_sys_total = self.sysloads.len();
+        self.nr_side_total = self.sideloads.len();
+        self.nr_sys_running = self.nr_sys_total;
+        self.nr_side_running = self.nr_side_total;
+        let exit_on_any = self.exit_on_any || (self.nr_sys_total == 0 && self.nr_side_total == 0);
+
+        let started_at = SystemTime::now();
+
+        let wait_result = rctx.wait_cond(
+            |af, progress| {
+                let rep = &af.report.data;
+                let bench = &af.bench.data;
+
+                if (self.hashd[0] && rep.hashd[0].svc.state != SvcStateReport::Running)
+                    || (self.hashd[1] && rep.hashd[1].svc.state != SvcStateReport::Running)
+                {
+                    result = Err(anyhow!("hashd failed while waiting"));
+                    return true;
+                }
+
+                self.nr_sys_running = 0;
+                for name in self.sysloads.iter() {
+                    match rep.sysloads.get(&name.to_string()) {
+                        Some(srep) if srep.svc.state == SvcStateReport::Running => {
+                            self.nr_sys_running += 1
+                        }
+                        _ => {}
+                    }
+                }
+
+                self.nr_side_running = 0;
+                for name in self.sideloads.iter() {
+                    match rep.sideloads.get(&name.to_string()) {
+                        Some(srep) if srep.svc.state == SvcStateReport::Running => {
+                            self.nr_side_running += 1
+                        }
+                        _ => {}
+                    }
+                }
+
+                match exit_on_any {
+                    false if self.nr_sys_running == 0 && self.nr_side_running == 0 => return true,
+                    true if self.nr_sys_running != self.nr_sys_total
+                        || self.nr_side_running != self.nr_side_total =>
+                    {
+                        return true
+                    }
+                    _ => {}
+                }
+
+                self.hashd_loads = [
+                    rep.hashd[0].rps / bench.hashd.rps_max as f64,
+                    rep.hashd[1].rps / bench.hashd.rps_max as f64,
+                ];
+                self.time_remaining = match self.timeout.as_ref() {
+                    Some(timeout) => {
+                        let passed = SystemTime::now().duration_since(started_at).unwrap();
+                        if passed >= *timeout {
+                            return true;
+                        }
+                        Some(*timeout - passed)
+                    }
+                    None => None,
+                };
+
+                match status_fn(self, af) {
+                    Ok((done, status)) => {
+                        progress.set_status(&status);
+                        done
+                    }
+                    Err(e) => {
+                        result = Err(e);
+                        true
+                    }
+                }
+            },
+            None,
+            Some(progress),
+        );
+
+        if result.is_err() {
+            return Err(result.err().unwrap());
+        }
+        wait_result?;
+
+        Ok(match exit_on_any {
+            false => self.nr_sys_running == 0 && self.nr_side_running == 0,
+            true => {
+                self.nr_sys_running != self.nr_sys_total
+                    || self.nr_side_running != self.nr_side_total
+            }
+        })
+    }
+
+    fn dfl_status(mon: &WorkloadMon, af: &AgentFiles) -> Result<(bool, String)> {
+        let rep = &af.report.data;
+        let mut status = String::new();
+        match (mon.hashd[0], mon.hashd[1]) {
+            (true, false) => write!(
+                status,
+                "load:{:>4}% lat:{:>5} ",
+                format_pct(mon.hashd_loads[0]),
+                format_duration(rep.hashd[0].lat.ctl)
+            )
+            .unwrap(),
+            (false, true) => write!(
+                status,
+                "load:{:>4}% lat:{:>5}",
+                format_pct(mon.hashd_loads[1]),
+                format_duration(rep.hashd[1].lat.ctl)
+            )
+            .unwrap(),
+            (true, true) => write!(
+                status,
+                "load:{:>4}%/{:>4}% lat:{:>5}/{:>5}",
+                format_pct(mon.hashd_loads[0]),
+                format_pct(mon.hashd_loads[1]),
+                format_duration(rep.hashd[0].lat.ctl),
+                format_duration(rep.hashd[1].lat.ctl),
+            )
+            .unwrap(),
+            _ => {}
+        }
+        if mon.nr_sys_total > 0 {
+            write!(
+                status,
+                "sysloads: {}/{} ",
+                mon.nr_sys_running, mon.nr_sys_total
+            )
+            .unwrap();
+        }
+        if mon.nr_side_total > 0 {
+            write!(
+                status,
+                "sideloads: {}/{} ",
+                mon.nr_side_running, mon.nr_side_total
+            )
+            .unwrap();
+        }
+        if let Some(rem) = mon.time_remaining.as_ref() {
+            write!(status, "({} remaining)", format_duration(rem.as_secs_f64())).unwrap();
+        }
+        Ok((false, status))
+    }
+
+    pub fn monitor(&mut self, rctx: &RunCtx) -> Result<bool> {
+        self.monitor_with_status(rctx, Self::dfl_status)
     }
 }

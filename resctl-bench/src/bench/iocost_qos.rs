@@ -2,6 +2,7 @@
 use super::*;
 use rand::Rng;
 
+use super::protection::{self, ProtectionJob, ProtectionResult};
 use super::storage::{StorageJob, StorageResult};
 use rd_agent_intf::BenchKnobs;
 use std::collections::BTreeMap;
@@ -12,7 +13,11 @@ const DFL_VRATE_MAX: f64 = 100.0;
 const DFL_VRATE_INTVS: u32 = 5;
 const DFL_STORAGE_BASE_LOOPS: u32 = 3;
 const DFL_STORAGE_LOOPS: u32 = 1;
+const DFL_PROT_LOOPS: u32 = 5;
 const DFL_RETRIES: u32 = 2;
+const PROT_MEM_TRIES: u32 = 4;
+const PROT_OTHER_TRIES: u32 = 2;
+const PROT_MEM_STEP: f64 = 0.05;
 
 // Don't go below 1% of the specified model when applying vrate-intvs.
 const VRATE_INTVS_MIN: f64 = 1.0;
@@ -64,13 +69,15 @@ impl IoCostQoSOvr {
 }
 
 struct IoCostQoSJob {
-    base_loops: u32,
-    loops: u32,
+    stor_base_loops: u32,
+    stor_loops: u32,
+    prot_loops: u32,
     mem_profile: u32,
     dither_dist: Option<f64>,
     retries: u32,
     allow_fail: bool,
-    storage_job: StorageJob,
+    stor_job: StorageJob,
+    prot_job: ProtectionJob,
     runs: Vec<Option<IoCostQoSOvr>>,
 }
 
@@ -80,6 +87,7 @@ impl Bench for IoCostQoSBench {
     fn desc(&self) -> BenchDesc {
         BenchDesc::new("iocost-qos")
             .takes_run_propsets()
+            .takes_format_props()
             .incremental()
     }
 
@@ -92,10 +100,12 @@ impl Bench for IoCostQoSBench {
 pub struct IoCostQoSRun {
     pub ovr: Option<IoCostQoSOvr>,
     pub qos: Option<IoCostQoSParams>,
+    pub storage: StorageResult,
+    pub protection: ProtectionResult,
     pub vrate_mean: f64,
     pub vrate_stdev: f64,
     pub vrate_pcts: BTreeMap<String, f64>,
-    pub storage: StorageResult,
+    pub iolat_pcts: [BTreeMap<String, BTreeMap<String, f64>>; 2],
 }
 
 #[derive(Serialize, Deserialize, Clone, Default)]
@@ -112,13 +122,15 @@ impl IoCostQoSJob {
     const VRATE_PCTS: [&'static str; 9] = ["00", "01", "10", "16", "50", "84", "90", "99", "100"];
 
     fn parse(spec: &JobSpec, prev_data: Option<&JobData>) -> Result<Self> {
-        let mut storage_spec = JobSpec::new("storage".into(), None, vec![Default::default()]);
+        let mut storage_spec = JobSpec::new("storage", None, JobSpec::props(&[&[("active", "")]]));
+        let protection_spec = JobSpec::new("protection", None, JobSpec::props(&[]));
 
         let mut vrate_min = 0.0;
         let mut vrate_max = DFL_VRATE_MAX;
         let mut vrate_intvs = 0;
-        let mut base_loops = DFL_STORAGE_BASE_LOOPS;
-        let mut loops = DFL_STORAGE_LOOPS;
+        let mut stor_base_loops = DFL_STORAGE_BASE_LOOPS;
+        let mut stor_loops = DFL_STORAGE_LOOPS;
+        let mut prot_loops = DFL_PROT_LOOPS;
         let mut mem_profile = 0;
         let mut retries = DFL_RETRIES;
         let mut allow_fail = false;
@@ -131,8 +143,9 @@ impl IoCostQoSJob {
                 "vrate-min" => vrate_min = v.parse::<f64>()?,
                 "vrate-max" => vrate_max = v.parse::<f64>()?,
                 "vrate-intvs" => vrate_intvs = v.parse::<u32>()?,
-                "base-loops" => base_loops = v.parse::<u32>()?,
-                "loops" => loops = v.parse::<u32>()?,
+                "storage-base-loops" => stor_base_loops = v.parse::<u32>()?,
+                "storage-loops" => stor_loops = v.parse::<u32>()?,
+                "protection-loops" => prot_loops = v.parse::<u32>()?,
                 "mem-profile" => mem_profile = v.parse::<u32>()?,
                 "retries" => retries = v.parse::<u32>()?,
                 "allow-fail" => allow_fail = v.parse::<bool>()?,
@@ -142,9 +155,10 @@ impl IoCostQoSJob {
                         dither_dist = Some(v.parse::<f64>()?);
                     }
                 }
-                k => {
-                    storage_spec.props[0].insert(k.into(), v.into());
+                k if k.starts_with("storage-") => {
+                    storage_spec.props[0].insert(k[8..].into(), v.into());
                 }
+                k => bail!("unknown property key {:?}", k),
             }
         }
 
@@ -168,8 +182,8 @@ impl IoCostQoSJob {
             runs.push(Some(ovr));
         }
 
-        let mut storage_job = StorageJob::parse(&storage_spec)?;
-        storage_job.active = true;
+        let stor_job = StorageJob::parse(&storage_spec)?;
+        let prot_job = ProtectionJob::parse(&protection_spec)?;
 
         if runs.len() == 1 && vrate_intvs == 0 {
             vrate_intvs = DFL_VRATE_INTVS;
@@ -226,13 +240,15 @@ impl IoCostQoSJob {
         }
 
         Ok(IoCostQoSJob {
-            base_loops,
-            loops,
+            stor_base_loops,
+            stor_loops,
+            prot_loops,
             mem_profile,
             dither_dist,
             retries,
             allow_fail,
-            storage_job,
+            stor_job,
+            prot_job,
             runs,
         })
     }
@@ -356,15 +372,11 @@ impl IoCostQoSJob {
         None
     }
 
-    fn run_one(
-        rctx: &mut RunCtx,
-        job: &mut StorageJob,
-        ovr: Option<&IoCostQoSOvr>,
-    ) -> Result<IoCostQoSRun> {
+    fn apply_ovr(rctx: &mut RunCtx, ovr: &Option<&IoCostQoSOvr>) {
         // Set up init function to configure qos after agent startup.
         let ovr_copy = ovr.cloned();
-        rctx.add_agent_init_fn(|rctx| {
-            rctx.access_agent_files(move |af| {
+        rctx.add_agent_init_fn(move |rctx| {
+            rctx.access_agent_files(|af| {
                 let bench = &mut af.bench.data;
                 let slices = &mut af.slices.data;
                 let rep = &af.report.data;
@@ -382,43 +394,117 @@ impl IoCostQoSJob {
                 }
             });
         });
+    }
 
+    fn run_one(
+        rctx: &mut RunCtx,
+        sjob: &mut StorageJob,
+        pjob: &mut ProtectionJob,
+        ovr: Option<&IoCostQoSOvr>,
+    ) -> Result<IoCostQoSRun> {
         // Run the storage bench.
-        let result = job.run(rctx);
+        Self::apply_ovr(rctx, &ovr);
+        let result = sjob.run(rctx);
         rctx.stop_agent();
+        let mut storage = parse_json_value_or_dump::<StorageResult>(result?)
+            .context("parsing storage result")
+            .unwrap();
 
-        let result = result?;
-        let storage = serde_json::from_value::<StorageResult>(result)?;
+        // Stash the bench result for the protection runs. This needs to be
+        // done manually because storage bench runs use fake-cpu-load which
+        // don't get committed to the base bench.
+        rctx.load_bench()?;
 
-        // Study the vrate distribution.
-        let mut study_vrate_mean_pcts = StudyMeanPcts::new(|rep| Some(rep.iocost.vrate), None);
-        let mut studies = Studies::new();
-        studies.add(&mut study_vrate_mean_pcts).run(
-            rctx,
-            storage.main_started_at,
-            storage.main_ended_at,
-        );
+        // Run the protection bench.
+        let mem_step = (storage.mem_size_mean as f64 * PROT_MEM_STEP).round() as usize;
+        let mut tries = 0;
+        let result = loop {
+            tries += 1;
+            // The saved bench result is of the last run of the storage
+            // bench. Update it with the current mean size.
+            rctx.update_bench_from_mem_size(storage.mem_size_mean)?;
+
+            // Storage benches ran with mem_target but protection runs get
+            // full mem_share.
+            pjob.balloon_size = storage.mem_avail.saturating_sub(storage.mem_share);
+            Self::apply_ovr(rctx, &ovr);
+            let result = pjob.run(rctx);
+            rctx.stop_agent();
+            match result {
+                Ok(r) => break r,
+                Err(e) => match e.downcast_ref::<RunCtxErr>() {
+                    Some(RunCtxErr::HashdStabilizationTimeout { timeout: _ }) => {
+                        if tries < PROT_MEM_TRIES {
+                            storage.mem_size_mean -= mem_step;
+                            storage.mem_offload_factor =
+                                storage.mem_size_mean as f64 / storage.mem_usage_mean as f64;
+                            warn!(
+                                "iocost-qos: Hashd stabilization timed out, \
+                                 reducing memory size to {} and retrying...",
+                                format_size(storage.mem_size_mean),
+                            );
+                        } else {
+                            return Err(e.context("Protection benchmark failed too many times"));
+                        }
+                    }
+                    _ => {
+                        if tries < PROT_OTHER_TRIES {
+                            warn!(
+                                "iocost-qos: Protection benchmark failed ({:#}), retrying...",
+                                &e
+                            );
+                        } else {
+                            return Err(e.context("Protection benchmark failed too many times"));
+                        }
+                    }
+                },
+            }
+        };
+        let protection = parse_json_value_or_dump::<ProtectionResult>(result)
+            .context("parsing protection result")
+            .unwrap();
 
         let qos = match ovr.as_ref() {
             Some(_) => Some(rctx.access_agent_files(|af| af.bench.data.iocost.qos.clone())),
             None => None,
         };
+
+        // Study the vrate and IO latency distributions.
+        let mut study_vrate_mean_pcts = StudyMeanPcts::new(|rep| Some(rep.iocost.vrate), None);
+        let mut study_read_lat_pcts = StudyIoLatPcts::new("read", None);
+        let mut study_write_lat_pcts = StudyIoLatPcts::new("write", None);
+        let mut studies = Studies::new()
+            .add(&mut study_vrate_mean_pcts)
+            .add_multiple(&mut study_read_lat_pcts.studies())
+            .add_multiple(&mut study_write_lat_pcts.studies());
+
+        studies.run(rctx, storage.main_period);
+        for per in protection
+            .combined_mem_hog
+            .as_ref()
+            .unwrap()
+            .main_periods
+            .iter()
+        {
+            studies.run(rctx, *per);
+        }
+
         let (vrate_mean, vrate_stdev, vrate_pcts) = study_vrate_mean_pcts.result(&Self::VRATE_PCTS);
+        let iolat_pcts = [
+            study_read_lat_pcts.result(rctx, None),
+            study_write_lat_pcts.result(rctx, None),
+        ];
 
         Ok(IoCostQoSRun {
             ovr: ovr.cloned(),
             qos,
+            storage,
+            protection,
             vrate_mean,
             vrate_stdev,
             vrate_pcts,
-            storage,
+            iolat_pcts,
         })
-    }
-
-    fn format_one_storage<'a>(&self, out: &mut Box<dyn Write + 'a>, result: &StorageResult) {
-        self.storage_job.format_lat_dist(out, &result);
-        writeln!(out, "").unwrap();
-        self.storage_job.format_summaries(out, &result);
     }
 }
 
@@ -428,7 +514,7 @@ impl Job for IoCostQoSJob {
     }
 
     fn run(&mut self, rctx: &mut RunCtx) -> Result<serde_json::Value> {
-        let mut bench = rctx.base_bench().clone();
+        let mut bench = rctx.bench().clone();
 
         let (prev_matches, mut prev_result) = match rctx.prev_job_data() {
             Some(pd) => {
@@ -452,7 +538,7 @@ impl Job for IoCostQoSJob {
 
         // Do we already have all results in prev? Otherwise, make sure we
         // have iocost parameters available.
-        if rctx.base_bench().iocost_seq == 0 {
+        if rctx.bench().iocost_seq == 0 {
             let mut has_all = true;
             for ovr in self.runs.iter_mut() {
                 if Self::find_matching_result(ovr.as_ref(), &prev_result).is_none() {
@@ -462,23 +548,16 @@ impl Job for IoCostQoSJob {
             }
 
             if !has_all {
-                info!(
-                    "iocost-qos: iocost parameters missing and !--iocost-from-sys, \
-                     running iocost-params"
-                );
-                rctx.run_nested_job_spec(
-                    &resctl_bench_intf::Args::parse_job_spec("iocost-params").unwrap(),
-                )
-                .context("Failed to run iocost-params")?;
+                rctx.maybe_run_nested_iocost_params()?;
             }
-            bench = rctx.base_bench().clone();
+            bench = rctx.bench().clone();
             prev_result.base_model = bench.iocost.model.clone();
             prev_result.base_qos = bench.iocost.qos.clone();
         }
 
         // Print out what to do beforehand so that the user can spot errors
         // without waiting for the benches to run.
-        let abs_min_vrate = Self::calc_abs_min_vrate(&rctx.base_bench().iocost.model);
+        let abs_min_vrate = Self::calc_abs_min_vrate(&rctx.bench().iocost.model);
         let mut nr_to_run = 0;
         for (i, ovr) in self.runs.iter_mut().enumerate() {
             let qos = &bench.iocost.qos;
@@ -562,15 +641,22 @@ impl Job for IoCostQoSJob {
 
             let mut retries = self.retries;
             loop {
-                let mut job = self.storage_job.clone();
-                job.mem_profile_ask = last_mem_profile;
-                job.mem_avail = last_mem_avail;
-                job.loops = match i {
-                    0 => self.base_loops,
-                    _ => self.loops,
+                let mut sjob = self.stor_job.clone();
+                sjob.mem_profile_ask = last_mem_profile;
+                sjob.mem_avail = last_mem_avail;
+                sjob.loops = match i {
+                    0 => self.stor_base_loops,
+                    _ => self.stor_loops,
                 };
 
-                match Self::run_one(rctx, &mut job, ovr.as_ref()) {
+                let mut pjob = self.prot_job.clone();
+                for scn in pjob.scenarios.iter_mut() {
+                    match scn {
+                        protection::Scenario::MemHog(mh) => mh.loops = self.prot_loops,
+                    }
+                }
+
+                match Self::run_one(rctx, &mut sjob, &mut pjob, ovr.as_ref()) {
                     Ok(result) => {
                         last_mem_profile = Some(result.storage.mem_profile);
                         last_mem_avail = result.storage.mem_avail;
@@ -594,9 +680,9 @@ impl Job for IoCostQoSJob {
                     Err(e) => {
                         if retries > 0 {
                             retries -= 1;
-                            warn!("iocost-qos[{:02}]: Failed ({}), retrying...", i, &e);
+                            warn!("iocost-qos[{:02}]: Failed ({:#}), retrying...", i, &e);
                         } else {
-                            error!("iocost-qos[{:02}]: Failed ({}), giving up...", i, &e);
+                            error!("iocost-qos[{:02}]: Failed ({:?}), giving up...", i, &e);
                             if !self.allow_fail {
                                 return Err(e);
                             }
@@ -628,9 +714,18 @@ impl Job for IoCostQoSJob {
         mut out: Box<dyn Write + 'a>,
         data: &JobData,
         full: bool,
-        _props: &JobProps,
+        props: &JobProps,
     ) -> Result<()> {
+        let mut sub_full = false;
+        for (k, v) in props[0].iter() {
+            match k.as_ref() {
+                "sub-full" => sub_full = v.len() == 0 || v.parse::<bool>()?,
+                k => bail!("unknown format parameter {:?}", k),
+            }
+        }
+
         let result = serde_json::from_value::<IoCostQoSResult>(data.result.clone()).unwrap();
+
         if result.results.len() == 0
             || result.results[0].is_none()
             || result.results[0].as_ref().unwrap().qos.is_some()
@@ -640,7 +735,7 @@ impl Job for IoCostQoSJob {
         }
         let baseline = &result.results[0].as_ref().unwrap().storage;
 
-        self.storage_job.format_header(&mut out, baseline);
+        self.stor_job.format_header(&mut out, false, baseline);
 
         if full {
             for (i, run) in result.results.iter().enumerate() {
@@ -651,15 +746,25 @@ impl Job for IoCostQoSJob {
 
                 writeln!(
                     out,
-                    "\n\n\
-                    RUN {:02}\n\
-                    ======\n\n\
-                    QoS: {}\n",
-                    i,
+                    "\n\n{}\nQoS: {}\n",
+                    &double_underline(&format!("RUN {:02}", i)),
                     Self::format_qos_ovr(run.ovr.as_ref(), &result.base_qos)
                 )
                 .unwrap();
-                self.format_one_storage(&mut out, &run.storage);
+                writeln!(out, "{}", underline(&format!("RUN {:02} - Storage", i))).unwrap();
+
+                self.stor_job
+                    .format_result(&mut out, &run.storage, false, sub_full);
+                self.prot_job.format_result(
+                    &mut out,
+                    &run.protection,
+                    sub_full,
+                    &format!("RUN {:02} - Protection ", i),
+                );
+
+                writeln!(out, "\n{}", underline(&format!("RUN {:02} - Result", i))).unwrap();
+
+                StudyIoLatPcts::format_rw(&mut out, run.iolat_pcts.as_ref(), full, None);
 
                 if run.qos.is_some() {
                     write!(out, "\nvrate:").unwrap();
@@ -672,28 +777,34 @@ impl Job for IoCostQoSJob {
                         )
                         .unwrap();
                     }
-                    writeln!(out, "").unwrap();
+                    writeln!(out, "\n").unwrap();
 
                     writeln!(
-                    out,
-                    "\nQoS result: mem_offload_factor={:.3}@{}({:.3}x) vrate_mean/stdev={:.2}/{:.2}",
-                    run.storage.mem_offload_factor,
-                    run.storage.mem_profile,
-                    run.storage.mem_offload_factor / baseline.mem_offload_factor,
-                    run.vrate_mean,
-                    run.vrate_stdev
-                )
+                        out,
+                        "QoS result: mem_offload_factor={:.3}@{}({:.3}x) vrate_mean={:.2}:{:.2}",
+                        run.storage.mem_offload_factor,
+                        run.storage.mem_profile,
+                        run.storage.mem_offload_factor / baseline.mem_offload_factor,
+                        run.vrate_mean,
+                        run.vrate_stdev,
+                    )
+                    .unwrap();
+
+                    let mhr = run.protection.combined_mem_hog.as_ref().unwrap();
+                    writeln!(
+                        out,
+                        "            work_isol={:.3}:{:.3} lat_impact={:.3}:{:.3} work_csv={:.3}",
+                        mhr.work_isol,
+                        mhr.work_isol_stdev,
+                        mhr.lat_impact,
+                        mhr.lat_impact_stdev,
+                        mhr.work_csv,
+                    )
                     .unwrap();
                 }
             }
 
-            writeln!(
-                out,
-                "\n\n\
-                 Summary\n\
-                 =======\n"
-            )
-            .unwrap();
+            writeln!(out, "\n\n{}", double_underline("Summary")).unwrap();
         } else {
             writeln!(out, "").unwrap();
         }
@@ -714,33 +825,58 @@ impl Job for IoCostQoSJob {
         }
 
         writeln!(out, "").unwrap();
+        writeln!(out, "     offload    isolation   lat-impact  work-csv").unwrap();
+
+        for (i, run) in result.results.iter().enumerate() {
+            match run {
+                Some(run) => {
+                    let mhr = run.protection.combined_mem_hog.as_ref().unwrap();
+                    writeln!(
+                        out,
+                        "[{:02}] {:>7.3}  {:>5.3}:{:>5.3}  {:>5.3}:{:>5.3}     {:>5.3}",
+                        i,
+                        run.storage.mem_offload_factor,
+                        mhr.work_isol,
+                        mhr.work_isol_stdev,
+                        mhr.lat_impact,
+                        mhr.lat_impact_stdev,
+                        mhr.work_csv,
+                    )
+                    .unwrap();
+                }
+                None => writeln!(out, "[{:02}]  failed", i).unwrap(),
+            }
+        }
+
+        writeln!(out, "").unwrap();
         writeln!(
             out,
-            "     offload                p50                p90                p99                max"
+            "RLAT               p50                p90                p99                max"
         )
         .unwrap();
 
         for (i, run) in result.results.iter().enumerate() {
             match run {
-                Some(run) =>
+                Some(run) => {
+                    let iolat_pcts = &run.storage.iolat_pcts.as_ref()[READ];
                     writeln!(
                         out,
-                        "[{:02}] {:>7.3}  {:>5}:{:>5}/{:>5}  {:>5}:{:>5}/{:>5}  {:>5}:{:>5}/{:>5}  {:>5}:{:>5}/{:>5}",
+                        "[{:02}] {:>5}:{:>5}/{:>5}  {:>5}:{:>5}/{:>5}  {:>5}:{:>5}/{:>5}  {:>5}:{:>5}/{:>5}",
                         i,
-                        run.storage.mem_offload_factor,
-                        format_duration(run.storage.io_lat_pcts["50"]["mean"]),
-                        format_duration(run.storage.io_lat_pcts["50"]["stdev"]),
-                        format_duration(run.storage.io_lat_pcts["50"]["100"]),
-                        format_duration(run.storage.io_lat_pcts["90"]["mean"]),
-                        format_duration(run.storage.io_lat_pcts["90"]["stdev"]),
-                        format_duration(run.storage.io_lat_pcts["90"]["100"]),
-                        format_duration(run.storage.io_lat_pcts["99"]["mean"]),
-                        format_duration(run.storage.io_lat_pcts["99"]["stdev"]),
-                        format_duration(run.storage.io_lat_pcts["99"]["100"]),
-                        format_duration(run.storage.io_lat_pcts["100"]["mean"]),
-                        format_duration(run.storage.io_lat_pcts["100"]["stdev"]),
-                        format_duration(run.storage.io_lat_pcts["100"]["100"])
-                    ).unwrap(),
+                        format_duration(iolat_pcts["50"]["mean"]),
+                        format_duration(iolat_pcts["50"]["stdev"]),
+                        format_duration(iolat_pcts["50"]["100"]),
+                        format_duration(iolat_pcts["90"]["mean"]),
+                        format_duration(iolat_pcts["90"]["stdev"]),
+                        format_duration(iolat_pcts["90"]["100"]),
+                        format_duration(iolat_pcts["99"]["mean"]),
+                        format_duration(iolat_pcts["99"]["stdev"]),
+                        format_duration(iolat_pcts["99"]["100"]),
+                        format_duration(iolat_pcts["100"]["mean"]),
+                        format_duration(iolat_pcts["100"]["stdev"]),
+                        format_duration(iolat_pcts["100"]["100"])
+                    ).unwrap()
+                }
                 None => writeln!(out, "[{:02}]  failed", i).unwrap(),
             }
         }

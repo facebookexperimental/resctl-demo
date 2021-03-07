@@ -20,7 +20,7 @@ Sideload toggles:
 %% toggle sideload compile-job build-linux-1x : allmodconfig linux build
 %% toggle sideload compile-job-1 build-linux-allnoconfig-1x : allnoconfig linux build
 %% toggle sideload compile-job-2 build-linux-defconfig-1x : allmodconfig linux build
-%% toggle sideload memory-hog memory-growth-50pct : Memory hog
+%% toggle sideload mem-hog mem-hog-50pct : Memory hog
 %% toggle sideload io-hog read-bomb : IO hog
 
 Sysload toggles:
@@ -28,7 +28,7 @@ Sysload toggles:
 %% toggle sysload compile-job build-linux-1x : allmodconfig linux build
 %% toggle sysload compile-job-1 build-linux-allnoconfig-1x : allnoconfig linux build
 %% toggle sysload compile-job-2 build-linux-defconfig-1x : allmodconfig linux build
-%% toggle sysload memory-hog memory-growth-50pct : Memory hog
+%% toggle sysload mem-hog mem-hog-50pct : Memory hog
 %% toggle sysload io-hog read-bomb : IO hog
 
 

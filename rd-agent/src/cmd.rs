@@ -1,13 +1,14 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
 use anyhow::Result;
 use log::{debug, error, info, warn};
+use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 use systemd::UnitState as US;
 use util::*;
 
-use rd_agent_intf::{RunnerState, Slice};
+use rd_agent_intf::{RunnerState, Slice, HASHD_BENCH_SVC_NAME, IOCOST_BENCH_SVC_NAME};
 
 use super::hashd::HashdSet;
 use super::side::{Balloon, SideRunner, Sideload, Sysload};
@@ -50,6 +51,31 @@ impl RunnerData {
             balloon: Balloon::new(cfg.clone()),
             cfg,
         }
+    }
+
+    pub fn all_svcs(&self) -> HashSet<(String, String)> {
+        let mut svcs = HashSet::<(String, String)>::new();
+        if self.bench_hashd.is_some() {
+            svcs.insert((
+                HASHD_BENCH_SVC_NAME.to_owned(),
+                format!("{}/{}", Slice::Work.cgrp(), HASHD_BENCH_SVC_NAME),
+            ));
+        }
+        if self.bench_iocost.is_some() {
+            svcs.insert((
+                IOCOST_BENCH_SVC_NAME.to_owned(),
+                format!("{}/{}", Slice::Work.cgrp(), HASHD_BENCH_SVC_NAME),
+            ));
+        }
+        for svc in self
+            .hashd_set
+            .all_svcs()
+            .drain()
+            .chain(self.side_runner.all_svcs().drain())
+        {
+            svcs.insert(svc);
+        }
+        svcs
     }
 
     fn become_idle(&mut self) {

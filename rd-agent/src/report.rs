@@ -1,5 +1,5 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, bail, Result};
 use chrono::prelude::*;
 use crossbeam::channel::{self, select, Receiver, Sender};
 use enum_iterator::IntoEnumIterator;
@@ -23,8 +23,7 @@ use super::cmd::Runner;
 use super::Config;
 use rd_agent_intf::{
     BenchHashdReport, BenchIoCostReport, HashdReport, IoCostReport, IoLatReport, Report,
-    ResCtlReport, Slice, UsageReport, HASHD_A_SVC_NAME, HASHD_BENCH_SVC_NAME, HASHD_B_SVC_NAME,
-    IOCOST_BENCH_SVC_NAME, ROOT_SLICE,
+    ResCtlReport, Slice, UsageReport, ROOT_SLICE,
 };
 
 #[derive(Debug, Default)]
@@ -32,6 +31,7 @@ struct Usage {
     cpu_busy: f64,
     mem_bytes: u64,
     swap_bytes: u64,
+    swap_free: u64,
     io_rbytes: u64,
     io_wbytes: u64,
     io_usage: u64,
@@ -109,6 +109,7 @@ fn read_system_usage(devnr: (u32, u32)) -> Result<(Usage, f64)> {
             cpu_busy,
             mem_bytes,
             swap_bytes,
+            swap_free: mstat.swap_free,
             io_rbytes,
             io_wbytes,
             io_usage,
@@ -118,6 +119,37 @@ fn read_system_usage(devnr: (u32, u32)) -> Result<(Usage, f64)> {
         },
         cpu_total,
     ))
+}
+
+fn read_swap_free(cgrp: &str) -> Result<u64> {
+    if !cgrp.starts_with("/sys/fs/cgroup/") {
+        bail!("cgroup path doesn't start with /sys/fs/cgroup");
+    }
+    // Walk up the hierarchy and take the min. We should expose this in
+    // memory.stat from kernel side eventually.
+    let mut free = procfs::Meminfo::new()?.swap_free;
+    let mut path = std::path::PathBuf::from(cgrp);
+    while path != std::path::Path::new("/sys/fs/cgroup") {
+        path.push("memory.swap.max");
+        let max = match read_one_line(path.to_str().unwrap())
+            .unwrap_or("max".to_owned())
+            .as_str()
+        {
+            "max" => std::u64::MAX,
+            line => scan_fmt!(line, "{}", u64)?,
+        };
+        path.pop();
+        path.push("memory.swap.current");
+        let cur = scan_fmt!(
+            &read_one_line(path.to_str().unwrap()).unwrap_or("0".to_owned()),
+            "{}",
+            u64
+        )?;
+        free = free.min(max.saturating_sub(cur));
+        path.pop();
+        path.pop();
+    }
+    Ok(free)
 }
 
 fn read_cgroup_usage(cgrp: &str, devnr: (u32, u32)) -> Usage {
@@ -139,6 +171,10 @@ fn read_cgroup_usage(cgrp: &str, devnr: (u32, u32)) -> Usage {
         if let Ok(v) = scan_fmt!(&line, "{}", u64) {
             usage.swap_bytes = v;
         }
+    }
+
+    if let Ok(v) = read_swap_free(cgrp) {
+        usage.swap_free = v;
     }
 
     if let Ok(is) = read_cgroup_nested_keyed_file(&(cgrp.to_string() + "/io.stat")) {
@@ -173,30 +209,22 @@ pub struct UsageTracker {
     at: Instant,
     cpu_total: f64,
     usages: HashMap<String, Usage>,
+    runner: Runner,
 }
 
 impl UsageTracker {
-    const USAGE_SVCS: [&'static str; 4] = [
-        IOCOST_BENCH_SVC_NAME,
-        HASHD_BENCH_SVC_NAME,
-        HASHD_A_SVC_NAME,
-        HASHD_B_SVC_NAME,
-    ];
-
-    fn new(devnr: (u32, u32)) -> Self {
+    fn new(devnr: (u32, u32), runner: Runner) -> Self {
         let mut us = Self {
             devnr,
             at: Instant::now(),
             cpu_total: 0.0,
             usages: HashMap::new(),
+            runner,
         };
 
         us.usages.insert(ROOT_SLICE.into(), Default::default());
         for slice in Slice::into_enum_iter() {
             us.usages.insert(slice.name().into(), Default::default());
-        }
-        for svc in Self::USAGE_SVCS.iter() {
-            us.usages.insert((*svc).into(), Default::default());
         }
 
         if let Err(e) = us.update() {
@@ -216,9 +244,10 @@ impl UsageTracker {
                 read_cgroup_usage(slice.cgrp(), self.devnr),
             );
         }
-        for hashd in Self::USAGE_SVCS.iter() {
-            let cgrp = format!("{}/{}", Slice::Work.cgrp(), hashd);
-            usages.insert(hashd.to_string(), read_cgroup_usage(&cgrp, self.devnr));
+
+        let all_svcs = self.runner.data.lock().unwrap().all_svcs();
+        for (svc, cgrp) in all_svcs.into_iter() {
+            usages.insert(svc, read_cgroup_usage(&cgrp, self.devnr));
         }
         Ok((usages, cpu_total))
     }
@@ -229,13 +258,11 @@ impl UsageTracker {
         let now = Instant::now();
         let (usages, cpu_total) = self.read_usages()?;
         let dur = now.duration_since(self.at).as_secs_f64();
+        let zero_usage = Usage::default();
 
-        for (slice, cur) in usages.iter() {
+        for (unit, cur) in usages.iter() {
             let mut rep: UsageReport = Default::default();
-            let last = match self.usages.get(slice) {
-                Some(v) => v,
-                None => return Err(anyhow!("last usage for {} missing", slice)),
-            };
+            let last = self.usages.get(unit).unwrap_or(&zero_usage);
 
             let cpu_total = cpu_total - self.cpu_total;
             if cpu_total > 0.0 {
@@ -246,6 +273,9 @@ impl UsageTracker {
 
             rep.mem_bytes = cur.mem_bytes;
             rep.swap_bytes = cur.swap_bytes;
+            rep.swap_free = cur.swap_free;
+            rep.io_rbytes = cur.io_rbytes;
+            rep.io_wbytes = cur.io_wbytes;
 
             if dur > 0.0 {
                 if cur.io_rbytes >= last.io_rbytes {
@@ -281,7 +311,7 @@ impl UsageTracker {
                 );
             }
 
-            reps.insert(slice.into(), rep);
+            reps.insert(unit.into(), rep);
         }
 
         self.at = now;
@@ -344,6 +374,7 @@ impl ReportFile {
         path: &str,
         d_path: &str,
         devnr: (u32, u32),
+        runner: Runner,
     ) -> ReportFile {
         let now = unix_now();
 
@@ -353,7 +384,7 @@ impl ReportFile {
             path: path.into(),
             d_path: d_path.into(),
             next_at: ((now / intv) + 1) * intv,
-            usage_tracker: UsageTracker::new(devnr),
+            usage_tracker: UsageTracker::new(devnr, runner),
             hashd_acc: Default::default(),
             iolat_acc: Default::default(),
             iocost_acc: Default::default(),
@@ -562,33 +593,45 @@ struct ReportWorker {
 impl ReportWorker {
     pub fn new(runner: Runner, term_rx: Receiver<()>) -> Result<Self> {
         let rdata = runner.data.lock().unwrap();
+        // ReportFile init may try to lock runner. Fetch all the needed data
+        // and unlock it.
         let cfg = &rdata.cfg;
+        let scr_devnr = cfg.scr_devnr;
+        let (rep_ret, rep_path, rep_d_path) = (
+            cfg.rep_retention,
+            cfg.report_path.clone(),
+            cfg.report_d_path.clone(),
+        );
+        let (rep_1min_ret, rep_1min_path, rep_1min_d_path) = (
+            cfg.rep_1min_retention,
+            cfg.report_1min_path.clone(),
+            cfg.report_1min_d_path.clone(),
+        );
+        drop(rdata);
 
         Ok(Self {
             term_rx,
             report_file: ReportFile::new(
                 1,
-                cfg.rep_retention,
-                &cfg.report_path,
-                &cfg.report_d_path,
-                cfg.scr_devnr,
+                rep_ret,
+                &rep_path,
+                &rep_d_path,
+                scr_devnr,
+                runner.clone(),
             ),
             report_file_1min: ReportFile::new(
                 60,
-                cfg.rep_1min_retention,
-                &cfg.report_1min_path,
-                &cfg.report_1min_d_path,
-                cfg.scr_devnr,
+                rep_1min_ret,
+                &rep_1min_path,
+                &rep_1min_d_path,
+                scr_devnr,
+                runner.clone(),
             ),
 
             iolat: Default::default(),
             iolat_cum: Default::default(),
-            iocost_devnr: cfg.scr_devnr,
-
-            runner: {
-                drop(rdata);
-                runner
-            },
+            iocost_devnr: scr_devnr,
+            runner,
         })
     }
 
@@ -695,13 +738,27 @@ impl ReportWorker {
         let mut sleep_dur = Duration::from_secs(0);
         let mut iolat_retries = crate::misc::BCC_RETRIES;
         let mut iolat_cum_retries = crate::misc::BCC_RETRIES;
+        let mut iolat_cum_kicked_at = UNIX_EPOCH;
 
         'outer: loop {
             select! {
                 recv(iolat.rx.as_ref().unwrap()) -> res => {
                     // the cumulative instance doesn't have an interval,
-                    // kick it and run it at the same pace as the 1s one.
-                    iolat_cum.kick();
+                    // kick it and run it at the same pace as the 1s one. If
+                    // we stalled for a while, we may busy loop here kicking
+                    // iolat_cum repeatedly causing the python signal
+                    // handler to hit maximum recursion limit and fail.
+                    // Don't kick in quick succession.
+                    let now = SystemTime::now();
+                    match now.duration_since(iolat_cum_kicked_at) {
+                        Ok(dur) => {
+                            if dur.as_secs_f64() > 0.1 {
+                                iolat_cum.kick();
+                                iolat_cum_kicked_at = now;
+                            }
+                        }
+                        Err(_) => iolat_cum_kicked_at = now,
+                    }
 
                     match res {
                         Ok(line) => {

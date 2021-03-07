@@ -101,6 +101,7 @@ performs benchmark to determine the parameters and then starts a normal run.
 
 lazy_static::lazy_static! {
     static ref ARGS_STR: String = {
+        let dfl_args = Args::default();
         format!(
             "-t, --testfiles=[DIR]         'Testfiles directory'
              -s, --size=[SIZE]             'Max memory footprint, affects testfiles size (default: {dfl_size:.2}G)'
@@ -133,13 +134,13 @@ lazy_static::lazy_static! {
                  --total-swap=[SIZE]       'Override total swap space detection'
                  --nr-cpus=[NR]            'Override cpu count detection'
              -v...                         'Sets the level of verbosity'",
-            dfl_size=to_gb(Args::default().size),
-            dfl_file_max_frac=Args::default().file_max_frac,
-            dfl_log_size=to_gb(Args::default().log_size),
-            dfl_log_bps=to_mb(Args::default().bench_log_bps),
-            dfl_preload_cache=to_mb(Args::default().bench_preload_cache),
+            dfl_size=to_gb(dfl_args.size),
+            dfl_file_max_frac=dfl_args.file_max_frac,
+            dfl_log_size=to_gb(dfl_args.log_size),
+            dfl_log_bps=to_mb(dfl_args.bench_log_bps),
+            dfl_preload_cache=to_mb(dfl_args.bench_preload_cache_size()),
             dfl_file_frac=Params::default().file_frac,
-            dfl_intv=Args::default().interval)
+            dfl_intv=dfl_args.interval)
     };
 }
 
@@ -188,17 +189,17 @@ pub struct Args {
     #[serde(skip)]
     pub bench_fake_cpu_load: bool,
     #[serde(skip)]
-    pub bench_hash_size: usize,
+    pub bench_hash_size: Option<usize>,
     #[serde(skip)]
-    pub bench_chunk_pages: usize,
+    pub bench_chunk_pages: Option<usize>,
     #[serde(skip)]
-    pub bench_rps_max: u32,
+    pub bench_rps_max: Option<u32>,
     #[serde(skip)]
     pub bench_log_bps: u64,
     #[serde(skip)]
-    pub bench_file_frac: f64,
+    pub bench_file_frac: Option<f64>,
     #[serde(skip)]
-    pub bench_preload_cache: usize,
+    bench_preload_cache: Option<usize>,
     #[serde(skip)]
     pub verbosity: u32,
 }
@@ -207,23 +208,17 @@ impl Args {
     pub const DFL_SIZE_MULT: u64 = 4;
     pub const DFL_FILE_MAX_FRAC: f64 = 0.25;
 
-    pub fn file_max_size(&self) -> u64 {
-        (self.size as f64 * self.file_max_frac).ceil() as u64
-    }
-}
-
-impl Default for Args {
-    fn default() -> Self {
+    pub fn with_mem_size(mem_size: usize) -> Self {
         let dfl_params = Params::default();
         Self {
             testfiles: None,
-            size: Self::DFL_SIZE_MULT * total_memory() as u64,
+            size: Self::DFL_SIZE_MULT * mem_size as u64,
             file_max_frac: Self::DFL_FILE_MAX_FRAC,
             compressibility: 0.0,
             params: None,
             report: None,
             log_dir: None,
-            log_size: total_memory() as u64 / 2,
+            log_size: mem_size as u64 / 2,
             interval: 10,
             rotational: None,
             total_memory: None,
@@ -231,8 +226,7 @@ impl Default for Args {
             nr_cpus: None,
             clear_testfiles: false,
             keep_cache: false,
-            bench_preload_cache: (total_memory() as f64 * (dfl_params.file_frac * 2.0).min(1.0))
-                as usize,
+            bench_preload_cache: None,
             prepare_testfiles: true,
             prepare_and_exit: false,
             bench_cpu_single: false,
@@ -240,13 +234,37 @@ impl Default for Args {
             bench_mem: false,
             bench_test: false,
             bench_fake_cpu_load: false,
-            bench_hash_size: 0,
-            bench_chunk_pages: 0,
-            bench_rps_max: 0,
+            bench_hash_size: None,
+            bench_chunk_pages: None,
+            bench_rps_max: None,
             bench_log_bps: dfl_params.log_bps,
-            bench_file_frac: 0.0,
+            bench_file_frac: None,
             verbosity: 0,
         }
+    }
+
+    pub fn bench_preload_cache_size(&self) -> usize {
+        match self.bench_preload_cache {
+            Some(v) => v,
+            None => {
+                let mem_size = self.size / Self::DFL_SIZE_MULT;
+                let file_frac = match self.bench_file_frac {
+                    Some(v) => v,
+                    None => Params::default().file_frac,
+                };
+                (mem_size as f64 * (file_frac * 2.0).min(1.0)) as usize
+            }
+        }
+    }
+
+    pub fn file_max_size(&self) -> u64 {
+        (self.size as f64 * self.file_max_frac).ceil() as u64
+    }
+}
+
+impl Default for Args {
+    fn default() -> Self {
+        Self::with_mem_size(total_memory())
     }
 }
 
@@ -377,10 +395,9 @@ impl JsonArgs for Args {
 
         self.keep_cache = matches.is_present("keep-cache");
         if let Some(v) = matches.value_of("bench-preload-cache") {
-            self.bench_preload_cache = if v.len() > 0 {
-                v.parse::<usize>().unwrap()
-            } else {
-                dfl.bench_preload_cache
+            self.bench_preload_cache = match v.parse::<usize>().unwrap() {
+                0 => None,
+                v => Some(v),
             };
         }
         self.clear_testfiles = matches.is_present("clear-testfiles");
@@ -411,19 +428,37 @@ impl JsonArgs for Args {
         self.bench_fake_cpu_load = matches.is_present("bench-fake-cpu-load");
 
         if let Some(v) = matches.value_of("bench-hash-size") {
-            self.bench_hash_size = v.parse::<usize>().unwrap();
+            self.bench_hash_size = match v.parse::<usize>().unwrap() {
+                0 => None,
+                v => Some(v),
+            };
         }
         if let Some(v) = matches.value_of("bench-chunk-pages") {
-            self.bench_chunk_pages = v.parse::<usize>().unwrap();
+            self.bench_chunk_pages = match v.parse::<usize>().unwrap() {
+                0 => None,
+                v => Some(v),
+            };
         }
         if let Some(v) = matches.value_of("bench-rps-max") {
-            self.bench_rps_max = v.parse::<u32>().unwrap();
+            self.bench_rps_max = match v.parse::<u32>().unwrap() {
+                0 => None,
+                v => Some(v),
+            };
         }
         if let Some(v) = matches.value_of("bench-log-bps") {
             self.bench_log_bps = v.parse::<u64>().unwrap();
         }
         if let Some(v) = matches.value_of("bench-file-frac") {
-            self.bench_file_frac = v.parse::<f64>().unwrap();
+            self.bench_file_frac = {
+                let v = v.parse::<f64>().unwrap();
+                if v == 0.0 {
+                    None
+                } else if v > 0.0 {
+                    Some(v)
+                } else {
+                    panic!("negative bench-file-frac specified");
+                }
+            };
         }
 
         self.verbosity = Self::verbosity(matches);

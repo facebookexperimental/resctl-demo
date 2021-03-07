@@ -11,17 +11,9 @@ use std::time::{Duration, Instant};
 use util::*;
 
 use rd_agent_intf::{
-    BenchKnobs, SideloadDefs, SideloadReport, SideloadSpec, Slice, SysReq, SysloadReport,
-    SIDELOAD_SVC_PREFIX, SYSLOAD_SVC_PREFIX,
+    sideload_svc_name, sysload_svc_name, BenchKnobs, SideloadDefs, SideloadReport, SideloadSpec,
+    Slice, SysReq, SysloadReport,
 };
-
-fn sysload_svc_name(name: &str) -> String {
-    format!("{}{}.service", SYSLOAD_SVC_PREFIX, name)
-}
-
-fn sideload_svc_name(name: &str) -> String {
-    format!("{}{}.service", SIDELOAD_SVC_PREFIX, name)
-}
 
 lazy_static::lazy_static! {
     static ref SIDE_NAME_RE: regex::Regex = regex::Regex::new("^[a-zA-Z0-9_-]+$").unwrap();
@@ -31,7 +23,7 @@ const LINUX_TAR_XZ_URL: &str = "https://cdn.kernel.org/pub/linux/kernel/v5.x/lin
 
 const SIDE_BINS: [(&str, &[u8]); 5] = [
     ("build-linux.sh", include_bytes!("side/build-linux.sh")),
-    ("memory-growth.py", include_bytes!("side/memory-growth.py")),
+    ("mem-hog.sh", include_bytes!("side/mem-hog.sh")),
     (
         "memory-balloon.py",
         include_bytes!("side/memory-balloon.py"),
@@ -272,6 +264,7 @@ impl SideRunner {
         let cfg = &self.cfg;
 
         vec![
+            format!("RD_AGENT_BIN={}", &cfg.agent_bin),
             format!("NR_CPUS={}", nr_cpus()),
             format!("TOTAL_MEMORY={}", total_memory()),
             format!("TOTAL_SWAP={}", total_swap()),
@@ -314,6 +307,8 @@ impl SideRunner {
             )?;
             let scr_path = Self::prep_scr_dir(&self.cfg.sys_scr_path, name)?;
             svc.set_slice(Slice::Sys.name()).set_working_dir(&scr_path);
+            // Set default IO weight to enable IO accounting.
+            svc.unit.resctl.io_weight = Some(100);
 
             let mut sysload = Sysload { scr_path, svc };
             if let Err(e) = sysload.svc.start() {
@@ -379,6 +374,21 @@ impl SideRunner {
         Ok(())
     }
 
+    pub fn all_svcs(&self) -> HashSet<(String, String)> {
+        let mut svcs = HashSet::<(String, String)>::new();
+        for (name, _) in self.sysloads.iter() {
+            let name = sysload_svc_name(name);
+            let cgrp = format!("{}/{}", Slice::Sys.cgrp(), &name);
+            svcs.insert((name, cgrp));
+        }
+        for (name, _) in self.sideloads.iter() {
+            let name = sideload_svc_name(name);
+            let cgrp = format!("{}/{}", Slice::Side.cgrp(), &name);
+            svcs.insert((name, cgrp));
+        }
+        svcs
+    }
+
     pub fn report_sysloads(&mut self) -> Result<BTreeMap<String, SysloadReport>> {
         let mut rep = BTreeMap::new();
         for (name, sysload) in self.sysloads.iter_mut() {
@@ -386,6 +396,7 @@ impl SideRunner {
                 name.into(),
                 SysloadReport {
                     svc: super::svc_refresh_and_report(&mut sysload.svc.unit)?,
+                    scr_path: format!("{}/{}", &self.cfg.sys_scr_path, name),
                 },
             );
         }
@@ -399,6 +410,7 @@ impl SideRunner {
                 name.into(),
                 SideloadReport {
                     svc: super::svc_refresh_and_report(&mut sideload.unit)?,
+                    scr_path: format!("{}/{}", &self.cfg.side_scr_path, name),
                 },
             );
         }

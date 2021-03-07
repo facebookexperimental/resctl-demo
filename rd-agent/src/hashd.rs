@@ -1,6 +1,7 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
 use anyhow::{bail, Result};
 use log::{debug, info, warn};
+use std::collections::HashSet;
 use std::io;
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -136,6 +137,10 @@ impl Hashd {
         }
         if params.log_bps != cmd.log_bps {
             params.log_bps = cmd.log_bps;
+            changed = true;
+        }
+        if params.fake_cpu_load != knobs.fake_cpu_load {
+            params.fake_cpu_load = knobs.fake_cpu_load;
             changed = true;
         }
 
@@ -339,6 +344,23 @@ impl HashdSet {
                 self.hashd[i].started_at = None;
             }
         }
+    }
+
+    pub fn all_svcs(&self) -> HashSet<(String, String)> {
+        let mut svcs = HashSet::<(String, String)>::new();
+        if self.hashd[0].svc.is_some() {
+            svcs.insert((
+                HASHD_A_SVC_NAME.to_owned(),
+                format!("{}/{}", Slice::Work.cgrp(), HASHD_A_SVC_NAME),
+            ));
+        }
+        if self.hashd[1].svc.is_some() {
+            svcs.insert((
+                HASHD_B_SVC_NAME.to_owned(),
+                format!("{}/{}", Slice::Work.cgrp(), HASHD_B_SVC_NAME),
+            ));
+        }
+        svcs
     }
 
     pub fn report(&mut self, expiration: SystemTime) -> Result<[HashdReport; 2]> {

@@ -127,7 +127,7 @@ impl Args {
             props.push(Default::default());
         }
 
-        Ok(JobSpec::new(kind.into(), id.map(str::to_string), props))
+        Ok(JobSpec::new(kind, id, props))
     }
 
     fn parse_job_specs(subm: &clap::ArgMatches) -> Result<Vec<JobSpec>> {

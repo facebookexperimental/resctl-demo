@@ -58,7 +58,7 @@ const REPORT_DOC: &str = "\
 //
 ";
 
-#[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SvcStateReport {
     Running,
     Exited,
@@ -177,11 +177,13 @@ impl<T: Into<f64>> ops::DivAssign<T> for HashdReport {
 #[derive(Clone, Serialize, Deserialize)]
 pub struct SysloadReport {
     pub svc: SvcReport,
+    pub scr_path: String,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct SideloadReport {
     pub svc: SvcReport,
+    pub scr_path: String,
 }
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
@@ -189,6 +191,9 @@ pub struct UsageReport {
     pub cpu_usage: f64,
     pub mem_bytes: u64,
     pub swap_bytes: u64,
+    pub swap_free: u64,
+    pub io_rbytes: u64,
+    pub io_wbytes: u64,
     pub io_rbps: u64,
     pub io_wbps: u64,
     pub io_util: f64,
@@ -202,6 +207,9 @@ impl ops::AddAssign<&UsageReport> for UsageReport {
         self.cpu_usage += rhs.cpu_usage;
         self.mem_bytes += rhs.mem_bytes;
         self.swap_bytes += rhs.swap_bytes;
+        self.swap_free += rhs.swap_free;
+        self.io_rbytes += rhs.io_rbytes;
+        self.io_wbytes += rhs.io_wbytes;
         self.io_rbps += rhs.io_rbps;
         self.io_wbps += rhs.io_wbps;
         self.io_util += rhs.io_util;
@@ -220,6 +228,9 @@ impl<T: Into<f64>> ops::DivAssign<T> for UsageReport {
         self.cpu_usage /= div;
         self.mem_bytes = (self.mem_bytes as f64 / div).round() as u64;
         self.swap_bytes = (self.swap_bytes as f64 / div).round() as u64;
+        self.swap_free = (self.swap_free as f64 / div).round() as u64;
+        self.io_rbytes = (self.io_rbytes as f64 / div).round() as u64;
+        self.io_wbytes = (self.io_wbytes as f64 / div).round() as u64;
         self.io_rbps = (self.io_rbps as f64 / div).round() as u64;
         self.io_wbps = (self.io_wbps as f64 / div).round() as u64;
         self.io_util /= div;
@@ -453,11 +464,11 @@ pub struct ReportIter {
 }
 
 impl ReportIter {
-    pub fn new(dir: &str, start: u64, end: u64) -> Self {
+    pub fn new(dir: &str, period: (u64, u64)) -> Self {
         Self {
             dir: dir.into(),
-            cur: start,
-            end,
+            cur: period.0,
+            end: period.1,
         }
     }
 }

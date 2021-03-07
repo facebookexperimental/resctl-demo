@@ -7,27 +7,68 @@ use log::{debug, error, info, warn};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 use std::fmt::Write;
-use std::iter::FromIterator;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use super::job::{Job, JobData};
+use super::parse_json_value_or_dump;
 use super::progress::BenchProgress;
-use super::run::RunCtx;
+use super::run::{RunCtx, RunCtxErr, WorkloadMon};
 use super::study::*;
-use rd_agent_intf::SysReq;
+use rd_agent_intf::{AgentFiles, Slice, SysReq, ROOT_SLICE};
 use resctl_bench_intf::{JobProps, JobSpec};
 
 use util::*;
 
+// Helpers shared by bench implementations.
 lazy_static::lazy_static! {
-    pub static ref HASHD_SYSREQS: BTreeSet<SysReq> = FromIterator::from_iter(
+    pub static ref HASHD_SYSREQS: BTreeSet<SysReq> =
         vec![
-                SysReq::AnonBalance,
-                SysReq::SwapOnScratch,
-                SysReq::Swap,
-                SysReq::HostCriticalServices,
-        ]
-    );
+            SysReq::AnonBalance,
+            SysReq::SwapOnScratch,
+            SysReq::Swap,
+            SysReq::HostCriticalServices,
+        ].into_iter().collect();
+    pub static ref ALL_SYSREQS: BTreeSet<SysReq> = rd_agent_intf::ALL_SYSREQS_SET.clone();
+}
+
+struct HashdFakeCpuBench {
+    size: u64,
+    balloon_size: usize,
+    preload_size: usize,
+    log_bps: u64,
+    log_size: u64,
+    hash_size: usize,
+    chunk_pages: usize,
+    rps_max: u32,
+    file_frac: f64,
+}
+
+impl HashdFakeCpuBench {
+    fn start(&self, rctx: &RunCtx) {
+        rctx.start_hashd_bench(
+            self.balloon_size,
+            self.log_bps,
+            // We should specify all the total_memory() dependent values in
+            // rd_hashd_intf::Args so that the behavior stays the same for
+            // the same mem_profile.
+            vec![
+                format!("--size={}", self.size),
+                format!("--bench-preload-cache={}", self.preload_size),
+                format!("--log-size={}", self.log_size),
+                "--bench-fake-cpu-load".into(),
+                format!("--bench-hash-size={}", self.hash_size),
+                format!("--bench-chunk-pages={}", self.chunk_pages),
+                format!("--bench-rps-max={}", self.rps_max),
+                format!("--bench-file-frac={}", self.file_frac),
+                format!("--file-max={}", self.file_frac),
+            ],
+        );
+    }
+}
+
+// Benchmark registry.
+lazy_static::lazy_static! {
     static ref BENCHS: Mutex<Vec<Arc<Box<dyn Bench>>>> = Mutex::new(vec![]);
 }
 
@@ -103,6 +144,7 @@ mod hashd_params;
 mod iocost_params;
 mod iocost_qos;
 mod iocost_tune;
+mod protection;
 mod storage;
 
 pub fn init_benchs() -> () {
@@ -111,4 +153,5 @@ pub fn init_benchs() -> () {
     register_bench(Box::new(hashd_params::HashdParamsBench {}));
     register_bench(Box::new(iocost_qos::IoCostQoSBench {}));
     register_bench(Box::new(iocost_tune::IoCostTuneBench {}));
+    register_bench(Box::new(protection::ProtectionBench {}));
 }

@@ -1171,6 +1171,8 @@ while True:
                 "-r",
                 "-p",
                 "TimeoutStopSec=5",
+                "-p",
+                "IOAccounting=true",
                 "--slice",
                 config.side_slice,
                 "--unit",

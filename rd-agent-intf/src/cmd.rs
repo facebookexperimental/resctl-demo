@@ -115,12 +115,18 @@ pub struct Cmd {
     pub balloon_ratio: f64,
 }
 
+impl Cmd {
+    pub fn bench_hashd_memory_slack(mem_share: usize) -> usize {
+        (mem_share / 8).min(512 << 20)
+    }
+}
+
 impl Default for Cmd {
     fn default() -> Self {
         Self {
             cmd_seq: 0,
             bench_hashd_seq: 0,
-            bench_hashd_balloon_size: (total_memory() / 8).min(512 << 20),
+            bench_hashd_balloon_size: Self::bench_hashd_memory_slack(total_memory()),
             bench_hashd_args: vec![],
             bench_iocost_seq: 0,
             sideloader: SideloaderCmd { cpu_headroom: 0.2 },

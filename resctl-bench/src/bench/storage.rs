@@ -21,13 +21,13 @@ pub struct StorageJob {
 
     first_try: bool,
     mem_share: usize,
+    mem_target: usize,
     mem_profile: u32,
     mem_usage: usize,
     mem_probe_at: u64,
     prev_mem_avail: usize,
 
-    main_started_at: u64,
-    main_ended_at: u64,
+    main_period: (u64, u64),
     final_mem_probe_periods: Vec<(u64, u64)>,
     mem_usages: Vec<f64>,
     mem_sizes: Vec<f64>,
@@ -42,7 +42,7 @@ impl Default for StorageJob {
             chunk_pages: dfl_params.chunk_pages,
             rps_max: RunCtx::BENCH_FAKE_CPU_RPS_MAX,
             log_bps: dfl_params.log_bps,
-            loops: 5,
+            loops: 3,
             mem_profile_ask: None,
             mem_avail_err_max: 0.1,
             mem_avail_inner_retries: 2,
@@ -52,13 +52,13 @@ impl Default for StorageJob {
             first_try: true,
             mem_avail: 0,
             mem_share: 0,
+            mem_target: 0,
             mem_profile: 0,
             mem_usage: 0,
             prev_mem_avail: 0,
             mem_probe_at: 0,
 
-            main_started_at: 0,
-            main_ended_at: 0,
+            main_period: (0, 0),
             final_mem_probe_periods: vec![],
             mem_usages: vec![],
             mem_sizes: vec![],
@@ -83,8 +83,8 @@ pub struct StorageResult {
     pub mem_avail: usize,
     pub mem_profile: u32,
     pub mem_share: usize,
-    pub main_started_at: u64,
-    pub main_ended_at: u64,
+    pub mem_target: usize,
+    pub main_period: (u64, u64),
     pub mem_offload_factor: f64,
     pub mem_usage_mean: usize,
     pub mem_usage_stdev: usize,
@@ -97,42 +97,7 @@ pub struct StorageResult {
     pub rbps_final: usize,
     pub wbps_final: usize,
     pub final_mem_probe_periods: Vec<(u64, u64)>,
-    pub io_lat_pcts: BTreeMap<String, BTreeMap<String, f64>>,
-}
-
-struct HashdFakeCpuBench {
-    size: u64,
-    balloon_size: usize,
-    preload_size: usize,
-    log_bps: u64,
-    log_size: u64,
-    hash_size: usize,
-    chunk_pages: usize,
-    rps_max: u32,
-    file_frac: f64,
-}
-
-impl HashdFakeCpuBench {
-    fn start(&self, rctx: &RunCtx) {
-        rctx.start_hashd_bench(
-            self.balloon_size,
-            self.log_bps,
-            // We should specify all the total_memory() dependent values in
-            // rd_hashd_intf::Args so that the behavior stays the same for
-            // the same mem_profile.
-            vec![
-                format!("--size={}", self.size),
-                format!("--bench-preload-cache={}", self.preload_size),
-                format!("--log-size={}", self.log_size),
-                "--bench-fake-cpu-load".into(),
-                format!("--bench-hash-size={}", self.hash_size),
-                format!("--bench-chunk-pages={}", self.chunk_pages),
-                format!("--bench-rps-max={}", self.rps_max),
-                format!("--bench-file-frac={}", self.file_frac),
-                format!("--file-max={}", self.file_frac),
-            ],
-        );
-    }
+    pub iolat_pcts: [BTreeMap<String, BTreeMap<String, f64>>; 2],
 }
 
 impl StorageJob {
@@ -151,6 +116,7 @@ impl StorageJob {
                 "mem-avail-err-max" => job.mem_avail_err_max = v.parse::<f64>()?,
                 "mem-avail-inner-retries" => job.mem_avail_inner_retries = v.parse::<u32>()?,
                 "mem-avail-outer-retries" => job.mem_avail_outer_retries = v.parse::<u32>()?,
+                "active" => job.active = v.len() == 0 || v.parse::<bool>()?,
                 k => bail!("unknown property key {:?}", k),
             }
         }
@@ -158,8 +124,12 @@ impl StorageJob {
     }
 
     fn hashd_mem_usage_rep(rep: &rd_agent_intf::Report) -> usize {
-        rep.usages[HASHD_BENCH_SVC_NAME].mem_bytes as usize
+        match rep.usages.get(HASHD_BENCH_SVC_NAME) {
+            Some(usage) => usage.mem_bytes as usize,
+            None => 0,
+        }
     }
+
     fn hashd_mem_usage_rctx(rctx: &RunCtx) -> usize {
         rctx.access_agent_files(|af| Self::hashd_mem_usage_rep(&af.report.data))
     }
@@ -219,7 +189,22 @@ impl StorageJob {
         }
     }
 
-    fn select_memory_profile(&self) -> Result<(u32, usize)> {
+    fn mem_target(mem_share: usize) -> usize {
+        // We want to pretend that the system has only @mem_share bytes
+        // available to hashd. However, when rd-agent runs hashd benches
+        // with default parameters, it configures a small balloon to give
+        // the system and hashd some breathing room as longer runs with the
+        // benchmarked parameters tend to need a bit more memory to run
+        // reliably.
+        //
+        // We want to maintain the same slack to keep results consistent
+        // with the default parameter runs and ensure that the system has
+        // enough breathing room for e.g. reliable protection benchs.
+        let slack = rd_agent_intf::Cmd::bench_hashd_memory_slack(mem_share);
+        mem_share - slack
+    }
+
+    fn select_memory_profile(&self) -> Result<(u32, usize, usize)> {
         match self.mem_profile_ask.as_ref() {
             Some(&ask) => {
                 if ask != STD_MEM_PROFILE {
@@ -229,27 +214,31 @@ impl StorageJob {
                         ask
                     );
                 }
-                Ok((ask, Self::mem_share(ask)?))
+                let ms = Self::mem_share(ask)?;
+                Ok((ask, ms, Self::mem_target(ms)))
             }
-            None => Ok((STD_MEM_PROFILE, Self::mem_share(STD_MEM_PROFILE)?)),
+            None => {
+                let ms = Self::mem_share(STD_MEM_PROFILE)?;
+                Ok((STD_MEM_PROFILE, ms, Self::mem_target(ms)))
+            }
         }
     }
 
     fn measure_supportable_memory_size(&mut self, rctx: &RunCtx) -> Result<(usize, f64)> {
-        let mem_size = (self.mem_profile as u64) << 30;
-        let file_frac = rd_hashd_intf::Params::default().file_frac;
-        let preload_size = (mem_size as f64 * (file_frac * 2.0).min(1.0)) as usize;
+        let mem_size = (self.mem_profile as usize) << 30;
+        let dfl_args = rd_hashd_intf::Args::with_mem_size(mem_size);
+        let dfl_params = rd_hashd_intf::Params::default();
 
         HashdFakeCpuBench {
-            size: rd_hashd_intf::Args::DFL_SIZE_MULT * mem_size as u64,
-            balloon_size: self.mem_avail.saturating_sub(self.mem_share),
-            preload_size,
+            size: dfl_args.size,
+            balloon_size: self.mem_avail.saturating_sub(self.mem_target),
+            preload_size: dfl_args.bench_preload_cache_size(),
             log_bps: self.log_bps,
-            log_size: mem_size / 2,
+            log_size: dfl_args.log_size,
             hash_size: self.hash_size,
             chunk_pages: self.chunk_pages,
             rps_max: self.rps_max,
-            file_frac,
+            file_frac: dfl_params.file_frac,
         }
         .start(rctx);
 
@@ -271,7 +260,7 @@ impl StorageJob {
 
                 if !rctx.test {
                     mem_avail_err =
-                        (self.mem_usage as f64 - self.mem_share as f64) / self.mem_share as f64;
+                        (self.mem_usage as f64 - self.mem_target as f64) / self.mem_target as f64;
                 }
 
                 // Abort early iff we go over. Memory usage may keep rising
@@ -316,7 +305,7 @@ impl StorageJob {
     }
 
     fn process_retry(&mut self) -> Result<bool> {
-        let cur_mem_avail = self.mem_avail + self.mem_usage - self.mem_share;
+        let cur_mem_avail = self.mem_avail + self.mem_usage - self.mem_target;
         let consistent = (cur_mem_avail as f64 - self.prev_mem_avail as f64).abs()
             < self.mem_avail_err_max * cur_mem_avail as f64;
 
@@ -366,47 +355,34 @@ impl StorageJob {
         Ok(retry_outer)
     }
 
-    pub fn format_header<'a>(&self, out: &mut Box<dyn Write + 'a>, result: &StorageResult) {
-        writeln!(
+    pub fn format_header<'a>(
+        &self,
+        out: &mut Box<dyn Write + 'a>,
+        include_loops: bool,
+        result: &StorageResult,
+    ) {
+        write!(
             out,
-            "Params: hash_size={} rps_max={} log_bps={} loops={}",
+            "Params: hash_size={} rps_max={} log_bps={}",
             format_size(self.hash_size),
             self.rps_max,
-            format_size(self.log_bps),
-            self.loops
+            format_size(self.log_bps)
         )
         .unwrap();
+
+        if include_loops {
+            writeln!(out, " loops={}", self.loops).unwrap();
+        } else {
+            writeln!(out, "").unwrap();
+        }
+
         writeln!(
             out,
-            "        mem_profile={} mem_avail={} mem_share={}",
+            "        mem_profile={} mem_avail={} mem_share={} mem_target={}",
             result.mem_profile,
             format_size(result.mem_avail),
-            format_size(result.mem_share)
-        )
-        .unwrap();
-    }
-
-    pub fn format_lat_dist<'a>(&self, out: &mut Box<dyn Write + 'a>, result: &StorageResult) {
-        writeln!(out, "IO latency distribution:\n").unwrap();
-        StudyIoLatPcts::format_table(out, &result.io_lat_pcts, None);
-    }
-
-    pub fn format_lat_summary<'a>(&self, out: &mut Box<dyn Write + 'a>, result: &StorageResult) {
-        writeln!(
-            out,
-            "IO latency: p50={}:{}/{} p90={}:{}/{} p99={}:{}/{} max={}:{}/{}",
-            format_duration(result.io_lat_pcts["50"]["mean"]),
-            format_duration(result.io_lat_pcts["50"]["stdev"]),
-            format_duration(result.io_lat_pcts["50"]["100"]),
-            format_duration(result.io_lat_pcts["90"]["mean"]),
-            format_duration(result.io_lat_pcts["90"]["stdev"]),
-            format_duration(result.io_lat_pcts["90"]["100"]),
-            format_duration(result.io_lat_pcts["99"]["mean"]),
-            format_duration(result.io_lat_pcts["99"]["stdev"]),
-            format_duration(result.io_lat_pcts["99"]["100"]),
-            format_duration(result.io_lat_pcts["100"]["mean"]),
-            format_duration(result.io_lat_pcts["100"]["stdev"]),
-            format_duration(result.io_lat_pcts["100"]["100"]),
+            format_size(result.mem_share),
+            format_size(result.mem_target),
         )
         .unwrap();
     }
@@ -451,8 +427,13 @@ impl StorageJob {
         }
     }
 
-    pub fn format_summaries<'a>(&self, out: &mut Box<dyn Write + 'a>, result: &StorageResult) {
-        self.format_lat_summary(out, result);
+    pub fn format_result<'a>(&self, out: &mut Box<dyn Write + 'a>, result: &StorageResult,
+                             header: bool, full: bool) {
+        if header {
+            self.format_header(out, true, &result);
+            writeln!(out, "").unwrap();
+        }
+        StudyIoLatPcts::format_rw(out, &result.iolat_pcts, full, None);
 
         writeln!(out, "").unwrap();
         self.format_io_summary(out, result);
@@ -500,13 +481,14 @@ impl Job for StorageJob {
             self.mem_usages.clear();
             self.mem_sizes.clear();
             self.mem_avail_inner_retries = saved_mem_avail_inner_retries;
-            self.main_started_at = unix_now();
+            self.main_period.0 = unix_now();
 
-            let (mp, ms) = self.select_memory_profile()?;
+            let (mp, ms, mt) = self.select_memory_profile()?;
             self.mem_profile = mp;
             self.mem_share = ms;
+            self.mem_target = mt;
 
-            if self.mem_avail < self.mem_share && !rctx.test {
+            if self.mem_avail < self.mem_target && !rctx.test {
                 if self.mem_avail_outer_retries > 0 {
                     warn!(
                         "storage: mem_avail {} too small for the memory profile, re-estimating",
@@ -519,10 +501,11 @@ impl Job for StorageJob {
                 bail!("mem_avail too small for the memory profile, use lower mem-profile");
             }
             info!(
-                "storage: Memory profile {}G (mem_share {}, mem_avail {})",
+                "storage: Memory profile {}G (mem_avail {}, mem_share {}, mem_target {})",
                 self.mem_profile,
+                format_size(self.mem_avail),
                 format_size(self.mem_share),
-                format_size(self.mem_avail)
+                format_size(self.mem_target),
             );
 
             // We now know all the parameters. Let's run the actual benchmark.
@@ -566,39 +549,31 @@ impl Job for StorageJob {
             }
         }
 
-        self.main_ended_at = unix_now();
+        self.main_period.1 = unix_now();
 
         // Study and record the results.
-        let in_final = |rep: &rd_agent_intf::Report| {
-            let at = rep.timestamp.timestamp() as u64;
-            for (start, end) in self.final_mem_probe_periods.iter() {
-                if *start <= at && at <= *end {
-                    return true;
-                }
-            }
-            false
-        };
-
         let mut study_rbps_all = StudyMean::new(|rep| Some(rep.usages[ROOT_SLICE].io_rbps));
         let mut study_wbps_all = StudyMean::new(|rep| Some(rep.usages[ROOT_SLICE].io_wbps));
-        let mut study_rbps_final = StudyMean::new(|rep| match in_final(rep) {
-            true => Some(rep.usages[ROOT_SLICE].io_rbps),
-            false => None,
-        });
-        let mut study_wbps_final = StudyMean::new(|rep| match in_final(rep) {
-            true => Some(rep.usages[ROOT_SLICE].io_wbps),
-            false => None,
-        });
-        let mut study_io_lat_pcts = StudyIoLatPcts::new("read", None);
+        let mut study_read_lat_pcts = StudyIoLatPcts::new("read", None);
+        let mut study_write_lat_pcts = StudyIoLatPcts::new("write", None);
 
-        let mut studies = Studies::new();
-        studies
+        let mut studies = Studies::new()
             .add(&mut study_rbps_all)
             .add(&mut study_wbps_all)
+            .add_multiple(&mut study_read_lat_pcts.studies())
+            .add_multiple(&mut study_write_lat_pcts.studies());
+
+        studies.run(rctx, self.main_period);
+
+        let mut study_rbps_final = StudyMean::new(|rep| Some(rep.usages[ROOT_SLICE].io_rbps));
+        let mut study_wbps_final = StudyMean::new(|rep| Some(rep.usages[ROOT_SLICE].io_wbps));
+        let mut studies = Studies::new()
             .add(&mut study_rbps_final)
-            .add(&mut study_wbps_final)
-            .add_multiple(&mut study_io_lat_pcts.studies())
-            .run(rctx, self.main_started_at, self.main_ended_at);
+            .add(&mut study_wbps_final);
+
+        for (start, end) in self.final_mem_probe_periods.iter() {
+            studies.run(rctx, (*start, *end));
+        }
 
         let mem_usage_mean = statistical::mean(&self.mem_usages);
         let mem_usage_stdev = if self.mem_usages.len() > 1 {
@@ -618,8 +593,8 @@ impl Job for StorageJob {
             mem_avail: self.mem_avail,
             mem_profile: self.mem_profile,
             mem_share: self.mem_share,
-            main_started_at: self.main_started_at,
-            main_ended_at: self.main_ended_at,
+            mem_target: self.mem_target,
+            main_period: self.main_period,
             mem_offload_factor: mem_size_mean as f64 / mem_usage_mean as f64,
             mem_usage_mean: mem_usage_mean as usize,
             mem_usage_stdev: mem_usage_stdev as usize,
@@ -632,7 +607,10 @@ impl Job for StorageJob {
             rbps_final: study_rbps_final.result().0 as usize,
             wbps_final: study_wbps_final.result().0 as usize,
             final_mem_probe_periods: self.final_mem_probe_periods.clone(),
-            io_lat_pcts: study_io_lat_pcts.result(rctx, None),
+            iolat_pcts: [
+                study_read_lat_pcts.result(rctx, None),
+                study_write_lat_pcts.result(rctx, None),
+            ],
         };
 
         Ok(serde_json::to_value(&result).unwrap())
@@ -646,15 +624,7 @@ impl Job for StorageJob {
         _props: &JobProps,
     ) -> Result<()> {
         let result = serde_json::from_value::<StorageResult>(data.result.clone()).unwrap();
-
-        self.format_header(&mut out, &result);
-        writeln!(out, "").unwrap();
-        if full {
-            self.format_lat_dist(&mut out, &result);
-            writeln!(out, "").unwrap();
-        }
-        self.format_summaries(&mut out, &result);
-
+        self.format_result(&mut out, &result, true, full);
         Ok(())
     }
 }
