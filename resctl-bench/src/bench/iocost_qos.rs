@@ -764,7 +764,7 @@ impl Job for IoCostQoSJob {
 
                 writeln!(out, "\n{}", underline(&format!("RUN {:02} - Result", i))).unwrap();
 
-                StudyIoLatPcts::format_rw(&mut out, run.iolat_pcts.as_ref(), full, None);
+                StudyIoLatPcts::format_rw(&mut out, &run.iolat_pcts, full, None);
 
                 if run.qos.is_some() {
                     write!(out, "\nvrate:").unwrap();
@@ -848,38 +848,47 @@ impl Job for IoCostQoSJob {
             }
         }
 
-        writeln!(out, "").unwrap();
-        writeln!(
-            out,
-            "RLAT               p50                p90                p99                max"
-        )
-        .unwrap();
+        let mut format_iolat_pcts = |rw, title| {
+            writeln!(out, "").unwrap();
+            writeln!(
+                out,
+                "{:17}  p50                p90                p99                max",
+                title
+            )
+            .unwrap();
 
-        for (i, run) in result.results.iter().enumerate() {
-            match run {
-                Some(run) => {
-                    let iolat_pcts = &run.storage.iolat_pcts.as_ref()[READ];
-                    writeln!(
-                        out,
-                        "[{:02}] {:>5}:{:>5}/{:>5}  {:>5}:{:>5}/{:>5}  {:>5}:{:>5}/{:>5}  {:>5}:{:>5}/{:>5}",
-                        i,
-                        format_duration(iolat_pcts["50"]["mean"]),
-                        format_duration(iolat_pcts["50"]["stdev"]),
-                        format_duration(iolat_pcts["50"]["100"]),
-                        format_duration(iolat_pcts["90"]["mean"]),
-                        format_duration(iolat_pcts["90"]["stdev"]),
-                        format_duration(iolat_pcts["90"]["100"]),
-                        format_duration(iolat_pcts["99"]["mean"]),
-                        format_duration(iolat_pcts["99"]["stdev"]),
-                        format_duration(iolat_pcts["99"]["100"]),
-                        format_duration(iolat_pcts["100"]["mean"]),
-                        format_duration(iolat_pcts["100"]["stdev"]),
-                        format_duration(iolat_pcts["100"]["100"])
-                    ).unwrap()
+            for (i, run) in result.results.iter().enumerate() {
+                match run {
+                    Some(run) => {
+                        let iolat_pcts: &BTreeMap<String, BTreeMap<String, f64>> =
+                            &run.iolat_pcts[rw];
+                        writeln!(
+                            out,
+                            "[{:02}] {:>5}:{:>5}/{:>5}  {:>5}:{:>5}/{:>5}  \
+                              {:>5}:{:>5}/{:>5}  {:>5}:{:>5}/{:>5}",
+                            i,
+                            format_duration(iolat_pcts["50"]["mean"]),
+                            format_duration(iolat_pcts["50"]["stdev"]),
+                            format_duration(iolat_pcts["50"]["100"]),
+                            format_duration(iolat_pcts["90"]["mean"]),
+                            format_duration(iolat_pcts["90"]["stdev"]),
+                            format_duration(iolat_pcts["90"]["100"]),
+                            format_duration(iolat_pcts["99"]["mean"]),
+                            format_duration(iolat_pcts["99"]["stdev"]),
+                            format_duration(iolat_pcts["99"]["100"]),
+                            format_duration(iolat_pcts["100"]["mean"]),
+                            format_duration(iolat_pcts["100"]["stdev"]),
+                            format_duration(iolat_pcts["100"]["100"])
+                        )
+                        .unwrap();
+                    }
+                    None => writeln!(out, "[{:02}]  failed", i).unwrap(),
                 }
-                None => writeln!(out, "[{:02}]  failed", i).unwrap(),
             }
-        }
+        };
+
+        format_iolat_pcts(READ, "RLAT");
+        format_iolat_pcts(WRITE, "WLAT");
 
         Ok(())
     }
