@@ -1,8 +1,8 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
 use super::*;
 use rd_agent_intf::{bandit_report::BanditMemHogReport, Report};
-use std::collections::{BTreeMap, VecDeque};
 use std::cell::RefCell;
+use std::collections::{BTreeMap, VecDeque};
 
 #[derive(Clone, Copy, Debug)]
 pub enum MemHogSpeed {
@@ -330,20 +330,10 @@ impl MemHog {
             }
         });
 
-        // vrate mean isn't used in the process but report to help
-        // visibility.
-        let mut study_vrate_mean = StudyMean::new(|rep| Some(rep.iocost.vrate));
-
-        let mut study_read_lat_pcts = StudyIoLatPcts::new("read", None);
-        let mut study_write_lat_pcts = StudyIoLatPcts::new("write", None);
-
         let mut studies = Studies::new()
             .add(&mut study_work_isol)
             .add(&mut study_lat_impact)
-            .add(&mut study_io_usages)
-            .add(&mut study_vrate_mean)
-            .add_multiple(&mut study_read_lat_pcts.studies())
-            .add_multiple(&mut study_write_lat_pcts.studies());
+            .add(&mut study_io_usages);
 
         let hog_periods: Vec<(u64, u64)> = runs
             .iter()
@@ -361,6 +351,24 @@ impl MemHog {
 
         let (work_isol, work_isol_stdev, work_isol_pcts) = study_work_isol.result(&Self::PCTS);
         let (lat_impact, lat_impact_stdev, lat_impact_pcts) = study_lat_impact.result(&Self::PCTS);
+
+        // The followings are captured over the entire period. vrate mean
+        // isn't used in the process but report to help visibility.
+        let mut study_vrate_mean = StudyMean::new(|rep| Some(rep.iocost.vrate));
+        let mut study_read_lat_pcts = StudyIoLatPcts::new("read", None);
+        let mut study_write_lat_pcts = StudyIoLatPcts::new("write", None);
+
+        Studies::new()
+            .add(&mut study_vrate_mean)
+            .add_multiple(&mut study_read_lat_pcts.studies())
+            .add_multiple(&mut study_write_lat_pcts.studies())
+            .run(rctx, main_period);
+
+        let (vrate, vrate_stdev, _, _) = study_vrate_mean.result();
+        let iolat_pcts = [
+            study_read_lat_pcts.result(rctx, None),
+            study_write_lat_pcts.result(rctx, None),
+        ];
 
         // Collect how many bytes the memory hogs put out to swap and how
         // much their growth was limited.
@@ -390,13 +398,6 @@ impl MemHog {
         } else {
             0.0
         };
-
-        let (vrate, vrate_stdev, _, _) = study_vrate_mean.result();
-
-        let iolat_pcts = [
-            study_read_lat_pcts.result(rctx, None),
-            study_write_lat_pcts.result(rctx, None),
-        ];
 
         MemHogResult {
             base_rps,
@@ -434,7 +435,10 @@ impl MemHog {
     fn combine_results(rctx: &RunCtx, results: &[&MemHogResult]) -> MemHogResult {
         assert!(results.len() > 0);
 
-        let mut cmb = MemHogResult::default();
+        let mut cmb = MemHogResult {
+            main_period: (std::u64::MAX, 0),
+            ..Default::default()
+        };
 
         // Combine means, stdevs and sums.
         //
@@ -518,14 +522,10 @@ impl MemHog {
             },
             None,
         );
-        let mut study_read_lat_pcts = StudyIoLatPcts::new("read", None);
-        let mut study_write_lat_pcts = StudyIoLatPcts::new("write", None);
 
         let mut studies = Studies::new()
             .add(&mut study_work_isol)
-            .add(&mut study_lat_impact)
-            .add_multiple(&mut study_read_lat_pcts.studies())
-            .add_multiple(&mut study_write_lat_pcts.studies());
+            .add(&mut study_lat_impact);
 
         for r in results.iter() {
             base_rps.replace(r.base_rps);
@@ -538,6 +538,18 @@ impl MemHog {
 
         cmb.work_isol_pcts = study_work_isol.result(&Self::PCTS);
         cmb.lat_impact_pcts = study_lat_impact.result(&Self::PCTS);
+
+        let mut study_read_lat_pcts = StudyIoLatPcts::new("read", None);
+        let mut study_write_lat_pcts = StudyIoLatPcts::new("write", None);
+
+        let mut studies = Studies::new()
+            .add_multiple(&mut study_read_lat_pcts.studies())
+            .add_multiple(&mut study_write_lat_pcts.studies());
+
+        for r in results.iter() {
+            studies.run(rctx, r.main_period);
+        }
+
         cmb.iolat_pcts = [
             study_read_lat_pcts.result(rctx, None),
             study_write_lat_pcts.result(rctx, None),
