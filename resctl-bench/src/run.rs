@@ -1022,9 +1022,9 @@ impl<'a> RunCtx<'a> {
         ctx.report_sample.clone()
     }
 
-    pub fn report_iter(&self, start: u64, end: u64) -> ReportIter {
+    pub fn report_iter(&self, period: (u64, u64)) -> ReportIter {
         let ctx = self.inner.lock().unwrap();
-        ReportIter::new(&ctx.agent_files.index.data.report_d, start, end)
+        ReportIter::new(&ctx.agent_files.index.data.report_d, period)
     }
 }
 

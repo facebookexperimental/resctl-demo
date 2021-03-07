@@ -1,7 +1,7 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
 #![allow(dead_code)]
 use anyhow::{bail, Result};
-use log::error;
+use log::{error, warn};
 use num_traits::cast::AsPrimitive;
 use quantiles::ckms::CKMS;
 use std::collections::BTreeMap;
@@ -347,16 +347,19 @@ impl StudyIoLatPcts {
         result: &BTreeMap<String, BTreeMap<String, f64>>,
         lat_pcts: Option<&[&str]>,
     ) {
+        let mut first = true;
         for pct in lat_pcts.unwrap_or(&Self::LAT_SUMMARY_PCTS) {
             write!(
                 out,
-                "{}={}:{}/{}",
+                "{}{}={}:{}/{}",
+                if first { "" } else { " " },
                 &format_percentile(*pct),
                 format_duration(result[*pct]["mean"]),
                 format_duration(result[*pct]["stdev"]),
                 format_duration(result[*pct]["100"]),
             )
             .unwrap();
+            first = false;
         }
     }
 
@@ -395,12 +398,14 @@ impl<'a> Studies<'a> {
         self
     }
 
-    pub fn run_fallible(&mut self, run: &RunCtx, start: u64, end: u64) -> Result<u64> {
+    pub fn run_fallible(&mut self, run: &RunCtx, period: (u64, u64)) -> Result<(u64, u64)> {
+        let mut nr_reps = 0;
         let mut nr_missed = 0;
 
-        for (rep, _) in run.report_iter(start, end) {
+        for (rep, _) in run.report_iter(period) {
             match rep {
                 Ok(rep) => {
+                    nr_reps += 1;
                     for study in self.studies.iter_mut() {
                         study.study(&rep)?;
                     }
@@ -409,15 +414,24 @@ impl<'a> Studies<'a> {
             }
         }
 
-        if start + nr_missed >= end {
-            bail!("no report available between {} and {}", start, end);
+        if nr_reps == 0 {
+            bail!("no report available between {} and {}", period.0, period.1);
         }
 
-        Ok(nr_missed)
+        if nr_missed > 0 {
+            warn!(
+                "study: {} reports missing between {:?} and {:?}",
+                nr_missed,
+                format_unix_time(period.0),
+                format_unix_time(period.1),
+            );
+        }
+
+        Ok((nr_reps, nr_missed))
     }
 
-    pub fn run(&mut self, run: &RunCtx, (start, end): (u64, u64)) -> u64 {
-        match self.run_fallible(run, start, end) {
+    pub fn run(&mut self, run: &RunCtx, period: (u64, u64)) -> (u64, u64) {
+        match self.run_fallible(run, period) {
             Ok(v) => v,
             Err(e) => {
                 error!("Failed to study the reports ({})", &e);

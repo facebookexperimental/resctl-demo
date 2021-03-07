@@ -1,5 +1,6 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
 use anyhow::{anyhow, bail, Context, Result};
+use chrono::{DateTime, Local};
 use crossbeam::channel::Sender;
 use glob::glob;
 use log::{info, warn};
@@ -487,6 +488,12 @@ pub fn write_one_line<P: AsRef<Path>>(path: P, line: &str) -> Result<()> {
 
 pub fn unix_now() -> u64 {
     UNIX_EPOCH.elapsed().unwrap().as_secs()
+}
+
+pub fn format_unix_time(time: u64) -> String {
+    DateTime::<Local>::from(UNIX_EPOCH + Duration::from_secs(time))
+        .format("%x %T")
+        .to_string()
 }
 
 pub fn init_logging(verbosity: u32) {

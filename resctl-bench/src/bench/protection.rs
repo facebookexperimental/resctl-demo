@@ -2,6 +2,7 @@
 use super::*;
 use rd_agent_intf::{bandit_report::BanditMemHogReport, Report};
 use std::collections::{BTreeMap, VecDeque};
+use std::cell::RefCell;
 
 #[derive(Clone, Copy, Debug)]
 pub enum MemHogSpeed {
@@ -94,9 +95,9 @@ pub struct MemHogRun {
     pub stable_at: u64,
     pub hog_started_at: u64,
     pub hog_ended_at: u64,
-    pub first_mh_rep: BanditMemHogReport,
-    pub last_mh_rep: BanditMemHogReport,
-    pub last_mh_mem: usize,
+    pub first_hog_rep: BanditMemHogReport,
+    pub last_hog_rep: BanditMemHogReport,
+    pub last_hog_mem: usize,
 }
 
 #[derive(Clone, Debug)]
@@ -116,27 +117,27 @@ pub struct MemHogResult {
     pub base_lat_stdev: f64,
 
     pub work_isol_pcts: BTreeMap<String, f64>,
-    pub work_isol_factor: f64,
+    pub work_isol: f64,
     pub work_isol_stdev: f64,
 
     pub lat_impact_pcts: BTreeMap<String, f64>,
-    pub lat_impact_factor: f64,
+    pub lat_impact: f64,
     pub lat_impact_stdev: f64,
 
-    pub work_csv_factor: f64,
+    pub work_csv: f64,
 
     pub iolat_pcts: [BTreeMap<String, BTreeMap<String, f64>>; 2],
 
     pub main_period: (u64, u64),
-    pub mem_hog_periods: Vec<(u64, u64)>,
-    pub vrate_mean: f64,
+    pub hog_periods: Vec<(u64, u64)>,
+    pub vrate: f64,
     pub vrate_stdev: f64,
     pub io_usage: f64,
     pub io_unused: f64,
-    pub mem_hog_io_usage: f64,
-    pub mem_hog_io_loss: f64,
-    pub mem_hog_bytes: u64,
-    pub mem_hog_lost_bytes: u64,
+    pub hog_io_usage: f64,
+    pub hog_io_loss: f64,
+    pub hog_bytes: u64,
+    pub hog_lost_bytes: u64,
 
     pub runs: Vec<MemHogRun>,
 }
@@ -152,7 +153,7 @@ impl MemHog {
         "00", "01", "05", "10", "16", "25", "50", "75", "84", "90", "95", "99", "100",
     ];
 
-    fn read_mh_rep(rep: &Report) -> Result<BanditMemHogReport> {
+    fn read_hog_rep(rep: &Report) -> Result<BanditMemHogReport> {
         let mh_rep_path = match rep.sysloads.get(Self::NAME) {
             Some(sl) => format!("{}/report.json", &sl.scr_path),
             None => bail!("agent report doesn't contain \"mem-hog\" sysload"),
@@ -197,7 +198,7 @@ impl MemHog {
             rctx.start_sysload("mem-hog", self.speed.to_sideload_name())?;
 
             let mh_svc_name = rd_agent_intf::sysload_svc_name(Self::NAME);
-            let mut first_mh_rep = Err(anyhow!("swap usage stayed zero"));
+            let mut first_hog_rep = Err(anyhow!("swap usage stayed zero"));
             let mut mh_mem_rec = VecDeque::<usize>::new();
 
             // Memory hog is running. Monitor it until it dies or the
@@ -213,11 +214,11 @@ impl MemHog {
                     |wm: &WorkloadMon, af: &AgentFiles| -> Result<(bool, String)> {
                         let rep = &af.report.data;
                         if let (Some(usage), Ok(mh_rep)) =
-                            (rep.usages.get(&mh_svc_name), Self::read_mh_rep(rep))
+                            (rep.usages.get(&mh_svc_name), Self::read_hog_rep(rep))
                         {
-                            if first_mh_rep.is_err() {
+                            if first_hog_rep.is_err() {
                                 if usage.swap_bytes > 0 || rctx.test {
-                                    first_mh_rep = Ok(mh_rep);
+                                    first_hog_rep = Ok(mh_rep);
                                 }
                             } else {
                                 mh_mem_rec.push_front(usage.mem_bytes as usize);
@@ -231,10 +232,10 @@ impl MemHog {
 
             // Memory hog is dead. Unwrap the first report and read the last
             // report to calculate delta.
-            let first_mh_rep = first_mh_rep?;
-            let last_mh_rep =
-                rctx.access_agent_files::<_, Result<_>>(|af| Self::read_mh_rep(&af.report.data))?;
-            let last_mh_mem = mh_mem_rec.iter().sum::<usize>() / mh_mem_rec.len();
+            let first_hog_rep = first_hog_rep?;
+            let last_hog_rep =
+                rctx.access_agent_files::<_, Result<_>>(|af| Self::read_hog_rep(&af.report.data))?;
+            let last_hog_mem = mh_mem_rec.iter().sum::<usize>() / mh_mem_rec.len();
 
             rctx.stop_sysload("mem-hog");
 
@@ -246,9 +247,9 @@ impl MemHog {
                 stable_at,
                 hog_started_at,
                 hog_ended_at,
-                first_mh_rep,
-                last_mh_rep,
-                last_mh_mem,
+                first_hog_rep,
+                last_hog_rep,
+                last_hog_mem,
             });
         }
         self.main_period.1 = unix_now();
@@ -256,6 +257,14 @@ impl MemHog {
         let mut result = Self::study(rctx, self.runs.iter(), self.main_period);
         result.runs = self.runs.clone();
         Ok(result)
+    }
+
+    fn calc_work_isol(rps: f64, base_rps: f64) -> f64 {
+        (rps / base_rps).min(1.0)
+    }
+
+    fn calc_lat_impact(lat: f64, base_lat: f64) -> f64 {
+        (lat / base_lat - 1.0).max(0.0)
     }
 
     fn study<'a, I>(rctx: &RunCtx, runs: I, main_period: (u64, u64)) -> MemHogResult
@@ -273,6 +282,7 @@ impl MemHog {
         let mut studies = Studies::new()
             .add(&mut study_base_rps)
             .add(&mut study_base_lat);
+
         for run in runs.iter() {
             studies.run(rctx, (run.stable_at, run.hog_started_at));
         }
@@ -285,10 +295,17 @@ impl MemHog {
         // indicating the perfect isolation. The latter is defined as the
         // proportion of the latency increase over the baseline, [0.0, 1.0]
         // with 0.0 indicating no latency impact.
-        let mut study_work_isol =
-            StudyMeanPcts::new(|rep| Some((rep.hashd[0].rps / base_rps).min(1.0)), None);
+        let mut study_work_isol = StudyMeanPcts::new(
+            |rep| Some(Self::calc_work_isol(rep.hashd[0].rps, base_rps)),
+            None,
+        );
         let mut study_lat_impact = StudyMeanPcts::new(
-            |rep| Some((rep.hashd[0].lat.ctl.max(base_lat) / base_lat - 1.0).max(0.0)),
+            |rep| {
+                Some(Self::calc_lat_impact(
+                    rep.hashd[0].lat.ctl.max(base_lat),
+                    base_lat,
+                ))
+            },
             None,
         );
 
@@ -297,7 +314,7 @@ impl MemHog {
         let mh_svc_name = rd_agent_intf::sysload_svc_name(Self::NAME);
         let mut io_usage = 0.0_f64;
         let mut io_unused = 0.0_f64;
-        let mut mh_io_usage = 0.0_f64;
+        let mut hog_io_usage = 0.0_f64;
         let mut study_io_usages = StudyMutFn::new(|rep| {
             let vrate = rep.iocost.vrate;
             let root_util = rep.usages[ROOT_SLICE].io_util;
@@ -309,7 +326,7 @@ impl MemHog {
             io_usage += root_util * vrate / 100.0;
             io_unused += (1.0 - root_util).max(0.0) * vrate / 100.0;
             if let Some(usage) = rep.usages.get(&mh_svc_name) {
-                mh_io_usage += usage.io_util * vrate / 100.0;
+                hog_io_usage += usage.io_util * vrate / 100.0;
             }
         });
 
@@ -328,55 +345,53 @@ impl MemHog {
             .add_multiple(&mut study_read_lat_pcts.studies())
             .add_multiple(&mut study_write_lat_pcts.studies());
 
-        let mem_hog_periods: Vec<(u64, u64)> = runs
+        let hog_periods: Vec<(u64, u64)> = runs
             .iter()
             .map(|run| {
                 (
-                    run.first_mh_rep.timestamp.timestamp() as u64,
-                    run.last_mh_rep.timestamp.timestamp() as u64,
+                    run.first_hog_rep.timestamp.timestamp() as u64,
+                    run.last_hog_rep.timestamp.timestamp() as u64,
                 )
             })
             .collect();
 
-        for per in mem_hog_periods.iter() {
-            studies.run(rctx, (per.0, per.1));
+        for per in hog_periods.iter() {
+            studies.run(rctx, *per);
         }
 
-        let (work_isol_factor, work_isol_stdev, work_isol_pcts) =
-            study_work_isol.result(&Self::PCTS);
-        let (lat_impact_factor, lat_impact_stdev, lat_impact_pcts) =
-            study_lat_impact.result(&Self::PCTS);
+        let (work_isol, work_isol_stdev, work_isol_pcts) = study_work_isol.result(&Self::PCTS);
+        let (lat_impact, lat_impact_stdev, lat_impact_pcts) = study_lat_impact.result(&Self::PCTS);
 
         // Collect how many bytes the memory hogs put out to swap and how
         // much their growth was limited.
-        let mut mh_bytes = 0;
-        let mut mh_lost_bytes = 0;
+        let mut hog_bytes = 0;
+        let mut hog_lost_bytes = 0;
         for run in runs.iter() {
             // Total bytes put out to swap is total size sans what was on
             // physical memory.
-            mh_bytes += run
-                .last_mh_rep
+            hog_bytes += run
+                .last_hog_rep
                 .wbytes
-                .saturating_sub(run.last_mh_mem as u64);
-            mh_lost_bytes += run.last_mh_rep.wloss;
+                .saturating_sub(run.last_hog_mem as u64);
+            hog_lost_bytes += run.last_hog_rep.wloss;
         }
 
         // Determine iocost per each byte and map the number of lost bytes
         // to iocost.
-        let mh_cost_per_byte = mh_io_usage as f64 / mh_bytes as f64;
-        let mh_io_loss = mh_lost_bytes as f64 * mh_cost_per_byte;
+        let hog_cost_per_byte = hog_io_usage as f64 / hog_bytes as f64;
+        let hog_io_loss = hog_lost_bytes as f64 * hog_cost_per_byte;
 
         // If work conservation is 100%, mem-hog would have used all the
         // left over IOs that it could. The conservation factor is defined
         // as the actual usage divided by this maximum possible usage.
-        let work_csv_factor = if io_usage > 0.0 {
-            let usage_possible = io_usage + io_unused.min(mh_io_loss);
+        let work_csv = if io_usage > 0.0 {
+            let usage_possible = io_usage + io_unused.min(hog_io_loss);
             io_usage as f64 / usage_possible as f64
         } else {
             0.0
         };
 
-        let (vrate_mean, vrate_stdev, _, _) = study_vrate_mean.result();
+        let (vrate, vrate_stdev, _, _) = study_vrate_mean.result();
 
         let iolat_pcts = [
             study_read_lat_pcts.result(rctx, None),
@@ -390,30 +405,145 @@ impl MemHog {
             base_lat_stdev,
 
             work_isol_pcts,
-            work_isol_factor,
+            work_isol,
             work_isol_stdev,
 
             lat_impact_pcts,
-            lat_impact_factor,
+            lat_impact,
             lat_impact_stdev,
 
-            work_csv_factor,
+            work_csv,
 
             iolat_pcts,
 
             main_period,
-            mem_hog_periods,
-            vrate_mean,
+            hog_periods,
+            vrate,
             vrate_stdev,
             io_usage,
             io_unused,
-            mem_hog_io_usage: mh_io_usage,
-            mem_hog_io_loss: mh_io_loss,
-            mem_hog_bytes: mh_bytes,
-            mem_hog_lost_bytes: mh_lost_bytes,
+            hog_io_usage,
+            hog_io_loss,
+            hog_bytes,
+            hog_lost_bytes,
 
             runs: vec![],
         }
+    }
+
+    fn combine_results(rctx: &RunCtx, results: &[&MemHogResult]) -> MemHogResult {
+        assert!(results.len() > 0);
+
+        let mut cmb = MemHogResult::default();
+
+        // Combine means, stdevs and sums.
+        //
+        // means: Average weighted by the number of runs.
+        // stdevs: Sqrt of pooled variance by the number of runs.
+        // sums: Simple sum.
+        let mut total_runs = 0;
+        for r in results.iter() {
+            total_runs += r.runs.len();
+
+            // Weighted sum for weighted avg calculation.
+            let wsum = |c: &mut f64, v: f64| *c += v * (r.runs.len() as f64);
+            wsum(&mut cmb.base_rps, r.base_rps);
+            wsum(&mut cmb.base_lat, r.base_lat);
+            wsum(&mut cmb.work_isol, r.work_isol);
+            wsum(&mut cmb.lat_impact, r.lat_impact);
+            wsum(&mut cmb.work_csv, r.work_csv);
+            wsum(&mut cmb.vrate, r.vrate);
+
+            if r.runs.len() > 1 {
+                // Weighted variance sum for pooled variance calculation.
+                let vsum = |c: &mut f64, v: f64| *c += v.powi(2) * (r.runs.len() - 1) as f64;
+                vsum(&mut cmb.base_rps_stdev, r.base_rps_stdev);
+                vsum(&mut cmb.base_lat_stdev, r.base_lat_stdev);
+                vsum(&mut cmb.work_isol_stdev, r.work_isol_stdev);
+                vsum(&mut cmb.lat_impact_stdev, r.lat_impact_stdev);
+                vsum(&mut cmb.vrate_stdev, r.vrate_stdev);
+            }
+
+            cmb.main_period = (
+                cmb.main_period.0.min(r.main_period.0),
+                cmb.main_period.1.max(r.main_period.1),
+            );
+
+            cmb.io_usage += r.io_usage;
+            cmb.io_unused += r.io_unused;
+            cmb.hog_io_usage += r.hog_io_usage;
+            cmb.hog_io_loss += r.hog_io_loss;
+            cmb.hog_bytes += r.hog_bytes;
+            cmb.hog_lost_bytes += r.hog_lost_bytes;
+
+            cmb.hog_periods.append(&mut r.hog_periods.clone());
+        }
+
+        let base = total_runs as f64;
+        cmb.base_rps /= base;
+        cmb.base_lat /= base;
+        cmb.work_isol /= base;
+        cmb.lat_impact /= base;
+        cmb.work_csv /= base;
+        cmb.vrate /= base;
+
+        if total_runs > results.len() {
+            let base = (total_runs - results.len()) as f64;
+            let vsum_to_stdev = |v: &mut f64| *v = (*v / base).sqrt();
+            vsum_to_stdev(&mut cmb.base_rps_stdev);
+            vsum_to_stdev(&mut cmb.base_lat_stdev);
+            vsum_to_stdev(&mut cmb.work_isol_stdev);
+            vsum_to_stdev(&mut cmb.lat_impact_stdev);
+            vsum_to_stdev(&mut cmb.vrate_stdev);
+        }
+
+        // Percentiles can't be combined. Extract them again from the
+        // reports. This means that the weighting is different between the
+        // combined means and percentiles - the former by the number of
+        // runs, the latter the number of data points. While subtle, I think
+        // this lends the most useful combined results.
+        let base_rps = RefCell::new(0.0_f64);
+        let base_lat = RefCell::new(0.0_f64);
+
+        let mut study_work_isol = StudyPcts::new(
+            |rep| Some(Self::calc_work_isol(rep.hashd[0].rps, *base_rps.borrow())),
+            None,
+        );
+        let mut study_lat_impact = StudyPcts::new(
+            |rep| {
+                Some(Self::calc_lat_impact(
+                    rep.hashd[0].lat.ctl.max(*base_lat.borrow()),
+                    *base_lat.borrow(),
+                ))
+            },
+            None,
+        );
+        let mut study_read_lat_pcts = StudyIoLatPcts::new("read", None);
+        let mut study_write_lat_pcts = StudyIoLatPcts::new("write", None);
+
+        let mut studies = Studies::new()
+            .add(&mut study_work_isol)
+            .add(&mut study_lat_impact)
+            .add_multiple(&mut study_read_lat_pcts.studies())
+            .add_multiple(&mut study_write_lat_pcts.studies());
+
+        for r in results.iter() {
+            base_rps.replace(r.base_rps);
+            base_lat.replace(r.base_lat);
+
+            for per in r.hog_periods.iter() {
+                studies.run(rctx, *per);
+            }
+        }
+
+        cmb.work_isol_pcts = study_work_isol.result(&Self::PCTS);
+        cmb.lat_impact_pcts = study_lat_impact.result(&Self::PCTS);
+        cmb.iolat_pcts = [
+            study_read_lat_pcts.result(rctx, None),
+            study_write_lat_pcts.result(rctx, None),
+        ];
+
+        cmb
     }
 
     fn format_params<'a>(&self, out: &mut Box<dyn Write + 'a>) {
@@ -433,21 +563,21 @@ impl MemHog {
             result.base_rps_stdev,
             format_duration(result.base_lat),
             format_duration(result.base_lat_stdev),
-            result.vrate_mean,
+            result.vrate,
             result.vrate_stdev,
         )
         .unwrap();
         writeln!(
             out,
-            "      io_usage={:.1} io_unused={:.1} mem_hog_io_usage={:.1} mem_hog_io_loss={:.1}",
-            result.io_usage, result.io_unused, result.mem_hog_io_usage, result.mem_hog_io_loss,
+            "      io_usage={:.1} io_unused={:.1} hog_io_usage={:.1} hog_io_loss={:.1}",
+            result.io_usage, result.io_unused, result.hog_io_usage, result.hog_io_loss,
         )
         .unwrap();
         writeln!(
             out,
-            "      mem_hog_bytes={} mem_hog_lost_bytes={}\n",
-            format_size(result.mem_hog_bytes),
-            format_size(result.mem_hog_lost_bytes)
+            "      hog_bytes={} hog_lost_bytes={}\n",
+            format_size(result.hog_bytes),
+            format_size(result.hog_lost_bytes)
         )
         .unwrap();
     }
@@ -497,11 +627,11 @@ impl MemHog {
         writeln!(
             out,
             "\nResult: work_isol={:.3}:{:.3} lat_impact={:.3}:{:.3} work_csv={:.3}",
-            result.work_isol_factor,
+            result.work_isol,
             result.work_isol_stdev,
-            result.lat_impact_factor,
+            result.lat_impact,
             result.lat_impact_stdev,
-            result.work_csv_factor
+            result.work_csv
         )
         .unwrap();
     }
@@ -669,14 +799,14 @@ impl ProtectionJob {
             }
         }
 
-        if let Some(mh_result) = result.combined_mem_hog.as_ref() {
+        if let Some(hog_result) = result.combined_mem_hog.as_ref() {
             writeln!(
                 out,
                 "\n{}",
                 custom_underline(&format!("{}Memory Hog Summary", prefix), underline_char)
             )
             .unwrap();
-            MemHog::format_result(out, mh_result, full);
+            MemHog::format_result(out, hog_result, full);
         }
     }
 }
@@ -703,22 +833,17 @@ impl Job for ProtectionJob {
             result.scenarios.push(scn.run(rctx)?);
         }
 
-        let mut mh_iter: Box<dyn Iterator<Item = &MemHogRun>> = Box::new(std::iter::empty());
-        let mut mh_period = (std::u64::MAX, 0_u64);
+        let mut mhs = vec![];
         for result in result.scenarios.iter() {
             match result {
                 ScenarioResult::MemHog(mh) => {
-                    mh_iter = Box::new(mh_iter.chain(mh.runs.iter()));
-                    mh_period = (
-                        mh_period.0.min(mh.main_period.0),
-                        mh_period.1.max(mh.main_period.1),
-                    );
+                    mhs.push(mh);
                 }
             }
         }
 
-        if mh_period.0 < std::u64::MAX {
-            result.combined_mem_hog = Some(MemHog::study(rctx, mh_iter, mh_period));
+        if mhs.len() > 0 {
+            result.combined_mem_hog = Some(MemHog::combine_results(rctx, &mhs));
         }
 
         Ok(serde_json::to_value(&result).unwrap())

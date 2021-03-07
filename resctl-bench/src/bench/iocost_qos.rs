@@ -766,11 +766,11 @@ impl Job for IoCostQoSJob {
                     writeln!(
                         out,
                         "            work_isol={:.3}:{:.3} lat_impact={:.3}:{:.3} work_csv={:.3}",
-                        mhr.work_isol_factor,
+                        mhr.work_isol,
                         mhr.work_isol_stdev,
-                        mhr.lat_impact_factor,
+                        mhr.lat_impact,
                         mhr.lat_impact_stdev,
-                        mhr.work_csv_factor,
+                        mhr.work_csv,
                     )
                     .unwrap();
                 }
@@ -808,11 +808,11 @@ impl Job for IoCostQoSJob {
                         "[{:02}] {:>7.3}  {:>5.3}:{:>5.3}  {:>5.3}:{:>5.3}     {:>5.3}",
                         i,
                         run.storage.mem_offload_factor,
-                        mhr.work_isol_factor,
+                        mhr.work_isol,
                         mhr.work_isol_stdev,
-                        mhr.lat_impact_factor,
+                        mhr.lat_impact,
                         mhr.lat_impact_stdev,
-                        mhr.work_csv_factor,
+                        mhr.work_csv,
                     )
                     .unwrap();
                 }

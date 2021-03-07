@@ -464,11 +464,11 @@ pub struct ReportIter {
 }
 
 impl ReportIter {
-    pub fn new(dir: &str, start: u64, end: u64) -> Self {
+    pub fn new(dir: &str, period: (u64, u64)) -> Self {
         Self {
             dir: dir.into(),
-            cur: start,
-            end,
+            cur: period.0,
+            end: period.1,
         }
     }
 }
