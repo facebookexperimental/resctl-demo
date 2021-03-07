@@ -719,15 +719,6 @@ impl Job for IoCostTuneJob {
         _full: bool,
         props: &JobProps,
     ) -> Result<()> {
-        let result = serde_json::from_value::<IoCostTuneResult>(data.result.clone()).unwrap();
-
-        write!(
-            out,
-            "Graphs (circle: data points, cross: fitted line)\n\
-             ================================================\n\n"
-        )
-        .unwrap();
-
         let mut graph_prefix = None;
         for (k, v) in props[0].iter() {
             match k.as_ref() {
@@ -739,6 +730,15 @@ impl Job for IoCostTuneJob {
                 k => bail!("unknown format parameter {:?}", k),
             }
         }
+
+        let result = serde_json::from_value::<IoCostTuneResult>(data.result.clone()).unwrap();
+
+        write!(
+            out,
+            "Graphs (circle: data points, cross: fitted line)\n\
+             ================================================\n\n"
+        )
+        .unwrap();
 
         let mut grapher = graph::Grapher::new(out, graph_prefix.as_deref());
         grapher.plot(data, &result)?;

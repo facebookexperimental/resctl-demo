@@ -363,6 +363,17 @@ impl StudyIoLatPcts {
         }
     }
 
+    pub fn format_rw_tables<'a>(
+        out: &mut Box<dyn Write + 'a>,
+        result: &[BTreeMap<String, BTreeMap<String, f64>>],
+        lat_pcts: Option<&[&str]>,
+    ) {
+        writeln!(out, "IO Latency Distribution:\n").unwrap();
+        Self::format_table(out, &result[READ], lat_pcts, "READ");
+        writeln!(out, "").unwrap();
+        Self::format_table(out, &result[WRITE], lat_pcts, "WRITE");
+    }
+
     pub fn format_rw_summary<'a>(
         out: &mut Box<dyn Write + 'a>,
         result: &[BTreeMap<String, BTreeMap<String, f64>>],
@@ -373,6 +384,19 @@ impl StudyIoLatPcts {
         write!(out, "\n            W ").unwrap();
         Self::format_summary(out, &result[WRITE], lat_pcts);
         writeln!(out, "").unwrap();
+    }
+
+    pub fn format_rw<'a>(
+        out: &mut Box<dyn Write + 'a>,
+        result: &[BTreeMap<String, BTreeMap<String, f64>>],
+        full: bool,
+        lat_pcts: Option<&[&str]>,
+    ) {
+        if full {
+            Self::format_rw_tables(out, result, lat_pcts);
+            writeln!(out, "").unwrap();
+        }
+        Self::format_rw_summary(out, result, lat_pcts);
     }
 }
 

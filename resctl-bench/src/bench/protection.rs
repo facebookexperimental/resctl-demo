@@ -128,7 +128,7 @@ pub struct MemHogResult {
 
     pub iolat_pcts: [BTreeMap<String, BTreeMap<String, f64>>; 2],
 
-    pub main_period: (u64, u64),
+    pub main_periods: Vec<(u64, u64)>,
     pub hog_periods: Vec<(u64, u64)>,
     pub vrate: f64,
     pub vrate_stdev: f64,
@@ -417,7 +417,7 @@ impl MemHog {
 
             iolat_pcts,
 
-            main_period,
+            main_periods: vec![main_period],
             hog_periods,
             vrate,
             vrate_stdev,
@@ -435,10 +435,7 @@ impl MemHog {
     fn combine_results(rctx: &RunCtx, results: &[&MemHogResult]) -> MemHogResult {
         assert!(results.len() > 0);
 
-        let mut cmb = MemHogResult {
-            main_period: (std::u64::MAX, 0),
-            ..Default::default()
-        };
+        let mut cmb = MemHogResult::default();
 
         // Combine means, stdevs and sums.
         //
@@ -468,11 +465,6 @@ impl MemHog {
                 vsum(&mut cmb.vrate_stdev, r.vrate_stdev);
             }
 
-            cmb.main_period = (
-                cmb.main_period.0.min(r.main_period.0),
-                cmb.main_period.1.max(r.main_period.1),
-            );
-
             cmb.io_usage += r.io_usage;
             cmb.io_unused += r.io_unused;
             cmb.hog_io_usage += r.hog_io_usage;
@@ -480,6 +472,7 @@ impl MemHog {
             cmb.hog_bytes += r.hog_bytes;
             cmb.hog_lost_bytes += r.hog_lost_bytes;
 
+            cmb.main_periods.append(&mut r.main_periods.clone());
             cmb.hog_periods.append(&mut r.hog_periods.clone());
         }
 
@@ -546,8 +539,8 @@ impl MemHog {
             .add_multiple(&mut study_read_lat_pcts.studies())
             .add_multiple(&mut study_write_lat_pcts.studies());
 
-        for r in results.iter() {
-            studies.run(rctx, r.main_period);
+        for per in cmb.main_periods.iter() {
+            studies.run(rctx, *per);
         }
 
         cmb.iolat_pcts = [
@@ -597,16 +590,9 @@ impl MemHog {
     fn format_result<'a>(out: &mut Box<dyn Write + 'a>, result: &MemHogResult, full: bool) {
         if full {
             Self::format_info(out, result);
-
-            let iolat_pcts = &result.iolat_pcts.as_ref();
-            writeln!(out, "IO Latency Distribution:\n").unwrap();
-            StudyIoLatPcts::format_table(out, &iolat_pcts[READ], None, "READ");
-            writeln!(out, "").unwrap();
-            StudyIoLatPcts::format_table(out, &iolat_pcts[WRITE], None, "WRITE");
-            writeln!(out, "").unwrap();
         }
 
-        StudyIoLatPcts::format_rw_summary(out, &result.iolat_pcts, None);
+        StudyIoLatPcts::format_rw(out, result.iolat_pcts.as_ref(), full, None);
 
         writeln!(
             out,

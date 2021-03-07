@@ -87,6 +87,7 @@ impl Bench for IoCostQoSBench {
     fn desc(&self) -> BenchDesc {
         BenchDesc::new("iocost-qos")
             .takes_run_propsets()
+            .takes_format_props()
             .incremental()
     }
 
@@ -99,11 +100,12 @@ impl Bench for IoCostQoSBench {
 pub struct IoCostQoSRun {
     pub ovr: Option<IoCostQoSOvr>,
     pub qos: Option<IoCostQoSParams>,
+    pub storage: StorageResult,
+    pub protection: ProtectionResult,
     pub vrate_mean: f64,
     pub vrate_stdev: f64,
     pub vrate_pcts: BTreeMap<String, f64>,
-    pub storage: StorageResult,
-    pub protection: ProtectionResult,
+    pub iolat_pcts: [BTreeMap<String, BTreeMap<String, f64>>; 2],
 }
 
 #[derive(Serialize, Deserialize, Clone, Default)]
@@ -413,13 +415,6 @@ impl IoCostQoSJob {
         // don't get committed to the base bench.
         rctx.load_bench()?;
 
-        // Study the vrate distribution.
-        let mut study_vrate_mean_pcts = StudyMeanPcts::new(|rep| Some(rep.iocost.vrate), None);
-        Studies::new()
-            .add(&mut study_vrate_mean_pcts)
-            .run(rctx, storage.main_period);
-        let (vrate_mean, vrate_stdev, vrate_pcts) = study_vrate_mean_pcts.result(&Self::VRATE_PCTS);
-
         // Run the protection bench.
         let mem_step = (storage.mem_size_mean as f64 * PROT_MEM_STEP).round() as usize;
         let mut tries = 0;
@@ -474,21 +469,42 @@ impl IoCostQoSJob {
             None => None,
         };
 
+        // Study the vrate and IO latency distributions.
+        let mut study_vrate_mean_pcts = StudyMeanPcts::new(|rep| Some(rep.iocost.vrate), None);
+        let mut study_read_lat_pcts = StudyIoLatPcts::new("read", None);
+        let mut study_write_lat_pcts = StudyIoLatPcts::new("write", None);
+        let mut studies = Studies::new()
+            .add(&mut study_vrate_mean_pcts)
+            .add_multiple(&mut study_read_lat_pcts.studies())
+            .add_multiple(&mut study_write_lat_pcts.studies());
+
+        studies.run(rctx, storage.main_period);
+        for per in protection
+            .combined_mem_hog
+            .as_ref()
+            .unwrap()
+            .main_periods
+            .iter()
+        {
+            studies.run(rctx, *per);
+        }
+
+        let (vrate_mean, vrate_stdev, vrate_pcts) = study_vrate_mean_pcts.result(&Self::VRATE_PCTS);
+        let iolat_pcts = [
+            study_read_lat_pcts.result(rctx, None),
+            study_write_lat_pcts.result(rctx, None),
+        ];
+
         Ok(IoCostQoSRun {
             ovr: ovr.cloned(),
             qos,
+            storage,
+            protection,
             vrate_mean,
             vrate_stdev,
             vrate_pcts,
-            storage,
-            protection,
+            iolat_pcts,
         })
-    }
-
-    fn format_one_storage<'a>(&self, out: &mut Box<dyn Write + 'a>, result: &StorageResult) {
-        self.stor_job.format_lat_dist(out, &result);
-        writeln!(out, "").unwrap();
-        self.stor_job.format_summaries(out, &result);
     }
 }
 
@@ -698,9 +714,18 @@ impl Job for IoCostQoSJob {
         mut out: Box<dyn Write + 'a>,
         data: &JobData,
         full: bool,
-        _props: &JobProps,
+        props: &JobProps,
     ) -> Result<()> {
+        let mut sub_full = false;
+        for (k, v) in props[0].iter() {
+            match k.as_ref() {
+                "sub-full" => sub_full = v.len() == 0 || v.parse::<bool>()?,
+                k => bail!("unknown format parameter {:?}", k),
+            }
+        }
+
         let result = serde_json::from_value::<IoCostQoSResult>(data.result.clone()).unwrap();
+
         if result.results.len() == 0
             || result.results[0].is_none()
             || result.results[0].as_ref().unwrap().qos.is_some()
@@ -727,7 +752,20 @@ impl Job for IoCostQoSJob {
                 )
                 .unwrap();
                 writeln!(out, "{}", underline(&format!("RUN {:02} - Storage", i))).unwrap();
-                self.format_one_storage(&mut out, &run.storage);
+
+                self.stor_job
+                    .format_result(&mut out, &run.storage, false, sub_full);
+                self.prot_job.format_result(
+                    &mut out,
+                    &run.protection,
+                    sub_full,
+                    &format!("RUN {:02} - Protection ", i),
+                );
+
+                writeln!(out, "\n{}", underline(&format!("RUN {:02} - Result", i))).unwrap();
+
+                StudyIoLatPcts::format_rw(&mut out, run.iolat_pcts.as_ref(), full, None);
+
                 if run.qos.is_some() {
                     write!(out, "\nvrate:").unwrap();
                     for pct in &Self::VRATE_PCTS {
@@ -739,17 +777,7 @@ impl Job for IoCostQoSJob {
                         )
                         .unwrap();
                     }
-                    writeln!(out, "").unwrap();
-                }
-                self.prot_job.format_result(
-                    &mut out,
-                    &run.protection,
-                    true,
-                    &format!("RUN {:02} - Protection ", i),
-                );
-
-                if run.qos.is_some() {
-                    writeln!(out, "\n{}", underline(&format!("RUN {:02} - Result", i))).unwrap();
+                    writeln!(out, "\n").unwrap();
 
                     writeln!(
                         out,

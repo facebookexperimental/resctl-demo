@@ -42,7 +42,7 @@ impl Default for StorageJob {
             chunk_pages: dfl_params.chunk_pages,
             rps_max: RunCtx::BENCH_FAKE_CPU_RPS_MAX,
             log_bps: dfl_params.log_bps,
-            loops: 5,
+            loops: 3,
             mem_profile_ask: None,
             mem_avail_err_max: 0.1,
             mem_avail_inner_retries: 2,
@@ -387,14 +387,6 @@ impl StorageJob {
         .unwrap();
     }
 
-    pub fn format_lat_dist<'a>(&self, out: &mut Box<dyn Write + 'a>, result: &StorageResult) {
-        let iolat_pcts = &result.iolat_pcts;
-        writeln!(out, "IO Latency Distribution:\n").unwrap();
-        StudyIoLatPcts::format_table(out, &iolat_pcts[READ], None, "READ");
-        writeln!(out, "").unwrap();
-        StudyIoLatPcts::format_table(out, &iolat_pcts[WRITE], None, "WRITE");
-    }
-
     pub fn format_io_summary<'a>(&self, out: &mut Box<dyn Write + 'a>, result: &StorageResult) {
         writeln!(
             out,
@@ -435,8 +427,13 @@ impl StorageJob {
         }
     }
 
-    pub fn format_summaries<'a>(&self, out: &mut Box<dyn Write + 'a>, result: &StorageResult) {
-        StudyIoLatPcts::format_rw_summary(out, &result.iolat_pcts, None);
+    pub fn format_result<'a>(&self, out: &mut Box<dyn Write + 'a>, result: &StorageResult,
+                             header: bool, full: bool) {
+        if header {
+            self.format_header(out, true, &result);
+            writeln!(out, "").unwrap();
+        }
+        StudyIoLatPcts::format_rw(out, &result.iolat_pcts, full, None);
 
         writeln!(out, "").unwrap();
         self.format_io_summary(out, result);
@@ -627,15 +624,7 @@ impl Job for StorageJob {
         _props: &JobProps,
     ) -> Result<()> {
         let result = serde_json::from_value::<StorageResult>(data.result.clone()).unwrap();
-
-        self.format_header(&mut out, true, &result);
-        writeln!(out, "").unwrap();
-        if full {
-            self.format_lat_dist(&mut out, &result);
-            writeln!(out, "").unwrap();
-        }
-        self.format_summaries(&mut out, &result);
-
+        self.format_result(&mut out, &result, true, full);
         Ok(())
     }
 }
