@@ -791,15 +791,15 @@ impl Job for IoCostQoSJob {
                     )
                     .unwrap();
 
-                    let mhr = run.protection.combined_mem_hog.as_ref().unwrap();
+                    let hog = run.protection.combined_mem_hog.as_ref().unwrap();
                     writeln!(
                         out,
                         "            isol={}%:{} lat_imp={}%:{} work_csv={}%",
-                        format_pct(mhr.isol),
-                        format_pct(mhr.isol_stdev),
-                        format_pct(mhr.lat_imp),
-                        format_pct(mhr.lat_imp_stdev),
-                        format_pct(mhr.work_csv),
+                        format_pct(hog.isol),
+                        format_pct(hog.isol_stdev),
+                        format_pct(hog.lat_imp),
+                        format_pct(hog.lat_imp_stdev),
+                        format_pct(hog.work_csv),
                     )
                     .unwrap();
                 }

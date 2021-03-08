@@ -1,6 +1,5 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
-use super::iocost_qos::{IoCostQoSOvr, IoCostQoSResult};
-use super::storage::StorageResult;
+use super::iocost_qos::{IoCostQoSOvr, IoCostQoSResult, IoCostQoSRun};
 use super::*;
 use statrs::distribution::{Normal, Univariate};
 use std::cmp::{Ordering, PartialOrd};
@@ -16,21 +15,35 @@ const DFL_VRATE_MAX: f64 = 100.0;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum DataSel {
-    MOF,                 // Memory offloading factor
-    Lat(String, String), // Latency
+    MOF,                  // Memory offloading
+    Isol,                 // Isolation
+    LatImp,               // Request Latency impact
+    WorkCsv,              // Work conservation
+    Missing,              // Report missing
+    RLat(String, String), // IO Read latency
+    WLat(String, String), // IO Write latency
 }
 
 impl DataSel {
     fn parse(sel: &str) -> Result<DataSel> {
-        if sel == "mof" {
-            return Ok(Self::MOF);
+        match sel {
+            "mof" => return Ok(Self::MOF),
+            "isol" => return Ok(Self::Isol),
+            "lat-imp" => return Ok(Self::LatImp),
+            "work-csv" => return Ok(Self::WorkCsv),
+            "missing" => return Ok(Self::Missing),
+            _ => {}
         }
 
-        if !sel.starts_with("p") {
+        let rw = if sel.starts_with("rlat-") {
+            READ
+        } else if sel.starts_with("wlat-") {
+            WRITE
+        } else {
             bail!("unknown data selector {:?}", sel);
-        }
+        };
 
-        let pcts: Vec<&str> = sel[1..].split("-").collect();
+        let pcts: Vec<&str> = sel[5..].split("-").collect();
         if pcts.len() == 0 || pcts.len() > 2 {
             bail!("unknown data selector {:?}", sel);
         }
@@ -83,16 +96,24 @@ impl DataSel {
             );
         }
 
-        Ok(Self::Lat(
-            lat_pct.unwrap().to_owned(),
-            time_pct.unwrap().to_owned(),
-        ))
+        Ok(if rw == READ {
+            Self::RLat(lat_pct.unwrap().to_owned(), time_pct.unwrap().to_owned())
+        } else {
+            Self::WLat(lat_pct.unwrap().to_owned(), time_pct.unwrap().to_owned())
+        })
     }
 
-    fn select(&self, storage: &StorageResult) -> f64 {
+    fn select(&self, run: &IoCostQoSRun) -> f64 {
+        let stor = &run.storage;
+        let hog = run.protection.combined_mem_hog.as_ref().unwrap();
         match self {
-            Self::MOF => storage.mem_offload_factor,
-            Self::Lat(lat_pct, time_pct) => storage.iolat_pcts.as_ref()[READ][lat_pct][time_pct],
+            Self::MOF => stor.mem_offload_factor,
+            Self::Isol => hog.isol,
+            Self::LatImp => hog.lat_imp,
+            Self::WorkCsv => hog.work_csv,
+            Self::Missing => Studies::reports_missing(run.nr_reports),
+            Self::RLat(lat_pct, time_pct) => stor.iolat_pcts.as_ref()[READ][lat_pct][time_pct],
+            Self::WLat(lat_pct, time_pct) => stor.iolat_pcts.as_ref()[WRITE][lat_pct][time_pct],
         }
     }
 
@@ -108,20 +129,34 @@ impl DataSel {
             }
         }
     }
+
+    fn pos<'a>(&'a self) -> (u32, Option<(&'a str, &'a str)>) {
+        match self {
+            Self::MOF => (0, None),
+            Self::Isol => (1, None),
+            Self::LatImp => (2, None),
+            Self::WorkCsv => (3, None),
+            Self::Missing => (4, None),
+            Self::RLat(lat, time) => (5, Some((lat, time))),
+            Self::WLat(lat, time) => (6, Some((lat, time))),
+        }
+    }
 }
 
 impl Ord for DataSel {
     fn cmp(&self, other: &Self) -> Ordering {
-        match (self, other) {
-            (Self::MOF, Self::MOF) => Ordering::Equal,
-            (Self::MOF, _) => Ordering::Less,
-            (_, Self::MOF) => Ordering::Greater,
-            (Self::Lat(alat, atime), Self::Lat(blat, btime)) => {
-                match Self::cmp_lat_sel(atime, btime) {
-                    Ordering::Equal => Self::cmp_lat_sel(alat, blat),
-                    ord => ord,
-                }
+        let (pos_a, lat_time_a) = self.pos();
+        let (pos_b, lat_time_b) = other.pos();
+
+        if pos_a == pos_b && lat_time_a.is_some() {
+            let (lat_a, time_a) = lat_time_a.unwrap();
+            let (lat_b, time_b) = lat_time_b.unwrap();
+            match Self::cmp_lat_sel(time_a, time_b) {
+                Ordering::Equal => Self::cmp_lat_sel(lat_a, lat_b),
+                ord => ord,
             }
+        } else {
+            pos_a.cmp(&pos_b)
         }
     }
 }
@@ -136,7 +171,12 @@ impl std::fmt::Display for DataSel {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::MOF => write!(f, "mof"),
-            Self::Lat(lat_pct, time_pct) => write!(f, "p{}-{}", lat_pct, time_pct),
+            Self::Isol => write!(f, "isol"),
+            Self::LatImp => write!(f, "lat-imp"),
+            Self::WorkCsv => write!(f, "work-csv"),
+            Self::Missing => write!(f, "missing"),
+            Self::RLat(lat_pct, time_pct) => write!(f, "rlat-{}-{}", lat_pct, time_pct),
+            Self::WLat(lat_pct, time_pct) => write!(f, "wlat-{}-{}", lat_pct, time_pct),
         }
     }
 }
@@ -164,7 +204,10 @@ impl<'de> serde::de::Deserialize<'de> for DataSel {
             type Value = DataSel;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-                formatter.write_str("`mof` or `pLAT-TIME`")
+                formatter.write_str(
+                    "`mof`, `isol`, `lat-imp`, `work-csv`, `missing`, \
+                     `rlat-LAT-TIME` or `wlat-LAT-TIME`",
+                )
             }
 
             fn visit_str<E>(self, value: &str) -> Result<DataSel, E>
@@ -197,7 +240,7 @@ impl std::cmp::Ord for Target {
 
 impl Target {
     fn parse(target: &str, is_dur: bool) -> Result<Target> {
-        if target == "infl" || target == "inflection" {
+        if target == "infl" {
             Ok(Self::Inflection)
         } else {
             let thr = match is_dur {
@@ -223,7 +266,7 @@ impl QoSTarget {
     fn parse(k: &str, v: &str) -> Result<QoSTarget> {
         let sel = DataSel::parse(k)?;
         let is_dur = match sel {
-            DataSel::Lat(_, _) => true,
+            DataSel::RLat(_, _) | DataSel::WLat(_, _) => true,
             _ => false,
         };
         Ok(Self {
@@ -306,9 +349,9 @@ impl Bench for IoCostTuneBench {
             };
 
             push_props(&[("name", "default"), ("mof", "infl")]);
-            push_props(&[("name", "p99-10m"), ("mof", "infl"), ("p99", "10m")]);
-            push_props(&[("name", "p99-5m"), ("mof", "infl"), ("p99", "5m")]);
-            push_props(&[("name", "p99-1m"), ("mof", "infl"), ("p99", "1m")]);
+            push_props(&[("name", "rlat-99-10m"), ("mof", "infl"), ("rlat-99", "10m")]);
+            push_props(&[("name", "rlat-99-5m"), ("mof", "infl"), ("rlat-99", "5m")]);
+            push_props(&[("name", "rlat-99-1m"), ("mof", "infl"), ("rlat-99", "1m")]);
         }
 
         for props in prop_groups.iter() {
@@ -333,11 +376,11 @@ impl Bench for IoCostTuneBench {
     }
 }
 
-// (vrate, MOF or LAT)
+// (vrate, val)
 type DataPoint = (f64, f64);
 
 //
-//   MOF or LAT
+//      val
 //       ^
 //       |
 // dhigh +.................------
@@ -660,7 +703,7 @@ impl Job for IoCostTuneJob {
                     }) if min == max => min,
                     _ => continue,
                 };
-                let val = sel.select(&run.storage);
+                let val = sel.select(run);
                 series.points.push((vrate, val));
             }
             series.points.sort_by(|a, b| a.partial_cmp(b).unwrap());

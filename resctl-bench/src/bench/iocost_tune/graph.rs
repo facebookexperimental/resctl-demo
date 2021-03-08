@@ -41,7 +41,12 @@ impl<'a> Grapher<'a> {
                 };
                 (ymin, 1.0)
             }
-            DataSel::Lat(_, _) => (0.0, 1000.0),
+            DataSel::Isol => (0.0, 100.0),
+            DataSel::LatImp => (0.0, 100.0),
+            DataSel::WorkCsv => (0.0, 100.0),
+            DataSel::Missing => (0.0, 100.0),
+            DataSel::RLat(_, _) => (0.0, 1000.0),
+            DataSel::WLat(_, _) => (0.0, 1000.0),
         };
 
         let lines = &series.lines;
