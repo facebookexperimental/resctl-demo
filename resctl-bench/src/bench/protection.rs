@@ -116,13 +116,13 @@ pub struct MemHogResult {
     pub base_lat: f64,
     pub base_lat_stdev: f64,
 
-    pub work_isol_pcts: BTreeMap<String, f64>,
-    pub work_isol: f64,
-    pub work_isol_stdev: f64,
+    pub isol_pcts: BTreeMap<String, f64>,
+    pub isol: f64,
+    pub isol_stdev: f64,
 
-    pub lat_impact_pcts: BTreeMap<String, f64>,
-    pub lat_impact: f64,
-    pub lat_impact_stdev: f64,
+    pub lat_imp_pcts: BTreeMap<String, f64>,
+    pub lat_imp: f64,
+    pub lat_imp_stdev: f64,
 
     pub work_csv: f64,
 
@@ -265,22 +265,22 @@ impl MemHog {
         let mut result = Self::study(rctx, self.runs.iter(), self.main_period);
         result.runs = self.runs.clone();
         info!(
-            "protection: work_isol={:.3}:{:.3} lat_impact={:.3}:{:.3} work_csv={:.3} missing={}%",
-            result.work_isol,
-            result.work_isol_stdev,
-            result.lat_impact,
-            result.lat_impact_stdev,
-            result.work_csv,
+            "protection: isol={}%:{} lat_imp={}%:{} work_csv={}% missing={}%",
+            format_pct(result.isol),
+            format_pct(result.isol_stdev),
+            format_pct(result.lat_imp),
+            format_pct(result.lat_imp_stdev),
+            format_pct(result.work_csv),
             format_pct(Studies::reports_missing(result.nr_reports)),
         );
         Ok(result)
     }
 
-    fn calc_work_isol(rps: f64, base_rps: f64) -> f64 {
+    fn calc_isol(rps: f64, base_rps: f64) -> f64 {
         (rps / base_rps).min(1.0)
     }
 
-    fn calc_lat_impact(lat: f64, base_lat: f64) -> f64 {
+    fn calc_lat_imp(lat: f64, base_lat: f64) -> f64 {
         (lat / base_lat - 1.0).max(0.0)
     }
 
@@ -312,13 +312,13 @@ impl MemHog {
         // indicating the perfect isolation. The latter is defined as the
         // proportion of the latency increase over the baseline, [0.0, 1.0]
         // with 0.0 indicating no latency impact.
-        let mut study_work_isol = StudyMeanPcts::new(
-            |rep| Some(Self::calc_work_isol(rep.hashd[0].rps, base_rps)),
+        let mut study_isol = StudyMeanPcts::new(
+            |rep| Some(Self::calc_isol(rep.hashd[0].rps, base_rps)),
             None,
         );
-        let mut study_lat_impact = StudyMeanPcts::new(
+        let mut study_lat_imp = StudyMeanPcts::new(
             |rep| {
-                Some(Self::calc_lat_impact(
+                Some(Self::calc_lat_imp(
                     rep.hashd[0].lat.ctl.max(base_lat),
                     base_lat,
                 ))
@@ -348,8 +348,8 @@ impl MemHog {
         });
 
         let mut studies = Studies::new()
-            .add(&mut study_work_isol)
-            .add(&mut study_lat_impact)
+            .add(&mut study_isol)
+            .add(&mut study_lat_imp)
             .add(&mut study_io_usages);
 
         let hog_periods: Vec<(u64, u64)> = runs
@@ -366,8 +366,8 @@ impl MemHog {
             studies.run(rctx, *per);
         }
 
-        let (work_isol, work_isol_stdev, work_isol_pcts) = study_work_isol.result(&Self::PCTS);
-        let (lat_impact, lat_impact_stdev, lat_impact_pcts) = study_lat_impact.result(&Self::PCTS);
+        let (isol, isol_stdev, isol_pcts) = study_isol.result(&Self::PCTS);
+        let (lat_imp, lat_imp_stdev, lat_imp_pcts) = study_lat_imp.result(&Self::PCTS);
 
         // The followings are captured over the entire period. vrate mean
         // isn't used in the process but report to help visibility.
@@ -413,7 +413,7 @@ impl MemHog {
             let usage_possible = io_usage + io_unused.min(hog_io_loss);
             io_usage as f64 / usage_possible as f64
         } else {
-            0.0
+            100.0
         };
 
         MemHogResult {
@@ -422,13 +422,13 @@ impl MemHog {
             base_lat,
             base_lat_stdev,
 
-            work_isol_pcts,
-            work_isol,
-            work_isol_stdev,
+            isol_pcts,
+            isol,
+            isol_stdev,
 
-            lat_impact_pcts,
-            lat_impact,
-            lat_impact_stdev,
+            lat_imp_pcts,
+            lat_imp,
+            lat_imp_stdev,
 
             work_csv,
 
@@ -468,8 +468,8 @@ impl MemHog {
             let wsum = |c: &mut f64, v: f64| *c += v * (r.runs.len() as f64);
             wsum(&mut cmb.base_rps, r.base_rps);
             wsum(&mut cmb.base_lat, r.base_lat);
-            wsum(&mut cmb.work_isol, r.work_isol);
-            wsum(&mut cmb.lat_impact, r.lat_impact);
+            wsum(&mut cmb.isol, r.isol);
+            wsum(&mut cmb.lat_imp, r.lat_imp);
             wsum(&mut cmb.work_csv, r.work_csv);
             wsum(&mut cmb.vrate, r.vrate);
 
@@ -478,8 +478,8 @@ impl MemHog {
                 let vsum = |c: &mut f64, v: f64| *c += v.powi(2) * (r.runs.len() - 1) as f64;
                 vsum(&mut cmb.base_rps_stdev, r.base_rps_stdev);
                 vsum(&mut cmb.base_lat_stdev, r.base_lat_stdev);
-                vsum(&mut cmb.work_isol_stdev, r.work_isol_stdev);
-                vsum(&mut cmb.lat_impact_stdev, r.lat_impact_stdev);
+                vsum(&mut cmb.isol_stdev, r.isol_stdev);
+                vsum(&mut cmb.lat_imp_stdev, r.lat_imp_stdev);
                 vsum(&mut cmb.vrate_stdev, r.vrate_stdev);
             }
 
@@ -499,8 +499,8 @@ impl MemHog {
         let base = total_runs as f64;
         cmb.base_rps /= base;
         cmb.base_lat /= base;
-        cmb.work_isol /= base;
-        cmb.lat_impact /= base;
+        cmb.isol /= base;
+        cmb.lat_imp /= base;
         cmb.work_csv /= base;
         cmb.vrate /= base;
 
@@ -509,8 +509,8 @@ impl MemHog {
             let vsum_to_stdev = |v: &mut f64| *v = (*v / base).sqrt();
             vsum_to_stdev(&mut cmb.base_rps_stdev);
             vsum_to_stdev(&mut cmb.base_lat_stdev);
-            vsum_to_stdev(&mut cmb.work_isol_stdev);
-            vsum_to_stdev(&mut cmb.lat_impact_stdev);
+            vsum_to_stdev(&mut cmb.isol_stdev);
+            vsum_to_stdev(&mut cmb.lat_imp_stdev);
             vsum_to_stdev(&mut cmb.vrate_stdev);
         }
 
@@ -522,13 +522,13 @@ impl MemHog {
         let base_rps = RefCell::new(0.0_f64);
         let base_lat = RefCell::new(0.0_f64);
 
-        let mut study_work_isol = StudyPcts::new(
-            |rep| Some(Self::calc_work_isol(rep.hashd[0].rps, *base_rps.borrow())),
+        let mut study_isol = StudyPcts::new(
+            |rep| Some(Self::calc_isol(rep.hashd[0].rps, *base_rps.borrow())),
             None,
         );
-        let mut study_lat_impact = StudyPcts::new(
+        let mut study_lat_imp = StudyPcts::new(
             |rep| {
-                Some(Self::calc_lat_impact(
+                Some(Self::calc_lat_imp(
                     rep.hashd[0].lat.ctl.max(*base_lat.borrow()),
                     *base_lat.borrow(),
                 ))
@@ -537,8 +537,8 @@ impl MemHog {
         );
 
         let mut studies = Studies::new()
-            .add(&mut study_work_isol)
-            .add(&mut study_lat_impact);
+            .add(&mut study_isol)
+            .add(&mut study_lat_imp);
 
         for r in results.iter() {
             base_rps.replace(r.base_rps);
@@ -549,8 +549,8 @@ impl MemHog {
             }
         }
 
-        cmb.work_isol_pcts = study_work_isol.result(&Self::PCTS);
-        cmb.lat_impact_pcts = study_lat_impact.result(&Self::PCTS);
+        cmb.isol_pcts = study_isol.result(&Self::PCTS);
+        cmb.lat_imp_pcts = study_lat_imp.result(&Self::PCTS);
 
         let mut study_read_lat_pcts = StudyIoLatPcts::new("read", None);
         let mut study_write_lat_pcts = StudyIoLatPcts::new("write", None);
@@ -616,40 +616,40 @@ impl MemHog {
 
         writeln!(
             out,
-            "\nWork Isolation and Request Latency Impact Distributions:\n"
+            "\nIsolation and Request Latency Impact Distributions:\n"
         )
         .unwrap();
         writeln!(
             out,
-            "           {}",
+            "         {}",
             Self::PCTS
                 .iter()
-                .map(|x| format!("{:>5}", format_percentile(*x)))
+                .map(|x| format!("{:>4}", format_percentile(*x)))
                 .collect::<Vec<String>>()
                 .join(" ")
         )
         .unwrap();
 
-        write!(out, "Work Isol  ").unwrap();
+        write!(out, "isol%    ").unwrap();
         for pct in Self::PCTS.iter() {
-            write!(out, "{:>5.2} ", result.work_isol_pcts[*pct]).unwrap();
+            write!(out, "{:>4} ", format_pct(result.isol_pcts[*pct])).unwrap();
         }
         writeln!(out, "").unwrap();
 
-        write!(out, "Lat Impact ").unwrap();
+        write!(out, "lat-imp% ").unwrap();
         for pct in Self::PCTS.iter() {
-            write!(out, "{:>5.2} ", result.lat_impact_pcts[*pct]).unwrap();
+            write!(out, "{:>4} ", format_pct(result.lat_imp_pcts[*pct])).unwrap();
         }
         writeln!(out, "").unwrap();
 
         writeln!(
             out,
-            "\nResult: work_isol={:.3}:{:.3} lat_impact={:.3}:{:.3} work_csv={:.3} missing={}%",
-            result.work_isol,
-            result.work_isol_stdev,
-            result.lat_impact,
-            result.lat_impact_stdev,
-            result.work_csv,
+            "\nResult: isol={}%:{} lat_imp={}%:{} work_csv={}% missing={}%",
+            format_pct(result.isol),
+            format_pct(result.isol_stdev),
+            format_pct(result.lat_imp),
+            format_pct(result.lat_imp_stdev),
+            format_pct(result.work_csv),
             format_pct(Studies::reports_missing(result.nr_reports)),
         )
         .unwrap();

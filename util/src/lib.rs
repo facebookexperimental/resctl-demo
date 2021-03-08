@@ -281,14 +281,19 @@ pub fn format_duration_dashed(dur: f64) -> String {
 }
 
 fn format_pct_internal(ratio: f64, zero: &str) -> String {
-    if ratio == 0.0 {
+    let pct = ratio * TO_PCT;
+    if pct < 0.0 {
+        "NEG".into()
+    } else if pct == 0.0 {
         zero.to_string()
-    } else if ratio > 0.99 && ratio <= 9.99 {
-        format!("{:3.0}", ratio * 100.0)
-    } else if ratio > 9.99 {
-        "INF".into()
+    } else if pct < 99.95 {
+        format!("{:.01}", pct)
+    } else if pct < 9999.5 {
+        format!("{:.0}", pct)
+    } else if pct / 1000.0 < 99.5 {
+        format!("{:.0}k", pct / 1000.0)
     } else {
-        format!("{:.01}", ratio * 100.0)
+        "INF".into()
     }
 }
 

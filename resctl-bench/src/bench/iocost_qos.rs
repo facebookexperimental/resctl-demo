@@ -102,7 +102,7 @@ pub struct IoCostQoSRun {
     pub qos: Option<IoCostQoSParams>,
     pub storage: StorageResult,
     pub protection: ProtectionResult,
-    pub vrate_mean: f64,
+    pub vrate: f64,
     pub vrate_stdev: f64,
     pub vrate_pcts: BTreeMap<String, f64>,
     pub iolat_pcts: [BTreeMap<String, BTreeMap<String, f64>>; 2],
@@ -485,7 +485,7 @@ impl IoCostQoSJob {
             studies.run(rctx, *per);
         }
 
-        let (vrate_mean, vrate_stdev, vrate_pcts) = study_vrate_mean_pcts.result(&Self::VRATE_PCTS);
+        let (vrate, vrate_stdev, vrate_pcts) = study_vrate_mean_pcts.result(&Self::VRATE_PCTS);
         let iolat_pcts = [
             study_read_lat_pcts.result(rctx, None),
             study_write_lat_pcts.result(rctx, None),
@@ -500,7 +500,7 @@ impl IoCostQoSJob {
             ),
             storage,
             protection,
-            vrate_mean,
+            vrate,
             vrate_stdev,
             vrate_pcts,
             iolat_pcts,
@@ -781,25 +781,25 @@ impl Job for IoCostQoSJob {
 
                     writeln!(
                         out,
-                        "QoS result: mem_offload_factor={:.3}@{}({:.3}x) vrate_mean={:.2}:{:.2} missing={}%",
+                        "QoS result: mem_offload_factor={:.3}@{}({:.3}x) vrate={:.2}:{:.2} missing={}%",
                         run.storage.mem_offload_factor,
                         run.storage.mem_profile,
                         run.storage.mem_offload_factor / baseline.mem_offload_factor,
-                        run.vrate_mean,
+                        run.vrate,
                         run.vrate_stdev,
-                        Studies::reports_missing(run.nr_reports),
+                        format_pct(Studies::reports_missing(run.nr_reports)),
                     )
                     .unwrap();
 
                     let mhr = run.protection.combined_mem_hog.as_ref().unwrap();
                     writeln!(
                         out,
-                        "            work_isol={:.3}:{:.3} lat_impact={:.3}:{:.3} work_csv={:.3}",
-                        mhr.work_isol,
-                        mhr.work_isol_stdev,
-                        mhr.lat_impact,
-                        mhr.lat_impact_stdev,
-                        mhr.work_csv,
+                        "            isol={}%:{} lat_imp={}%:{} work_csv={}%",
+                        format_pct(mhr.isol),
+                        format_pct(mhr.isol_stdev),
+                        format_pct(mhr.lat_imp),
+                        format_pct(mhr.lat_imp_stdev),
+                        format_pct(mhr.work_csv),
                     )
                     .unwrap();
                 }
@@ -826,7 +826,7 @@ impl Job for IoCostQoSJob {
         }
 
         writeln!(out, "").unwrap();
-        writeln!(out, "     offload    isolation   lat-impact  work-csv  missing").unwrap();
+        writeln!(out, "         MOF        isol%     lat-imp%  work-csv%  missing%").unwrap();
 
         for (i, run) in result.results.iter().enumerate() {
             match run {
@@ -834,15 +834,15 @@ impl Job for IoCostQoSJob {
                     let mhr = run.protection.combined_mem_hog.as_ref().unwrap();
                     writeln!(
                         out,
-                        "[{:02}] {:>7.3}  {:>5.3}:{:>5.3}  {:>5.3}:{:>5.3}     {:>5.3}  {:>6}%",
+                        "[{:02}] {:>7.3}  {:>5.1}:{:>5.1}  {:>5.1}:{:>5.1}      {:>5.1}     {:>5.1}",
                         i,
                         run.storage.mem_offload_factor,
-                        mhr.work_isol,
-                        mhr.work_isol_stdev,
-                        mhr.lat_impact,
-                        mhr.lat_impact_stdev,
-                        mhr.work_csv,
-                        Studies::reports_missing(run.nr_reports),
+                        mhr.isol * TO_PCT,
+                        mhr.isol_stdev * TO_PCT,
+                        mhr.lat_imp * TO_PCT,
+                        mhr.lat_imp_stdev * TO_PCT,
+                        mhr.work_csv * TO_PCT,
+                        Studies::reports_missing(run.nr_reports) * TO_PCT,
                     )
                     .unwrap();
                 }
