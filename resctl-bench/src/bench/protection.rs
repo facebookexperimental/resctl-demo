@@ -128,6 +128,7 @@ pub struct MemHogResult {
 
     pub iolat_pcts: [BTreeMap<String, BTreeMap<String, f64>>; 2],
 
+    pub nr_reports: (u64, u64),
     pub main_periods: Vec<(u64, u64)>,
     pub hog_periods: Vec<(u64, u64)>,
     pub vrate: f64,
@@ -165,6 +166,7 @@ impl MemHog {
     fn run(&mut self, rctx: &mut RunCtx) -> Result<MemHogResult> {
         self.main_period.0 = unix_now();
         for run_idx in 0..self.loops {
+            let started_at = unix_now();
             info!(
                 "protection: Stabilizing hashd at {}% for run {}/{}",
                 format_pct(self.load),
@@ -178,8 +180,9 @@ impl MemHog {
             // guarantee some idle time between runs. These periods are also
             // used to determine the baseline load and latency.
             info!(
-                "protection: Holding hashd at {}% for {}",
+                "protection: Stabilized at {}% after {}, holding for {}",
                 format_pct(self.load),
+                format_duration((stable_at - started_at) as f64),
                 format_duration(Self::STABLE_HOLD)
             );
             WorkloadMon::default()
@@ -241,7 +244,12 @@ impl MemHog {
 
             let hog_ended_at = unix_now();
 
-            info!("protection: Memory hog terminated");
+            info!(
+                "protection: Memory hog terminated after {}, run {}/{} finished",
+                format_duration((hog_ended_at - hog_started_at) as f64),
+                run_idx + 1,
+                self.loops
+            );
 
             self.runs.push(MemHogRun {
                 stable_at,
@@ -256,6 +264,15 @@ impl MemHog {
 
         let mut result = Self::study(rctx, self.runs.iter(), self.main_period);
         result.runs = self.runs.clone();
+        info!(
+            "protection: work_isol={:.3}:{:.3} lat_impact={:.3}:{:.3} work_csv={:.3} missing={}%",
+            result.work_isol,
+            result.work_isol_stdev,
+            result.lat_impact,
+            result.lat_impact_stdev,
+            result.work_csv,
+            format_pct(Studies::reports_missing(result.nr_reports)),
+        );
         Ok(result)
     }
 
@@ -358,7 +375,7 @@ impl MemHog {
         let mut study_read_lat_pcts = StudyIoLatPcts::new("read", None);
         let mut study_write_lat_pcts = StudyIoLatPcts::new("write", None);
 
-        Studies::new()
+        let nr_reports = Studies::new()
             .add(&mut study_vrate_mean)
             .add_multiple(&mut study_read_lat_pcts.studies())
             .add_multiple(&mut study_write_lat_pcts.studies())
@@ -417,6 +434,7 @@ impl MemHog {
 
             iolat_pcts,
 
+            nr_reports,
             main_periods: vec![main_period],
             hog_periods,
             vrate,
@@ -465,6 +483,8 @@ impl MemHog {
                 vsum(&mut cmb.vrate_stdev, r.vrate_stdev);
             }
 
+            cmb.nr_reports.0 += r.nr_reports.0;
+            cmb.nr_reports.1 += r.nr_reports.1;
             cmb.io_usage += r.io_usage;
             cmb.io_unused += r.io_unused;
             cmb.hog_io_usage += r.hog_io_usage;
@@ -624,12 +644,13 @@ impl MemHog {
 
         writeln!(
             out,
-            "\nResult: work_isol={:.3}:{:.3} lat_impact={:.3}:{:.3} work_csv={:.3}",
+            "\nResult: work_isol={:.3}:{:.3} lat_impact={:.3}:{:.3} work_csv={:.3} missing={}%",
             result.work_isol,
             result.work_isol_stdev,
             result.lat_impact,
             result.lat_impact_stdev,
-            result.work_csv
+            result.work_csv,
+            format_pct(Studies::reports_missing(result.nr_reports)),
         )
         .unwrap();
     }

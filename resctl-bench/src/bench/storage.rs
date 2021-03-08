@@ -86,10 +86,10 @@ pub struct StorageResult {
     pub mem_target: usize,
     pub main_period: (u64, u64),
     pub mem_offload_factor: f64,
-    pub mem_usage_mean: usize,
+    pub mem_usage: usize,
     pub mem_usage_stdev: usize,
     pub mem_usages: Vec<usize>,
-    pub mem_size_mean: usize,
+    pub mem_size: usize,
     pub mem_size_stdev: usize,
     pub mem_sizes: Vec<usize>,
     pub rbps_all: usize,
@@ -98,6 +98,7 @@ pub struct StorageResult {
     pub wbps_final: usize,
     pub final_mem_probe_periods: Vec<(u64, u64)>,
     pub iolat_pcts: [BTreeMap<String, BTreeMap<String, f64>>; 2],
+    pub nr_reports: (u64, u64),
 }
 
 impl StorageJob {
@@ -387,7 +388,7 @@ impl StorageJob {
         .unwrap();
     }
 
-    pub fn format_io_summary<'a>(&self, out: &mut Box<dyn Write + 'a>, result: &StorageResult) {
+    fn format_io_summary<'a>(&self, out: &mut Box<dyn Write + 'a>, result: &StorageResult) {
         writeln!(
             out,
             "IO BPS: read_final={} write_final={} read_all={} write_all={}",
@@ -399,7 +400,7 @@ impl StorageJob {
         .unwrap();
     }
 
-    pub fn format_mem_summary<'a>(&self, out: &mut Box<dyn Write + 'a>, result: &StorageResult) {
+    fn format_mem_summary<'a>(&self, out: &mut Box<dyn Write + 'a>, result: &StorageResult) {
         write!(
             out,
             "Memory offloading: factor={:.3}@{} ",
@@ -409,19 +410,21 @@ impl StorageJob {
         if self.loops > 1 {
             writeln!(
                 out,
-                "usage_mean/stdev={}/{} size_mean/stdev={}/{}",
-                format_size(result.mem_usage_mean),
+                "usage/stdev={}/{} size/stdev={}/{} missing={}%",
+                format_size(result.mem_usage),
                 format_size(result.mem_usage_stdev),
-                format_size(result.mem_size_mean),
-                format_size(result.mem_size_stdev)
+                format_size(result.mem_size),
+                format_size(result.mem_size_stdev),
+                format_pct(Studies::reports_missing(result.nr_reports)),
             )
             .unwrap();
         } else {
             writeln!(
                 out,
-                "usage={} size={}",
-                format_size(result.mem_usage_mean),
-                format_size(result.mem_size_mean)
+                "usage={} size={} missing={}%",
+                format_size(result.mem_usage),
+                format_size(result.mem_size),
+                format_pct(Studies::reports_missing(result.nr_reports)),
             )
             .unwrap();
         }
@@ -563,7 +566,7 @@ impl Job for StorageJob {
             .add_multiple(&mut study_read_lat_pcts.studies())
             .add_multiple(&mut study_write_lat_pcts.studies());
 
-        studies.run(rctx, self.main_period);
+        let nr_reports = studies.run(rctx, self.main_period);
 
         let mut study_rbps_final = StudyMean::new(|rep| Some(rep.usages[ROOT_SLICE].io_rbps));
         let mut study_wbps_final = StudyMean::new(|rep| Some(rep.usages[ROOT_SLICE].io_wbps));
@@ -575,14 +578,14 @@ impl Job for StorageJob {
             studies.run(rctx, (*start, *end));
         }
 
-        let mem_usage_mean = statistical::mean(&self.mem_usages);
+        let mem_usage = statistical::mean(&self.mem_usages);
         let mem_usage_stdev = if self.mem_usages.len() > 1 {
             statistical::standard_deviation(&self.mem_usages, None)
         } else {
             0.0
         };
 
-        let mem_size_mean = statistical::mean(&self.mem_sizes);
+        let mem_size = statistical::mean(&self.mem_sizes);
         let mem_size_stdev = if self.mem_sizes.len() > 1 {
             statistical::standard_deviation(&self.mem_sizes, None)
         } else {
@@ -595,11 +598,11 @@ impl Job for StorageJob {
             mem_share: self.mem_share,
             mem_target: self.mem_target,
             main_period: self.main_period,
-            mem_offload_factor: mem_size_mean as f64 / mem_usage_mean as f64,
-            mem_usage_mean: mem_usage_mean as usize,
+            mem_offload_factor: mem_size as f64 / mem_usage as f64,
+            mem_usage: mem_usage as usize,
             mem_usage_stdev: mem_usage_stdev as usize,
             mem_usages: self.mem_usages.iter().map(|x| *x as usize).collect(),
-            mem_size_mean: mem_size_mean as usize,
+            mem_size: mem_size as usize,
             mem_size_stdev: mem_size_stdev as usize,
             mem_sizes: self.mem_sizes.iter().map(|x| *x as usize).collect(),
             rbps_all: study_rbps_all.result().0 as usize,
@@ -611,6 +614,7 @@ impl Job for StorageJob {
                 study_read_lat_pcts.result(rctx, None),
                 study_write_lat_pcts.result(rctx, None),
             ],
+            nr_reports,
         };
 
         Ok(serde_json::to_value(&result).unwrap())
