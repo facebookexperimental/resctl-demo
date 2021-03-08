@@ -13,7 +13,7 @@ const DFL_VRATE_MAX: f64 = 100.0;
 const DFL_VRATE_INTVS: u32 = 5;
 const DFL_STORAGE_BASE_LOOPS: u32 = 3;
 const DFL_STORAGE_LOOPS: u32 = 1;
-const DFL_PROT_LOOPS: u32 = 5;
+const DFL_PROT_LOOPS: u32 = 3;
 const DFL_RETRIES: u32 = 2;
 const PROT_MEM_TRIES: u32 = 4;
 const PROT_OTHER_TRIES: u32 = 2;
@@ -106,6 +106,7 @@ pub struct IoCostQoSRun {
     pub vrate_stdev: f64,
     pub vrate_pcts: BTreeMap<String, f64>,
     pub iolat_pcts: [BTreeMap<String, BTreeMap<String, f64>>; 2],
+    pub nr_reports: (u64, u64),
 }
 
 #[derive(Serialize, Deserialize, Clone, Default)]
@@ -416,13 +417,13 @@ impl IoCostQoSJob {
         rctx.load_bench()?;
 
         // Run the protection bench.
-        let mem_step = (storage.mem_size_mean as f64 * PROT_MEM_STEP).round() as usize;
+        let mem_step = (storage.mem_size as f64 * PROT_MEM_STEP).round() as usize;
         let mut tries = 0;
         let result = loop {
             tries += 1;
             // The saved bench result is of the last run of the storage
             // bench. Update it with the current mean size.
-            rctx.update_bench_from_mem_size(storage.mem_size_mean)?;
+            rctx.update_bench_from_mem_size(storage.mem_size)?;
 
             // Storage benches ran with mem_target but protection runs get
             // full mem_share.
@@ -435,13 +436,13 @@ impl IoCostQoSJob {
                 Err(e) => match e.downcast_ref::<RunCtxErr>() {
                     Some(RunCtxErr::HashdStabilizationTimeout { timeout: _ }) => {
                         if tries < PROT_MEM_TRIES {
-                            storage.mem_size_mean -= mem_step;
+                            storage.mem_size -= mem_step;
                             storage.mem_offload_factor =
-                                storage.mem_size_mean as f64 / storage.mem_usage_mean as f64;
+                                storage.mem_size as f64 / storage.mem_usage as f64;
                             warn!(
                                 "iocost-qos: Hashd stabilization timed out, \
                                  reducing memory size to {} and retrying...",
-                                format_size(storage.mem_size_mean),
+                                format_size(storage.mem_size),
                             );
                         } else {
                             return Err(e.context("Protection benchmark failed too many times"));
@@ -463,6 +464,7 @@ impl IoCostQoSJob {
         let protection = parse_json_value_or_dump::<ProtectionResult>(result)
             .context("parsing protection result")
             .unwrap();
+        let hog = protection.combined_mem_hog.as_ref().unwrap();
 
         let qos = match ovr.as_ref() {
             Some(_) => Some(rctx.access_agent_files(|af| af.bench.data.iocost.qos.clone())),
@@ -479,13 +481,7 @@ impl IoCostQoSJob {
             .add_multiple(&mut study_write_lat_pcts.studies());
 
         studies.run(rctx, storage.main_period);
-        for per in protection
-            .combined_mem_hog
-            .as_ref()
-            .unwrap()
-            .main_periods
-            .iter()
-        {
+        for per in hog.main_periods.iter() {
             studies.run(rctx, *per);
         }
 
@@ -498,6 +494,10 @@ impl IoCostQoSJob {
         Ok(IoCostQoSRun {
             ovr: ovr.cloned(),
             qos,
+            nr_reports: (
+                storage.nr_reports.0 + hog.nr_reports.0,
+                storage.nr_reports.1 + hog.nr_reports.1,
+            ),
             storage,
             protection,
             vrate_mean,
@@ -781,12 +781,13 @@ impl Job for IoCostQoSJob {
 
                     writeln!(
                         out,
-                        "QoS result: mem_offload_factor={:.3}@{}({:.3}x) vrate_mean={:.2}:{:.2}",
+                        "QoS result: mem_offload_factor={:.3}@{}({:.3}x) vrate_mean={:.2}:{:.2} missing={}%",
                         run.storage.mem_offload_factor,
                         run.storage.mem_profile,
                         run.storage.mem_offload_factor / baseline.mem_offload_factor,
                         run.vrate_mean,
                         run.vrate_stdev,
+                        Studies::reports_missing(run.nr_reports),
                     )
                     .unwrap();
 
@@ -825,7 +826,7 @@ impl Job for IoCostQoSJob {
         }
 
         writeln!(out, "").unwrap();
-        writeln!(out, "     offload    isolation   lat-impact  work-csv").unwrap();
+        writeln!(out, "     offload    isolation   lat-impact  work-csv  missing").unwrap();
 
         for (i, run) in result.results.iter().enumerate() {
             match run {
@@ -833,7 +834,7 @@ impl Job for IoCostQoSJob {
                     let mhr = run.protection.combined_mem_hog.as_ref().unwrap();
                     writeln!(
                         out,
-                        "[{:02}] {:>7.3}  {:>5.3}:{:>5.3}  {:>5.3}:{:>5.3}     {:>5.3}",
+                        "[{:02}] {:>7.3}  {:>5.3}:{:>5.3}  {:>5.3}:{:>5.3}     {:>5.3}  {:>6}%",
                         i,
                         run.storage.mem_offload_factor,
                         mhr.work_isol,
@@ -841,6 +842,7 @@ impl Job for IoCostQoSJob {
                         mhr.lat_impact,
                         mhr.lat_impact_stdev,
                         mhr.work_csv,
+                        Studies::reports_missing(run.nr_reports),
                     )
                     .unwrap();
                 }

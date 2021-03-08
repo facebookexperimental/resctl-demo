@@ -1,7 +1,7 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
 #![allow(dead_code)]
 use anyhow::{bail, Result};
-use log::{error, warn};
+use log::error;
 use num_traits::cast::AsPrimitive;
 use quantiles::ckms::CKMS;
 use std::collections::BTreeMap;
@@ -442,15 +442,6 @@ impl<'a> Studies<'a> {
             bail!("no report available between {} and {}", period.0, period.1);
         }
 
-        if nr_missed > 0 {
-            warn!(
-                "study: {} reports missing between {:?} and {:?}",
-                nr_missed,
-                format_unix_time(period.0),
-                format_unix_time(period.1),
-            );
-        }
-
         Ok((nr_reps, nr_missed))
     }
 
@@ -461,6 +452,14 @@ impl<'a> Studies<'a> {
                 error!("Failed to study the reports ({})", &e);
                 panic!();
             }
+        }
+    }
+
+    pub fn reports_missing(nr_reports: (u64, u64)) -> f64 {
+        if nr_reports.0 + nr_reports.1 > 0 {
+            nr_reports.1 as f64 / (nr_reports.0 + nr_reports.1) as f64
+        } else {
+            0.0
         }
     }
 }
