@@ -413,7 +413,7 @@ impl MemHog {
             let usage_possible = io_usage + io_unused.min(hog_io_loss);
             io_usage as f64 / usage_possible as f64
         } else {
-            100.0
+            1.0
         };
 
         MemHogResult {
