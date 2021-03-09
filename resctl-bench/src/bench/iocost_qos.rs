@@ -107,6 +107,7 @@ pub struct IoCostQoSRun {
     pub vrate_pcts: BTreeMap<String, f64>,
     pub iolat_pcts: [BTreeMap<String, BTreeMap<String, f64>>; 2],
     pub nr_reports: (u64, u64),
+    pub period: (u64, u64),
 }
 
 #[derive(Serialize, Deserialize, Clone, Default)]
@@ -404,6 +405,8 @@ impl IoCostQoSJob {
         ovr: Option<&IoCostQoSOvr>,
         nr_stor_retries: u32,
     ) -> Result<IoCostQoSRun> {
+        let started_at = unix_now();
+
         // Run the storage bench.
         let mut tries = 0;
         let result = loop {
@@ -494,6 +497,8 @@ impl IoCostQoSJob {
             }
         };
 
+        let period = (started_at, unix_now());
+
         let qos = match ovr.as_ref() {
             Some(_) => Some(rctx.access_agent_files(|af| af.bench.data.iocost.qos.clone())),
             None => None,
@@ -503,23 +508,11 @@ impl IoCostQoSJob {
         let mut study_vrate_mean_pcts = StudyMeanPcts::new(|rep| Some(rep.iocost.vrate), None);
         let mut study_read_lat_pcts = StudyIoLatPcts::new("read", None);
         let mut study_write_lat_pcts = StudyIoLatPcts::new("write", None);
-        let mut studies = Studies::new()
+        let nr_reports = Studies::new()
             .add(&mut study_vrate_mean_pcts)
             .add_multiple(&mut study_read_lat_pcts.studies())
-            .add_multiple(&mut study_write_lat_pcts.studies());
-
-        studies.run(rctx, storage.main_period);
-
-        let mut nr_reports = (storage.nr_reports.0, storage.nr_reports.1);
-        if let Some(hog) = protection.combined_mem_hog.as_ref() {
-            nr_reports = (
-                nr_reports.0 + hog.nr_reports.0,
-                nr_reports.1 + hog.nr_reports.1,
-            );
-            for per in hog.main_periods.iter() {
-                studies.run(rctx, *per);
-            }
-        }
+            .add_multiple(&mut study_write_lat_pcts.studies())
+            .run(rctx, period);
 
         let (vrate, vrate_stdev, vrate_pcts) = study_vrate_mean_pcts.result(&Self::VRATE_PCTS);
         let iolat_pcts = [
@@ -530,13 +523,14 @@ impl IoCostQoSJob {
         Ok(IoCostQoSRun {
             ovr: ovr.cloned(),
             qos,
-            nr_reports,
             storage,
             protection,
             vrate,
             vrate_stdev,
             vrate_pcts,
             iolat_pcts,
+            nr_reports,
+            period,
         })
     }
 }
@@ -632,11 +626,11 @@ impl Job for IoCostQoSJob {
 
         if nr_to_run > 0 {
             if prev_matches || nr_to_run == self.runs.len() {
-                info!("iocost-qos: {} storage benches to run", nr_to_run);
+                info!("iocost-qos: {} storage and protection bench sets to run", nr_to_run);
             } else {
                 bail!(
-                    "iocost-qos: {} storage benches to run but existing result doesn't match \
-                       the current configuration, consider removing the result file",
+                    "iocost-qos: {} bench sets to run but existing result doesn't match \
+                     the current configuration, consider removing the result file",
                     nr_to_run
                 );
             }

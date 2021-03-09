@@ -27,7 +27,7 @@ pub struct StorageJob {
     mem_probe_at: u64,
     prev_mem_avail: usize,
 
-    main_period: (u64, u64),
+    period: (u64, u64),
     final_mem_probe_periods: Vec<(u64, u64)>,
     mem_usages: Vec<f64>,
     mem_sizes: Vec<f64>,
@@ -58,7 +58,7 @@ impl Default for StorageJob {
             prev_mem_avail: 0,
             mem_probe_at: 0,
 
-            main_period: (0, 0),
+            period: (0, 0),
             final_mem_probe_periods: vec![],
             mem_usages: vec![],
             mem_sizes: vec![],
@@ -84,7 +84,7 @@ pub struct StorageResult {
     pub mem_profile: u32,
     pub mem_share: usize,
     pub mem_target: usize,
-    pub main_period: (u64, u64),
+    pub period: (u64, u64),
     pub mem_offload_factor: f64,
     pub mem_usage: usize,
     pub mem_usage_stdev: usize,
@@ -484,7 +484,7 @@ impl Job for StorageJob {
             self.mem_usages.clear();
             self.mem_sizes.clear();
             self.mem_avail_inner_retries = saved_mem_avail_inner_retries;
-            self.main_period.0 = unix_now();
+            self.period.0 = unix_now();
 
             let (mp, ms, mt) = self.select_memory_profile()?;
             self.mem_profile = mp;
@@ -552,7 +552,7 @@ impl Job for StorageJob {
             }
         }
 
-        self.main_period.1 = unix_now();
+        self.period.1 = unix_now();
 
         // Study and record the results.
         let mut study_rbps_all = StudyMean::new(|rep| Some(rep.usages[ROOT_SLICE].io_rbps));
@@ -566,7 +566,7 @@ impl Job for StorageJob {
             .add_multiple(&mut study_read_lat_pcts.studies())
             .add_multiple(&mut study_write_lat_pcts.studies());
 
-        let nr_reports = studies.run(rctx, self.main_period);
+        let nr_reports = studies.run(rctx, self.period);
 
         let mut study_rbps_final = StudyMean::new(|rep| Some(rep.usages[ROOT_SLICE].io_rbps));
         let mut study_wbps_final = StudyMean::new(|rep| Some(rep.usages[ROOT_SLICE].io_wbps));
@@ -597,7 +597,7 @@ impl Job for StorageJob {
             mem_profile: self.mem_profile,
             mem_share: self.mem_share,
             mem_target: self.mem_target,
-            main_period: self.main_period,
+            period: self.period,
             mem_offload_factor: mem_size as f64 / mem_usage as f64,
             mem_usage: mem_usage as usize,
             mem_usage_stdev: mem_usage_stdev as usize,

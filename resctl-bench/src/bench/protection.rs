@@ -105,7 +105,7 @@ pub struct MemHog {
     pub loops: u32,
     pub load: f64,
     pub speed: MemHogSpeed,
-    pub main_period: (u64, u64),
+    pub period: (u64, u64),
     pub runs: Vec<MemHogRun>,
 }
 
@@ -129,7 +129,7 @@ pub struct MemHogResult {
     pub iolat_pcts: [BTreeMap<String, BTreeMap<String, f64>>; 2],
 
     pub nr_reports: (u64, u64),
-    pub main_periods: Vec<(u64, u64)>,
+    pub periods: Vec<(u64, u64)>,
     pub hog_periods: Vec<(u64, u64)>,
     pub vrate: f64,
     pub vrate_stdev: f64,
@@ -164,7 +164,7 @@ impl MemHog {
     }
 
     fn run(&mut self, rctx: &mut RunCtx) -> Result<MemHogResult> {
-        self.main_period.0 = unix_now();
+        self.period.0 = unix_now();
         for run_idx in 0..self.loops {
             let started_at = unix_now();
             info!(
@@ -260,9 +260,9 @@ impl MemHog {
                 last_hog_mem,
             });
         }
-        self.main_period.1 = unix_now();
+        self.period.1 = unix_now();
 
-        let mut result = Self::study(rctx, self.runs.iter(), self.main_period);
+        let mut result = Self::study(rctx, self.runs.iter(), self.period);
         result.runs = self.runs.clone();
         info!(
             "protection: isol={}%:{} lat_imp={}%:{} work_csv={}% missing={}%",
@@ -284,7 +284,7 @@ impl MemHog {
         (lat / base_lat - 1.0).max(0.0)
     }
 
-    fn study<'a, I>(rctx: &RunCtx, runs: I, main_period: (u64, u64)) -> MemHogResult
+    fn study<'a, I>(rctx: &RunCtx, runs: I, period: (u64, u64)) -> MemHogResult
     where
         I: Iterator<Item = &'a MemHogRun>,
     {
@@ -379,7 +379,7 @@ impl MemHog {
             .add(&mut study_vrate_mean)
             .add_multiple(&mut study_read_lat_pcts.studies())
             .add_multiple(&mut study_write_lat_pcts.studies())
-            .run(rctx, main_period);
+            .run(rctx, period);
 
         let (vrate, vrate_stdev, _, _) = study_vrate_mean.result();
         let iolat_pcts = [
@@ -435,7 +435,7 @@ impl MemHog {
             iolat_pcts,
 
             nr_reports,
-            main_periods: vec![main_period],
+            periods: vec![period],
             hog_periods,
             vrate,
             vrate_stdev,
@@ -492,7 +492,7 @@ impl MemHog {
             cmb.hog_bytes += r.hog_bytes;
             cmb.hog_lost_bytes += r.hog_lost_bytes;
 
-            cmb.main_periods.append(&mut r.main_periods.clone());
+            cmb.periods.append(&mut r.periods.clone());
             cmb.hog_periods.append(&mut r.hog_periods.clone());
         }
 
@@ -559,7 +559,7 @@ impl MemHog {
             .add_multiple(&mut study_read_lat_pcts.studies())
             .add_multiple(&mut study_write_lat_pcts.studies());
 
-        for per in cmb.main_periods.iter() {
+        for per in cmb.periods.iter() {
             studies.run(rctx, *per);
         }
 
@@ -688,7 +688,7 @@ impl Scenario {
                     loops,
                     load,
                     speed,
-                    main_period: (0, 0),
+                    period: (0, 0),
                     runs: vec![],
                 }))
             }
