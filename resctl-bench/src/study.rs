@@ -1,7 +1,6 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
 #![allow(dead_code)]
 use anyhow::{bail, Result};
-use log::error;
 use num_traits::cast::AsPrimitive;
 use quantiles::ckms::CKMS;
 use std::collections::BTreeMap;
@@ -422,7 +421,7 @@ impl<'a> Studies<'a> {
         self
     }
 
-    pub fn run_fallible(&mut self, run: &RunCtx, period: (u64, u64)) -> Result<(u64, u64)> {
+    pub fn run(&mut self, run: &RunCtx, period: (u64, u64)) -> Result<(u64, u64)> {
         let mut nr_reps = 0;
         let mut nr_missed = 0;
 
@@ -439,20 +438,10 @@ impl<'a> Studies<'a> {
         }
 
         if nr_reps == 0 {
-            bail!("no report available between {} and {}", period.0, period.1);
+            bail!("No report found between {} and {}", period.0, period.1);
         }
 
         Ok((nr_reps, nr_missed))
-    }
-
-    pub fn run(&mut self, run: &RunCtx, period: (u64, u64)) -> (u64, u64) {
-        match self.run_fallible(run, period) {
-            Ok(v) => v,
-            Err(e) => {
-                error!("Failed to study the reports ({})", &e);
-                panic!();
-            }
-        }
     }
 
     pub fn reports_missing(nr_reports: (u64, u64)) -> f64 {

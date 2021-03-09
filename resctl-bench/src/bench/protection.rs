@@ -262,7 +262,7 @@ impl MemHog {
         }
         self.period.1 = unix_now();
 
-        let mut result = Self::study(rctx, self.runs.iter(), self.period);
+        let mut result = Self::study(rctx, self.runs.iter(), self.period)?;
         result.runs = self.runs.clone();
         info!(
             "protection: isol={}%:{} lat_imp={}%:{} work_csv={}% missing={}%",
@@ -284,7 +284,7 @@ impl MemHog {
         (lat / base_lat - 1.0).max(0.0)
     }
 
-    fn study<'a, I>(rctx: &RunCtx, runs: I, period: (u64, u64)) -> MemHogResult
+    fn study<'a, I>(rctx: &RunCtx, runs: I, period: (u64, u64)) -> Result<MemHogResult>
     where
         I: Iterator<Item = &'a MemHogRun>,
     {
@@ -301,7 +301,7 @@ impl MemHog {
             .add(&mut study_base_lat);
 
         for run in runs.iter() {
-            studies.run(rctx, (run.stable_at, run.hog_started_at));
+            studies.run(rctx, (run.stable_at, run.hog_started_at))?;
         }
 
         let (base_rps, base_rps_stdev, _, _) = study_base_rps.result();
@@ -363,7 +363,7 @@ impl MemHog {
             .collect();
 
         for per in hog_periods.iter() {
-            studies.run(rctx, *per);
+            studies.run(rctx, *per)?;
         }
 
         let (isol, isol_stdev, isol_pcts) = study_isol.result(&Self::PCTS);
@@ -379,7 +379,7 @@ impl MemHog {
             .add(&mut study_vrate_mean)
             .add_multiple(&mut study_read_lat_pcts.studies())
             .add_multiple(&mut study_write_lat_pcts.studies())
-            .run(rctx, period);
+            .run(rctx, period)?;
 
         let (vrate, vrate_stdev, _, _) = study_vrate_mean.result();
         let iolat_pcts = [
@@ -416,7 +416,7 @@ impl MemHog {
             1.0
         };
 
-        MemHogResult {
+        Ok(MemHogResult {
             base_rps,
             base_rps_stdev,
             base_lat,
@@ -447,10 +447,10 @@ impl MemHog {
             hog_lost_bytes,
 
             runs: vec![],
-        }
+        })
     }
 
-    fn combine_results(rctx: &RunCtx, results: &[&MemHogResult]) -> MemHogResult {
+    fn combine_results(rctx: &RunCtx, results: &[&MemHogResult]) -> Result<MemHogResult> {
         assert!(results.len() > 0);
 
         let mut cmb = MemHogResult::default();
@@ -536,16 +536,14 @@ impl MemHog {
             None,
         );
 
-        let mut studies = Studies::new()
-            .add(&mut study_isol)
-            .add(&mut study_lat_imp);
+        let mut studies = Studies::new().add(&mut study_isol).add(&mut study_lat_imp);
 
         for r in results.iter() {
             base_rps.replace(r.base_rps);
             base_lat.replace(r.base_lat);
 
             for per in r.hog_periods.iter() {
-                studies.run(rctx, *per);
+                studies.run(rctx, *per)?;
             }
         }
 
@@ -560,7 +558,7 @@ impl MemHog {
             .add_multiple(&mut study_write_lat_pcts.studies());
 
         for per in cmb.periods.iter() {
-            studies.run(rctx, *per);
+            studies.run(rctx, *per)?;
         }
 
         cmb.iolat_pcts = [
@@ -568,7 +566,7 @@ impl MemHog {
             study_write_lat_pcts.result(rctx, None),
         ];
 
-        cmb
+        Ok(cmb)
     }
 
     fn format_params<'a>(&self, out: &mut Box<dyn Write + 'a>) {
@@ -862,7 +860,7 @@ impl Job for ProtectionJob {
         }
 
         if mhs.len() > 0 {
-            result.combined_mem_hog = Some(MemHog::combine_results(rctx, &mhs));
+            result.combined_mem_hog = Some(MemHog::combine_results(rctx, &mhs)?);
         }
 
         Ok(serde_json::to_value(&result).unwrap())

@@ -566,7 +566,7 @@ impl Job for StorageJob {
             .add_multiple(&mut study_read_lat_pcts.studies())
             .add_multiple(&mut study_write_lat_pcts.studies());
 
-        let nr_reports = studies.run(rctx, self.period);
+        let nr_reports = studies.run(rctx, self.period)?;
 
         let mut study_rbps_final = StudyMean::new(|rep| Some(rep.usages[ROOT_SLICE].io_rbps));
         let mut study_wbps_final = StudyMean::new(|rep| Some(rep.usages[ROOT_SLICE].io_wbps));
@@ -575,7 +575,7 @@ impl Job for StorageJob {
             .add(&mut study_wbps_final);
 
         for (start, end) in self.final_mem_probe_periods.iter() {
-            studies.run(rctx, (*start, *end));
+            studies.run(rctx, (*start, *end))?;
         }
 
         let mem_usage = statistical::mean(&self.mem_usages);

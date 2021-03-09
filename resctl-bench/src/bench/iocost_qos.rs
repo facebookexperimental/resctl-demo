@@ -512,7 +512,7 @@ impl IoCostQoSJob {
             .add(&mut study_vrate_mean_pcts)
             .add_multiple(&mut study_read_lat_pcts.studies())
             .add_multiple(&mut study_write_lat_pcts.studies())
-            .run(rctx, period);
+            .run(rctx, period)?;
 
         let (vrate, vrate_stdev, vrate_pcts) = study_vrate_mean_pcts.result(&Self::VRATE_PCTS);
         let iolat_pcts = [
