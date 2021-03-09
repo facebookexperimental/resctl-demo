@@ -1113,7 +1113,14 @@ impl WorkloadMon {
                 if (self.hashd[0] && rep.hashd[0].svc.state != SvcStateReport::Running)
                     || (self.hashd[1] && rep.hashd[1].svc.state != SvcStateReport::Running)
                 {
-                    result = Err(anyhow!("hashd failed while waiting"));
+                    let mut states = String::new();
+                    if self.hashd[0] {
+                        write!(states, ", hashd-A {:?}", rep.hashd[0].svc.state).unwrap();
+                    }
+                    if self.hashd[1] {
+                        write!(states, ", hashd-B {:?}", rep.hashd[1].svc.state).unwrap();
+                    }
+                    result = Err(anyhow!("hashd failed while waiting{}", &states));
                     return true;
                 }
 
