@@ -496,7 +496,7 @@ impl<'a> RunCtx<'a> {
                 let rep = &af.report.data;
                 rep.timestamp.timestamp() > started_at && rep.state == RunnerState::Running
             },
-            Some(Duration::from_secs(30)),
+            Some(CMD_TIMEOUT),
             None,
         ) {
             self.stop_agent();
