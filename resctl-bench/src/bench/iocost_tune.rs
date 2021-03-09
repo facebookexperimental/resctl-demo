@@ -103,17 +103,23 @@ impl DataSel {
         })
     }
 
-    fn select(&self, run: &IoCostQoSRun) -> f64 {
+    fn select(&self, run: &IoCostQoSRun) -> Option<f64> {
         let stor = &run.storage;
-        let hog = run.protection.combined_mem_hog.as_ref().unwrap();
+        let hog = run.protection.combined_mem_hog.as_ref();
         match self {
-            Self::MOF => stor.mem_offload_factor,
-            Self::Isol => hog.isol,
-            Self::LatImp => hog.lat_imp,
-            Self::WorkCsv => hog.work_csv,
-            Self::Missing => Studies::reports_missing(run.nr_reports),
-            Self::RLat(lat_pct, time_pct) => stor.iolat_pcts.as_ref()[READ][lat_pct][time_pct],
-            Self::WLat(lat_pct, time_pct) => stor.iolat_pcts.as_ref()[WRITE][lat_pct][time_pct],
+            Self::MOF => Some(stor.mem_offload_factor),
+            // Missing hog indicates failed prot bench. Report 0 for
+            // isolation and skip other prot results.
+            Self::Isol => Some(hog.map(|x| x.isol).unwrap_or(0.0)),
+            Self::LatImp => hog.map(|x| x.lat_imp),
+            Self::WorkCsv => hog.map(|x| x.work_csv),
+            Self::Missing => Some(Studies::reports_missing(run.nr_reports)),
+            Self::RLat(lat_pct, time_pct) => {
+                Some(stor.iolat_pcts.as_ref()[READ][lat_pct][time_pct])
+            }
+            Self::WLat(lat_pct, time_pct) => {
+                Some(stor.iolat_pcts.as_ref()[WRITE][lat_pct][time_pct])
+            }
         }
     }
 
@@ -140,6 +146,55 @@ impl DataSel {
             Self::RLat(lat, time) => (5, Some((lat, time))),
             Self::WLat(lat, time) => (6, Some((lat, time))),
         }
+    }
+
+    fn same_group(&self, other: &Self) -> bool {
+        let (pos_a, lat_time_a) = self.pos();
+        let (pos_b, lat_time_b) = other.pos();
+        if lat_time_a.is_none() && lat_time_b.is_none() {
+            true
+        } else if pos_a != pos_b {
+            false
+        } else {
+            let (_, time_a) = lat_time_a.unwrap();
+            let (_, time_b) = lat_time_b.unwrap();
+            time_a == time_b
+        }
+    }
+
+    fn group(sels: Vec<Self>) -> Vec<Vec<Self>> {
+        let mut groups: Vec<Vec<Self>> = vec![];
+        let mut cur: Vec<Self> = vec![];
+        for sel in sels.into_iter() {
+            if cur.is_empty() || cur.last().unwrap().same_group(&sel) {
+                cur.push(sel);
+            } else {
+                groups.push(cur);
+                cur = vec![sel];
+            }
+        }
+        if !cur.is_empty() {
+            groups.push(cur);
+        }
+        groups
+    }
+
+    fn align_and_merge_groups(groups: Vec<Vec<Self>>, align: usize) -> Vec<Vec<Self>> {
+        let mut merged: Vec<Vec<Self>> = vec![];
+        for mut group in groups.into_iter() {
+            match merged.last_mut() {
+                Some(last) => {
+                    let space = align - (last.len() % align);
+                    if space < align && space >= group.len() {
+                        last.append(&mut group);
+                    } else {
+                        merged.push(group);
+                    }
+                }
+                None => merged.push(group),
+            }
+        }
+        merged
     }
 }
 
@@ -703,8 +758,9 @@ impl Job for IoCostTuneJob {
                     }) if min == max => min,
                     _ => continue,
                 };
-                let val = sel.select(run);
-                series.points.push((vrate, val));
+                if let Some(val) = sel.select(run) {
+                    series.points.push((vrate, val));
+                }
             }
             series.points.sort_by(|a, b| a.partial_cmp(b).unwrap());
             series.fit_lines(self.gran);
@@ -786,5 +842,78 @@ impl Job for IoCostTuneJob {
         let mut grapher = graph::Grapher::new(out, graph_prefix.as_deref());
         grapher.plot(data, &result)?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::DataSel;
+
+    #[test]
+    fn test_bench_iocost_tune_datasel_sort_and_group() {
+        let sels = vec![
+            DataSel::RLat("99".to_owned(), "90".to_owned()),
+            DataSel::RLat("90".to_owned(), "99".to_owned()),
+            DataSel::MOF,
+            DataSel::WorkCsv,
+            DataSel::RLat("90".to_owned(), "90".to_owned()),
+            DataSel::WLat("90".to_owned(), "90".to_owned()),
+            DataSel::RLat("99".to_owned(), "99".to_owned()),
+            DataSel::Missing,
+            DataSel::LatImp,
+            DataSel::Isol,
+            DataSel::WLat("99".to_owned(), "90".to_owned()),
+            DataSel::WLat("99".to_owned(), "99".to_owned()),
+        ];
+
+        let grouped = DataSel::sort_and_group(sels);
+        assert_eq!(
+            grouped,
+            vec![
+                vec![
+                    DataSel::MOF,
+                    DataSel::Isol,
+                    DataSel::LatImp,
+                    DataSel::WorkCsv,
+                    DataSel::Missing,
+                ],
+                vec![
+                    DataSel::RLat("90".to_owned(), "90".to_owned()),
+                    DataSel::RLat("99".to_owned(), "90".to_owned()),
+                ],
+                vec![
+                    DataSel::RLat("90".to_owned(), "99".to_owned()),
+                    DataSel::RLat("99".to_owned(), "99".to_owned()),
+                ],
+                vec![
+                    DataSel::WLat("90".to_owned(), "90".to_owned()),
+                    DataSel::WLat("99".to_owned(), "90".to_owned()),
+                ],
+                vec![DataSel::WLat("99".to_owned(), "99".to_owned()),],
+            ]
+        );
+
+        let merged = DataSel::align_and_merge_groups(grouped, 6);
+        assert_eq!(
+            merged,
+            vec![
+                vec![
+                    DataSel::MOF,
+                    DataSel::Isol,
+                    DataSel::LatImp,
+                    DataSel::WorkCsv,
+                    DataSel::Missing,
+                ],
+                vec![
+                    DataSel::RLat("90".to_owned(), "90".to_owned()),
+                    DataSel::RLat("99".to_owned(), "90".to_owned()),
+                    DataSel::RLat("90".to_owned(), "99".to_owned()),
+                    DataSel::RLat("99".to_owned(), "99".to_owned()),
+                    DataSel::WLat("90".to_owned(), "90".to_owned()),
+                    DataSel::WLat("99".to_owned(), "90".to_owned()),
+                ],
+                vec![DataSel::WLat("99".to_owned(), "99".to_owned()),],
+            ]
+        );
     }
 }

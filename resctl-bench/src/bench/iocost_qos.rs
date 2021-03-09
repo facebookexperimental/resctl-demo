@@ -626,7 +626,10 @@ impl Job for IoCostQoSJob {
 
         if nr_to_run > 0 {
             if prev_matches || nr_to_run == self.runs.len() {
-                info!("iocost-qos: {} storage and protection bench sets to run", nr_to_run);
+                info!(
+                    "iocost-qos: {} storage and protection bench sets to run",
+                    nr_to_run
+                );
             } else {
                 bail!(
                     "iocost-qos: {} bench sets to run but existing result doesn't match \
@@ -875,10 +878,10 @@ impl Job for IoCostQoSJob {
                             out,
                             "{:>5}:{:>5}  {:>5}:{:>5}      {:>5}     {:>5.1}",
                             "FAIL",
-                            "FAIL",
-                            "FAIL",
-                            "FAIL",
-                            "FAIL",
+                            "-",
+                            "-",
+                            "-",
+                            "-",
                             Studies::reports_missing(run.nr_reports) * TO_PCT,
                         )
                         .unwrap(),

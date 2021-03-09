@@ -179,7 +179,19 @@ impl<'a> Grapher<'a> {
         Ok(())
     }
 
-    fn collect_svgs(&self, srcs: &Vec<String>, dst: &str) -> Result<()> {
+    fn collect_svgs(&self, sels: Vec<DataSel>, dst: &str) -> Result<()> {
+        const NR_PER_PAGE: usize = 6;
+
+        let groups = DataSel::align_and_merge_groups(DataSel::group(sels), NR_PER_PAGE);
+        let mut srcs: Vec<String> = vec![];
+        for grp in groups.iter() {
+            srcs.extend(grp.iter().map(|sel| self.plot_filename(sel)));
+            let pad = NR_PER_PAGE - (grp.len() % NR_PER_PAGE);
+            if pad < NR_PER_PAGE {
+                srcs.extend(std::iter::repeat("null:".to_owned()).take(pad));
+            }
+        }
+
         run_command(
             Command::new("montage")
                 .args(&[
@@ -201,32 +213,30 @@ impl<'a> Grapher<'a> {
     pub fn plot(&mut self, data: &JobData, result: &IoCostTuneResult) -> Result<()> {
         for (sel, series) in result.data.iter() {
             self.plot_one_text(sel, series, result.mem_profile)?;
-            if self.file_prefix.is_some() {
-                let sr = data.sysreqs.report.as_ref().unwrap();
-                if let Err(e) = self.plot_one_svg(
-                    sel,
-                    series,
-                    result.mem_profile,
-                    &format!("{}", sr.scr_dev_model.trim()),
-                ) {
-                    bail!(
-                        "Failed to plot graph into {:?} ({})",
-                        &self.plot_filename(sel),
-                        &e
-                    );
-                }
+        }
+        if self.file_prefix.is_none() {
+            return Ok(());
+        }
+
+        for (sel, series) in result.data.iter() {
+            let sr = data.sysreqs.report.as_ref().unwrap();
+            if let Err(e) = self.plot_one_svg(
+                sel,
+                series,
+                result.mem_profile,
+                &format!("{}", sr.scr_dev_model.trim()),
+            ) {
+                bail!(
+                    "Failed to plot graph into {:?} ({})",
+                    &self.plot_filename(sel),
+                    &e
+                );
             }
         }
-        if self.file_prefix.is_some() {
-            let dst = format!("{}.pdf", self.file_prefix.as_ref().unwrap());
-            let srcs: Vec<String> = result
-                .data
-                .iter()
-                .map(|(sel, _series)| self.plot_filename(sel))
-                .collect();
-            self.collect_svgs(&srcs, &dst)
-                .map_err(|e| anyhow!("Failed to collect graphs into {:?} ({})", &dst, &e))?
-        }
-        Ok(())
+
+        let sels = result.data.iter().map(|(sel, _)| sel).cloned().collect();
+        let dst = format!("{}.pdf", self.file_prefix.as_ref().unwrap());
+        self.collect_svgs(sels, &dst)
+            .map_err(|e| anyhow!("Failed to collect graphs into {:?} ({})", &dst, &e))
     }
 }
