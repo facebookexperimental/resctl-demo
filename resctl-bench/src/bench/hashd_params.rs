@@ -64,7 +64,7 @@ impl Job for HashdParamsJob {
         if self.passive {
             rctx.set_passive_keep_crit_mem_prot();
         }
-        rctx.set_commit_bench().start_agent();
+        rctx.set_commit_bench().start_agent(vec![])?;
 
         info!("hashd-params: Estimating rd-hashd parameters");
 
@@ -82,7 +82,7 @@ impl Job for HashdParamsJob {
                 rps_max: self.rps_max.unwrap_or(RunCtx::BENCH_FAKE_CPU_RPS_MAX),
                 file_frac: dfl_params.file_frac,
             }
-            .start(rctx);
+            .start(rctx)?;
         } else {
             let mut extra_args = vec![];
             if let Some(v) = self.hash_size {
@@ -94,7 +94,7 @@ impl Job for HashdParamsJob {
             if let Some(v) = self.rps_max {
                 extra_args.push(format!("--bench-rps-max={}", v));
             }
-            rctx.start_hashd_bench(self.balloon_size, self.log_bps, extra_args);
+            rctx.start_hashd_bench(self.balloon_size, self.log_bps, extra_args)?;
         }
         rctx.wait_cond(
             |af, progress| {

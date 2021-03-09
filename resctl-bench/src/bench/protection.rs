@@ -53,7 +53,7 @@ impl std::fmt::Display for MemHogSpeed {
 }
 
 fn warm_up_hashd(rctx: &mut RunCtx, load: f64) -> Result<()> {
-    rctx.start_hashd(load);
+    rctx.start_hashd(load)?;
     rctx.stabilize_hashd(Some(load))
 }
 
@@ -844,7 +844,7 @@ impl Job for ProtectionJob {
         if self.balloon_size > 0 {
             rctx.set_balloon_size(self.balloon_size);
         }
-        rctx.set_prep_testfiles().start_agent();
+        rctx.set_prep_testfiles().start_agent(vec![])?;
 
         let mut result = ProtectionResult::default();
 

@@ -151,7 +151,7 @@ impl StorageJob {
             rps_max: self.rps_max,
             file_frac: rd_hashd_intf::Params::FILE_FRAC_MIN,
         }
-        .start(rctx);
+        .start(rctx)?;
 
         rctx.wait_cond(
             |af, progress| {
@@ -174,7 +174,7 @@ impl StorageJob {
         )?;
 
         let mem_usage = Self::hashd_mem_usage_rctx(rctx);
-        rctx.stop_hashd_bench();
+        rctx.stop_hashd_bench()?;
         Ok(mem_usage)
     }
 
@@ -241,7 +241,7 @@ impl StorageJob {
             rps_max: self.rps_max,
             file_frac: dfl_params.file_frac,
         }
-        .start(rctx);
+        .start(rctx)?;
 
         const NR_MEM_USAGES: usize = 10;
         let mut mem_usages = VecDeque::<usize>::new();
@@ -292,7 +292,7 @@ impl StorageJob {
             Some(BenchProgress::new().monitor_systemd_unit(HASHD_BENCH_SVC_NAME)),
         )?;
 
-        rctx.stop_hashd_bench();
+        rctx.stop_hashd_bench()?;
 
         if mem_avail_err > self.mem_avail_err_max {
             return Ok((0, mem_avail_err));
@@ -455,7 +455,7 @@ impl Job for StorageJob {
         if !self.active {
             rctx.set_passive_keep_crit_mem_prot();
         }
-        rctx.set_prep_testfiles().start_agent();
+        rctx.set_prep_testfiles().start_agent(vec![])?;
 
         // Depending on mem-profile, we might be using a large balloon which
         // can push down available memory below workload's memory.low

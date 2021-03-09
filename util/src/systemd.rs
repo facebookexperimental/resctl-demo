@@ -812,9 +812,18 @@ impl Drop for TransientService {
         if self.keep {
             return;
         }
-        match self.unit.stop_and_reset() {
-            Ok(()) => {}
-            Err(e) => warn!("Failed to stop {} on drop ({:?})", &self.unit.name, &e),
+        for tries in (1..6).rev() {
+            let action = match tries {
+                0 => String::new(),
+                v => format!(", retrying... ({} tries left)", v),
+            };
+            match self.unit.stop_and_reset() {
+                Ok(()) => {}
+                Err(e) => warn!(
+                    "Failed to stop {} on drop ({:?}){}",
+                    &self.unit.name, &e, action
+                ),
+            }
         }
     }
 }

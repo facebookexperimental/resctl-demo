@@ -188,10 +188,10 @@ impl RunCtxInner {
 
     fn start_agent(&mut self, extra_args: Vec<String>) -> Result<()> {
         if prog_exiting() {
-            bail!("exiting");
+            bail!("Program exiting");
         }
         if self.agent_svc.is_some() {
-            bail!("already running");
+            bail!("Already running");
         }
 
         // Prepare testfiles synchronously for better progress report.
@@ -207,7 +207,7 @@ impl RunCtxInner {
                 .arg("--prepare")
                 .status()?;
             if !status.success() {
-                bail!("failed to prepare testfiles ({})", &status);
+                bail!("Failed to prepare testfiles ({})", &status);
             }
         }
 
@@ -478,11 +478,11 @@ impl<'a> RunCtx<'a> {
         )
     }
 
-    pub fn start_agent_fallible(&mut self, extra_args: Vec<String>) -> Result<()> {
+    pub fn start_agent(&mut self, extra_args: Vec<String>) -> Result<()> {
         let mut ctx = self.inner.lock().unwrap();
         ctx.minder_state = MinderState::Ok;
 
-        ctx.start_agent(extra_args)?;
+        ctx.start_agent(extra_args).context("Starting rd_agent")?;
 
         // Start minder and wait for the agent to become Running.
         let inner = self.inner.clone();
@@ -500,7 +500,7 @@ impl<'a> RunCtx<'a> {
             None,
         ) {
             self.stop_agent();
-            return Err(e.context("rd-agent failed to report back after startup"));
+            return Err(e.context("Waiting for rd-agent to report back after start-up"));
         }
 
         let mut ctx = self.inner.lock().unwrap();
@@ -531,7 +531,7 @@ impl<'a> RunCtx<'a> {
             }
             if let Err(e) = self.cmd_barrier() {
                 self.stop_agent();
-                return Err(e.context("rd-agent failed after running init functions"));
+                return Err(e.context("Waiting for rd-agent to ack after running init functions"));
             }
         }
 
@@ -539,24 +539,6 @@ impl<'a> RunCtx<'a> {
         self.inner.lock().unwrap().record_rep(true);
 
         Ok(())
-    }
-
-    pub fn start_agent(&mut self) {
-        let mut tries = 0;
-        loop {
-            tries += 1;
-            match self.start_agent_fallible(vec![]) {
-                Ok(()) => return,
-                Err(e) => {
-                    if tries < 2 {
-                        warn!("Failed to start rd-agent ({:#}), retrying...", &e);
-                    } else {
-                        error!("Failed to start rd-agent ({:#})", &e);
-                        panic!();
-                    }
-                }
-            }
-        }
     }
 
     pub fn stop_agent(&self) {
@@ -602,7 +584,7 @@ impl<'a> RunCtx<'a> {
             }
 
             if ctx.minder_state != MinderState::Ok {
-                bail!("agent error ({:?})", ctx.minder_state);
+                bail!("Agent error ({:?})", ctx.minder_state);
             }
             drop(ctx);
 
@@ -611,7 +593,7 @@ impl<'a> RunCtx<'a> {
                 _ => return Err(RunCtxErr::WaitCondTimeout { timeout }.into()),
             };
             if wait_prog_state(dur) == ProgState::Exiting {
-                bail!("exiting");
+                bail!("Program exiting");
             }
         }
     }
@@ -625,7 +607,7 @@ impl<'a> RunCtx<'a> {
         func(af)
     }
 
-    pub fn start_iocost_bench(&self) {
+    pub fn start_iocost_bench(&self) -> Result<()> {
         debug!("Starting iocost benchmark ({})", &IOCOST_BENCH_SVC_NAME);
 
         let mut next_seq = 0;
@@ -643,10 +625,10 @@ impl<'a> RunCtx<'a> {
             Some(CMD_TIMEOUT),
             None,
         )
-        .expect("failed to start iocost benchmark");
+        .context("Waiting for iocost bench to start")
     }
 
-    pub fn stop_iocost_bench(&self) {
+    pub fn stop_iocost_bench(&self) -> Result<()> {
         debug!("Stopping iocost benchmark ({})", &IOCOST_BENCH_SVC_NAME);
 
         self.access_agent_files(|af| {
@@ -660,12 +642,17 @@ impl<'a> RunCtx<'a> {
             Some(CMD_TIMEOUT),
             None,
         )
-        .expect("failed to stop iocost benchmark");
+        .context("Waiting for iocost bench to stop")
     }
 
     pub const BENCH_FAKE_CPU_RPS_MAX: u32 = 2000;
 
-    pub fn start_hashd_bench(&self, ballon_size: usize, log_bps: u64, mut extra_args: Vec<String>) {
+    pub fn start_hashd_bench(
+        &self,
+        ballon_size: usize,
+        log_bps: u64,
+        mut extra_args: Vec<String>,
+    ) -> Result<()> {
         debug!("Starting hashd benchmark ({})", &HASHD_BENCH_SVC_NAME);
 
         // Some benches monitor the memory usage of rd-hashd-bench.service.
@@ -697,10 +684,10 @@ impl<'a> RunCtx<'a> {
             Some(CMD_TIMEOUT),
             None,
         )
-        .expect("failed to start hashd benchmark");
+        .context("Waiting for hashd bench to start")
     }
 
-    pub fn stop_hashd_bench(&self) {
+    pub fn stop_hashd_bench(&self) -> Result<()> {
         debug!("Stopping hashd benchmark ({})", &HASHD_BENCH_SVC_NAME);
 
         self.access_agent_files(|af| {
@@ -714,10 +701,10 @@ impl<'a> RunCtx<'a> {
             Some(CMD_TIMEOUT),
             None,
         )
-        .expect("failed to stop hashd benchmark");
+        .context("Waiting for hashd bench to stop")
     }
 
-    pub fn start_hashd(&self, load: f64) {
+    pub fn start_hashd(&self, load: f64) -> Result<()> {
         debug!("Starting hashd ({})", &HASHD_A_SVC_NAME);
 
         self.access_agent_files(|af| {
@@ -726,13 +713,13 @@ impl<'a> RunCtx<'a> {
             af.cmd.data.hashd[0].rps_target_ratio = load;
             af.cmd.save().unwrap();
         });
-        self.cmd_barrier().unwrap();
+        self.cmd_barrier().context("Waiting for hashd start ack")?;
         self.wait_cond(
             |af, _| af.report.data.hashd[0].svc.state == SvcStateReport::Running,
             Some(CMD_TIMEOUT),
             None,
         )
-        .expect("failed to start hashd");
+        .context("Waiting for hashd to start")
     }
 
     pub fn stabilize_hashd_with_params(
@@ -844,7 +831,7 @@ impl<'a> RunCtx<'a> {
         }
     }
 
-    pub fn stop_hashd(&self) {
+    pub fn stop_hashd(&self) -> Result<()> {
         debug!("Stopping hashd ({})", HASHD_A_SVC_NAME);
 
         self.access_agent_files(|af| {
@@ -852,13 +839,13 @@ impl<'a> RunCtx<'a> {
             af.cmd.data.hashd[0].active = false;
             af.cmd.save().unwrap();
         });
-        self.cmd_barrier().unwrap();
+        self.cmd_barrier().context("Waiting for hashd stop ack")?;
         self.wait_cond(
             |af, _| af.report.data.hashd[0].svc.state != SvcStateReport::Running,
             Some(CMD_TIMEOUT),
             None,
         )
-        .expect("failed to start hashd");
+        .context("Waiting for hashd to stop")
     }
 
     pub fn start_sysload(&self, name: &str, kind: &str) -> Result<()> {
@@ -872,7 +859,8 @@ impl<'a> RunCtx<'a> {
                 .insert(name.to_owned(), kind.to_owned());
             af.cmd.save().unwrap();
         });
-        self.cmd_barrier().unwrap();
+        self.cmd_barrier()
+            .context("Waiting for sysload start ack")?;
         let mut state = SvcStateReport::Other;
         self.wait_cond(
             |af, _| match af.report.data.sysloads.get(name) {
@@ -885,12 +873,12 @@ impl<'a> RunCtx<'a> {
             Some(CMD_TIMEOUT),
             None,
         )
-        .expect("failed to start sysload");
+        .context("Waiting for sysload to start")?;
 
         if state != SvcStateReport::Running {
             self.stop_sysload(name);
             bail!(
-                "failed to start sysload {}:{}, state={:?}",
+                "Failed to start sysload {}:{}, state={:?}",
                 name,
                 kind,
                 state
@@ -933,17 +921,14 @@ impl<'a> RunCtx<'a> {
     }
 
     fn save_bench(&self, path: &str) -> Result<()> {
-        self.bench.save(path).with_context(|| {
-            format!(
-                "failed to commit bench result to {:?}",
-                self.demo_bench_path
-            )
-        })
+        self.bench
+            .save(path)
+            .with_context(|| format!("Committing ench result to {:?}", self.demo_bench_path))
     }
 
     pub fn load_bench(&mut self) -> Result<()> {
         self.bench = rd_agent_intf::BenchKnobs::load(&self.bench_path)
-            .with_context(|| format!("Failed to load {:?}", &self.bench_path))?;
+            .with_context(|| format!("Loading {:?}", &self.bench_path))?;
         Ok(())
     }
 
@@ -955,14 +940,14 @@ impl<'a> RunCtx<'a> {
         if result.is_err() {
             self.bench.hashd.mem_frac = old_mem_frac;
         }
-        result.with_context(|| format!("failed to update {:?}", &self.bench_path))
+        result.with_context(|| format!("Updating {:?}", &self.bench_path))
     }
 
     pub fn run_jctx(&mut self, mut jctx: JobCtx) -> Result<()> {
         // Always start with a fresh bench file.
         self.bench
             .save(&self.bench_path)
-            .with_context(|| format!("failed to set up {:?}", &self.bench_path))?;
+            .with_context(|| format!("Setting up {:?}", &self.bench_path))?;
 
         if let Err(e) = jctx.run(self) {
             bail!("Failed to run ({:#})", &e);
@@ -1007,7 +992,7 @@ impl<'a> RunCtx<'a> {
             "iocost-qos: iocost parameters missing and !--iocost-from-sys, running iocost-params"
         );
         self.run_nested_job_spec(&resctl_bench_intf::Args::parse_job_spec("iocost-params").unwrap())
-            .context("Failed to run iocost-params")
+            .context("Running iocost-params")
     }
 
     pub fn maybe_run_nested_hashd_params(&mut self) -> Result<()> {
@@ -1016,7 +1001,7 @@ impl<'a> RunCtx<'a> {
         }
         info!("iocost-qos: hashd parameters missing, running hashd-params");
         self.run_nested_job_spec(&resctl_bench_intf::Args::parse_job_spec("hashd-params").unwrap())
-            .context("Failed to run hashd-params")
+            .context("Running hashd-params")
     }
 
     pub fn sysreqs_report(&self) -> Option<Arc<rd_agent_intf::SysReqsReport>> {

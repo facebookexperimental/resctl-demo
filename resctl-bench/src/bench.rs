@@ -45,7 +45,7 @@ struct HashdFakeCpuBench {
 }
 
 impl HashdFakeCpuBench {
-    fn start(&self, rctx: &RunCtx) {
+    fn start(&self, rctx: &RunCtx) -> Result<()> {
         rctx.start_hashd_bench(
             self.balloon_size,
             self.log_bps,
@@ -63,7 +63,7 @@ impl HashdFakeCpuBench {
                 format!("--bench-file-frac={}", self.file_frac),
                 format!("--file-max={}", self.file_frac),
             ],
-        );
+        ).context("Starting fake-cpu-load hashd bench")
     }
 }
 
