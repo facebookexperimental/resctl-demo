@@ -145,10 +145,10 @@ pub struct MemHogResult {
 
 impl MemHog {
     const NAME: &'static str = "mem-hog";
-    const DFL_LOOPS: u32 = 3;
+    const DFL_LOOPS: u32 = 5;
     const DFL_LOAD: f64 = 1.0;
     const STABLE_HOLD: f64 = 15.0;
-    const TIMEOUT: f64 = 600.0;
+    const TIMEOUT: f64 = 300.0;
     const MEM_AVG_PERIOD: usize = 5;
     const PCTS: [&'static str; 13] = [
         "00", "01", "05", "10", "16", "25", "50", "75", "84", "90", "95", "99", "100",
