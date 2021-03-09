@@ -385,6 +385,8 @@ fn main() {
         panic!();
     });
 
+    systemd::set_systemd_timeout(args_file.data.systemd_timeout);
+
     Program {
         args_file,
         args_updated,

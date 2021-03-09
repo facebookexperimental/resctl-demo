@@ -542,9 +542,20 @@ impl<'a> RunCtx<'a> {
     }
 
     pub fn start_agent(&mut self) {
-        if let Err(e) = self.start_agent_fallible(vec![]) {
-            error!("Failed to start rd-agent ({:#})", &e);
-            panic!();
+        let mut tries = 0;
+        loop {
+            tries += 1;
+            match self.start_agent_fallible(vec![]) {
+                Ok(()) => return,
+                Err(e) => {
+                    if tries < 2 {
+                        warn!("Failed to start rd-agent ({:#}), retrying...", &e);
+                    } else {
+                        error!("Failed to start rd-agent ({:#})", &e);
+                        panic!();
+                    }
+                }
+            }
         }
     }
 
