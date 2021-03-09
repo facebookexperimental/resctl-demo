@@ -84,7 +84,11 @@ struct Program {
 }
 
 impl Program {
-    fn rd_agent_base_args(dir: &str, dev: Option<&str>) -> Result<Vec<String>> {
+    fn rd_agent_base_args(
+        dir: &str,
+        systemd_timeout: f64,
+        dev: Option<&str>,
+    ) -> Result<Vec<String>> {
         let mut args = vec![
             "--dir".into(),
             dir.into(),
@@ -92,6 +96,8 @@ impl Program {
             Args::RB_BENCH_FILENAME.into(),
             "--force".into(),
             "--force-running".into(),
+            "--systemd-timeout".into(),
+            format!("{}", systemd_timeout),
         ];
         if dev.is_some() {
             args.push("--dev".into());
@@ -109,6 +115,7 @@ impl Program {
         let mut cmd = Command::new(&*AGENT_BIN);
         cmd.args(&Program::rd_agent_base_args(
             &args.dir,
+            args.systemd_timeout,
             args.dev.as_deref(),
         )?)
         .args(&["--linux-tar", "__SKIP__"])

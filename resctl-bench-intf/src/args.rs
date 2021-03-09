@@ -16,6 +16,7 @@ lazy_static::lazy_static! {
          -D, --dev=[DEVICE]     'Scratch device override (e.g. nvme0n1)'
          -l, --linux=[PATH]     'Path to linux.tar, downloaded automatically if not specified'
          -R, --rep-retention=[SECS] '1s report retention in seconds (default: {dfl_rep_ret:.1}h)'
+             --systemd-timeout=[SECS] 'Systemd timeout (default: {dfl_systemd_timeout})'
          -a, --args=[FILE]      'Load base command line arguments from FILE'
          -c, --iocost-from-sys  'Use iocost parameters from io.cost.{{model,qos}} instead of bench.json'
              --keep-reports     'Don't delete expired report files'
@@ -24,6 +25,7 @@ lazy_static::lazy_static! {
          -v...                  'Sets the level of verbosity'",
         dfl_dir = Args::default().dir,
         dfl_rep_ret = Args::default().rep_retention,
+        dfl_systemd_timeout = format_duration(Args::default().systemd_timeout),
     );
 }
 
@@ -41,6 +43,7 @@ pub struct Args {
     pub dev: Option<String>,
     pub linux_tar: Option<String>,
     pub rep_retention: u64,
+    pub systemd_timeout: f64,
     pub mode: Mode,
     pub job_specs: Vec<JobSpec>,
 
@@ -68,6 +71,7 @@ impl Default for Args {
             mode: Mode::Run,
             job_specs: Default::default(),
             rep_retention: 24 * 3600,
+            systemd_timeout: 120.0,
             iocost_from_sys: false,
             keep_reports: false,
             clear_reports: false,
@@ -302,6 +306,14 @@ impl JsonArgs for Args {
                 v.parse::<u64>().unwrap()
             } else {
                 dfl.rep_retention
+            };
+            updated = true;
+        }
+        if let Some(v) = matches.value_of("systemd-timeout") {
+            self.systemd_timeout = if v.len() > 0 {
+                parse_duration(v).unwrap().max(1.0)
+            } else {
+                dfl.systemd_timeout
             };
             updated = true;
         }

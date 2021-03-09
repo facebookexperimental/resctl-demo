@@ -1155,6 +1155,8 @@ fn main() {
         return;
     }
 
+    systemd::set_systemd_timeout(args_file.data.systemd_timeout);
+
     let mut cfg = Config::new(&args_file);
 
     if args_file.data.reset {

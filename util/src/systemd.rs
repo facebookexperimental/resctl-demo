@@ -9,13 +9,13 @@ use rustbus::{
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread::{sleep, LocalKey};
 use std::time::{Duration, Instant};
 
+pub const SYSTEMD_DFL_TIMEOUT: f64 = 15.0;
 const SD1_DST: &str = "org.freedesktop.systemd1";
 const SD1_PATH: &str = "/org/freedesktop/systemd1";
-const DBUS_TIMEOUT: Duration = Duration::from_millis(15000);
-const DBUS_CONN_TIMEOUT: client_conn::Timeout = client_conn::Timeout::Duration(DBUS_TIMEOUT);
 
 std::thread_local!(pub static SYS_SD_BUS: RefCell<SystemdDbus> =
                    RefCell::new(SystemdDbus::new(false).unwrap()));
@@ -25,6 +25,23 @@ std::thread_local!(pub static USR_SD_BUS: RefCell<SystemdDbus> =
 // The following and the explicit error wrappings can be removed once
 // rustbus error implements std::error::Error.
 type RbResult<T> = Result<T, rustbus::client_conn::Error>;
+
+lazy_static::lazy_static! {
+    static ref SYSTEMD_TIMEOUT_MS: AtomicU64 =
+        AtomicU64::new((SYSTEMD_DFL_TIMEOUT * 1000.0).round() as u64);
+}
+
+pub fn set_systemd_timeout(timeout: f64) {
+    SYSTEMD_TIMEOUT_MS.store((timeout * 1000.0).round() as u64, Ordering::Relaxed);
+}
+
+fn systemd_timeout() -> Duration {
+    Duration::from_millis(SYSTEMD_TIMEOUT_MS.load(Ordering::Relaxed))
+}
+
+fn systemd_conn_timeout() -> client_conn::Timeout {
+    client_conn::Timeout::Duration(systemd_timeout())
+}
 
 fn wrap_rustbus_result<T>(r: RbResult<T>) -> Result<T> {
     match r {
@@ -180,8 +197,9 @@ impl SystemdDbus {
         &mut self,
         msg: &mut MarshalledMessage,
     ) -> RbResult<MarshalledMessage> {
-        let msg_serial = self.rpc_conn.send_message(msg, DBUS_CONN_TIMEOUT)?;
-        self.rpc_conn.wait_response(msg_serial, DBUS_CONN_TIMEOUT)
+        let msg_serial = self.rpc_conn.send_message(msg, systemd_conn_timeout())?;
+        self.rpc_conn
+            .wait_response(msg_serial, systemd_conn_timeout())
     }
 
     pub fn send_msg_and_wait(&mut self, msg: &mut MarshalledMessage) -> Result<MarshalledMessage> {
@@ -588,7 +606,7 @@ impl Unit {
 
         self.sd_bus()
             .with(|s| s.borrow_mut().stop_unit(&self.name))?;
-        self.wait_transition(|x| *x != US::Running, DBUS_TIMEOUT);
+        self.wait_transition(|x| *x != US::Running, systemd_timeout());
         if !self.quiet {
             info!("svc: {:?} stopped ({:?})", &self.name, &self.state);
         }
@@ -603,7 +621,7 @@ impl Unit {
         if let US::Failed(_) = self.state {
             self.sd_bus()
                 .with(|s| s.borrow_mut().reset_failed_unit(&self.name))?;
-            self.wait_transition(|x| *x == US::NotFound, DBUS_TIMEOUT);
+            self.wait_transition(|x| *x == US::NotFound, systemd_timeout());
         }
         match self.state {
             US::NotFound => Ok(()),
@@ -628,7 +646,7 @@ impl Unit {
                 US::Running | US::Exited | US::Failed(_) => true,
                 _ => false,
             },
-            DBUS_TIMEOUT,
+            systemd_timeout(),
         );
         if !self.quiet {
             info!("svc: {:?} started ({:?})", &self.name, &self.state);
@@ -759,7 +777,7 @@ impl TransientService {
                 US::Running | US::Exited | US::Failed(_) => true,
                 _ => false,
             },
-            DBUS_TIMEOUT,
+            systemd_timeout(),
         );
         if !self.unit.quiet {
             info!(

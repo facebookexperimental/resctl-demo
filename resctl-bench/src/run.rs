@@ -22,7 +22,7 @@ use rd_agent_intf::{
 use resctl_bench_intf::{JobSpec, Mode};
 
 const MINDER_AGENT_TIMEOUT: Duration = Duration::from_secs(120);
-const CMD_TIMEOUT: Duration = Duration::from_secs(30);
+const CMD_TIMEOUT: Duration = Duration::from_secs(120);
 const REP_RECORD_CADENCE: u64 = 10;
 const REP_RECORD_RETENTION: usize = 3;
 const HASHD_SLOPER_SLOTS: usize = 10;
@@ -118,6 +118,7 @@ impl Sloper {
 
 struct RunCtxInner {
     dir: String,
+    systemd_timeout: f64,
     dev: Option<String>,
     linux_tar: Option<String>,
     verbosity: u32,
@@ -145,6 +146,7 @@ impl RunCtxInner {
         let mut args = vec![AGENT_BIN.clone()];
         args.append(&mut Program::rd_agent_base_args(
             &self.dir,
+            self.systemd_timeout,
             self.dev.as_deref(),
         )?);
         args.push("--reset".into());
@@ -258,6 +260,7 @@ impl<'a> RunCtx<'a> {
         Self {
             inner: Arc::new(Mutex::new(RunCtxInner {
                 dir: args.dir.clone(),
+                systemd_timeout: args.systemd_timeout,
                 dev: args.dev.clone(),
                 linux_tar: args.linux_tar.clone(),
                 verbosity: args.verbosity,
