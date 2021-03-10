@@ -1025,6 +1025,26 @@ impl<'a> RunCtx<'a> {
         let ctx = self.inner.lock().unwrap();
         ReportIter::new(&ctx.agent_files.index.data.report_d, period)
     }
+
+    pub fn first_report(&self, period: (u64, u64)) -> Option<(rd_agent_intf::Report, u64)> {
+        let ctx = self.inner.lock().unwrap();
+        for (rep, at) in ReportIter::new(&ctx.agent_files.index.data.report_d, period) {
+            if rep.is_ok() {
+                return Some((rep.unwrap(), at));
+            }
+        }
+        return None;
+    }
+
+    pub fn last_report(&self, period: (u64, u64)) -> Option<(rd_agent_intf::Report, u64)> {
+        let ctx = self.inner.lock().unwrap();
+        for (rep, at) in ReportIter::new(&ctx.agent_files.index.data.report_d, period).rev() {
+            if rep.is_ok() {
+                return Some((rep.unwrap(), at));
+            }
+        }
+        return None;
+    }
 }
 
 impl Drop for RunCtx<'_> {

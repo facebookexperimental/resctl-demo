@@ -136,6 +136,10 @@ pub struct HashdReport {
     pub rps: f64,
     pub lat_pct: f64,
     pub lat: rd_hashd_intf::Latencies,
+    pub nr_in_flight: u32,
+    pub nr_done: u64,
+    pub nr_workers: usize,
+    pub nr_idle_workers: usize,
     pub mem_probe_size: usize,
     pub mem_probe_at: DateTime<Local>,
 }
@@ -149,6 +153,10 @@ impl Default for HashdReport {
             rps: 0.0,
             lat_pct: 0.0,
             lat: Default::default(),
+            nr_in_flight: 0,
+            nr_done: 0,
+            nr_workers: 0,
+            nr_idle_workers: 0,
             mem_probe_size: 0,
             mem_probe_at: DateTime::from(UNIX_EPOCH),
         }
@@ -459,30 +467,43 @@ impl JsonSave for Report {
 
 pub struct ReportIter {
     dir: String,
-    cur: u64,
-    end: u64,
+    front: u64,
+    back: u64,
 }
 
 impl ReportIter {
     pub fn new(dir: &str, period: (u64, u64)) -> Self {
         Self {
             dir: dir.into(),
-            cur: period.0,
-            end: period.1,
+            front: period.0,
+            back: period.1,
         }
     }
 }
 
 impl Iterator for ReportIter {
     type Item = (Result<Report>, u64);
-    fn next(&mut self) -> Option<(Result<Report>, u64)> {
-        if self.cur == self.end {
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.front >= self.back {
             return None;
         }
-        let cur = self.cur;
-        self.cur += 1;
+        let front = self.front;
+        self.front += 1;
 
-        let path = format!("{}/{}.json", &self.dir, cur);
-        Some((Report::load(&path), cur))
+        let path = format!("{}/{}.json", &self.dir, front);
+        Some((Report::load(&path), front))
+    }
+}
+
+impl DoubleEndedIterator for ReportIter {
+    fn next_back(&mut self) -> Option<Self::Item> {
+        if self.front >= self.back {
+            return None;
+        }
+        let back = self.back;
+        self.back -= 1;
+
+        let path = format!("{}/{}.json", &self.dir, back);
+        Some((Report::load(&path), back))
     }
 }
