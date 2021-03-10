@@ -801,8 +801,8 @@ impl ReportWorker {
                 _ => {}
             }
 
+            // base_report() generation may take some time. Timestamp here.
             let now = unix_now();
-            next_at = now + 1;
 
             // generate base
             let base_report = match self.base_report() {
@@ -815,6 +815,12 @@ impl ReportWorker {
 
             self.report_file.tick(&base_report, now);
             self.report_file_1min.tick(&base_report, now);
+
+            // Report generation and writing could have taken a while. If we
+            // overshot the 500ms window and are in the next second window,
+            // we wanna wait for the next window. Re-acquire the current
+            // second to determine when the next report will be generated.
+            next_at = unix_now() + 1;
         }
     }
 
