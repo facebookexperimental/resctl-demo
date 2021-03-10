@@ -169,6 +169,10 @@ impl ops::AddAssign<&HashdReport> for HashdReport {
         self.rps += rhs.rps;
         self.lat_pct += rhs.lat_pct;
         self.lat += &rhs.lat;
+        self.nr_in_flight += rhs.nr_in_flight;
+        self.nr_done += rhs.nr_done;
+        self.nr_workers += rhs.nr_workers;
+        self.nr_idle_workers += rhs.nr_idle_workers;
     }
 }
 
@@ -179,6 +183,10 @@ impl<T: Into<f64>> ops::DivAssign<T> for HashdReport {
         self.rps /= div;
         self.lat_pct /= div;
         self.lat /= div;
+        self.nr_in_flight = ((self.nr_in_flight as f64) / div).round() as u32;
+        self.nr_done = ((self.nr_done as f64) / div).round() as u64;
+        self.nr_workers = ((self.nr_workers as f64) / div).round() as usize;
+        self.nr_idle_workers = ((self.nr_idle_workers as f64) / div).round() as usize;
     }
 }
 

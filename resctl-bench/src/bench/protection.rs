@@ -290,17 +290,31 @@ impl MemHog {
     {
         let runs: Vec<&MemHogRun> = runs.collect();
 
+        // Protection benchmarks can cause severe pressure events causing
+        // many missing datapoints. To avoid being misled, use accumluative
+        // counters and time interval between reports instead where
+        // possible.
+
         // Determine the baseline rps and latency by averaging them over all
         // hold periods. We need these values for the isolation and latency
         // impact studies. Run these first.
-        let mut study_base_rps = StudyMean::new(|arg| vec![arg.rep.hashd[0].rps]);
-        let mut study_base_lat = StudyMean::new(|arg| vec![arg.rep.hashd[0].lat.ctl]);
+        let last_nr_done = RefCell::new(None);
+        let mut study_base_rps = StudyMean::new(|arg| {
+            let nr_done = arg.rep.hashd[0].nr_done;
+            match last_nr_done.replace(Some(nr_done)) {
+                Some(last) => [(nr_done - last) as f64 / arg.dur].repeat(arg.cnt),
+                None => vec![],
+            }
+        });
+
+        let mut study_base_lat = StudyMean::new(|arg| [arg.rep.hashd[0].lat.ctl].repeat(arg.cnt));
 
         let mut studies = Studies::new()
             .add(&mut study_base_rps)
             .add(&mut study_base_lat);
 
         for run in runs.iter() {
+            last_nr_done.replace(None);
             studies.run(rctx, (run.stable_at, run.hog_started_at))?;
         }
 
@@ -312,16 +326,25 @@ impl MemHog {
         // indicating the perfect isolation. The latter is defined as the
         // proportion of the latency increase over the baseline, [0.0, 1.0]
         // with 0.0 indicating no latency impact.
+        let last_nr_done = RefCell::new(None);
         let mut study_isol = StudyMeanPcts::new(
-            |arg| vec![Self::calc_isol(arg.rep.hashd[0].rps, base_rps)],
+            |arg| {
+                let nr_done = arg.rep.hashd[0].nr_done;
+                match last_nr_done.replace(Some(nr_done)) {
+                    Some(last) => [Self::calc_isol((nr_done - last) as f64 / arg.dur, base_rps)]
+                        .repeat(arg.cnt),
+                    None => vec![],
+                }
+            },
             None,
         );
         let mut study_lat_imp = StudyMeanPcts::new(
             |arg| {
-                vec![Self::calc_lat_imp(
+                [Self::calc_lat_imp(
                     arg.rep.hashd[0].lat.ctl.max(base_lat),
                     base_lat,
                 )]
+                .repeat(arg.cnt)
             },
             None,
         );
@@ -329,21 +352,31 @@ impl MemHog {
         // Collect IO usage and unused budgets which will be used to
         // calculate work conservation factor.
         let mh_svc_name = rd_agent_intf::sysload_svc_name(Self::NAME);
-        let mut io_usage = 0.0_f64;
-        let mut io_unused = 0.0_f64;
-        let mut hog_io_usage = 0.0_f64;
+        let (mut io_usage, mut io_unused, mut hog_io_usage) = (0.0_f64, 0.0_f64, 0.0_f64);
+        let (last_root_io_usage, last_hog_io_usage) = (RefCell::new(None), RefCell::new(None));
+
         let mut study_io_usages = StudyMutFn::new(|arg| {
-            let vrate = arg.rep.iocost.vrate;
-            let root_util = arg.rep.usages[ROOT_SLICE].io_util;
-            // The reported IO utilization is relative to the effective
-            // vrate. Scale so that the values are relative to the
-            // absolute model parameters. As vrate is sampled, if it
-            // fluctuates at high frequency, this can introduce
-            // significant errors.
-            io_usage += root_util * vrate / 100.0;
-            io_unused += (1.0 - root_util).max(0.0) * vrate / 100.0;
-            if let Some(usage) = arg.rep.usages.get(&mh_svc_name) {
-                hog_io_usage += usage.io_util * vrate / 100.0;
+            let root = arg.rep.usages[ROOT_SLICE].io_usage;
+            let hog = match arg.rep.usages.get(&mh_svc_name) {
+                Some(u) => u.io_usage,
+                None => return,
+            };
+            match (
+                last_root_io_usage.replace(Some(root)),
+                last_hog_io_usage.replace(Some(hog)),
+            ) {
+                (Some(last_root), Some(last_hog)) => {
+                    // The reported IO utilization is relative to the effective
+                    // vrate. Scale so that the values are relative to the
+                    // absolute model parameters. As vrate is sampled, if it
+                    // fluctuates at high frequency, this can introduce
+                    // significant errors.
+                    let vrate = arg.rep.iocost.vrate / 100.0;
+                    io_usage += (root - last_root).max(0.0) * vrate;
+                    io_unused += (arg.dur - (root - last_root)).max(0.0) * vrate;
+                    hog_io_usage += (hog - last_hog).max(0.0) * vrate;
+                }
+                (_, _) => {}
             }
         });
 
@@ -363,6 +396,9 @@ impl MemHog {
             .collect();
 
         for per in hog_periods.iter() {
+            last_nr_done.replace(None);
+            last_root_io_usage.replace(None);
+            last_hog_io_usage.replace(None);
             studies.run(rctx, *per)?;
         }
 
@@ -371,7 +407,7 @@ impl MemHog {
 
         // The followings are captured over the entire period. vrate mean
         // isn't used in the process but report to help visibility.
-        let mut study_vrate_mean = StudyMean::new(|arg| vec![arg.rep.iocost.vrate]);
+        let mut study_vrate_mean = StudyMean::new(|arg| [arg.rep.iocost.vrate].repeat(arg.cnt));
         let mut study_read_lat_pcts = StudyIoLatPcts::new("read", None);
         let mut study_write_lat_pcts = StudyIoLatPcts::new("write", None);
 
@@ -521,17 +557,29 @@ impl MemHog {
         // this lends the most useful combined results.
         let base_rps = RefCell::new(0.0_f64);
         let base_lat = RefCell::new(0.0_f64);
+        let last_nr_done = RefCell::new(None);
 
         let mut study_isol = StudyPcts::new(
-            |arg| vec![Self::calc_isol(arg.rep.hashd[0].rps, *base_rps.borrow())],
+            |arg| {
+                let nr_done = arg.rep.hashd[0].nr_done;
+                match last_nr_done.replace(Some(nr_done)) {
+                    Some(last) => [Self::calc_isol(
+                        (nr_done - last) as f64 / arg.dur,
+                        *base_rps.borrow(),
+                    )]
+                    .repeat(arg.cnt),
+                    None => vec![],
+                }
+            },
             None,
         );
         let mut study_lat_imp = StudyPcts::new(
             |arg| {
-                vec![Self::calc_lat_imp(
+                [Self::calc_lat_imp(
                     arg.rep.hashd[0].lat.ctl.max(*base_lat.borrow()),
                     *base_lat.borrow(),
                 )]
+                .repeat(arg.cnt)
             },
             None,
         );
@@ -541,6 +589,7 @@ impl MemHog {
         for r in results.iter() {
             base_rps.replace(r.base_rps);
             base_lat.replace(r.base_lat);
+            last_nr_done.replace(None);
 
             for per in r.hog_periods.iter() {
                 studies.run(rctx, *per)?;

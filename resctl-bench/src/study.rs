@@ -24,7 +24,7 @@ pub trait Study {
 //
 // Sel helpers.
 //
-pub fn sel_factory_iolat(io_type: &str, pct: &str) -> impl FnMut(&SelArg) -> Vec<f64> + Clone {
+pub fn sel_factory_iolat(io_type: &str, pct: &str) -> impl FnMut(&SelArg) -> Vec<f64> {
     let io_type = io_type.to_string();
     let pct = pct.to_string();
     move |arg: &SelArg| {
@@ -56,6 +56,13 @@ where
     pub fn new(sel: F) -> Self {
         Self { sel, data: vec![] }
     }
+
+    fn study_data(&mut self, data: &[T]) -> Result<()> {
+        for v in data {
+            self.data.push(v.as_());
+        }
+        Ok(())
+    }
 }
 
 impl<T, F> Study for StudyMean<T, F>
@@ -64,10 +71,8 @@ where
     F: FnMut(&SelArg) -> Vec<T>,
 {
     fn study(&mut self, arg: &SelArg) -> Result<()> {
-        for v in (self.sel)(arg).into_iter() {
-            self.data.push(v.as_());
-        }
-        Ok(())
+        let data = (self.sel)(arg);
+        self.study_data(&data)
     }
 
     fn as_study_mut(&mut self) -> &mut dyn Study {
@@ -125,6 +130,13 @@ where
             ckms: CKMS::<f64>::new(error.unwrap_or(CKMS_DFL_ERROR)),
         }
     }
+
+    fn study_data(&mut self, data: &[T]) -> Result<()> {
+        for v in data {
+            self.ckms.insert(v.as_());
+        }
+        Ok(())
+    }
 }
 
 impl<T, F> Study for StudyPcts<T, F>
@@ -133,10 +145,8 @@ where
     F: FnMut(&SelArg) -> Vec<T>,
 {
     fn study(&mut self, arg: &SelArg) -> Result<()> {
-        for v in (self.sel)(arg).into_iter() {
-            self.ckms.insert(v.as_());
-        }
-        Ok(())
+        let data = (self.sel)(arg);
+        self.study_data(&data)
     }
 
     fn as_study_mut(&mut self) -> &mut dyn Study {
@@ -171,19 +181,22 @@ where
     T: AsPrimitive<f64>,
     F: FnMut(&SelArg) -> Vec<T>,
 {
-    study_mean: StudyMean<T, F>,
-    study_pcts: StudyPcts<T, F>,
+    sel: F,
+    study_mean: StudyMean<T, fn(&SelArg) -> Vec<T>>,
+    study_pcts: StudyPcts<T, fn(&SelArg) -> Vec<T>>,
 }
 
 impl<T, F> StudyMeanPcts<T, F>
 where
     T: AsPrimitive<f64>,
-    F: FnMut(&SelArg) -> Vec<T> + Clone,
+    F: FnMut(&SelArg) -> Vec<T>,
 {
     pub fn new(sel: F, error: Option<f64>) -> Self {
+        let dummy_sel = |_: &SelArg| -> Vec<T> { vec![] };
         Self {
-            study_pcts: StudyPcts::<T, F>::new(sel.clone(), error),
-            study_mean: StudyMean::<T, F>::new(sel),
+            sel,
+            study_pcts: StudyPcts::new(dummy_sel.clone(), error),
+            study_mean: StudyMean::new(dummy_sel),
         }
     }
 }
@@ -191,10 +204,13 @@ where
 impl<T, F> Study for StudyMeanPcts<T, F>
 where
     T: AsPrimitive<f64>,
-    F: FnMut(&SelArg) -> Vec<T> + Clone,
+    F: FnMut(&SelArg) -> Vec<T>,
 {
     fn study(&mut self, arg: &SelArg) -> Result<()> {
-        self.study_mean.study(arg).and(self.study_pcts.study(arg))
+        let data = (self.sel)(arg);
+        self.study_mean
+            .study_data(&data)
+            .and(self.study_pcts.study_data(&data))
     }
 
     fn as_study_mut(&mut self) -> &mut dyn Study {
@@ -209,7 +225,7 @@ pub trait StudyMeanPctsTrait: Study {
 impl<T, F> StudyMeanPctsTrait for StudyMeanPcts<T, F>
 where
     T: AsPrimitive<f64>,
-    F: FnMut(&SelArg) -> Vec<T> + Clone,
+    F: FnMut(&SelArg) -> Vec<T>,
 {
     fn result(&self, pcts: &[&str]) -> (f64, f64, BTreeMap<String, f64>) {
         let (mean, stdev, _, _) = self.study_mean.result();
