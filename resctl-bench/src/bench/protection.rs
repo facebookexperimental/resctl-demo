@@ -293,8 +293,8 @@ impl MemHog {
         // Determine the baseline rps and latency by averaging them over all
         // hold periods. We need these values for the isolation and latency
         // impact studies. Run these first.
-        let mut study_base_rps = StudyMean::new(|rep| Some(rep.hashd[0].rps));
-        let mut study_base_lat = StudyMean::new(|rep| Some(rep.hashd[0].lat.ctl));
+        let mut study_base_rps = StudyMean::new(|rep, _| vec![rep.hashd[0].rps]);
+        let mut study_base_lat = StudyMean::new(|rep, _| vec![rep.hashd[0].lat.ctl]);
 
         let mut studies = Studies::new()
             .add(&mut study_base_rps)
@@ -313,15 +313,15 @@ impl MemHog {
         // proportion of the latency increase over the baseline, [0.0, 1.0]
         // with 0.0 indicating no latency impact.
         let mut study_isol = StudyMeanPcts::new(
-            |rep| Some(Self::calc_isol(rep.hashd[0].rps, base_rps)),
+            |rep, _| vec![Self::calc_isol(rep.hashd[0].rps, base_rps)],
             None,
         );
         let mut study_lat_imp = StudyMeanPcts::new(
-            |rep| {
-                Some(Self::calc_lat_imp(
+            |rep, _| {
+                vec![Self::calc_lat_imp(
                     rep.hashd[0].lat.ctl.max(base_lat),
                     base_lat,
-                ))
+                )]
             },
             None,
         );
@@ -332,7 +332,7 @@ impl MemHog {
         let mut io_usage = 0.0_f64;
         let mut io_unused = 0.0_f64;
         let mut hog_io_usage = 0.0_f64;
-        let mut study_io_usages = StudyMutFn::new(|rep| {
+        let mut study_io_usages = StudyMutFn::new(|rep, _| {
             let vrate = rep.iocost.vrate;
             let root_util = rep.usages[ROOT_SLICE].io_util;
             // The reported IO utilization is relative to the effective
@@ -371,7 +371,7 @@ impl MemHog {
 
         // The followings are captured over the entire period. vrate mean
         // isn't used in the process but report to help visibility.
-        let mut study_vrate_mean = StudyMean::new(|rep| Some(rep.iocost.vrate));
+        let mut study_vrate_mean = StudyMean::new(|rep, _| vec![rep.iocost.vrate]);
         let mut study_read_lat_pcts = StudyIoLatPcts::new("read", None);
         let mut study_write_lat_pcts = StudyIoLatPcts::new("write", None);
 
@@ -523,15 +523,15 @@ impl MemHog {
         let base_lat = RefCell::new(0.0_f64);
 
         let mut study_isol = StudyPcts::new(
-            |rep| Some(Self::calc_isol(rep.hashd[0].rps, *base_rps.borrow())),
+            |rep, _| vec![Self::calc_isol(rep.hashd[0].rps, *base_rps.borrow())],
             None,
         );
         let mut study_lat_imp = StudyPcts::new(
-            |rep| {
-                Some(Self::calc_lat_imp(
+            |rep, _| {
+                vec![Self::calc_lat_imp(
                     rep.hashd[0].lat.ctl.max(*base_lat.borrow()),
                     *base_lat.borrow(),
-                ))
+                )]
             },
             None,
         );

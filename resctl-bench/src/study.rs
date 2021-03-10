@@ -11,21 +11,21 @@ use super::run::RunCtx;
 use rd_agent_intf::{IoLatReport, Report};
 
 pub trait Study {
-    fn study(&mut self, rep: &Report) -> Result<()>;
+    fn study(&mut self, rep: &Report, nr_missed: usize) -> Result<()>;
     fn as_study_mut(&mut self) -> &mut dyn Study;
 }
 
 //
 // Sel helpers.
 //
-pub fn sel_factory_iolat(io_type: &str, pct: &str) -> impl Fn(&Report) -> Option<f64> + Clone {
+pub fn sel_factory_iolat(io_type: &str, pct: &str) -> impl Fn(&Report, usize) -> Vec<f64> + Clone {
     let io_type = io_type.to_string();
     let pct = pct.to_string();
-    move |rep: &Report| {
+    move |rep: &Report, _| {
         if rep.iolat.map[&io_type]["100"] > 0.0 {
-            Some(rep.iolat.map[&io_type][&pct])
+            vec![rep.iolat.map[&io_type][&pct]]
         } else {
-            None
+            vec![]
         }
     }
 }
@@ -36,7 +36,7 @@ pub fn sel_factory_iolat(io_type: &str, pct: &str) -> impl Fn(&Report) -> Option
 pub struct StudyMean<T, F>
 where
     T: AsPrimitive<f64>,
-    F: Fn(&Report) -> Option<T>,
+    F: Fn(&Report, usize) -> Vec<T>,
 {
     sel: F,
     data: Vec<f64>,
@@ -45,7 +45,7 @@ where
 impl<T, F> StudyMean<T, F>
 where
     T: AsPrimitive<f64>,
-    F: Fn(&Report) -> Option<T>,
+    F: Fn(&Report, usize) -> Vec<T>,
 {
     pub fn new(sel: F) -> Self {
         Self { sel, data: vec![] }
@@ -55,10 +55,10 @@ where
 impl<T, F> Study for StudyMean<T, F>
 where
     T: AsPrimitive<f64>,
-    F: Fn(&Report) -> Option<T>,
+    F: Fn(&Report, usize) -> Vec<T>,
 {
-    fn study(&mut self, rep: &Report) -> Result<()> {
-        if let Some(v) = (self.sel)(rep) {
+    fn study(&mut self, rep: &Report, nr_missed: usize) -> Result<()> {
+        for v in (self.sel)(rep, nr_missed).into_iter() {
             self.data.push(v.as_());
         }
         Ok(())
@@ -76,7 +76,7 @@ pub trait StudyMeanTrait: Study {
 impl<T, F> StudyMeanTrait for StudyMean<T, F>
 where
     T: AsPrimitive<f64>,
-    F: Fn(&Report) -> Option<T>,
+    F: Fn(&Report, usize) -> Vec<T>,
 {
     fn result(&self) -> (f64, f64, f64, f64) {
         let mean = statistical::mean(&self.data);
@@ -101,7 +101,7 @@ where
 pub struct StudyPcts<T, F>
 where
     T: AsPrimitive<f64>,
-    F: Fn(&Report) -> Option<T>,
+    F: Fn(&Report, usize) -> Vec<T>,
 {
     sel: F,
     ckms: CKMS<f64>,
@@ -110,7 +110,7 @@ where
 impl<T, F> StudyPcts<T, F>
 where
     T: AsPrimitive<f64>,
-    F: Fn(&Report) -> Option<T>,
+    F: Fn(&Report, usize) -> Vec<T>,
 {
     pub fn new(sel: F, error: Option<f64>) -> Self {
         const CKMS_DFL_ERROR: f64 = 0.001;
@@ -124,10 +124,10 @@ where
 impl<T, F> Study for StudyPcts<T, F>
 where
     T: AsPrimitive<f64>,
-    F: Fn(&Report) -> Option<T>,
+    F: Fn(&Report, usize) -> Vec<T>,
 {
-    fn study(&mut self, rep: &Report) -> Result<()> {
-        if let Some(v) = (self.sel)(rep) {
+    fn study(&mut self, rep: &Report, nr_missed: usize) -> Result<()> {
+        for v in (self.sel)(rep, nr_missed).into_iter() {
             self.ckms.insert(v.as_());
         }
         Ok(())
@@ -145,7 +145,7 @@ pub trait StudyPctsTrait: Study {
 impl<T, F> StudyPctsTrait for StudyPcts<T, F>
 where
     T: AsPrimitive<f64>,
-    F: Fn(&Report) -> Option<T>,
+    F: Fn(&Report, usize) -> Vec<T>,
 {
     fn result(&self, pcts: &[&str]) -> BTreeMap<String, f64> {
         pcts.iter()
@@ -163,7 +163,7 @@ where
 pub struct StudyMeanPcts<T, F>
 where
     T: AsPrimitive<f64>,
-    F: Fn(&Report) -> Option<T>,
+    F: Fn(&Report, usize) -> Vec<T>,
 {
     study_mean: StudyMean<T, F>,
     study_pcts: StudyPcts<T, F>,
@@ -172,7 +172,7 @@ where
 impl<T, F> StudyMeanPcts<T, F>
 where
     T: AsPrimitive<f64>,
-    F: Fn(&Report) -> Option<T> + Clone,
+    F: Fn(&Report, usize) -> Vec<T> + Clone,
 {
     pub fn new(sel: F, error: Option<f64>) -> Self {
         Self {
@@ -185,10 +185,12 @@ where
 impl<T, F> Study for StudyMeanPcts<T, F>
 where
     T: AsPrimitive<f64>,
-    F: Fn(&Report) -> Option<T> + Clone,
+    F: Fn(&Report, usize) -> Vec<T> + Clone,
 {
-    fn study(&mut self, rep: &Report) -> Result<()> {
-        self.study_mean.study(rep).and(self.study_pcts.study(rep))
+    fn study(&mut self, rep: &Report, nr_missed: usize) -> Result<()> {
+        self.study_mean
+            .study(rep, nr_missed)
+            .and(self.study_pcts.study(rep, nr_missed))
     }
 
     fn as_study_mut(&mut self) -> &mut dyn Study {
@@ -203,7 +205,7 @@ pub trait StudyMeanPctsTrait: Study {
 impl<T, F> StudyMeanPctsTrait for StudyMeanPcts<T, F>
 where
     T: AsPrimitive<f64>,
-    F: Fn(&Report) -> Option<T> + Clone,
+    F: Fn(&Report, usize) -> Vec<T> + Clone,
 {
     fn result(&self, pcts: &[&str]) -> (f64, f64, BTreeMap<String, f64>) {
         let (mean, stdev, _, _) = self.study_mean.result();
@@ -214,14 +216,14 @@ where
 
 pub struct StudyMutFn<F>
 where
-    F: FnMut(&Report),
+    F: FnMut(&Report, usize),
 {
     func: F,
 }
 
 impl<F> StudyMutFn<F>
 where
-    F: FnMut(&Report),
+    F: FnMut(&Report, usize),
 {
     pub fn new(func: F) -> Self {
         Self { func }
@@ -230,10 +232,10 @@ where
 
 impl<F> Study for StudyMutFn<F>
 where
-    F: FnMut(&Report),
+    F: FnMut(&Report, usize),
 {
-    fn study(&mut self, rep: &Report) -> Result<()> {
-        (self.func)(rep);
+    fn study(&mut self, rep: &Report, nr_missed: usize) -> Result<()> {
+        (self.func)(rep, nr_missed);
         Ok(())
     }
 
@@ -425,13 +427,16 @@ impl<'a> Studies<'a> {
         let mut nr_reps = 0;
         let mut nr_missed = 0;
 
+        let mut nr_since_last = 0;
         for (rep, _) in run.report_iter(period) {
+            nr_since_last += 1;
             match rep {
                 Ok(rep) => {
                     nr_reps += 1;
                     for study in self.studies.iter_mut() {
-                        study.study(&rep)?;
+                        study.study(&rep, nr_since_last)?;
                     }
+                    nr_since_last = 0;
                 }
                 Err(_) => nr_missed += 1,
             }

@@ -505,7 +505,7 @@ impl IoCostQoSJob {
         };
 
         // Study the vrate and IO latency distributions.
-        let mut study_vrate_mean_pcts = StudyMeanPcts::new(|rep| Some(rep.iocost.vrate), None);
+        let mut study_vrate_mean_pcts = StudyMeanPcts::new(|rep, _| vec![rep.iocost.vrate], None);
         let mut study_read_lat_pcts = StudyIoLatPcts::new("read", None);
         let mut study_write_lat_pcts = StudyIoLatPcts::new("write", None);
         let nr_reports = Studies::new()
