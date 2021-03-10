@@ -10,20 +10,26 @@ use util::*;
 use super::run::RunCtx;
 use rd_agent_intf::{IoLatReport, Report};
 
+pub struct SelArg<'a> {
+    pub rep: &'a Report,
+    pub dur: f64,
+    pub cnt: usize,
+}
+
 pub trait Study {
-    fn study(&mut self, rep: &Report, nr_missed: usize) -> Result<()>;
+    fn study(&mut self, ctx: &SelArg) -> Result<()>;
     fn as_study_mut(&mut self) -> &mut dyn Study;
 }
 
 //
 // Sel helpers.
 //
-pub fn sel_factory_iolat(io_type: &str, pct: &str) -> impl Fn(&Report, usize) -> Vec<f64> + Clone {
+pub fn sel_factory_iolat(io_type: &str, pct: &str) -> impl FnMut(&SelArg) -> Vec<f64> + Clone {
     let io_type = io_type.to_string();
     let pct = pct.to_string();
-    move |rep: &Report, _| {
-        if rep.iolat.map[&io_type]["100"] > 0.0 {
-            vec![rep.iolat.map[&io_type][&pct]]
+    move |arg: &SelArg| {
+        if arg.rep.iolat.map[&io_type]["100"] > 0.0 {
+            vec![arg.rep.iolat.map[&io_type][&pct]]
         } else {
             vec![]
         }
@@ -36,7 +42,7 @@ pub fn sel_factory_iolat(io_type: &str, pct: &str) -> impl Fn(&Report, usize) ->
 pub struct StudyMean<T, F>
 where
     T: AsPrimitive<f64>,
-    F: Fn(&Report, usize) -> Vec<T>,
+    F: FnMut(&SelArg) -> Vec<T>,
 {
     sel: F,
     data: Vec<f64>,
@@ -45,7 +51,7 @@ where
 impl<T, F> StudyMean<T, F>
 where
     T: AsPrimitive<f64>,
-    F: Fn(&Report, usize) -> Vec<T>,
+    F: FnMut(&SelArg) -> Vec<T>,
 {
     pub fn new(sel: F) -> Self {
         Self { sel, data: vec![] }
@@ -55,10 +61,10 @@ where
 impl<T, F> Study for StudyMean<T, F>
 where
     T: AsPrimitive<f64>,
-    F: Fn(&Report, usize) -> Vec<T>,
+    F: FnMut(&SelArg) -> Vec<T>,
 {
-    fn study(&mut self, rep: &Report, nr_missed: usize) -> Result<()> {
-        for v in (self.sel)(rep, nr_missed).into_iter() {
+    fn study(&mut self, arg: &SelArg) -> Result<()> {
+        for v in (self.sel)(arg).into_iter() {
             self.data.push(v.as_());
         }
         Ok(())
@@ -76,7 +82,7 @@ pub trait StudyMeanTrait: Study {
 impl<T, F> StudyMeanTrait for StudyMean<T, F>
 where
     T: AsPrimitive<f64>,
-    F: Fn(&Report, usize) -> Vec<T>,
+    F: FnMut(&SelArg) -> Vec<T>,
 {
     fn result(&self) -> (f64, f64, f64, f64) {
         let mean = statistical::mean(&self.data);
@@ -101,7 +107,7 @@ where
 pub struct StudyPcts<T, F>
 where
     T: AsPrimitive<f64>,
-    F: Fn(&Report, usize) -> Vec<T>,
+    F: FnMut(&SelArg) -> Vec<T>,
 {
     sel: F,
     ckms: CKMS<f64>,
@@ -110,7 +116,7 @@ where
 impl<T, F> StudyPcts<T, F>
 where
     T: AsPrimitive<f64>,
-    F: Fn(&Report, usize) -> Vec<T>,
+    F: FnMut(&SelArg) -> Vec<T>,
 {
     pub fn new(sel: F, error: Option<f64>) -> Self {
         const CKMS_DFL_ERROR: f64 = 0.001;
@@ -124,10 +130,10 @@ where
 impl<T, F> Study for StudyPcts<T, F>
 where
     T: AsPrimitive<f64>,
-    F: Fn(&Report, usize) -> Vec<T>,
+    F: FnMut(&SelArg) -> Vec<T>,
 {
-    fn study(&mut self, rep: &Report, nr_missed: usize) -> Result<()> {
-        for v in (self.sel)(rep, nr_missed).into_iter() {
+    fn study(&mut self, arg: &SelArg) -> Result<()> {
+        for v in (self.sel)(arg).into_iter() {
             self.ckms.insert(v.as_());
         }
         Ok(())
@@ -145,7 +151,7 @@ pub trait StudyPctsTrait: Study {
 impl<T, F> StudyPctsTrait for StudyPcts<T, F>
 where
     T: AsPrimitive<f64>,
-    F: Fn(&Report, usize) -> Vec<T>,
+    F: FnMut(&SelArg) -> Vec<T>,
 {
     fn result(&self, pcts: &[&str]) -> BTreeMap<String, f64> {
         pcts.iter()
@@ -163,7 +169,7 @@ where
 pub struct StudyMeanPcts<T, F>
 where
     T: AsPrimitive<f64>,
-    F: Fn(&Report, usize) -> Vec<T>,
+    F: FnMut(&SelArg) -> Vec<T>,
 {
     study_mean: StudyMean<T, F>,
     study_pcts: StudyPcts<T, F>,
@@ -172,7 +178,7 @@ where
 impl<T, F> StudyMeanPcts<T, F>
 where
     T: AsPrimitive<f64>,
-    F: Fn(&Report, usize) -> Vec<T> + Clone,
+    F: FnMut(&SelArg) -> Vec<T> + Clone,
 {
     pub fn new(sel: F, error: Option<f64>) -> Self {
         Self {
@@ -185,12 +191,10 @@ where
 impl<T, F> Study for StudyMeanPcts<T, F>
 where
     T: AsPrimitive<f64>,
-    F: Fn(&Report, usize) -> Vec<T> + Clone,
+    F: FnMut(&SelArg) -> Vec<T> + Clone,
 {
-    fn study(&mut self, rep: &Report, nr_missed: usize) -> Result<()> {
-        self.study_mean
-            .study(rep, nr_missed)
-            .and(self.study_pcts.study(rep, nr_missed))
+    fn study(&mut self, arg: &SelArg) -> Result<()> {
+        self.study_mean.study(arg).and(self.study_pcts.study(arg))
     }
 
     fn as_study_mut(&mut self) -> &mut dyn Study {
@@ -205,7 +209,7 @@ pub trait StudyMeanPctsTrait: Study {
 impl<T, F> StudyMeanPctsTrait for StudyMeanPcts<T, F>
 where
     T: AsPrimitive<f64>,
-    F: Fn(&Report, usize) -> Vec<T> + Clone,
+    F: FnMut(&SelArg) -> Vec<T> + Clone,
 {
     fn result(&self, pcts: &[&str]) -> (f64, f64, BTreeMap<String, f64>) {
         let (mean, stdev, _, _) = self.study_mean.result();
@@ -216,14 +220,14 @@ where
 
 pub struct StudyMutFn<F>
 where
-    F: FnMut(&Report, usize),
+    F: FnMut(&SelArg),
 {
     func: F,
 }
 
 impl<F> StudyMutFn<F>
 where
-    F: FnMut(&Report, usize),
+    F: FnMut(&SelArg),
 {
     pub fn new(func: F) -> Self {
         Self { func }
@@ -232,10 +236,10 @@ where
 
 impl<F> Study for StudyMutFn<F>
 where
-    F: FnMut(&Report, usize),
+    F: FnMut(&SelArg),
 {
-    fn study(&mut self, rep: &Report, nr_missed: usize) -> Result<()> {
-        (self.func)(rep, nr_missed);
+    fn study(&mut self, arg: &SelArg) -> Result<()> {
+        (self.func)(arg);
         Ok(())
     }
 
@@ -427,23 +431,38 @@ impl<'a> Studies<'a> {
         let mut nr_reps = 0;
         let mut nr_missed = 0;
 
-        let mut nr_since_last = 0;
+        let mut last_at_ms = None;
+        let mut cnt = 0;
         for (rep, _) in run.report_iter(period) {
-            nr_since_last += 1;
+            cnt += 1;
             match rep {
                 Ok(rep) => {
-                    nr_reps += 1;
+                    let this_at_ms = rep.timestamp.timestamp_millis();
+                    let dur = match last_at_ms {
+                        Some(last) => (this_at_ms - last) as f64 / 1000.0,
+                        None => 1.0,
+                    };
+                    assert!(dur > 0.0);
+                    last_at_ms = Some(this_at_ms);
+
+                    let arg = SelArg {
+                        rep: &rep,
+                        dur,
+                        cnt,
+                    };
                     for study in self.studies.iter_mut() {
-                        study.study(&rep, nr_since_last)?;
+                        study.study(&arg)?;
                     }
-                    nr_since_last = 0;
+
+                    nr_reps += 1;
+                    cnt = 0;
                 }
                 Err(_) => nr_missed += 1,
             }
         }
 
         if nr_reps == 0 {
-            bail!("No report found between {} and {}", period.0, period.1);
+            bail!("No report found in {}", format_period(period));
         }
 
         Ok((nr_reps, nr_missed))

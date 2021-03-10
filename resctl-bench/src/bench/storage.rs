@@ -560,8 +560,8 @@ impl Job for StorageJob {
         self.period.1 = unix_now();
 
         // Study and record the results.
-        let mut study_rbps_all = StudyMean::new(|rep, _| vec![rep.usages[ROOT_SLICE].io_rbps]);
-        let mut study_wbps_all = StudyMean::new(|rep, _| vec![rep.usages[ROOT_SLICE].io_wbps]);
+        let mut study_rbps_all = StudyMean::new(|arg| vec![arg.rep.usages[ROOT_SLICE].io_rbps]);
+        let mut study_wbps_all = StudyMean::new(|arg| vec![arg.rep.usages[ROOT_SLICE].io_wbps]);
         let mut study_read_lat_pcts = StudyIoLatPcts::new("read", None);
         let mut study_write_lat_pcts = StudyIoLatPcts::new("write", None);
 
@@ -573,8 +573,8 @@ impl Job for StorageJob {
 
         let nr_reports = studies.run(rctx, self.period)?;
 
-        let mut study_rbps_final = StudyMean::new(|rep, _| vec![rep.usages[ROOT_SLICE].io_rbps]);
-        let mut study_wbps_final = StudyMean::new(|rep, _| vec![rep.usages[ROOT_SLICE].io_wbps]);
+        let mut study_rbps_final = StudyMean::new(|arg| vec![arg.rep.usages[ROOT_SLICE].io_rbps]);
+        let mut study_wbps_final = StudyMean::new(|arg| vec![arg.rep.usages[ROOT_SLICE].io_wbps]);
         let mut studies = Studies::new()
             .add(&mut study_rbps_final)
             .add(&mut study_wbps_final);
