@@ -430,8 +430,13 @@ impl StorageJob {
         }
     }
 
-    pub fn format_result<'a>(&self, out: &mut Box<dyn Write + 'a>, result: &StorageResult,
-                             header: bool, full: bool) {
+    pub fn format_result<'a>(
+        &self,
+        out: &mut Box<dyn Write + 'a>,
+        result: &StorageResult,
+        header: bool,
+        full: bool,
+    ) {
         if header {
             self.format_header(out, true, &result);
             writeln!(out, "").unwrap();

@@ -285,6 +285,7 @@ impl UsageTracker {
                     rep.io_wbps = ((cur.io_wbytes - last.io_wbytes) as f64 / dur).round() as u64;
                 }
                 rep.io_util = (cur.io_usage - last.io_usage) as f64 / 1_000_000.0 / dur;
+                rep.io_usage = cur.io_usage as f64 / 1_000_000.0;
                 rep.cpu_pressures = (
                     ((cur.cpu_stalls.0 - last.cpu_stalls.0) / dur)
                         .min(1.0)

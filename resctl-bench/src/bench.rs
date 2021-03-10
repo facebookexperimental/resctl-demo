@@ -63,7 +63,8 @@ impl HashdFakeCpuBench {
                 format!("--bench-file-frac={}", self.file_frac),
                 format!("--file-max={}", self.file_frac),
             ],
-        ).context("Starting fake-cpu-load hashd bench")
+        )
+        .context("Starting fake-cpu-load hashd bench")
     }
 }
 
