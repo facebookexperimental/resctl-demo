@@ -211,7 +211,7 @@ impl IoCostQoSJob {
                     if let Some(pd) = prev_data.as_ref() {
                         // If prev has dither_dist set, use the prev dither_dist
                         // so that we can use results from it.
-                        let pr = serde_json::from_value::<IoCostQoSResult>(pd.result.clone())?;
+                        let pr: IoCostQoSResult = pd.parse_record()?;
                         if let Some(pdd) = pr.dither_dist.as_ref() {
                             dither_dist = Some(*pdd);
                         }
@@ -545,7 +545,7 @@ impl Job for IoCostQoSJob {
 
         let (prev_matches, mut prev_result) = match rctx.prev_job_data() {
             Some(pd) => {
-                let pr = serde_json::from_value::<IoCostQoSResult>(pd.result).unwrap();
+                let pr: IoCostQoSResult = pd.parse_record()?;
                 (self.prev_matches(&pr, &bench), pr)
             }
             None => (
@@ -702,7 +702,7 @@ impl Job for IoCostQoSJob {
                             }
                         }
                         prev_result.inc_results.push(result.clone());
-                        rctx.update_incremental_result(serde_json::to_value(&prev_result).unwrap());
+                        rctx.update_incremental_record(serde_json::to_value(&prev_result).unwrap());
                         results.push(Some(result));
                         break;
                     }
@@ -748,7 +748,7 @@ impl Job for IoCostQoSJob {
             }
         }
 
-        let result = serde_json::from_value::<IoCostQoSResult>(data.result.clone()).unwrap();
+        let result: IoCostQoSResult = data.parse_record()?;
 
         if result.results.len() == 0
             || result.results[0].is_none()

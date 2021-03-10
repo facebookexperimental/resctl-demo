@@ -725,8 +725,9 @@ impl Job for IoCostTuneJob {
             }
         };
 
-        let src: IoCostQoSResult = serde_json::from_value(qos_data.result)
-            .map_err(|e| anyhow!("failed to parse iocost-qos result ({})", &e))?;
+        let src: IoCostQoSResult = qos_data
+            .parse_record()
+            .context("Parsing iocost-qos result")?;
         let mut data = BTreeMap::<DataSel, DataSeries>::default();
 
         if self.mem_profile == 0 {
@@ -830,7 +831,7 @@ impl Job for IoCostTuneJob {
             }
         }
 
-        let result = serde_json::from_value::<IoCostTuneResult>(data.result.clone()).unwrap();
+        let result: IoCostTuneResult = data.parse_record()?;
 
         write!(
             out,

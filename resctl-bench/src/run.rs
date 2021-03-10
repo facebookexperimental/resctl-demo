@@ -357,10 +357,10 @@ impl<'a> RunCtx<'a> {
         jobs.prev.save_results(self.result_path);
     }
 
-    pub fn update_incremental_result(&mut self, result: serde_json::Value) {
+    pub fn update_incremental_record(&mut self, record: serde_json::Value) {
         let prev_uid = *self.prev_uid.iter().last().unwrap();
         let mut jobs = self.jobs.lock().unwrap();
-        jobs.prev.by_uid_mut(prev_uid).unwrap().data.result = result;
+        jobs.prev.by_uid_mut(prev_uid).unwrap().data.record = Some(record);
         jobs.prev.save_results(self.result_path);
     }
 
@@ -901,7 +901,7 @@ impl<'a> RunCtx<'a> {
         let jobs = self.jobs.lock().unwrap();
         let prev_uid = *self.prev_uid.iter().last().unwrap();
         let prev = jobs.prev.by_uid(prev_uid).unwrap();
-        match prev.data.result_valid() {
+        match prev.data.result.is_some() {
             true => Some(prev.data.clone()),
             false => None,
         }

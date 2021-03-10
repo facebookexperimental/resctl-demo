@@ -56,7 +56,7 @@ impl Job for IoCostParamsJob {
         _full: bool,
         _props: &JobProps,
     ) -> Result<()> {
-        let result = serde_json::from_value::<IoCostKnobs>(data.result.clone()).unwrap();
+        let result: IoCostKnobs = data.parse_record()?;
         let model = &result.model;
         let qos = &result.qos;
 

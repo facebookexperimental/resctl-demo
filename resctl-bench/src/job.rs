@@ -1,5 +1,5 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
-use anyhow::{bail, Result};
+use anyhow::{bail, Error, Result};
 use chrono::{DateTime, Local};
 use log::warn;
 use serde::{Deserialize, Serialize};
@@ -19,6 +19,9 @@ use resctl_bench_intf::{JobProps, JobSpec, Mode};
 pub trait Job {
     fn sysreqs(&self) -> BTreeSet<SysReq>;
     fn run(&mut self, rctx: &mut RunCtx) -> Result<serde_json::Value>;
+    fn study(&self, _rctx: &mut RunCtx, _record: &serde_json::Value) -> Result<serde_json::Value> {
+        Ok(serde_json::Value::Bool(true))
+    }
     fn format<'a>(
         &self,
         out: Box<dyn Write + 'a>,
@@ -42,9 +45,11 @@ pub struct JobData {
     pub started_at: u64,
     pub ended_at: u64,
     pub sysreqs: SysReqs,
-    pub result: serde_json::Value,
+    pub record: Option<serde_json::Value>,
+    pub result: Option<serde_json::Value>,
 }
 
+// This part gets stored in the result file.
 impl JobData {
     fn new(spec: &JobSpec) -> Self {
         Self {
@@ -52,12 +57,29 @@ impl JobData {
             started_at: 0,
             ended_at: 0,
             sysreqs: Default::default(),
-            result: serde_json::Value::Null,
+            record: None,
+            result: None,
         }
     }
 
-    pub fn result_valid(&self) -> bool {
-        self.result != serde_json::Value::Null
+    pub fn parse_record<T>(&self) -> Result<T>
+    where
+        T: serde::de::DeserializeOwned,
+    {
+        match self.record.as_ref() {
+            Some(rec) => serde_json::from_value::<T>(rec.clone()).map_err(Error::new),
+            None => bail!("Job record not found"),
+        }
+    }
+
+    pub fn parse_result<T>(&self) -> Result<T>
+    where
+        T: serde::de::DeserializeOwned,
+    {
+        match self.result.as_ref() {
+            Some(res) => serde_json::from_value::<T>(res.clone()).map_err(Error::new),
+            None => bail!("Job result not found"),
+        }
     }
 }
 
@@ -120,7 +142,7 @@ impl JobCtx {
         self.incremental = desc.incremental;
 
         let prev_data = match prev_data {
-            None => match self.data.result_valid() {
+            None => match self.data.result.is_some() {
                 true => Some(&self.data),
                 false => None,
             },
@@ -164,7 +186,7 @@ impl JobCtx {
         rctx.add_sysreqs(data.sysreqs.required.clone());
 
         data.started_at = unix_now();
-        let result = job.run(rctx)?;
+        let record = job.run(rctx)?;
         data.ended_at = unix_now();
 
         if rctx.sysreqs_report().is_some() {
@@ -192,10 +214,22 @@ impl JobCtx {
                 &data.spec
             );
         }
-        data.result = result;
+
+        data.record = Some(record);
+        let res = match job.study(rctx, data.record.as_ref().unwrap()) {
+            Ok(result) => {
+                data.result = Some(result);
+                Ok(())
+            }
+            Err(e) => Err(e),
+        };
+
+        // We still wanna save what came out of the run phase even if the
+        // study phase failed.
         rctx.update_incremental_jctx(&self);
         assert!(rctx.prev_uid.pop().unwrap() == self.prev_uid.unwrap());
-        Ok(())
+
+        res
     }
 
     pub fn format(&self, mode: Mode, props: &JobProps) -> Result<String> {
@@ -313,7 +347,7 @@ impl JobCtx {
 
     pub fn print(&self, mode: Mode, props: &JobProps) -> Result<()> {
         // Format only the completed jobs.
-        if self.data.result_valid() {
+        if self.data.result.is_some() {
             println!("{}\n\n{}", "=".repeat(90), &self.format(mode, props)?);
         }
         Ok(())

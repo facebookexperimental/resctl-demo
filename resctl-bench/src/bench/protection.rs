@@ -922,7 +922,7 @@ impl Job for ProtectionJob {
         full: bool,
         _props: &JobProps,
     ) -> Result<()> {
-        let result = serde_json::from_value::<ProtectionResult>(data.result.clone()).unwrap();
+        let result :ProtectionResult = data.parse_record()?;
         self.format_result(&mut out, &result, full, "");
         Ok(())
     }

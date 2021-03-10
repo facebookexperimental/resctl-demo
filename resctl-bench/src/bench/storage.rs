@@ -632,7 +632,7 @@ impl Job for StorageJob {
         full: bool,
         _props: &JobProps,
     ) -> Result<()> {
-        let result = serde_json::from_value::<StorageResult>(data.result.clone()).unwrap();
+        let result: StorageResult = data.parse_record()?;
         self.format_result(&mut out, &result, true, full);
         Ok(())
     }

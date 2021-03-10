@@ -333,7 +333,7 @@ impl Program {
 
         for (jctx, props) in to_format.iter() {
             if let Err(e) = jctx.print(mode, props) {
-                error!("Failed to format {}: {}", &jctx.data.spec, &e);
+                error!("Failed to format {}: {:#}", &jctx.data.spec, &e);
                 panic!();
             }
         }
