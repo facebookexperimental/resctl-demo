@@ -291,12 +291,6 @@ impl Program {
                 panic!();
             }
         }
-
-        // Write the result file.
-        let jobs = self.jobs.lock().unwrap();
-        if jobs.done.vec.len() > 0 {
-            jobs.done.save_results(&args.result);
-        }
     }
 
     fn do_format(&mut self, mode: Mode) {
