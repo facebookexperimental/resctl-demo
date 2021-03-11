@@ -15,9 +15,7 @@ const DFL_STORAGE_BASE_LOOPS: u32 = 3;
 const DFL_STORAGE_LOOPS: u32 = 1;
 const DFL_PROT_LOOPS: u32 = 2;
 const DFL_RETRIES: u32 = 1;
-const PROT_MEM_TRIES: u32 = 4;
-const PROT_OTHER_TRIES: u32 = 2;
-const PROT_MEM_STEP: f64 = 0.05;
+const PROT_TRIES: u32 = 4;
 
 // Don't go below 1% of the specified model when applying vrate-intvs.
 const VRATE_INTVS_MIN: f64 = 1.0;
@@ -427,7 +425,7 @@ impl IoCostQoSJob {
                 }
             }
         };
-        let mut storage = parse_json_value_or_dump::<StorageResult>(result)
+        let storage = parse_json_value_or_dump::<StorageResult>(result)
             .context("parsing storage result")
             .unwrap();
 
@@ -437,7 +435,6 @@ impl IoCostQoSJob {
         rctx.load_bench()?;
 
         // Run the protection bench.
-        let mem_step = (storage.mem_size as f64 * PROT_MEM_STEP).round() as usize;
         let mut tries = 0;
         let protection = loop {
             tries += 1;
@@ -458,40 +455,18 @@ impl IoCostQoSJob {
                         .unwrap()
                 }
                 Err(e) => {
-                    let warn_skip = |e| {
+                    if tries < PROT_TRIES {
+                        warn!(
+                            "iocost-qos: Protection benchmark failed ({:#}), retrying...",
+                            &e
+                        );
+                    } else {
                         warn!(
                             "iocost-qos: Protection benchmark failed too many times \
                                ({:#}), skipping...",
-                            e
-                        )
-                    };
-                    match e.downcast_ref::<RunCtxErr>() {
-                        Some(RunCtxErr::HashdStabilizationTimeout { timeout: _ }) => {
-                            if tries < PROT_MEM_TRIES {
-                                storage.mem_size -= mem_step;
-                                storage.mem_offload_factor =
-                                    storage.mem_size as f64 / storage.mem_usage as f64;
-                                warn!(
-                                    "iocost-qos: Hashd stabilization timed out, \
-                                 reducing memory size to {} and retrying...",
-                                    format_size(storage.mem_size),
-                                );
-                            } else {
-                                warn_skip(&e);
-                                break ProtectionResult::default();
-                            }
-                        }
-                        _ => {
-                            if tries < PROT_OTHER_TRIES {
-                                warn!(
-                                    "iocost-qos: Protection benchmark failed ({:#}), retrying...",
-                                    &e
-                                );
-                            } else {
-                                warn_skip(&e);
-                                break ProtectionResult::default();
-                            }
-                        }
+                            &e
+                        );
+                        break ProtectionResult::default();
                     }
                 }
             }
