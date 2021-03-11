@@ -1,5 +1,4 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
-#![allow(dead_code)]
 use anyhow::{bail, Result};
 use num_traits::cast::AsPrimitive;
 use quantiles::ckms::CKMS;

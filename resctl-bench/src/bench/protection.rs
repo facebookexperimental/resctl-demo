@@ -105,8 +105,14 @@ pub struct MemHog {
     pub loops: u32,
     pub load: f64,
     pub speed: MemHogSpeed,
-    pub period: (u64, u64),
-    pub runs: Vec<MemHogRun>,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+struct MemHogRecord {
+    period: (u64, u64),
+    runs: Vec<MemHogRun>,
+    #[serde(skip)]
+    result: RefCell<Option<MemHogResult>>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -139,8 +145,6 @@ pub struct MemHogResult {
     pub hog_io_loss: f64,
     pub hog_bytes: u64,
     pub hog_lost_bytes: u64,
-
-    pub runs: Vec<MemHogRun>,
 }
 
 impl MemHog {
@@ -163,8 +167,9 @@ impl MemHog {
             .with_context(|| format!("failed to read bandit-mem-hog report {:?}", &mh_rep_path))
     }
 
-    fn run(&mut self, rctx: &mut RunCtx) -> Result<MemHogResult> {
-        self.period.0 = unix_now();
+    fn run(&mut self, rctx: &mut RunCtx) -> Result<MemHogRecord> {
+        let started_at = unix_now();
+        let mut runs = vec![];
         for run_idx in 0..self.loops {
             let started_at = unix_now();
             info!(
@@ -251,7 +256,7 @@ impl MemHog {
                 self.loops
             );
 
-            self.runs.push(MemHogRun {
+            runs.push(MemHogRun {
                 stable_at,
                 hog_started_at,
                 hog_ended_at,
@@ -260,10 +265,17 @@ impl MemHog {
                 last_hog_mem,
             });
         }
-        self.period.1 = unix_now();
 
-        let mut result = Self::study(rctx, self.runs.iter(), self.period)?;
-        result.runs = self.runs.clone();
+        let rec = MemHogRecord {
+            period: (started_at, unix_now()),
+            runs,
+            result: RefCell::new(None),
+        };
+
+        // Protection benches can take a long time. Pre-run study so that we
+        // can report progress. Later study phase will simply take result
+        // computed here if available.
+        let result = self.study(rctx, &rec)?;
         info!(
             "protection: isol={}%:{} lat_imp={}%:{} work_csv={}% missing={}%",
             format_pct(result.isol),
@@ -273,7 +285,9 @@ impl MemHog {
             format_pct(result.work_csv),
             format_pct(Studies::reports_missing(result.nr_reports)),
         );
-        Ok(result)
+
+        rec.result.replace(Some(result));
+        Ok(rec)
     }
 
     fn calc_isol(rps: f64, base_rps: f64) -> f64 {
@@ -284,11 +298,12 @@ impl MemHog {
         (lat / base_lat - 1.0).max(0.0)
     }
 
-    fn study<'a, I>(rctx: &RunCtx, runs: I, period: (u64, u64)) -> Result<MemHogResult>
-    where
-        I: Iterator<Item = &'a MemHogRun>,
-    {
-        let runs: Vec<&MemHogRun> = runs.collect();
+    fn study(&self, rctx: &RunCtx, rec: &MemHogRecord) -> Result<MemHogResult> {
+        // We might already have run before as a part of the run phase. If
+        // so, return the cached result.
+        if let Some(res) = rec.result.replace(None) {
+            return Ok(res);
+        }
 
         // Protection benchmarks can cause severe pressure events causing
         // many missing datapoints. To avoid being misled, use accumluative
@@ -313,7 +328,7 @@ impl MemHog {
             .add(&mut study_base_rps)
             .add(&mut study_base_lat);
 
-        for run in runs.iter() {
+        for run in rec.runs.iter() {
             last_nr_done.replace(None);
             studies.run(rctx, (run.stable_at, run.hog_started_at))?;
         }
@@ -385,7 +400,8 @@ impl MemHog {
             .add(&mut study_lat_imp)
             .add(&mut study_io_usages);
 
-        let hog_periods: Vec<(u64, u64)> = runs
+        let hog_periods: Vec<(u64, u64)> = rec
+            .runs
             .iter()
             .map(|run| {
                 (
@@ -415,7 +431,7 @@ impl MemHog {
             .add(&mut study_vrate_mean)
             .add_multiple(&mut study_read_lat_pcts.studies())
             .add_multiple(&mut study_write_lat_pcts.studies())
-            .run(rctx, period)?;
+            .run(rctx, rec.period)?;
 
         let (vrate, vrate_stdev, _, _) = study_vrate_mean.result();
         let iolat_pcts = [
@@ -427,7 +443,7 @@ impl MemHog {
         // much their growth was limited.
         let mut hog_bytes = 0;
         let mut hog_lost_bytes = 0;
-        for run in runs.iter() {
+        for run in rec.runs.iter() {
             // Total bytes put out to swap is total size sans what was on
             // physical memory.
             hog_bytes += run
@@ -471,7 +487,7 @@ impl MemHog {
             iolat_pcts,
 
             nr_reports,
-            periods: vec![period],
+            periods: vec![rec.period],
             hog_periods,
             vrate,
             vrate_stdev,
@@ -481,13 +497,14 @@ impl MemHog {
             hog_io_loss,
             hog_bytes,
             hog_lost_bytes,
-
-            runs: vec![],
         })
     }
 
-    fn combine_results(rctx: &RunCtx, results: &[&MemHogResult]) -> Result<MemHogResult> {
-        assert!(results.len() > 0);
+    fn combine_results(
+        rctx: &RunCtx,
+        rrs: &[(&MemHogRecord, &MemHogResult)],
+    ) -> Result<MemHogResult> {
+        assert!(rrs.len() > 0);
 
         let mut cmb = MemHogResult::default();
 
@@ -497,39 +514,39 @@ impl MemHog {
         // stdevs: Sqrt of pooled variance by the number of runs.
         // sums: Simple sum.
         let mut total_runs = 0;
-        for r in results.iter() {
-            total_runs += r.runs.len();
+        for (rec, res) in rrs.iter() {
+            total_runs += rec.runs.len();
 
             // Weighted sum for weighted avg calculation.
-            let wsum = |c: &mut f64, v: f64| *c += v * (r.runs.len() as f64);
-            wsum(&mut cmb.base_rps, r.base_rps);
-            wsum(&mut cmb.base_lat, r.base_lat);
-            wsum(&mut cmb.isol, r.isol);
-            wsum(&mut cmb.lat_imp, r.lat_imp);
-            wsum(&mut cmb.work_csv, r.work_csv);
-            wsum(&mut cmb.vrate, r.vrate);
+            let wsum = |c: &mut f64, v: f64| *c += v * (rec.runs.len() as f64);
+            wsum(&mut cmb.base_rps, res.base_rps);
+            wsum(&mut cmb.base_lat, res.base_lat);
+            wsum(&mut cmb.isol, res.isol);
+            wsum(&mut cmb.lat_imp, res.lat_imp);
+            wsum(&mut cmb.work_csv, res.work_csv);
+            wsum(&mut cmb.vrate, res.vrate);
 
-            if r.runs.len() > 1 {
+            if rec.runs.len() > 1 {
                 // Weighted variance sum for pooled variance calculation.
-                let vsum = |c: &mut f64, v: f64| *c += v.powi(2) * (r.runs.len() - 1) as f64;
-                vsum(&mut cmb.base_rps_stdev, r.base_rps_stdev);
-                vsum(&mut cmb.base_lat_stdev, r.base_lat_stdev);
-                vsum(&mut cmb.isol_stdev, r.isol_stdev);
-                vsum(&mut cmb.lat_imp_stdev, r.lat_imp_stdev);
-                vsum(&mut cmb.vrate_stdev, r.vrate_stdev);
+                let vsum = |c: &mut f64, v: f64| *c += v.powi(2) * (rec.runs.len() - 1) as f64;
+                vsum(&mut cmb.base_rps_stdev, res.base_rps_stdev);
+                vsum(&mut cmb.base_lat_stdev, res.base_lat_stdev);
+                vsum(&mut cmb.isol_stdev, res.isol_stdev);
+                vsum(&mut cmb.lat_imp_stdev, res.lat_imp_stdev);
+                vsum(&mut cmb.vrate_stdev, res.vrate_stdev);
             }
 
-            cmb.nr_reports.0 += r.nr_reports.0;
-            cmb.nr_reports.1 += r.nr_reports.1;
-            cmb.io_usage += r.io_usage;
-            cmb.io_unused += r.io_unused;
-            cmb.hog_io_usage += r.hog_io_usage;
-            cmb.hog_io_loss += r.hog_io_loss;
-            cmb.hog_bytes += r.hog_bytes;
-            cmb.hog_lost_bytes += r.hog_lost_bytes;
+            cmb.nr_reports.0 += res.nr_reports.0;
+            cmb.nr_reports.1 += res.nr_reports.1;
+            cmb.io_usage += res.io_usage;
+            cmb.io_unused += res.io_unused;
+            cmb.hog_io_usage += res.hog_io_usage;
+            cmb.hog_io_loss += res.hog_io_loss;
+            cmb.hog_bytes += res.hog_bytes;
+            cmb.hog_lost_bytes += res.hog_lost_bytes;
 
-            cmb.periods.append(&mut r.periods.clone());
-            cmb.hog_periods.append(&mut r.hog_periods.clone());
+            cmb.periods.append(&mut res.periods.clone());
+            cmb.hog_periods.append(&mut res.hog_periods.clone());
         }
 
         let base = total_runs as f64;
@@ -540,8 +557,8 @@ impl MemHog {
         cmb.work_csv /= base;
         cmb.vrate /= base;
 
-        if total_runs > results.len() {
-            let base = (total_runs - results.len()) as f64;
+        if total_runs > rrs.len() {
+            let base = (total_runs - rrs.len()) as f64;
             let vsum_to_stdev = |v: &mut f64| *v = (*v / base).sqrt();
             vsum_to_stdev(&mut cmb.base_rps_stdev);
             vsum_to_stdev(&mut cmb.base_lat_stdev);
@@ -586,12 +603,12 @@ impl MemHog {
 
         let mut studies = Studies::new().add(&mut study_isol).add(&mut study_lat_imp);
 
-        for r in results.iter() {
-            base_rps.replace(r.base_rps);
-            base_lat.replace(r.base_lat);
+        for (_rec, res) in rrs.iter() {
+            base_rps.replace(res.base_rps);
+            base_lat.replace(res.base_lat);
             last_nr_done.replace(None);
 
-            for per in r.hog_periods.iter() {
+            for per in res.hog_periods.iter() {
                 studies.run(rctx, *per)?;
             }
         }
@@ -708,6 +725,11 @@ pub enum Scenario {
     MemHog(MemHog),
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
+enum ScenarioRecord {
+    MemHog(MemHogRecord),
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 pub enum ScenarioResult {
     MemHog(MemHogResult),
@@ -731,21 +753,23 @@ impl Scenario {
                         bail!("\"loops\" can't be 0");
                     }
                 }
-                Ok(Self::MemHog(MemHog {
-                    loops,
-                    load,
-                    speed,
-                    period: (0, 0),
-                    runs: vec![],
-                }))
+                Ok(Self::MemHog(MemHog { loops, load, speed }))
             }
             _ => bail!("\"scenario\" invalid or missing"),
         }
     }
 
-    fn run(&mut self, rctx: &mut RunCtx) -> Result<ScenarioResult> {
+    fn run(&mut self, rctx: &mut RunCtx) -> Result<ScenarioRecord> {
         Ok(match self {
-            Self::MemHog(mem_hog) => ScenarioResult::MemHog(mem_hog.run(rctx)?),
+            Self::MemHog(mem_hog) => ScenarioRecord::MemHog(mem_hog.run(rctx)?),
+        })
+    }
+
+    fn study(&self, rctx: &RunCtx, rec: &ScenarioRecord) -> Result<ScenarioResult> {
+        Ok(match (self, rec) {
+            (Self::MemHog(mem_hog), ScenarioRecord::MemHog(rec)) => {
+                ScenarioResult::MemHog(mem_hog.study(rctx, rec)?)
+            }
         })
     }
 }
@@ -893,17 +917,28 @@ impl Job for ProtectionJob {
         }
         rctx.set_prep_testfiles().start_agent(vec![])?;
 
+        let mut record = vec![];
+        for scn in self.scenarios.iter_mut() {
+            record.push(scn.run(rctx)?);
+        }
+
+        Ok(serde_json::to_value(&record).unwrap())
+    }
+
+    fn study(&self, rctx: &RunCtx, data: &JobData) -> Result<serde_json::Value> {
+        let records: Vec<ScenarioRecord> = data.parse_record()?;
+
         let mut result = ProtectionResult::default();
 
-        for scn in self.scenarios.iter_mut() {
-            result.scenarios.push(scn.run(rctx)?);
+        for (scn, rec) in self.scenarios.iter().zip(records.iter()) {
+            result.scenarios.push(scn.study(rctx, rec)?);
         }
 
         let mut mhs = vec![];
-        for result in result.scenarios.iter() {
-            match result {
-                ScenarioResult::MemHog(mh) => {
-                    mhs.push(mh);
+        for (rec, res) in records.iter().zip(result.scenarios.iter()) {
+            match (rec, res) {
+                (ScenarioRecord::MemHog(rec), ScenarioResult::MemHog(res)) => {
+                    mhs.push((rec, res));
                 }
             }
         }
@@ -922,7 +957,7 @@ impl Job for ProtectionJob {
         full: bool,
         _props: &JobProps,
     ) -> Result<()> {
-        let result :ProtectionResult = data.parse_record()?;
+        let result: ProtectionResult = data.parse_result()?;
         self.format_result(&mut out, &result, full, "");
         Ok(())
     }

@@ -19,7 +19,7 @@ use resctl_bench_intf::{JobProps, JobSpec, Mode};
 pub trait Job {
     fn sysreqs(&self) -> BTreeSet<SysReq>;
     fn run(&mut self, rctx: &mut RunCtx) -> Result<serde_json::Value>;
-    fn study(&self, _rctx: &mut RunCtx, _record: &serde_json::Value) -> Result<serde_json::Value> {
+    fn study(&self, _rctx: &RunCtx, _data: &JobData) -> Result<serde_json::Value> {
         Ok(serde_json::Value::Bool(true))
     }
     fn format<'a>(
@@ -176,49 +176,50 @@ impl JobCtx {
         let pdata = rctx.prev_job_data();
         if pdata.is_some() && !self.incremental {
             self.data = pdata.unwrap();
-            assert!(rctx.prev_uid.pop().unwrap() == self.prev_uid.unwrap());
-            return Ok(());
-        }
-
-        let job = self.job.as_mut().unwrap();
-        let data = &mut self.data;
-        data.sysreqs.required = job.sysreqs();
-        rctx.add_sysreqs(data.sysreqs.required.clone());
-
-        data.started_at = unix_now();
-        let record = job.run(rctx)?;
-        data.ended_at = unix_now();
-
-        if rctx.sysreqs_report().is_some() {
-            data.sysreqs.report = Some((*rctx.sysreqs_report().unwrap()).clone());
-            data.sysreqs.missed = rctx.missed_sysreqs();
-            if let Some(rep) = rctx.report_sample() {
-                data.sysreqs.iocost = rep.iocost.clone();
-            }
-        } else if rctx.sysreqs_forward.is_some() {
-            data.sysreqs = rctx.sysreqs_forward.take().unwrap();
-        } else if pdata.is_some() {
-            data.sysreqs = rctx
-                .jobs
-                .lock()
-                .unwrap()
-                .prev
-                .by_uid(self.prev_uid.unwrap())
-                .unwrap()
-                .data
-                .sysreqs
-                .clone();
         } else {
-            warn!(
-                "job: No sysreqs available for {:?} after completion",
-                &data.spec
-            );
+            let job = self.job.as_mut().unwrap();
+            let data = &mut self.data;
+            data.sysreqs.required = job.sysreqs();
+            rctx.add_sysreqs(data.sysreqs.required.clone());
+
+            data.started_at = unix_now();
+            let record = job.run(rctx)?;
+            data.ended_at = unix_now();
+
+            if rctx.sysreqs_report().is_some() {
+                data.sysreqs.report = Some((*rctx.sysreqs_report().unwrap()).clone());
+                data.sysreqs.missed = rctx.missed_sysreqs();
+                if let Some(rep) = rctx.report_sample() {
+                    data.sysreqs.iocost = rep.iocost.clone();
+                }
+            } else if rctx.sysreqs_forward.is_some() {
+                data.sysreqs = rctx.sysreqs_forward.take().unwrap();
+            } else if pdata.is_some() {
+                data.sysreqs = rctx
+                    .jobs
+                    .lock()
+                    .unwrap()
+                    .prev
+                    .by_uid(self.prev_uid.unwrap())
+                    .unwrap()
+                    .data
+                    .sysreqs
+                    .clone();
+            } else {
+                warn!(
+                    "job: No sysreqs available for {:?} after completion",
+                    &data.spec
+                );
+            }
+
+            data.record = Some(record);
         }
 
-        data.record = Some(record);
-        let res = match job.study(rctx, data.record.as_ref().unwrap()) {
+        rctx.maybe_cycle_agent()?;
+
+        let res = match self.job.as_ref().unwrap().study(rctx, &self.data) {
             Ok(result) => {
-                data.result = Some(result);
+                self.data.result = Some(result);
                 Ok(())
             }
             Err(e) => Err(e),

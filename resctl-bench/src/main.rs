@@ -287,7 +287,7 @@ impl Program {
             let mut rctx = RunCtx::new(&args, &mut base_bench, self.jobs.clone());
             let name = format!("{}", &jctx.data.spec);
             if let Err(e) = rctx.run_jctx(jctx) {
-                error!("{}: {}", &name, &e);
+                error!("{}: {:?}", &name, &e);
                 panic!();
             }
         }

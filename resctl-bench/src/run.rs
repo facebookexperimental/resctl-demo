@@ -5,6 +5,7 @@ use log::{debug, error, info, warn};
 use std::collections::{BTreeSet, VecDeque};
 use std::fmt::Write;
 use std::process::Command;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::{spawn, JoinHandle};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -26,6 +27,8 @@ const CMD_TIMEOUT: Duration = Duration::from_secs(120);
 const REP_RECORD_CADENCE: u64 = 10;
 const REP_RECORD_RETENTION: usize = 3;
 const HASHD_SLOPER_SLOTS: usize = 10;
+
+static AGENT_WAS_ACTIVE: AtomicBool = AtomicBool::new(false);
 
 #[derive(Error, Debug)]
 pub enum RunCtxErr {
@@ -538,6 +541,7 @@ impl<'a> RunCtx<'a> {
         // Start recording reports.
         self.inner.lock().unwrap().record_rep(true);
 
+        AGENT_WAS_ACTIVE.store(true, Ordering::Relaxed);
         Ok(())
     }
 
@@ -553,6 +557,14 @@ impl<'a> RunCtx<'a> {
         if let Some(jh) = minder_jh {
             jh.join().unwrap();
         }
+    }
+
+    pub fn maybe_cycle_agent(&mut self) -> Result<()> {
+        if !AGENT_WAS_ACTIVE.load(Ordering::Relaxed) {
+            self.start_agent(vec![]).context("Cycling rd_agent")?;
+            self.stop_agent();
+        }
+        Ok(())        
     }
 
     pub fn wait_cond<F>(
@@ -901,7 +913,7 @@ impl<'a> RunCtx<'a> {
         let jobs = self.jobs.lock().unwrap();
         let prev_uid = *self.prev_uid.iter().last().unwrap();
         let prev = jobs.prev.by_uid(prev_uid).unwrap();
-        match prev.data.result.is_some() {
+        match prev.data.record.is_some() {
             true => Some(prev.data.clone()),
             false => None,
         }
@@ -949,9 +961,7 @@ impl<'a> RunCtx<'a> {
             .save(&self.bench_path)
             .with_context(|| format!("Setting up {:?}", &self.bench_path))?;
 
-        if let Err(e) = jctx.run(self) {
-            bail!("Failed to run ({:#})", &e);
-        }
+        jctx.run(self).context("Running job")?;
 
         if self.commit_bench {
             self.load_bench()?;
