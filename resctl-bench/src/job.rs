@@ -19,7 +19,7 @@ use resctl_bench_intf::{JobProps, JobSpec, Mode};
 pub trait Job {
     fn sysreqs(&self) -> BTreeSet<SysReq>;
     fn run(&mut self, rctx: &mut RunCtx) -> Result<serde_json::Value>;
-    fn study(&self, _rctx: &RunCtx, _data: &JobData) -> Result<serde_json::Value> {
+    fn study(&self, _rctx: &RunCtx, _rec_json: serde_json::Value) -> Result<serde_json::Value> {
         Ok(serde_json::Value::Bool(true))
     }
     fn format<'a>(
@@ -217,7 +217,12 @@ impl JobCtx {
 
         rctx.maybe_cycle_agent()?;
 
-        let res = match self.job.as_ref().unwrap().study(rctx, &self.data) {
+        let res = match self
+            .job
+            .as_ref()
+            .unwrap()
+            .study(rctx, self.data.record.as_ref().unwrap().clone())
+        {
             Ok(result) => {
                 self.data.result = Some(result);
                 Ok(())

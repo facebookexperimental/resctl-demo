@@ -925,8 +925,8 @@ impl Job for ProtectionJob {
         Ok(serde_json::to_value(&record).unwrap())
     }
 
-    fn study(&self, rctx: &RunCtx, data: &JobData) -> Result<serde_json::Value> {
-        let records: Vec<ScenarioRecord> = data.parse_record()?;
+    fn study(&self, rctx: &RunCtx, rec_json: serde_json::Value) -> Result<serde_json::Value> {
+        let records: Vec<ScenarioRecord> = parse_json_value_or_dump(rec_json)?;
 
         let mut result = ProtectionResult::default();
 
