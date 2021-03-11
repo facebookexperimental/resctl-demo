@@ -426,6 +426,9 @@ impl IoCostQoSJob {
             match r {
                 Ok(r) => break r,
                 Err(e) => {
+                    if prog_exiting() {
+                        return Err(e);
+                    }
                     if tries > nr_stor_retries {
                         return Err(e.context("Storage benchmark failed too many times"));
                     }
@@ -473,6 +476,9 @@ impl IoCostQoSJob {
                         .unwrap()
                 }
                 Err(e) => {
+                    if prog_exiting() {
+                        return Err(e);
+                    }
                     if tries < PROT_TRIES {
                         warn!(
                             "iocost-qos: Protection benchmark failed ({:#}), retrying...",
@@ -481,7 +487,7 @@ impl IoCostQoSJob {
                     } else {
                         warn!(
                             "iocost-qos: Protection benchmark failed too many times \
-                               ({:#}), skipping...",
+                             ({:#}), skipping...",
                             &e
                         );
                         break ProtectionRecord::default();
@@ -723,7 +729,7 @@ impl Job for IoCostQoSJob {
                         break;
                     }
                     Err(e) => {
-                        if !self.allow_fail {
+                        if !self.allow_fail || prog_exiting() {
                             error!("iocost-qos[{:02}]: Failed ({:?}), giving up...", i, &e);
                             return Err(e);
                         }
