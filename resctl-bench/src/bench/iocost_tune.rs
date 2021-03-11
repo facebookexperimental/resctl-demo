@@ -853,7 +853,7 @@ impl Job for IoCostTuneJob {
             }
         }
 
-        let result: IoCostTuneResult = data.parse_record()?;
+        let result: IoCostTuneResult = data.parse_result()?;
 
         write!(
             out,
