@@ -2,8 +2,8 @@
 use super::*;
 use rand::Rng;
 
-use super::protection::{self, ProtectionJob, ProtectionResult};
-use super::storage::{StorageJob, StorageResult};
+use super::protection::{self, ProtectionJob, ProtectionRecord, ProtectionResult};
+use super::storage::{StorageJob, StorageRecord, StorageResult};
 use rd_agent_intf::BenchKnobs;
 use std::collections::BTreeMap;
 
@@ -94,28 +94,39 @@ impl Bench for IoCostQoSBench {
     }
 }
 
-#[derive(Clone, Serialize, Deserialize)]
-pub struct IoCostQoSRun {
+#[derive(Clone, Default, Serialize, Deserialize)]
+pub struct IoCostQoSRecordRun {
+    pub period: (u64, u64),
     pub ovr: Option<IoCostQoSOvr>,
     pub qos: Option<IoCostQoSParams>,
-    pub storage: StorageResult,
-    pub protection: ProtectionResult,
+    pub stor: StorageRecord,
+    pub prot: ProtectionRecord,
+}
+
+#[derive(Clone, Default, Serialize, Deserialize)]
+pub struct IoCostQoSRecord {
+    pub base_model: IoCostModelParams,
+    pub base_qos: IoCostQoSParams,
+    pub mem_profile: u32,
+    pub runs: Vec<Option<IoCostQoSRecordRun>>,
+    dither_dist: Option<f64>,
+    inc_runs: Vec<IoCostQoSRecordRun>,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct IoCostQoSResultRun {
+    pub stor: StorageResult,
+    pub prot: ProtectionResult,
     pub vrate: f64,
     pub vrate_stdev: f64,
     pub vrate_pcts: BTreeMap<String, f64>,
     pub iolat_pcts: [BTreeMap<String, BTreeMap<String, f64>>; 2],
     pub nr_reports: (u64, u64),
-    pub period: (u64, u64),
 }
 
 #[derive(Serialize, Deserialize, Clone, Default)]
 pub struct IoCostQoSResult {
-    pub base_model: IoCostModelParams,
-    pub base_qos: IoCostQoSParams,
-    pub mem_profile: u32,
-    pub dither_dist: Option<f64>,
-    pub results: Vec<Option<IoCostQoSRun>>,
-    inc_results: Vec<IoCostQoSRun>,
+    pub runs: Vec<Option<IoCostQoSResultRun>>,
 }
 
 impl IoCostQoSJob {
@@ -209,8 +220,8 @@ impl IoCostQoSJob {
                     if let Some(pd) = prev_data.as_ref() {
                         // If prev has dither_dist set, use the prev dither_dist
                         // so that we can use results from it.
-                        let pr: IoCostQoSResult = pd.parse_record()?;
-                        if let Some(pdd) = pr.dither_dist.as_ref() {
+                        let prec: IoCostQoSRecord = pd.parse_record()?;
+                        if let Some(pdd) = prec.dither_dist.as_ref() {
                             dither_dist = Some(*pdd);
                         }
                     }
@@ -253,24 +264,24 @@ impl IoCostQoSJob {
         })
     }
 
-    fn prev_matches(&self, pr: &IoCostQoSResult, bench: &BenchKnobs) -> bool {
+    fn prev_matches(&self, prec: &IoCostQoSRecord, bench: &BenchKnobs) -> bool {
         // If @pr has't completed and only contains incremental results, its
         // mem_profile isn't initialized yet. Obtain mem_profile from the
         // base storage result instead.
-        let base_result = if pr.results.len() > 0 && pr.results[0].is_some() {
-            pr.results[0].as_ref().unwrap()
-        } else if pr.inc_results.len() > 0 {
-            &pr.inc_results[0]
+        let base_rec = if prec.runs.len() > 0 && prec.runs[0].is_some() {
+            prec.runs[0].as_ref().unwrap()
+        } else if prec.inc_runs.len() > 0 {
+            &prec.inc_runs[0]
         } else {
             return false;
         };
 
         let msg = "iocost-qos: Existing result doesn't match the current configuration";
-        if pr.base_model != bench.iocost.model || pr.base_qos != bench.iocost.qos {
+        if prec.base_model != bench.iocost.model || prec.base_qos != bench.iocost.qos {
             warn!("{} ({})", &msg, "iocost parameter mismatch");
             return false;
         }
-        if self.mem_profile > 0 && self.mem_profile != base_result.storage.mem_profile {
+        if self.mem_profile > 0 && self.mem_profile != base_rec.stor.mem.profile {
             warn!("{} ({})", &msg, "mem-profile mismatch");
             return false;
         }
@@ -355,18 +366,18 @@ impl IoCostQoSJob {
         )
     }
 
-    fn find_matching_result<'a>(
+    fn find_matching_rec_run<'a>(
         ovr: Option<&IoCostQoSOvr>,
-        prev_result: &'a IoCostQoSResult,
-    ) -> Option<&'a IoCostQoSRun> {
-        for r in prev_result
-            .results
+        prev_rec: &'a IoCostQoSRecord,
+    ) -> Option<&'a IoCostQoSRecordRun> {
+        for recr in prev_rec
+            .runs
             .iter()
             .filter_map(|x| x.as_ref())
-            .chain(prev_result.inc_results.iter())
+            .chain(prev_rec.inc_runs.iter())
         {
-            if ovr == r.ovr.as_ref() {
-                return Some(r);
+            if ovr == recr.ovr.as_ref() {
+                return Some(recr);
             }
         }
         None
@@ -402,12 +413,12 @@ impl IoCostQoSJob {
         pjob: &mut ProtectionJob,
         ovr: Option<&IoCostQoSOvr>,
         nr_stor_retries: u32,
-    ) -> Result<IoCostQoSRun> {
+    ) -> Result<IoCostQoSRecordRun> {
         let started_at = unix_now();
 
         // Run the storage bench.
         let mut tries = 0;
-        let result = loop {
+        let rec_json = loop {
             tries += 1;
             Self::apply_ovr(rctx, &ovr);
             let r = sjob.clone().run(rctx);
@@ -425,9 +436,16 @@ impl IoCostQoSJob {
                 }
             }
         };
-        let storage = parse_json_value_or_dump::<StorageResult>(result)
-            .context("parsing storage result")
-            .unwrap();
+
+        // Acquire storage record and result. We need the result too because
+        // it determines how the protection benchmark is run.
+        let stor_rec = parse_json_value_or_dump::<StorageRecord>(rec_json.clone())
+            .context("Parsing storage record")?;
+        let stor_res = parse_json_value_or_dump::<StorageResult>(
+            sjob.study(rctx, rec_json)
+                .context("Studying storage record")?,
+        )
+        .context("Parsing storage result")?;
 
         // Stash the bench result for the protection runs. This needs to be
         // done manually because storage bench runs use fake-cpu-load which
@@ -436,22 +454,22 @@ impl IoCostQoSJob {
 
         // Run the protection bench.
         let mut tries = 0;
-        let protection = loop {
+        let prot_rec = loop {
             tries += 1;
             // The saved bench result is of the last run of the storage
             // bench. Update it with the current mean size.
-            rctx.update_bench_from_mem_size(storage.mem_size)?;
+            rctx.update_bench_from_mem_size(stor_res.mem_size)?;
 
             // Storage benches ran with mem_target but protection runs get
             // full mem_share.
-            pjob.balloon_size = storage.mem_avail.saturating_sub(storage.mem_share);
+            pjob.balloon_size = stor_rec.mem.avail.saturating_sub(stor_rec.mem.share);
             Self::apply_ovr(rctx, &ovr);
-            let result = pjob.clone().run(rctx);
+            let out = pjob.clone().run(rctx);
             rctx.stop_agent();
-            match result {
+            match out {
                 Ok(r) => {
-                    break parse_json_value_or_dump::<ProtectionResult>(r)
-                        .context("parsing protection result")
+                    break parse_json_value_or_dump::<ProtectionRecord>(r)
+                        .context("Parsing protection record")
                         .unwrap()
                 }
                 Err(e) => {
@@ -466,20 +484,46 @@ impl IoCostQoSJob {
                                ({:#}), skipping...",
                             &e
                         );
-                        break ProtectionResult::default();
+                        break ProtectionRecord::default();
                     }
                 }
             }
         };
-
-        let period = (started_at, unix_now());
 
         let qos = match ovr.as_ref() {
             Some(_) => Some(rctx.access_agent_files(|af| af.bench.data.iocost.qos.clone())),
             None => None,
         };
 
-        // Study the vrate and IO latency distributions.
+        Ok(IoCostQoSRecordRun {
+            period: (started_at, unix_now()),
+            ovr: ovr.cloned(),
+            qos,
+            stor: stor_rec,
+            prot: prot_rec,
+        })
+    }
+
+    fn study_one(
+        &self,
+        rctx: &mut RunCtx,
+        recr: &IoCostQoSRecordRun,
+    ) -> Result<IoCostQoSResultRun> {
+        let stor: StorageResult = parse_json_value_or_dump(
+            self.stor_job
+                .study(rctx, serde_json::to_value(&recr.stor).unwrap())
+                .context("Studying storage record")?,
+        )
+        .context("Parsing storage result")?;
+
+        let prot: ProtectionResult = parse_json_value_or_dump(
+            self.prot_job
+                .study(rctx, serde_json::to_value(&recr.prot).unwrap())
+                .context("Studying protection record")?,
+        )
+        .context("Parsing protection result")?;
+
+        // Study the vrate and IO latency distributions across all the runs.
         let mut study_vrate_mean_pcts = StudyMeanPcts::new(|arg| vec![arg.rep.iocost.vrate], None);
         let mut study_read_lat_pcts = StudyIoLatPcts::new("read", None);
         let mut study_write_lat_pcts = StudyIoLatPcts::new("write", None);
@@ -487,7 +531,7 @@ impl IoCostQoSJob {
             .add(&mut study_vrate_mean_pcts)
             .add_multiple(&mut study_read_lat_pcts.studies())
             .add_multiple(&mut study_write_lat_pcts.studies())
-            .run(rctx, period)?;
+            .run(rctx, recr.period)?;
 
         let (vrate, vrate_stdev, vrate_pcts) = study_vrate_mean_pcts.result(&Self::VRATE_PCTS);
         let iolat_pcts = [
@@ -495,17 +539,14 @@ impl IoCostQoSJob {
             study_write_lat_pcts.result(rctx, None),
         ];
 
-        Ok(IoCostQoSRun {
-            ovr: ovr.cloned(),
-            qos,
-            storage,
-            protection,
+        Ok(IoCostQoSResultRun {
+            stor: stor,
+            prot: prot,
             vrate,
             vrate_stdev,
             vrate_pcts,
             iolat_pcts,
             nr_reports,
-            period,
         })
     }
 }
@@ -518,14 +559,14 @@ impl Job for IoCostQoSJob {
     fn run(&mut self, rctx: &mut RunCtx) -> Result<serde_json::Value> {
         let mut bench = rctx.bench().clone();
 
-        let (prev_matches, mut prev_result) = match rctx.prev_job_data() {
+        let (prev_matches, mut prev_rec) = match rctx.prev_job_data() {
             Some(pd) => {
-                let pr: IoCostQoSResult = pd.parse_record()?;
-                (self.prev_matches(&pr, &bench), pr)
+                let prec: IoCostQoSRecord = pd.parse_record()?;
+                (self.prev_matches(&prec, &bench), prec)
             }
             None => (
                 true,
-                IoCostQoSResult {
+                IoCostQoSRecord {
                     base_model: bench.iocost.model.clone(),
                     base_qos: bench.iocost.qos.clone(),
                     dither_dist: self.dither_dist,
@@ -534,8 +575,8 @@ impl Job for IoCostQoSJob {
             ),
         };
 
-        if prev_result.results.len() > 0 {
-            self.mem_profile = prev_result.mem_profile;
+        if prev_rec.runs.len() > 0 {
+            self.mem_profile = prev_rec.mem_profile;
         }
 
         // Do we already have all results in prev? Otherwise, make sure we
@@ -543,7 +584,7 @@ impl Job for IoCostQoSJob {
         if rctx.bench().iocost_seq == 0 {
             let mut has_all = true;
             for ovr in self.runs.iter_mut() {
-                if Self::find_matching_result(ovr.as_ref(), &prev_result).is_none() {
+                if Self::find_matching_rec_run(ovr.as_ref(), &prev_rec).is_none() {
                     has_all = false;
                     break;
                 }
@@ -553,8 +594,8 @@ impl Job for IoCostQoSJob {
                 rctx.maybe_run_nested_iocost_params()?;
             }
             bench = rctx.bench().clone();
-            prev_result.base_model = bench.iocost.model.clone();
-            prev_result.base_qos = bench.iocost.qos.clone();
+            prev_rec.base_model = bench.iocost.model.clone();
+            prev_rec.base_qos = bench.iocost.qos.clone();
         }
 
         // Print out what to do beforehand so that the user can spot errors
@@ -583,7 +624,7 @@ impl Job for IoCostQoSJob {
                 }
             }
 
-            let new = match Self::find_matching_result(ovr.as_ref(), &prev_result) {
+            let new = match Self::find_matching_rec_run(ovr.as_ref(), &prev_rec) {
                 Some(_) => false,
                 None => {
                     nr_to_run += 1;
@@ -623,14 +664,14 @@ impl Job for IoCostQoSJob {
             v => Some(v),
         };
 
-        let mut results = vec![];
+        let mut runs = vec![];
         for (i, ovr) in self.runs.iter().enumerate() {
             let qos = &bench.iocost.qos;
-            if let Some(result) = Self::find_matching_result(ovr.as_ref(), &prev_result) {
-                results.push(Some(result.clone()));
+            if let Some(recr) = Self::find_matching_rec_run(ovr.as_ref(), &prev_rec) {
+                runs.push(Some(recr.clone()));
                 continue;
             } else if ovr.is_some() && ovr.as_ref().unwrap().skip {
-                results.push(None);
+                runs.push(None);
                 continue;
             }
 
@@ -647,7 +688,7 @@ impl Job for IoCostQoSJob {
             loop {
                 let mut sjob = self.stor_job.clone();
                 sjob.mem_profile_ask = last_mem_profile;
-                sjob.mem_avail = last_mem_avail;
+                sjob.mem.avail = last_mem_avail;
                 sjob.loops = match i {
                     0 => self.stor_base_loops,
                     _ => self.stor_loops,
@@ -661,24 +702,24 @@ impl Job for IoCostQoSJob {
                 }
 
                 match Self::run_one(rctx, &mut sjob, &mut pjob, ovr.as_ref(), self.retries) {
-                    Ok(result) => {
-                        last_mem_profile = Some(result.storage.mem_profile);
-                        last_mem_avail = result.storage.mem_avail;
+                    Ok(recr) => {
+                        last_mem_profile = Some(recr.stor.mem.profile);
+                        last_mem_avail = recr.stor.mem.avail;
 
                         // Sanity check QoS params.
-                        if result.qos.is_some() {
+                        if recr.qos.is_some() {
                             let target_qos = Self::apply_qos_ovr(ovr.as_ref(), qos);
-                            if result.qos.as_ref().unwrap() != &target_qos {
+                            if recr.qos.as_ref().unwrap() != &target_qos {
                                 bail!(
                                     "iocost-qos: result qos ({}) != target qos ({})",
-                                    &result.qos.as_ref().unwrap(),
+                                    &recr.qos.as_ref().unwrap(),
                                     &target_qos
                                 );
                             }
                         }
-                        prev_result.inc_results.push(result.clone());
-                        rctx.update_incremental_record(serde_json::to_value(&prev_result).unwrap());
-                        results.push(Some(result));
+                        prev_rec.inc_runs.push(recr.clone());
+                        rctx.update_incremental_record(serde_json::to_value(&prev_rec).unwrap());
+                        runs.push(Some(recr));
                         break;
                     }
                     Err(e) => {
@@ -687,25 +728,39 @@ impl Job for IoCostQoSJob {
                             return Err(e);
                         }
                         error!("iocost-qos[{:02}]: Failed ({:?}), skipping...", i, &e);
-                        results.push(None);
+                        runs.push(None);
                     }
                 }
             }
         }
 
-        results.resize(self.runs.len(), None);
+        // We could have broken out early due to allow_fail, pad it to the
+        // configured number of runs.
+        runs.resize(self.runs.len(), None);
 
-        let (base_model, base_qos) = (bench.iocost.model, bench.iocost.qos);
-        let result = IoCostQoSResult {
-            base_model,
-            base_qos,
-            mem_profile: self.mem_profile,
+        Ok(serde_json::to_value(&IoCostQoSRecord {
+            base_model: bench.iocost.model,
+            base_qos: bench.iocost.qos,
+            mem_profile: last_mem_profile.unwrap_or(0),
+            runs,
             dither_dist: self.dither_dist,
-            results,
-            inc_results: vec![],
-        };
+            inc_runs: vec![],
+        })
+        .unwrap())
+    }
 
-        Ok(serde_json::to_value(&result).unwrap())
+    fn study(&self, rctx: &mut RunCtx, rec_json: serde_json::Value) -> Result<serde_json::Value> {
+        let rec: IoCostQoSRecord = parse_json_value_or_dump(rec_json)?;
+
+        let mut runs = vec![];
+        for recr in rec.runs.iter() {
+            match recr {
+                Some(recr) => runs.push(Some(self.study_one(rctx, recr)?)),
+                None => runs.push(None),
+            }
+        }
+
+        Ok(serde_json::to_value(&IoCostQoSResult { runs }).unwrap())
     }
 
     fn format<'a>(
@@ -723,56 +778,60 @@ impl Job for IoCostQoSJob {
             }
         }
 
-        let result: IoCostQoSResult = data.parse_record()?;
+        let rec: IoCostQoSRecord = data.parse_record()?;
+        let res: IoCostQoSResult = data.parse_result()?;
+        assert!(rec.runs.len() == res.runs.len());
 
-        if result.results.len() == 0
-            || result.results[0].is_none()
-            || result.results[0].as_ref().unwrap().qos.is_some()
+        if rec.runs.len() == 0
+            || rec.runs[0].is_none()
+            || rec.runs[0].as_ref().unwrap().qos.is_some()
         {
             error!("iocost-qos: Failed to format due to missing baseline");
             return Ok(());
         }
-        let baseline = &result.results[0].as_ref().unwrap().storage;
+        let base_stor_rec = &rec.runs[0].as_ref().unwrap().stor;
+        let base_stor_res = &res.runs[0].as_ref().unwrap().stor;
 
-        self.stor_job.format_header(&mut out, false, baseline);
+        self.stor_job
+            .format_header(&mut out, false, base_stor_rec, base_stor_res);
 
         if full {
-            for (i, run) in result.results.iter().enumerate() {
-                if run.is_none() {
+            for (i, (recr, resr)) in rec.runs.iter().zip(res.runs.iter()).enumerate() {
+                if recr.is_none() {
                     continue;
                 }
-                let run = run.as_ref().unwrap();
+                let (recr, resr) = (recr.as_ref().unwrap(), resr.as_ref().unwrap());
 
                 writeln!(
                     out,
                     "\n\n{}\nQoS: {}\n",
                     &double_underline(&format!("RUN {:02}", i)),
-                    Self::format_qos_ovr(run.ovr.as_ref(), &result.base_qos)
+                    Self::format_qos_ovr(recr.ovr.as_ref(), &rec.base_qos)
                 )
                 .unwrap();
                 writeln!(out, "{}", underline(&format!("RUN {:02} - Storage", i))).unwrap();
 
                 self.stor_job
-                    .format_result(&mut out, &run.storage, false, sub_full);
+                    .format_result(&mut out, &recr.stor, &resr.stor, false, sub_full);
                 self.prot_job.format_result(
                     &mut out,
-                    &run.protection,
+                    &resr.prot,
                     sub_full,
                     &format!("RUN {:02} - Protection ", i),
                 );
 
                 writeln!(out, "\n{}", underline(&format!("RUN {:02} - Result", i))).unwrap();
 
-                StudyIoLatPcts::format_rw(&mut out, &run.iolat_pcts, full, None);
+                StudyIoLatPcts::format_rw(&mut out, &resr.iolat_pcts, full, None);
 
-                if run.qos.is_some() {
+                if recr.qos.is_some() {
                     write!(out, "\nvrate:").unwrap();
                     for pct in &Self::VRATE_PCTS {
                         write!(
                             out,
                             " p{}={}",
                             pct,
-                            run.vrate_pcts.get(&pct.to_string()).unwrap()
+                            resr.vrate_pcts.get(&pct.to_string()).unwrap()
                         )
                         .unwrap();
                     }
@@ -781,16 +840,16 @@ impl Job for IoCostQoSJob {
                     writeln!(
                         out,
                         "QoS result: mem_offload_factor={:.3}@{}({:.3}x) vrate={:.2}:{:.2} missing={}%",
-                        run.storage.mem_offload_factor,
-                        run.storage.mem_profile,
-                        run.storage.mem_offload_factor / baseline.mem_offload_factor,
-                        run.vrate,
-                        run.vrate_stdev,
-                        format_pct(Studies::reports_missing(run.nr_reports)),
+                        resr.stor.mem_offload_factor,
+                        recr.stor.mem.profile,
+                        resr.stor.mem_offload_factor / base_stor_res.mem_offload_factor,
+                        resr.vrate,
+                        resr.vrate_stdev,
+                        format_pct(Studies::reports_missing(resr.nr_reports)),
                     )
                     .unwrap();
 
-                    match run.protection.combined_mem_hog.as_ref() {
+                    match resr.prot.combined_mem_hog.as_ref() {
                         Some(hog) => writeln!(
                             out,
                             "            isol={}%:{} lat_imp={}%:{} work_csv={}%",
@@ -816,11 +875,11 @@ impl Job for IoCostQoSJob {
                 out,
                 "[{:02}] QoS: {}",
                 i,
-                Self::format_qos_ovr(ovr.as_ref(), &result.base_qos)
+                Self::format_qos_ovr(ovr.as_ref(), &rec.base_qos)
             )
             .unwrap();
             if ovr.is_none() {
-                writeln!(out, " mem_profile={}", baseline.mem_profile).unwrap();
+                writeln!(out, " mem_profile={}", base_stor_rec.mem.profile).unwrap();
             } else {
                 writeln!(out, "").unwrap();
             }
@@ -833,11 +892,11 @@ impl Job for IoCostQoSJob {
         )
         .unwrap();
 
-        for (i, run) in result.results.iter().enumerate() {
-            match run {
-                Some(run) => {
-                    write!(out, "[{:02}] {:>7.3}  ", i, run.storage.mem_offload_factor).unwrap();
-                    match run.protection.combined_mem_hog.as_ref() {
+        for (i, resr) in res.runs.iter().enumerate() {
+            match resr {
+                Some(resr) => {
+                    write!(out, "[{:02}] {:>7.3}  ", i, resr.stor.mem_offload_factor).unwrap();
+                    match resr.prot.combined_mem_hog.as_ref() {
                         Some(hog) => writeln!(
                             out,
                             "{:>5.1}:{:>5.1}  {:>5.1}:{:>5.1}      {:>5.1}     {:>5.1}",
@@ -846,7 +905,7 @@ impl Job for IoCostQoSJob {
                             hog.lat_imp * TO_PCT,
                             hog.lat_imp_stdev * TO_PCT,
                             hog.work_csv * TO_PCT,
-                            Studies::reports_missing(run.nr_reports) * TO_PCT,
+                            Studies::reports_missing(resr.nr_reports) * TO_PCT,
                         )
                         .unwrap(),
                         None => writeln!(
@@ -857,7 +916,7 @@ impl Job for IoCostQoSJob {
                             "-",
                             "-",
                             "-",
-                            Studies::reports_missing(run.nr_reports) * TO_PCT,
+                            Studies::reports_missing(resr.nr_reports) * TO_PCT,
                         )
                         .unwrap(),
                     }
@@ -875,11 +934,11 @@ impl Job for IoCostQoSJob {
             )
             .unwrap();
 
-            for (i, run) in result.results.iter().enumerate() {
-                match run {
-                    Some(run) => {
+            for (i, resr) in res.runs.iter().enumerate() {
+                match resr {
+                    Some(resr) => {
                         let iolat_pcts: &BTreeMap<String, BTreeMap<String, f64>> =
-                            &run.iolat_pcts[rw];
+                            &resr.iolat_pcts[rw];
                         writeln!(
                             out,
                             "[{:02}] {:>5}:{:>5}/{:>5}  {:>5}:{:>5}/{:>5}  \

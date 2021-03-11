@@ -564,7 +564,7 @@ impl<'a> RunCtx<'a> {
             self.start_agent(vec![]).context("Cycling rd_agent")?;
             self.stop_agent();
         }
-        Ok(())        
+        Ok(())
     }
 
     pub fn wait_cond<F>(

@@ -19,7 +19,7 @@ use resctl_bench_intf::{JobProps, JobSpec, Mode};
 pub trait Job {
     fn sysreqs(&self) -> BTreeSet<SysReq>;
     fn run(&mut self, rctx: &mut RunCtx) -> Result<serde_json::Value>;
-    fn study(&self, _rctx: &RunCtx, _rec_json: serde_json::Value) -> Result<serde_json::Value> {
+    fn study(&self, _rctx: &mut RunCtx, _rec_json: serde_json::Value) -> Result<serde_json::Value> {
         Ok(serde_json::Value::Bool(true))
     }
     fn format<'a>(

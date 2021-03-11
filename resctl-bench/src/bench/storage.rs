@@ -5,6 +5,14 @@ use std::collections::{BTreeMap, VecDeque};
 
 const STD_MEM_PROFILE: u32 = 16;
 
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct MemInfo {
+    pub avail: usize,
+    pub profile: u32,
+    pub share: usize,
+    pub target: usize,
+}
+
 #[derive(Clone)]
 pub struct StorageJob {
     pub hash_size: usize,
@@ -16,21 +24,13 @@ pub struct StorageJob {
     pub mem_avail_err_max: f64,
     pub mem_avail_inner_retries: u32,
     pub mem_avail_outer_retries: u32,
-    pub mem_avail: usize,
+    pub mem: MemInfo,
     pub active: bool,
 
     first_try: bool,
-    mem_share: usize,
-    mem_target: usize,
-    mem_profile: u32,
     mem_usage: usize,
     mem_probe_at: u64,
     prev_mem_avail: usize,
-
-    period: (u64, u64),
-    final_mem_probe_periods: Vec<(u64, u64)>,
-    mem_usages: Vec<f64>,
-    mem_sizes: Vec<f64>,
 }
 
 impl Default for StorageJob {
@@ -47,21 +47,12 @@ impl Default for StorageJob {
             mem_avail_err_max: 0.1,
             mem_avail_inner_retries: 2,
             mem_avail_outer_retries: 2,
+            mem: Default::default(),
             active: false,
-
             first_try: true,
-            mem_avail: 0,
-            mem_share: 0,
-            mem_target: 0,
-            mem_profile: 0,
             mem_usage: 0,
-            prev_mem_avail: 0,
             mem_probe_at: 0,
-
-            period: (0, 0),
-            final_mem_probe_periods: vec![],
-            mem_usages: vec![],
-            mem_sizes: vec![],
+            prev_mem_avail: 0,
         }
     }
 }
@@ -78,25 +69,26 @@ impl Bench for StorageBench {
     }
 }
 
+#[derive(Clone, Default, Serialize, Deserialize)]
+pub struct StorageRecord {
+    pub period: (u64, u64),
+    pub final_mem_probe_periods: Vec<(u64, u64)>,
+    pub mem: MemInfo,
+    pub mem_usages: Vec<f64>,
+    pub mem_sizes: Vec<f64>,
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 pub struct StorageResult {
-    pub mem_avail: usize,
-    pub mem_profile: u32,
-    pub mem_share: usize,
-    pub mem_target: usize,
-    pub period: (u64, u64),
     pub mem_offload_factor: f64,
     pub mem_usage: usize,
     pub mem_usage_stdev: usize,
-    pub mem_usages: Vec<usize>,
     pub mem_size: usize,
     pub mem_size_stdev: usize,
-    pub mem_sizes: Vec<usize>,
     pub rbps_all: usize,
     pub wbps_all: usize,
     pub rbps_final: usize,
     pub wbps_final: usize,
-    pub final_mem_probe_periods: Vec<(u64, u64)>,
     pub iolat_pcts: [BTreeMap<String, BTreeMap<String, f64>>; 2],
     pub nr_reports: (u64, u64),
 }
@@ -113,7 +105,7 @@ impl StorageJob {
                 "log-bps" => job.log_bps = v.parse::<u64>()?,
                 "loops" => job.loops = v.parse::<u32>()?,
                 "mem-profile" => job.mem_profile_ask = Some(v.parse::<u32>()?),
-                "mem-avail" => job.mem_avail = v.parse::<usize>()?,
+                "mem-avail" => job.mem.avail = v.parse::<usize>()?,
                 "mem-avail-err-max" => job.mem_avail_err_max = v.parse::<f64>()?,
                 "mem-avail-inner-retries" => job.mem_avail_inner_retries = v.parse::<u32>()?,
                 "mem-avail-outer-retries" => job.mem_avail_outer_retries = v.parse::<u32>()?,
@@ -226,13 +218,13 @@ impl StorageJob {
     }
 
     fn measure_supportable_memory_size(&mut self, rctx: &RunCtx) -> Result<(usize, f64)> {
-        let mem_size = (self.mem_profile as usize) << 30;
+        let mem_size = (self.mem.profile as usize) << 30;
         let dfl_args = rd_hashd_intf::Args::with_mem_size(mem_size);
         let dfl_params = rd_hashd_intf::Params::default();
 
         HashdFakeCpuBench {
             size: dfl_args.size,
-            balloon_size: self.mem_avail.saturating_sub(self.mem_target),
+            balloon_size: self.mem.avail.saturating_sub(self.mem.target),
             preload_size: dfl_args.bench_preload_cache_size(),
             log_bps: self.log_bps,
             log_size: dfl_args.log_size,
@@ -261,7 +253,7 @@ impl StorageJob {
 
                 if !rctx.test {
                     mem_avail_err =
-                        (self.mem_usage as f64 - self.mem_target as f64) / self.mem_target as f64;
+                        (self.mem_usage as f64 - self.mem.target as f64) / self.mem.target as f64;
                 }
 
                 // Abort early iff we go over. Memory usage may keep rising
@@ -306,7 +298,7 @@ impl StorageJob {
     }
 
     fn process_retry(&mut self) -> Result<bool> {
-        let cur_mem_avail = self.mem_avail + self.mem_usage - self.mem_target;
+        let cur_mem_avail = self.mem.avail + self.mem_usage - self.mem.target;
         let consistent = (cur_mem_avail as f64 - self.prev_mem_avail as f64).abs()
             < self.mem_avail_err_max * cur_mem_avail as f64;
 
@@ -333,7 +325,7 @@ impl StorageJob {
             (false, false, true) => {
                 warn!(
                     "storage: Retrying without updating mem_avail {} (prev {}, cur {})",
-                    format_size(self.mem_avail),
+                    format_size(self.mem.avail),
                     format_size(self.prev_mem_avail),
                     format_size(cur_mem_avail)
                 );
@@ -343,7 +335,7 @@ impl StorageJob {
         };
 
         if retry_outer {
-            self.mem_avail = cur_mem_avail;
+            self.mem.avail = cur_mem_avail;
             if self.mem_avail_outer_retries == 0 {
                 bail!("available memory keeps fluctuating, keep the system idle");
             }
@@ -360,7 +352,8 @@ impl StorageJob {
         &self,
         out: &mut Box<dyn Write + 'a>,
         include_loops: bool,
-        result: &StorageResult,
+        rec: &StorageRecord,
+        _res: &StorageResult,
     ) {
         write!(
             out,
@@ -380,51 +373,61 @@ impl StorageJob {
         writeln!(
             out,
             "        mem_profile={} mem_avail={} mem_share={} mem_target={}",
-            result.mem_profile,
-            format_size(result.mem_avail),
-            format_size(result.mem_share),
-            format_size(result.mem_target),
+            rec.mem.profile,
+            format_size(rec.mem.avail),
+            format_size(rec.mem.share),
+            format_size(rec.mem.target),
         )
         .unwrap();
     }
 
-    fn format_io_summary<'a>(&self, out: &mut Box<dyn Write + 'a>, result: &StorageResult) {
+    fn format_io_summary<'a>(
+        &self,
+        out: &mut Box<dyn Write + 'a>,
+        _rec: &StorageRecord,
+        res: &StorageResult,
+    ) {
         writeln!(
             out,
             "IO BPS: read_final={} write_final={} read_all={} write_all={}",
-            format_size(result.rbps_final),
-            format_size(result.wbps_final),
-            format_size(result.rbps_all),
-            format_size(result.wbps_all)
+            format_size(res.rbps_final),
+            format_size(res.wbps_final),
+            format_size(res.rbps_all),
+            format_size(res.wbps_all)
         )
         .unwrap();
     }
 
-    fn format_mem_summary<'a>(&self, out: &mut Box<dyn Write + 'a>, result: &StorageResult) {
+    fn format_mem_summary<'a>(
+        &self,
+        out: &mut Box<dyn Write + 'a>,
+        rec: &StorageRecord,
+        res: &StorageResult,
+    ) {
         write!(
             out,
             "Memory offloading: factor={:.3}@{} ",
-            result.mem_offload_factor, result.mem_profile
+            res.mem_offload_factor, rec.mem.profile
         )
         .unwrap();
         if self.loops > 1 {
             writeln!(
                 out,
                 "usage/stdev={}/{} size/stdev={}/{} missing={}%",
-                format_size(result.mem_usage),
-                format_size(result.mem_usage_stdev),
-                format_size(result.mem_size),
-                format_size(result.mem_size_stdev),
-                format_pct(Studies::reports_missing(result.nr_reports)),
+                format_size(res.mem_usage),
+                format_size(res.mem_usage_stdev),
+                format_size(res.mem_size),
+                format_size(res.mem_size_stdev),
+                format_pct(Studies::reports_missing(res.nr_reports)),
             )
             .unwrap();
         } else {
             writeln!(
                 out,
                 "usage={} size={} missing={}%",
-                format_size(result.mem_usage),
-                format_size(result.mem_size),
-                format_pct(Studies::reports_missing(result.nr_reports)),
+                format_size(res.mem_usage),
+                format_size(res.mem_size),
+                format_pct(Studies::reports_missing(res.nr_reports)),
             )
             .unwrap();
         }
@@ -433,21 +436,22 @@ impl StorageJob {
     pub fn format_result<'a>(
         &self,
         out: &mut Box<dyn Write + 'a>,
-        result: &StorageResult,
+        rec: &StorageRecord,
+        res: &StorageResult,
         header: bool,
         full: bool,
     ) {
         if header {
-            self.format_header(out, true, &result);
+            self.format_header(out, true, rec, res);
             writeln!(out, "").unwrap();
         }
-        StudyIoLatPcts::format_rw(out, &result.iolat_pcts, full, None);
+        StudyIoLatPcts::format_rw(out, &res.iolat_pcts, full, None);
 
         writeln!(out, "").unwrap();
-        self.format_io_summary(out, result);
+        self.format_io_summary(out, rec, res);
 
         writeln!(out, "").unwrap();
-        self.format_mem_summary(out, result);
+        self.format_mem_summary(out, rec, res);
     }
 }
 
@@ -472,55 +476,60 @@ impl Job for StorageJob {
             af.slices.save().unwrap();
         });
 
-        if self.mem_avail == 0 {
+        if self.mem.avail == 0 {
             info!("storage: Estimating available memory");
-            self.mem_avail = self.estimate_available_memory(rctx)?;
+            self.mem.avail = self.estimate_available_memory(rctx)?;
         } else {
             info!(
                 "storage: Starting with the specified available memory {}",
-                format_size(self.mem_avail)
+                format_size(self.mem.avail)
             );
         }
 
         let saved_mem_avail_inner_retries = self.mem_avail_inner_retries;
 
+        let mut started_at;
+        let mut final_mem_probe_periods = vec![];
+        let mut mem_usages = vec![];
+        let mut mem_sizes = vec![];
+
         'outer: loop {
-            self.final_mem_probe_periods.clear();
-            self.mem_usages.clear();
-            self.mem_sizes.clear();
+            final_mem_probe_periods.clear();
+            mem_usages.clear();
+            mem_sizes.clear();
             self.mem_avail_inner_retries = saved_mem_avail_inner_retries;
-            self.period.0 = unix_now();
+            started_at = unix_now();
 
             let (mp, ms, mt) = self.select_memory_profile()?;
-            self.mem_profile = mp;
-            self.mem_share = ms;
-            self.mem_target = mt;
+            self.mem.profile = mp;
+            self.mem.share = ms;
+            self.mem.target = mt;
 
-            if self.mem_avail < self.mem_target && !rctx.test {
+            if self.mem.avail < self.mem.target && !rctx.test {
                 if self.mem_avail_outer_retries > 0 {
                     warn!(
                         "storage: mem_avail {} too small for the memory profile, re-estimating",
-                        format_size(self.mem_avail),
+                        format_size(self.mem.avail),
                     );
                     self.mem_avail_outer_retries -= 1;
-                    self.mem_avail = self.estimate_available_memory(rctx)?;
+                    self.mem.avail = self.estimate_available_memory(rctx)?;
                     continue 'outer;
                 }
                 bail!("mem_avail too small for the memory profile, use lower mem-profile");
             }
             info!(
                 "storage: Memory profile {}G (mem_avail {}, mem_share {}, mem_target {})",
-                self.mem_profile,
-                format_size(self.mem_avail),
-                format_size(self.mem_share),
-                format_size(self.mem_target),
+                self.mem.profile,
+                format_size(self.mem.avail),
+                format_size(self.mem.share),
+                format_size(self.mem.target),
             );
 
             // We now know all the parameters. Let's run the actual benchmark.
             'inner: loop {
                 info!(
                     "storage: Measuring supportable memory footprint and IO latencies ({}/{})",
-                    self.mem_sizes.len() + 1,
+                    mem_sizes.len() + 1,
                     self.loops
                 );
                 let (mem_size, mem_avail_err) = self.measure_supportable_memory_size(rctx)?;
@@ -543,21 +552,30 @@ impl Job for StorageJob {
                     self.first_try = false;
                 }
 
-                self.final_mem_probe_periods
-                    .push((self.mem_probe_at, unix_now()));
-                self.mem_usages.push(self.mem_usage as f64);
-                self.mem_sizes.push(mem_size as f64);
+                final_mem_probe_periods.push((self.mem_probe_at, unix_now()));
+                mem_usages.push(self.mem_usage as f64);
+                mem_sizes.push(mem_size as f64);
                 info!(
                     "storage: Supportable memory footprint {}",
                     format_size(mem_size)
                 );
-                if self.mem_sizes.len() >= self.loops as usize {
+                if mem_sizes.len() >= self.loops as usize {
                     break 'outer;
                 }
             }
         }
 
-        self.period.1 = unix_now();
+        Ok(serde_json::to_value(&StorageRecord {
+            period: (started_at, unix_now()),
+            final_mem_probe_periods,
+            mem: self.mem.clone(),
+            mem_usages,
+            mem_sizes,
+        })?)
+    }
+
+    fn study(&self, rctx: &mut RunCtx, rec_json: serde_json::Value) -> Result<serde_json::Value> {
+        let rec: StorageRecord = parse_json_value_or_dump(rec_json)?;
 
         // Study and record the results.
         let mut study_rbps_all = StudyMean::new(|arg| vec![arg.rep.usages[ROOT_SLICE].io_rbps]);
@@ -571,7 +589,7 @@ impl Job for StorageJob {
             .add_multiple(&mut study_read_lat_pcts.studies())
             .add_multiple(&mut study_write_lat_pcts.studies());
 
-        let nr_reports = studies.run(rctx, self.period)?;
+        let nr_reports = studies.run(rctx, rec.period)?;
 
         let mut study_rbps_final = StudyMean::new(|arg| vec![arg.rep.usages[ROOT_SLICE].io_rbps]);
         let mut study_wbps_final = StudyMean::new(|arg| vec![arg.rep.usages[ROOT_SLICE].io_wbps]);
@@ -579,42 +597,34 @@ impl Job for StorageJob {
             .add(&mut study_rbps_final)
             .add(&mut study_wbps_final);
 
-        for (start, end) in self.final_mem_probe_periods.iter() {
+        for (start, end) in rec.final_mem_probe_periods.iter() {
             studies.run(rctx, (*start, *end))?;
         }
 
-        let mem_usage = statistical::mean(&self.mem_usages);
-        let mem_usage_stdev = if self.mem_usages.len() > 1 {
-            statistical::standard_deviation(&self.mem_usages, None)
+        let mem_usage = statistical::mean(&rec.mem_usages);
+        let mem_usage_stdev = if rec.mem_usages.len() > 1 {
+            statistical::standard_deviation(&rec.mem_usages, None)
         } else {
             0.0
         };
 
-        let mem_size = statistical::mean(&self.mem_sizes);
-        let mem_size_stdev = if self.mem_sizes.len() > 1 {
-            statistical::standard_deviation(&self.mem_sizes, None)
+        let mem_size = statistical::mean(&rec.mem_sizes);
+        let mem_size_stdev = if rec.mem_sizes.len() > 1 {
+            statistical::standard_deviation(&rec.mem_sizes, None)
         } else {
             0.0
         };
 
         let result = StorageResult {
-            mem_avail: self.mem_avail,
-            mem_profile: self.mem_profile,
-            mem_share: self.mem_share,
-            mem_target: self.mem_target,
-            period: self.period,
             mem_offload_factor: mem_size as f64 / mem_usage as f64,
             mem_usage: mem_usage as usize,
             mem_usage_stdev: mem_usage_stdev as usize,
-            mem_usages: self.mem_usages.iter().map(|x| *x as usize).collect(),
             mem_size: mem_size as usize,
             mem_size_stdev: mem_size_stdev as usize,
-            mem_sizes: self.mem_sizes.iter().map(|x| *x as usize).collect(),
             rbps_all: study_rbps_all.result().0 as usize,
             wbps_all: study_wbps_all.result().0 as usize,
             rbps_final: study_rbps_final.result().0 as usize,
             wbps_final: study_wbps_final.result().0 as usize,
-            final_mem_probe_periods: self.final_mem_probe_periods.clone(),
             iolat_pcts: [
                 study_read_lat_pcts.result(rctx, None),
                 study_write_lat_pcts.result(rctx, None),
@@ -632,8 +642,9 @@ impl Job for StorageJob {
         full: bool,
         _props: &JobProps,
     ) -> Result<()> {
-        let result: StorageResult = data.parse_record()?;
-        self.format_result(&mut out, &result, true, full);
+        let rec: StorageRecord = data.parse_record()?;
+        let res: StorageResult = data.parse_result()?;
+        self.format_result(&mut out, &rec, &res, true, full);
         Ok(())
     }
 }

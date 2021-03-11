@@ -70,7 +70,7 @@ impl Default for Args {
             result: "".into(),
             mode: Mode::Run,
             job_specs: Default::default(),
-            rep_retention: 24 * 3600,
+            rep_retention: 7 * 24 * 3600,
             systemd_timeout: 120.0,
             iocost_from_sys: false,
             keep_reports: false,

@@ -1,5 +1,5 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
-use super::iocost_qos::{IoCostQoSOvr, IoCostQoSResult, IoCostQoSRun};
+use super::iocost_qos::{IoCostQoSOvr, IoCostQoSRecord, IoCostQoSResult, IoCostQoSResultRun};
 use super::*;
 use statrs::distribution::{Normal, Univariate};
 use std::cmp::{Ordering, PartialOrd};
@@ -103,9 +103,9 @@ impl DataSel {
         })
     }
 
-    fn select(&self, run: &IoCostQoSRun) -> Option<f64> {
-        let stor = &run.storage;
-        let hog = run.protection.combined_mem_hog.as_ref();
+    fn select(&self, resr: &IoCostQoSResultRun) -> Option<f64> {
+        let stor = &resr.stor;
+        let hog = resr.prot.combined_mem_hog.as_ref();
         match self {
             Self::MOF => Some(stor.mem_offload_factor),
             // Missing hog indicates failed prot bench. Report 0 for
@@ -113,7 +113,7 @@ impl DataSel {
             Self::Isol => Some(hog.map(|x| x.isol).unwrap_or(0.0)),
             Self::LatImp => hog.map(|x| x.lat_imp),
             Self::WorkCsv => hog.map(|x| x.work_csv),
-            Self::Missing => Some(Studies::reports_missing(run.nr_reports)),
+            Self::Missing => Some(Studies::reports_missing(resr.nr_reports)),
             Self::RLat(lat_pct, time_pct) => {
                 Some(stor.iolat_pcts.as_ref()[READ][lat_pct][time_pct])
             }
@@ -367,6 +367,7 @@ impl Bench for IoCostTuneBench {
         BenchDesc::new("iocost-tune")
             .takes_run_propsets()
             .takes_format_props()
+            .incremental()
     }
 
     fn parse(&self, spec: &JobSpec, _prev_data: Option<&JobData>) -> Result<Box<dyn Job>> {
@@ -725,29 +726,50 @@ impl Job for IoCostTuneJob {
             }
         };
 
-        let src: IoCostQoSResult = qos_data
+        let qrec: IoCostQoSRecord = qos_data
             .parse_record()
-            .context("Parsing iocost-qos result")?;
-        let mut data = BTreeMap::<DataSel, DataSeries>::default();
+            .context("Parsing iocost-qos record")?;
 
         if self.mem_profile == 0 {
-            self.mem_profile = src.mem_profile;
-        } else if self.mem_profile != src.mem_profile {
+            self.mem_profile = qrec.mem_profile;
+        } else if self.mem_profile != qrec.mem_profile {
             bail!(
                 "mem-profile ({}) != iocost-qos's ({})",
                 self.mem_profile,
-                src.mem_profile
+                qrec.mem_profile
             );
         }
 
-        if src.results.len() == 0 {
+        if qrec.runs.len() == 0 {
             bail!("no entry in iocost-qos result");
         }
 
+        // We don't have any record of our own to keep. Return a dummy
+        // value.
+        Ok(serde_json::to_value(true)?)
+    }
+
+    fn study(&self, rctx: &mut RunCtx, _rec_json: serde_json::Value) -> Result<serde_json::Value> {
+        let qos_data = rctx
+            .find_done_job_data("iocost-qos")
+            .ok_or(anyhow!("iocost-qos result not available"))?;
+        let qrec: IoCostQoSRecord = qos_data
+            .parse_record()
+            .context("Parsing iocost-qos record")?;
+        let qres: IoCostQoSResult = qos_data
+            .parse_result()
+            .context("Parsing iocost-qos result")?;
+        let mut data = BTreeMap::<DataSel, DataSeries>::default();
+
         for sel in self.sels.iter() {
             let mut series = DataSeries::default();
-            for run in src.results.iter().filter_map(|x| x.as_ref()) {
-                let vrate = match run.ovr {
+            for (qrecr, qresr) in qrec
+                .runs
+                .iter()
+                .filter_map(|x| x.as_ref())
+                .zip(qres.runs.iter().filter_map(|x| x.as_ref()))
+            {
+                let vrate = match qrecr.ovr {
                     Some(IoCostQoSOvr {
                         rpct: None,
                         rlat: None,
@@ -759,7 +781,7 @@ impl Job for IoCostTuneJob {
                     }) if min == max => min,
                     _ => continue,
                 };
-                if let Some(val) = sel.select(run) {
+                if let Some(val) = sel.select(qresr) {
                     series.points.push((vrate, val));
                 }
             }
@@ -770,8 +792,8 @@ impl Job for IoCostTuneJob {
             data.insert(sel.clone(), series);
         }
 
-        let base_model = src.base_model.clone();
-        let base_qos = src.base_qos.clone();
+        let base_model = qrec.base_model.clone();
+        let base_qos = qrec.base_qos.clone();
 
         let mut results = Vec::<QoSResult>::new();
         for rule in self.rules.iter().cloned() {

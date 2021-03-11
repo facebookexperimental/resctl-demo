@@ -108,9 +108,9 @@ pub struct MemHog {
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
-struct MemHogRecord {
-    period: (u64, u64),
-    runs: Vec<MemHogRun>,
+pub struct MemHogRecord {
+    pub period: (u64, u64),
+    pub runs: Vec<MemHogRun>,
     #[serde(skip)]
     result: RefCell<Option<MemHogResult>>,
 }
@@ -726,7 +726,7 @@ pub enum Scenario {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-enum ScenarioRecord {
+pub enum ScenarioRecord {
     MemHog(MemHogRecord),
 }
 
@@ -791,6 +791,11 @@ impl Bench for ProtectionBench {
     fn parse(&self, spec: &JobSpec, _prev_data: Option<&JobData>) -> Result<Box<dyn Job>> {
         Ok(Box::new(ProtectionJob::parse(spec)?))
     }
+}
+
+#[derive(Clone, Default, Serialize, Deserialize)]
+pub struct ProtectionRecord {
+    pub scenarios: Vec<ScenarioRecord>,
 }
 
 #[derive(Clone, Default, Serialize, Deserialize)]
@@ -917,25 +922,25 @@ impl Job for ProtectionJob {
         }
         rctx.set_prep_testfiles().start_agent(vec![])?;
 
-        let mut record = vec![];
+        let mut scns = vec![];
         for scn in self.scenarios.iter_mut() {
-            record.push(scn.run(rctx)?);
+            scns.push(scn.run(rctx)?);
         }
 
-        Ok(serde_json::to_value(&record).unwrap())
+        Ok(serde_json::to_value(&ProtectionRecord { scenarios: scns }).unwrap())
     }
 
-    fn study(&self, rctx: &RunCtx, rec_json: serde_json::Value) -> Result<serde_json::Value> {
-        let records: Vec<ScenarioRecord> = parse_json_value_or_dump(rec_json)?;
+    fn study(&self, rctx: &mut RunCtx, rec_json: serde_json::Value) -> Result<serde_json::Value> {
+        let rec: ProtectionRecord = parse_json_value_or_dump(rec_json)?;
 
         let mut result = ProtectionResult::default();
 
-        for (scn, rec) in self.scenarios.iter().zip(records.iter()) {
+        for (scn, rec) in self.scenarios.iter().zip(rec.scenarios.iter()) {
             result.scenarios.push(scn.study(rctx, rec)?);
         }
 
         let mut mhs = vec![];
-        for (rec, res) in records.iter().zip(result.scenarios.iter()) {
+        for (rec, res) in rec.scenarios.iter().zip(result.scenarios.iter()) {
             match (rec, res) {
                 (ScenarioRecord::MemHog(rec), ScenarioResult::MemHog(res)) => {
                     mhs.push((rec, res));
