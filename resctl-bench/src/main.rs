@@ -354,7 +354,7 @@ impl Program {
                 }
                 Err(e) => {
                     error!(
-                        "Failed to load existing result file {:?} ({})",
+                        "Failed to load existing result file {:?} ({:#})",
                         &args.result, &e
                     );
                     panic!();

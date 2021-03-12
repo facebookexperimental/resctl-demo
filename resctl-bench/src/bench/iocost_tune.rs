@@ -114,12 +114,24 @@ impl DataSel {
             Self::LatImp => hog.map(|x| x.lat_imp),
             Self::WorkCsv => hog.map(|x| x.work_csv),
             Self::Missing => Some(Studies::reports_missing(resr.nr_reports)),
-            Self::RLat(lat_pct, time_pct) => {
-                Some(stor.iolat_pcts.as_ref()[READ][lat_pct][time_pct])
-            }
-            Self::WLat(lat_pct, time_pct) => {
-                Some(stor.iolat_pcts.as_ref()[WRITE][lat_pct][time_pct])
-            }
+            Self::RLat(lat_pct, time_pct) => Some(
+                *stor.iolat_pcts.as_ref()[READ]
+                    .get(lat_pct)
+                    .with_context(|| format!("Finding rlat[{:?}]", lat_pct))
+                    .unwrap()
+                    .get(time_pct)
+                    .with_context(|| format!("Finding rlat[{:?}][{:?}]", lat_pct, time_pct))
+                    .unwrap(),
+            ),
+            Self::WLat(lat_pct, time_pct) => Some(
+                *stor.iolat_pcts.as_ref()[WRITE]
+                    .get(lat_pct)
+                    .with_context(|| format!("Finding wlat[{:?}]", lat_pct))
+                    .unwrap()
+                    .get(time_pct)
+                    .with_context(|| format!("Finding wlat[{:?}][{:?}]", lat_pct, time_pct))
+                    .unwrap(),
+            ),
         }
     }
 
@@ -373,19 +385,39 @@ impl Bench for IoCostTuneBench {
     fn parse(&self, spec: &JobSpec, _prev_data: Option<&JobData>) -> Result<Box<dyn Job>> {
         let mut job = IoCostTuneJob::default();
 
+        job.sels = [
+            DataSel::MOF,
+            DataSel::Isol,
+            DataSel::LatImp,
+            DataSel::WorkCsv,
+            DataSel::Missing,
+            DataSel::RLat("50".to_owned(), "mean".to_owned()),
+            DataSel::RLat("99".to_owned(), "mean".to_owned()),
+            DataSel::RLat("50".to_owned(), "99".to_owned()),
+            DataSel::RLat("99".to_owned(), "99".to_owned()),
+            DataSel::RLat("50".to_owned(), "100".to_owned()),
+            DataSel::RLat("100".to_owned(), "100".to_owned()),
+            DataSel::WLat("50".to_owned(), "mean".to_owned()),
+            DataSel::WLat("99".to_owned(), "mean".to_owned()),
+            DataSel::WLat("50".to_owned(), "99".to_owned()),
+            DataSel::WLat("99".to_owned(), "99".to_owned()),
+            DataSel::WLat("50".to_owned(), "100".to_owned()),
+            DataSel::WLat("100".to_owned(), "100".to_owned()),
+        ]
+        .iter()
+        .cloned()
+        .collect();
+
         for (k, v) in spec.props[0].iter() {
             match k.as_str() {
                 "mem-profile" => job.mem_profile = v.parse::<u32>()?,
                 "gran" => job.gran = v.parse::<f64>()?,
                 "vrate-min" => job.vrate_min = v.parse::<f64>()?,
                 "vrate-max" => job.vrate_max = v.parse::<f64>()?,
-                k => {
-                    let sel = DataSel::parse(k)?;
-                    if v.len() > 0 {
-                        bail!("first parameter group can't have targets");
-                    }
-                    job.sels.insert(sel);
+                "plot" => {
+                    job.sels.insert(DataSel::parse(v)?);
                 }
+                k => bail!("Unknown property key {:?}", k),
             }
         }
 
@@ -393,8 +425,8 @@ impl Bench for IoCostTuneBench {
             bail!("`gran`, `vrate_min` and/or `vrate_max` invalid");
         }
 
-        let mut prop_groups = spec.props[1..].to_owned();
-        if job.sels.len() == 0 && prop_groups.len() == 0 {
+        let prop_groups = spec.props[1..].to_owned();
+        /*if job.sels.len() == 0 && prop_groups.len() == 0 {
             let mut push_props = |props: &[(&str, &str)]| {
                 prop_groups.push(
                     props
@@ -408,7 +440,7 @@ impl Bench for IoCostTuneBench {
             push_props(&[("name", "rlat-99-10m"), ("mof", "infl"), ("rlat-99", "10m")]);
             push_props(&[("name", "rlat-99-5m"), ("mof", "infl"), ("rlat-99", "5m")]);
             push_props(&[("name", "rlat-99-1m"), ("mof", "infl"), ("rlat-99", "1m")]);
-        }
+        }*/
 
         for props in prop_groups.iter() {
             let mut rule = QoSRule::default();

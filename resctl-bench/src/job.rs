@@ -425,7 +425,7 @@ impl JobCtxs {
         for jctx in vec.iter_mut() {
             jctx.uid = JobCtx::new_uid();
             if let Err(e) = jctx.parse_job_spec(None) {
-                bail!("failed to parse {} ({})", &jctx.data.spec, &e);
+                bail!("Failed to parse {} ({:#})", &jctx.data.spec, &e);
             }
         }
 
