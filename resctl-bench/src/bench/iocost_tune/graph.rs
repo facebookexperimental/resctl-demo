@@ -48,6 +48,7 @@ impl<'a> Grapher<'a> {
             DataSel::RLat(_, _) => (0.0, 1000.0),
             DataSel::WLat(_, _) => (0.0, 1000.0),
         };
+        let ymax = (val_max * 1.1).max((ymin) + 0.000001);
 
         let lines = &series.lines;
         let mut xlabel = format!(
@@ -73,7 +74,7 @@ impl<'a> Grapher<'a> {
 
         let view = ContinuousView::new()
             .x_range(0.0, vrate_max * 1.1)
-            .y_range(ymin * yscale, val_max * 1.1 * yscale)
+            .y_range(ymin * yscale, ymax * yscale)
             .x_label(xlabel)
             .y_label(ylabel);
 

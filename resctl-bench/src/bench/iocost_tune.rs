@@ -666,21 +666,23 @@ impl DataSeries {
         let mean = statistical::mean(&errors);
         let stdev = statistical::standard_deviation(&errors, None);
 
-        let dist = Normal::new(mean, stdev).unwrap();
-
-        for (point, error) in points.into_iter().zip(errors.iter()) {
-            // Apply Chauvenet's criterion on the error of each data point
-            // to detect and reject outliers.
-            if (1.0 - dist.cdf(*error)) * nr_points >= 0.5 {
-                self.points.push(point);
-            } else {
-                self.outliers.push(point);
+        if let Ok(dist) = Normal::new(mean, stdev) {
+            for (point, error) in points.into_iter().zip(errors.iter()) {
+                // Apply Chauvenet's criterion on the error of each data point
+                // to detect and reject outliers.
+                if (1.0 - dist.cdf(*error)) * nr_points >= 0.5 {
+                    self.points.push(point);
+                } else {
+                    self.outliers.push(point);
+                }
             }
-        }
 
-        // self.points start sorted but outliers may go out of order if this
-        // function is called more than once. Sort just in case.
-        self.outliers.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            // self.points start sorted but outliers may go out of order if this
+            // function is called more than once. Sort just in case.
+            self.outliers.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        } else {
+            self.points = points;
+        }
     }
 }
 
