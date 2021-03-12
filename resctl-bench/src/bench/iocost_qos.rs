@@ -869,9 +869,10 @@ impl Job for IoCostQoSJob {
                     match resr.prot.combined_mem_hog.as_ref() {
                         Some(hog) => writeln!(
                             out,
-                            "            isol={}% lat_imp={}% work_csv={}%",
+                            "            isol={}% lat_imp={}%:{} work_csv={}%",
                             format_pct(hog.isol),
                             format_pct(hog.lat_imp),
+                            format_pct(hog.lat_imp_stdev),
                             format_pct(hog.work_csv),
                         ),
                         None => writeln!(out, "            isol=FAIL lat_imp=FAIL work_csv=FAIL",),
@@ -903,7 +904,7 @@ impl Job for IoCostQoSJob {
         writeln!(out, "").unwrap();
         writeln!(
             out,
-            "         MOF   isol%  lat-imp%  work-csv%  missing%"
+            "         MOF   isol%       lat-imp%  work-csv%  missing%"
         )
         .unwrap();
 
@@ -914,9 +915,10 @@ impl Job for IoCostQoSJob {
                     match resr.prot.combined_mem_hog.as_ref() {
                         Some(hog) => writeln!(
                             out,
-                            "{:>5.1}  {:>8.1}      {:>5.1}     {:>5.1}",
+                            "{:>5.1}  {:>6.1}:{:>6.1}      {:>5.1}     {:>5.1}",
                             hog.isol * TO_PCT,
                             hog.lat_imp * TO_PCT,
+                            hog.lat_imp_stdev * TO_PCT,
                             hog.work_csv * TO_PCT,
                             Studies::reports_missing(resr.nr_reports) * TO_PCT,
                         )
