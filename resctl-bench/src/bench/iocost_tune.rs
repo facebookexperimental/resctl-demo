@@ -857,8 +857,8 @@ impl Job for IoCostTuneJob {
 
         write!(
             out,
-            "Graphs (circle: data points, cross: fitted line)\n\
-             ================================================\n\n"
+            "{}\n",
+            &double_underline("Graphs (square: fitted line, circle: data points, cross: rejected)")
         )
         .unwrap();
 

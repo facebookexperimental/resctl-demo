@@ -525,7 +525,9 @@ impl Drop for TestHasher {
     fn drop(&mut self) {
         drop(self.term_tx.take());
         debug!("TestHasher::drop: joining updater");
-        self.updater_jh.take().unwrap().join().unwrap();
+        if let Err(e) = self.updater_jh.take().unwrap().join() {
+            error!("TestHasher::drop: Failed to join the updater ({:?})", &e);
+        }
         debug!("TestHasher::drop: done");
     }
 }
