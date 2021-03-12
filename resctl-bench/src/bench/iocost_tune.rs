@@ -436,50 +436,50 @@ impl Bench for IoCostTuneBench {
 type DataPoint = (f64, f64);
 
 //
-//      val
-//       ^
-//       |
-// dhigh +.................------
-//       |                /.
-//       |              /  .
-//       |      slope /    .
-//       |          /      .
-//  dlow +--------/        .
-//       |        .        .
-//       +--------+--------+------> vrate
-//              vlow     vhigh
+//       val
+//        ^
+//        |
+// dright +.................------
+//        |                /.
+//        |              /  .
+//        |      slope /    .
+//        |          /      .
+//  dleft +--------/        .
+//        |        .        .
+//        +--------+--------+------> vrate
+//              vleft    vright
 //
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 struct DataLines {
-    low: DataPoint,
-    high: DataPoint,
+    left: DataPoint,
+    right: DataPoint,
 }
 
 impl DataLines {
     fn slope(&self) -> f64 {
-        (self.high.1 - self.low.1) / (self.high.0 - self.low.0)
+        (self.right.1 - self.left.1) / (self.right.0 - self.left.0)
     }
 
     fn eval(&self, vrate: f64) -> f64 {
-        if vrate < self.low.0 {
-            self.low.1
-        } else if vrate > self.high.0 {
-            self.high.1
+        if vrate < self.left.0 {
+            self.left.1
+        } else if vrate > self.right.0 {
+            self.right.1
         } else {
-            self.low.1 + self.slope() * (vrate - self.low.0)
+            self.left.1 + self.slope() * (vrate - self.left.0)
         }
     }
 
     fn solve(&self, target: &Target, (vmin, vmax): (f64, f64)) -> f64 {
         match target {
-            Target::Inflection => self.high.1,
+            Target::Inflection => self.right.1,
             Target::Threshold(thr) => {
-                if *thr >= self.high.1 {
+                if *thr >= self.right.1 {
                     vmax
-                } else if *thr <= self.low.1 {
-                    self.low.0
+                } else if *thr <= self.left.1 {
+                    self.left.0
                 } else {
-                    self.low.0 + ((*thr - self.low.1) / self.slope())
+                    self.left.0 + ((*thr - self.left.1) / self.slope())
                 }
             }
         }
@@ -516,8 +516,8 @@ impl DataSeries {
         let (slope, y_intcp) = linreg::linear_regression_of(&points).unwrap();
         let vmax = Self::vmax(points);
         DataLines {
-            low: (0.0, y_intcp),
-            high: (vmax, slope * vmax + y_intcp),
+            left: (0.0, y_intcp),
+            right: (vmax, slope * vmax + y_intcp),
         }
     }
 
@@ -543,57 +543,57 @@ impl DataSeries {
         top / bot
     }
 
-    fn fit_slope_with_vlow(points: &[DataPoint], vlow: f64) -> Option<DataLines> {
-        let (left, right) = Self::split_at(points, vlow);
+    fn fit_slope_with_vleft(points: &[DataPoint], vleft: f64) -> Option<DataLines> {
+        let (left, right) = Self::split_at(points, vleft);
         if left.len() < 3 || right.len() < 3 {
             return None;
         }
 
-        let low = (vlow, Self::calc_height(left));
-        let slope = Self::calc_slope(right, &low);
+        let left = (vleft, Self::calc_height(left));
+        let slope = Self::calc_slope(right, &left);
         if slope == 0.0 {
             return None;
         }
 
         let vmax = Self::vmax(points);
         Some(DataLines {
-            low,
-            high: (vmax, low.1 + slope * (vmax - low.0)),
+            left,
+            right: (vmax, left.1 + slope * (vmax - left.0)),
         })
     }
 
-    fn fit_slope_with_vhigh(points: &[DataPoint], vhigh: f64) -> Option<DataLines> {
-        let (left, right) = Self::split_at(points, vhigh);
+    fn fit_slope_with_vright(points: &[DataPoint], vright: f64) -> Option<DataLines> {
+        let (left, right) = Self::split_at(points, vright);
         if left.len() < 3 || right.len() < 3 {
             return None;
         }
 
-        let high = (vhigh, Self::calc_height(right));
-        let slope = Self::calc_slope(left, &high);
+        let right = (vright, Self::calc_height(right));
+        let slope = Self::calc_slope(left, &right);
         if slope == 0.0 {
             return None;
         }
 
         Some(DataLines {
-            low: (0.0, high.1 - slope * high.0),
-            high,
+            left: (0.0, right.1 - slope * right.0),
+            right,
         })
     }
 
-    fn fit_slope_with_vlow_and_vhigh(
+    fn fit_slope_with_vleft_and_vright(
         points: &[DataPoint],
-        vlow: f64,
-        vhigh: f64,
+        vleft: f64,
+        vright: f64,
     ) -> Option<DataLines> {
-        let (left, center) = Self::split_at(points, vlow);
-        let (center, right) = Self::split_at(center, vhigh);
+        let (left, center) = Self::split_at(points, vleft);
+        let (center, right) = Self::split_at(center, vright);
         if left.len() < 3 || center.len() < 3 || right.len() < 3 {
             return None;
         }
 
         Some(DataLines {
-            low: (vlow, Self::calc_height(left)),
-            high: (vhigh, Self::calc_height(right)),
+            left: (vleft, Self::calc_height(left)),
+            right: (vright, Self::calc_height(right)),
         })
     }
 
@@ -632,16 +632,18 @@ impl DataSeries {
         // Try one flat line and one slope.
         for i in 0..intvs {
             let infl = start + i as f64 * gran;
-            try_and_pick(&|| Self::fit_slope_with_vlow(&self.points, infl));
-            try_and_pick(&|| Self::fit_slope_with_vhigh(&self.points, infl));
+            try_and_pick(&|| Self::fit_slope_with_vleft(&self.points, infl));
+            try_and_pick(&|| Self::fit_slope_with_vright(&self.points, infl));
         }
 
         // Try two flat lines connected with a slope.
         for i in 0..intvs - 1 {
-            let vlow = start + i as f64 * gran;
+            let vleft = start + i as f64 * gran;
             for j in i..intvs {
-                let vhigh = start + j as f64 * gran;
-                try_and_pick(&|| Self::fit_slope_with_vlow_and_vhigh(&self.points, vlow, vhigh));
+                let vright = start + j as f64 * gran;
+                try_and_pick(&|| {
+                    Self::fit_slope_with_vleft_and_vright(&self.points, vleft, vright)
+                });
             }
         }
 

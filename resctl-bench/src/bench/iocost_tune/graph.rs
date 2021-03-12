@@ -53,14 +53,14 @@ impl<'a> Grapher<'a> {
         let lines = &series.lines;
         let mut xlabel = format!(
             "vrate (min={:.3} max={:.3} ",
-            lines.low.1 * yscale,
-            lines.high.1 * yscale
+            lines.left.1.min(lines.right.1) * yscale,
+            lines.left.1.max(lines.right.1) * yscale
         );
-        if lines.low.0 > 0.0 {
-            xlabel += &format!("low-infl={:.1} ", lines.low.0);
+        if lines.left.0 > 0.0 {
+            xlabel += &format!("left-infl={:.1} ", lines.left.0);
         }
-        if lines.high.0 < vrate_max {
-            xlabel += &format!("high-infl={:.1} ", lines.high.0);
+        if lines.right.0 < vrate_max {
+            xlabel += &format!("right-infl={:.1} ", lines.right.0);
         }
         xlabel += &format!("err={:.3})", series.error * yscale);
 
@@ -162,10 +162,10 @@ impl<'a> Grapher<'a> {
 
         let lines = &series.lines;
         let segments = vec![
-            (0.0, lines.low.1 * yscale),
-            (lines.low.0, lines.low.1 * yscale),
-            (lines.high.0, lines.high.1 * yscale),
-            (vrate_max, lines.high.1 * yscale),
+            (0.0, lines.left.1 * yscale),
+            (lines.left.0, lines.left.1 * yscale),
+            (lines.right.0, lines.right.1 * yscale),
+            (vrate_max, lines.right.1 * yscale),
         ];
         let view = view.add(Plot::new(segments).line_style(LineStyle::new().colour("#3749e6")));
 
