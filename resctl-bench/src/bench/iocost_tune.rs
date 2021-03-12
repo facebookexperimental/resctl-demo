@@ -778,6 +778,7 @@ impl Job for IoCostTuneJob {
                         min: Some(min),
                         max: Some(max),
                         skip: _,
+                        min_adj: _,
                     }) if min == max => min,
                     _ => continue,
                 };

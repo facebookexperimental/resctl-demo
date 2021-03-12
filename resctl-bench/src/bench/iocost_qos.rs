@@ -46,6 +46,8 @@ pub struct IoCostQoSOvr {
 
     #[serde(skip)]
     pub skip: bool,
+    #[serde(skip)]
+    pub min_adj: bool,
 }
 
 impl IoCostQoSOvr {
@@ -585,12 +587,31 @@ impl Job for IoCostQoSJob {
             self.mem_profile = prev_rec.mem_profile;
         }
 
+        // Mark the ones with too low a max rate to run.
+        let abs_min_vrate = Self::calc_abs_min_vrate(&rctx.bench().iocost.model);
+        for ovr in self.runs.iter_mut() {
+            if let Some(ovr) = ovr.as_mut() {
+                if let Some(max) = ovr.max.as_mut() {
+                    if *max < abs_min_vrate {
+                        ovr.skip = true;
+                    } else if let Some(min) = ovr.min.as_mut() {
+                        if *min < abs_min_vrate {
+                            *min = abs_min_vrate;
+                            ovr.min_adj = true;
+                        }
+                    }
+                }
+            }
+        }
+
         // Do we already have all results in prev? Otherwise, make sure we
         // have iocost parameters available.
         if rctx.bench().iocost_seq == 0 {
             let mut has_all = true;
             for ovr in self.runs.iter_mut() {
-                if Self::find_matching_rec_run(ovr.as_ref(), &prev_rec).is_none() {
+                if (ovr.is_none() || !ovr.as_ref().unwrap().skip)
+                    && Self::find_matching_rec_run(ovr.as_ref(), &prev_rec).is_none()
+                {
                     has_all = false;
                     break;
                 }
@@ -606,37 +627,27 @@ impl Job for IoCostQoSJob {
 
         // Print out what to do beforehand so that the user can spot errors
         // without waiting for the benches to run.
-        let abs_min_vrate = Self::calc_abs_min_vrate(&rctx.bench().iocost.model);
         let mut nr_to_run = 0;
-        for (i, ovr) in self.runs.iter_mut().enumerate() {
+        for (i, ovr) in self.runs.iter().enumerate() {
             let qos = &bench.iocost.qos;
-
+            let mut skip = false;
             let mut extra_state = " ";
-
-            if let Some(ovr) = ovr.as_mut() {
-                if let Some(max) = ovr.max.as_mut() {
-                    if *max < abs_min_vrate {
-                        ovr.skip = true;
-                        extra_state = "s";
-                    }
-                }
-                if !ovr.skip {
-                    if let Some(min) = ovr.min.as_mut() {
-                        if *min < abs_min_vrate {
-                            *min = abs_min_vrate;
-                            extra_state = "a";
-                        }
-                    }
+            if let Some(ovr) = ovr.as_ref() {
+                if ovr.skip {
+                    skip = true;
+                    extra_state = "s";
+                } else if ovr.min_adj {
+                    extra_state = "a";
                 }
             }
 
-            let new = match Self::find_matching_rec_run(ovr.as_ref(), &prev_rec) {
-                Some(_) => false,
-                None => {
-                    nr_to_run += 1;
-                    true
-                }
+            let new = if !skip && Self::find_matching_rec_run(ovr.as_ref(), &prev_rec).is_none() {
+                nr_to_run += 1;
+                true
+            } else {
+                false
             };
+
             info!(
                 "iocost-qos[{:02}]: {}{} {}",
                 i,
