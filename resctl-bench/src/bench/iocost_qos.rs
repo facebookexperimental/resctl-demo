@@ -869,8 +869,9 @@ impl Job for IoCostQoSJob {
                     match resr.prot.combined_mem_hog.as_ref() {
                         Some(hog) => writeln!(
                             out,
-                            "            isol={}% lat_imp={}%:{} work_csv={}%",
+                            "            isol={}:{}% lat_imp={}%:{} work_csv={}%",
                             format_pct(hog.isol),
+                            format_pct(hog.isol_stdev),
                             format_pct(hog.lat_imp),
                             format_pct(hog.lat_imp_stdev),
                             format_pct(hog.work_csv),
@@ -904,19 +905,20 @@ impl Job for IoCostQoSJob {
         writeln!(out, "").unwrap();
         writeln!(
             out,
-            "         MOF   isol%       lat-imp%  work-csv%  missing%"
+            "         MOF        isol%       lat-imp%  work-csv%  missing%"
         )
         .unwrap();
 
         for (i, resr) in res.runs.iter().enumerate() {
             match resr {
                 Some(resr) => {
-                    write!(out, "[{:02}] {:>7.3}   ", i, resr.stor.mem_offload_factor).unwrap();
+                    write!(out, "[{:02}] {:>7.3}  ", i, resr.stor.mem_offload_factor).unwrap();
                     match resr.prot.combined_mem_hog.as_ref() {
                         Some(hog) => writeln!(
                             out,
-                            "{:>5.1}  {:>6.1}:{:>6.1}      {:>5.1}     {:>5.1}",
+                            "{:>5.1}:{:>5.1}  {:>6.1}:{:>6.1}      {:>5.1}     {:>5.1}",
                             hog.isol * TO_PCT,
+                            hog.isol_stdev * TO_PCT,
                             hog.lat_imp * TO_PCT,
                             hog.lat_imp_stdev * TO_PCT,
                             hog.work_csv * TO_PCT,
