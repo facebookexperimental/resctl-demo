@@ -117,7 +117,7 @@ pub struct Cmd {
 
 impl Cmd {
     pub fn bench_hashd_memory_slack(mem_share: usize) -> usize {
-        (mem_share / 8).min(512 << 20)
+        (mem_share / 8).min(1 << 30)
     }
 }
 

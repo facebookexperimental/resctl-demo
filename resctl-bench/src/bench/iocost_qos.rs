@@ -466,10 +466,18 @@ impl IoCostQoSJob {
             rctx.update_bench_from_mem_size(stor_res.mem_size)?;
 
             // Storage benches ran with mem_target but protection runs get
-            // full mem_share.
-            pjob.balloon_size = stor_rec.mem.avail.saturating_sub(stor_rec.mem.share);
+            // full mem_share. As mem_share is based on measurement, FB
+            // prod or not doens't make any difference.
+            let work_low = stor_rec.mem.share
+                - rd_agent_intf::SliceConfig::dfl_mem_margin(stor_rec.mem.share, false) as usize;
+            let balloon_size = stor_rec.mem.avail.saturating_sub(stor_rec.mem.share);
+
+            rctx.set_workload_mem_low(work_low);
+            rctx.set_balloon_size(balloon_size);
             Self::apply_ovr(rctx, &ovr);
+
             let out = pjob.clone().run(rctx);
+
             rctx.stop_agent();
             match out {
                 Ok(r) => {

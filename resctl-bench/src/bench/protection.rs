@@ -778,7 +778,6 @@ impl Scenario {
 #[derive(Clone, Debug, Default)]
 pub struct ProtectionJob {
     pub passive: bool,
-    pub balloon_size: usize,
     pub scenarios: Vec<Scenario>,
 }
 
@@ -812,7 +811,6 @@ impl ProtectionJob {
         for (k, v) in spec.props[0].iter() {
             match k.as_str() {
                 "passive" => job.passive = v.len() == 0 || v.parse::<bool>()?,
-                "balloon" => job.balloon_size = parse_size(v)? as usize,
                 k => bail!("unknown property key {:?}", k),
             }
         }
@@ -917,9 +915,6 @@ impl Job for ProtectionJob {
 
         if self.passive {
             rctx.set_passive_keep_crit_mem_prot();
-        }
-        if self.balloon_size > 0 {
-            rctx.set_balloon_size(self.balloon_size);
         }
         rctx.set_prep_testfiles().start_agent(vec![])?;
 

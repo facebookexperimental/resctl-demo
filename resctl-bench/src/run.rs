@@ -324,6 +324,16 @@ impl<'a> RunCtx<'a> {
         })
     }
 
+    pub fn set_workload_mem_low(&mut self, size: usize) -> &mut Self {
+        self.add_agent_init_fn(move |rctx| {
+            rctx.access_agent_files(|af| {
+                af.slices.data[rd_agent_intf::Slice::Work].mem_low =
+                    rd_agent_intf::MemoryKnob::Bytes(size as u64);
+                af.slices.save().unwrap();
+            });
+        })
+    }
+
     pub fn set_need_linux_tar(&mut self) -> &mut Self {
         self.inner.lock().unwrap().need_linux_tar = true;
         self
