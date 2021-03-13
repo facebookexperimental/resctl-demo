@@ -1,5 +1,5 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
-use anyhow::{bail, Error, Result};
+use anyhow::{anyhow, bail, Error, Result};
 use chrono::{DateTime, Local};
 use log::warn;
 use serde::{Deserialize, Serialize};
@@ -174,8 +174,11 @@ impl JobCtx {
     pub fn run(&mut self, rctx: &mut RunCtx) -> Result<()> {
         rctx.prev_uid.push(self.prev_uid.unwrap());
         let pdata = rctx.prev_job_data();
-        if pdata.is_some() && !self.incremental {
-            self.data = pdata.unwrap();
+        if rctx.study_mode() || (pdata.is_some() && !self.incremental) {
+            self.data = pdata.ok_or(anyhow!(
+                "--study specified but {} isn't complete",
+                &self.data.spec
+            ))?;
         } else {
             let job = self.job.as_mut().unwrap();
             let data = &mut self.data;
@@ -214,8 +217,6 @@ impl JobCtx {
 
             data.record = Some(record);
         }
-
-        rctx.maybe_cycle_agent()?;
 
         let res = match self
             .job

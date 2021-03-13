@@ -437,10 +437,17 @@ impl Bench for IoCostTuneBench {
                 "gran" => job.gran = v.parse::<f64>()?,
                 "vrate-min" => job.vrate_min = v.parse::<f64>()?,
                 "vrate-max" => job.vrate_max = v.parse::<f64>()?,
-                "plot" => {
-                    job.sels.insert(DataSel::parse(v)?);
+                k => {
+                    let sel = DataSel::parse(k)?;
+                    if v.len() > 0 {
+                        bail!(
+                            "Plot data selector {:?} can't have value but has {:?}",
+                            k,
+                            v
+                        );
+                    }
+                    job.sels.insert(sel);
                 }
-                k => bail!("Unknown property key {:?}", k),
             }
         }
 

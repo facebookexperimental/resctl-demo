@@ -221,35 +221,41 @@ impl Program {
     }
 
     fn do_run(&mut self) {
-        // Use alternate bench file to avoid clobbering resctl-demo bench
-        // results w/ e.g. fake_cpu_load ones.
-        let scr_devname = match self.args_file.data.dev.as_ref() {
-            Some(dev) => dev.clone(),
-            None => {
-                let mut scr_path = PathBuf::from(&self.args_file.data.dir);
-                scr_path.push("scratch");
-                while !scr_path.exists() {
-                    if !scr_path.pop() {
-                        panic!("failed to find existing ancestor dir for scratch path");
+        let mut base_bench = if self.args_file.data.study_rep_d.is_none() {
+            // Use alternate bench file to avoid clobbering resctl-demo bench
+            // results w/ e.g. fake_cpu_load ones.
+            let scr_devname = match self.args_file.data.dev.as_ref() {
+                Some(dev) => dev.clone(),
+                None => {
+                    let mut scr_path = PathBuf::from(&self.args_file.data.dir);
+                    scr_path.push("scratch");
+                    while !scr_path.exists() {
+                        if !scr_path.pop() {
+                            panic!("failed to find existing ancestor dir for scratch path");
+                        }
                     }
+                    path_to_devname(&scr_path.as_os_str().to_str().unwrap())
+                        .expect("failed to resolve device for scratch path")
+                        .into_string()
+                        .unwrap()
                 }
-                path_to_devname(&scr_path.as_os_str().to_str().unwrap())
-                    .expect("failed to resolve device for scratch path")
-                    .into_string()
-                    .unwrap()
-            }
-        };
-        let scr_devnr = devname_to_devnr(&scr_devname)
-            .expect("failed to resolve device number for scratch device");
-        let iocost_sys_save =
-            IoCostSysSave::read_from_sys(scr_devnr).expect("failed to read iocost.model,qos");
+            };
+            let scr_devnr = devname_to_devnr(&scr_devname)
+                .expect("failed to resolve device number for scratch device");
+            let iocost_sys_save =
+                IoCostSysSave::read_from_sys(scr_devnr).expect("failed to read iocost.model,qos");
 
-        let mut base_bench = match self.prep_base_bench(&scr_devname, &iocost_sys_save) {
-            Ok(v) => v,
-            Err(e) => {
-                error!("Failed to prepare bench files ({})", &e);
-                panic!();
+            match self.prep_base_bench(&scr_devname, &iocost_sys_save) {
+                Ok(v) => v,
+                Err(e) => {
+                    error!("Failed to prepare bench files ({})", &e);
+                    panic!();
+                }
             }
+        } else {
+            // We aren't actually gonna run anything in study mode. Just use
+            // dummy value.
+            Default::default()
         };
 
         // Collect the pending jobs.

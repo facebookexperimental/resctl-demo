@@ -19,6 +19,7 @@ lazy_static::lazy_static! {
              --systemd-timeout=[SECS] 'Systemd timeout (default: {dfl_systemd_timeout})'
          -a, --args=[FILE]      'Load base command line arguments from FILE'
          -c, --iocost-from-sys  'Use iocost parameters from io.cost.{{model,qos}} instead of bench.json'
+         -s, --study=[DIR]      'Study reports in the specified directory, all benches must be complete'
              --keep-reports     'Don't delete expired report files'
              --clear-reports    'Remove existing report files'
              --test             'Test mode for development'
@@ -46,6 +47,7 @@ pub struct Args {
     pub systemd_timeout: f64,
     pub mode: Mode,
     pub job_specs: Vec<JobSpec>,
+    pub study_rep_d: Option<String>,
 
     #[serde(skip)]
     pub result: String,
@@ -70,6 +72,7 @@ impl Default for Args {
             result: "".into(),
             mode: Mode::Run,
             job_specs: Default::default(),
+            study_rep_d: None,
             rep_retention: 7 * 24 * 3600,
             systemd_timeout: 120.0,
             iocost_from_sys: false,
@@ -205,48 +208,35 @@ impl JsonSave for Args {}
 
 impl JsonArgs for Args {
     fn match_cmdline() -> clap::ArgMatches<'static> {
+        let job_file_arg = clap::Arg::with_name("file")
+            .long("file")
+            .short("f")
+            .multiple(true)
+            .takes_value(true)
+            .number_of_values(1)
+            .help("Benchmark job file");
+        let job_spec_arg = clap::Arg::with_name("spec")
+            .multiple(true)
+            .help("Benchmark job spec - \"BENCH_TYPE[:KEY=VAL...]\"");
+
         clap::App::new("resctl-bench")
             .version(clap::crate_version!())
             .author(clap::crate_authors!("\n"))
-            .about("Facebook Resoruce Control Benchmarks")
+            .about("Facebook Resource Control Benchmarks")
             .setting(clap::AppSettings::UnifiedHelpMessage)
             .setting(clap::AppSettings::DeriveDisplayOrder)
             .args_from_usage(&TOP_ARGS_STR)
             .subcommand(
                 clap::SubCommand::with_name("run")
                     .about("Run benchmarks")
-                    .arg(
-                        clap::Arg::with_name("file")
-                            .long("file")
-                            .short("f")
-                            .multiple(true)
-                            .takes_value(true)
-                            .number_of_values(1)
-                            .help("Benchmark job file"),
-                    )
-                    .arg(
-                        clap::Arg::with_name("spec")
-                            .multiple(true)
-                            .help("Benchmark job spec - \"BENCH_TYPE[:KEY=VAL...]\""),
-                    ),
+                    .arg(job_file_arg.clone())
+                    .arg(job_spec_arg.clone()),
             )
             .subcommand(
                 clap::SubCommand::with_name("format")
                     .about("Format benchmark results")
-                    .arg(
-                        clap::Arg::with_name("file")
-                            .long("file")
-                            .short("f")
-                            .multiple(true)
-                            .takes_value(true)
-                            .number_of_values(1)
-                            .help("Benchmark format file"),
-                    )
-                    .arg(
-                        clap::Arg::with_name("spec")
-                            .multiple(true)
-                            .help("Results to format - \"BENCY_TYPE[:KEY=VAL...]\""),
-                    ),
+                    .arg(job_file_arg.clone())
+                    .arg(job_spec_arg.clone()),
             )
             .subcommand(
                 clap::SubCommand::with_name("summary")
@@ -314,6 +304,14 @@ impl JsonArgs for Args {
                 parse_duration(v).unwrap().max(1.0)
             } else {
                 dfl.systemd_timeout
+            };
+            updated = true;
+        }
+        if let Some(v) = matches.value_of("study") {
+            self.study_rep_d = if v.len() > 0 {
+                Some(v.to_owned())
+            } else {
+                None
             };
             updated = true;
         }

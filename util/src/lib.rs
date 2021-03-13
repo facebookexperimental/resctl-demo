@@ -502,7 +502,13 @@ pub fn format_unix_time(time: u64) -> String {
 }
 
 pub fn format_period(per: (u64, u64)) -> String {
-    format!("{} - {}", format_unix_time(per.0), format_unix_time(per.1))
+    format!(
+        "{} - {} ({}-{})",
+        format_unix_time(per.0),
+        format_unix_time(per.1),
+        per.0,
+        per.1
+    )
 }
 
 pub fn init_logging(verbosity: u32) {

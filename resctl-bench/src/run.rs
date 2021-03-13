@@ -364,6 +364,10 @@ impl<'a> RunCtx<'a> {
         self
     }
 
+    pub fn study_mode(&self) -> bool {
+        self.args.study_rep_d.is_some()
+    }
+
     pub fn update_incremental_jctx(&mut self, jctx: &JobCtx) {
         let mut jobs = self.jobs.lock().unwrap();
         jobs.prev.by_uid_mut(jctx.prev_uid.unwrap()).unwrap().data = jctx.data.clone();
@@ -492,6 +496,10 @@ impl<'a> RunCtx<'a> {
     }
 
     pub fn start_agent(&mut self, extra_args: Vec<String>) -> Result<()> {
+        if self.study_mode() {
+            bail!("Can't run unfinished benchmarks when --study is specified");
+        }
+
         let mut ctx = self.inner.lock().unwrap();
         ctx.minder_state = MinderState::Ok;
 
@@ -567,14 +575,6 @@ impl<'a> RunCtx<'a> {
         if let Some(jh) = minder_jh {
             jh.join().unwrap();
         }
-    }
-
-    pub fn maybe_cycle_agent(&mut self) -> Result<()> {
-        if !AGENT_WAS_ACTIVE.load(Ordering::Relaxed) {
-            self.start_agent(vec![]).context("Cycling rd_agent")?;
-            self.stop_agent();
-        }
-        Ok(())
     }
 
     pub fn wait_cond<F>(
@@ -971,7 +971,7 @@ impl<'a> RunCtx<'a> {
             .save(&self.bench_path)
             .with_context(|| format!("Setting up {:?}", &self.bench_path))?;
 
-        jctx.run(self).context("Running job")?;
+        jctx.run(self).with_context(|| format!("Failed to run {}", &jctx.data.spec))?;
 
         if self.commit_bench {
             self.load_bench()?;
@@ -1042,8 +1042,16 @@ impl<'a> RunCtx<'a> {
     }
 
     pub fn report_iter(&self, period: (u64, u64)) -> ReportIter {
-        let ctx = self.inner.lock().unwrap();
-        ReportIter::new(&ctx.agent_files.index.data.report_d, period)
+        match AGENT_WAS_ACTIVE.load(Ordering::Relaxed) {
+            true => {
+                let ctx = self.inner.lock().unwrap();
+                ReportIter::new(&ctx.agent_files.index.data.report_d, period)
+            }
+            false => match self.args.study_rep_d.as_ref() {
+                Some(v) => ReportIter::new(v, period),
+                None => ReportIter::new(&format!("{}/report.d", &self.args.dir), period),
+            },
+        }
     }
 
     pub fn first_report(&self, period: (u64, u64)) -> Option<(rd_agent_intf::Report, u64)> {
