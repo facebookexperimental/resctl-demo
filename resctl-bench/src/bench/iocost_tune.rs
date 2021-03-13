@@ -1,5 +1,6 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
 use super::iocost_qos::{IoCostQoSOvr, IoCostQoSRecord, IoCostQoSResult, IoCostQoSResultRun};
+use super::protection::MemHog;
 use super::*;
 use statrs::distribution::{Normal, Univariate};
 use std::cmp::{Ordering, PartialOrd};
@@ -16,7 +17,8 @@ const DFL_VRATE_MAX: f64 = 100.0;
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum DataSel {
     MOF,                  // Memory offloading
-    Isol,                 // Isolation
+    Isol,                 // Isolation Factor Mean
+    IsolPct(String),      // Isolation Factor Percentiles
     LatImp,               // Request Latency impact
     WorkCsv,              // Work conservation
     Missing,              // Report missing
@@ -33,6 +35,19 @@ impl DataSel {
             "work-csv" => return Ok(Self::WorkCsv),
             "missing" => return Ok(Self::Missing),
             _ => {}
+        }
+
+        if sel.starts_with("isol-") {
+            let pct = &sel[5..];
+            if pct == "max" {
+                return Ok(Self::IsolPct("100".to_owned()));
+            }
+            for hog_pct in MemHog::PCTS.iter() {
+                if pct == *hog_pct {
+                    return Ok(Self::IsolPct(pct.to_owned()));
+                }
+            }
+            bail!("Invalid isol pct {}, supported: {:?}", pct, &MemHog::PCTS);
         }
 
         let rw = if sel.starts_with("rlat-") {
@@ -112,6 +127,12 @@ impl DataSel {
             // isolation and skip other prot results.
             Self::Isol => Some(hog.map(|x| x.isol).unwrap_or(0.0)),
             Self::LatImp => hog.map(|x| x.lat_imp),
+            Self::IsolPct(pct) => hog.map(|x| {
+                *x.isol_pcts
+                    .get(pct)
+                    .with_context(|| format!("Finding isol_pcts[{:?}]", pct))
+                    .unwrap()
+            }),
             Self::WorkCsv => hog.map(|x| x.work_csv),
             Self::Missing => Some(Studies::reports_missing(resr.nr_reports)),
             Self::RLat(lat_pct, time_pct) => Some(
@@ -135,7 +156,7 @@ impl DataSel {
         }
     }
 
-    fn cmp_lat_sel(a: &str, b: &str) -> Ordering {
+    fn cmp_pct_sel(a: &str, b: &str) -> Ordering {
         match (a, b) {
             (a, b) if a == b => Ordering::Equal,
             ("mean", _) => Ordering::Less,
@@ -152,25 +173,26 @@ impl DataSel {
         match self {
             Self::MOF => (0, None),
             Self::Isol => (1, None),
-            Self::LatImp => (2, None),
-            Self::WorkCsv => (3, None),
-            Self::Missing => (4, None),
-            Self::RLat(lat, time) => (5, Some((lat, time))),
-            Self::WLat(lat, time) => (6, Some((lat, time))),
+            Self::IsolPct(pct) => (2, Some((pct, "NONE"))),
+            Self::LatImp => (3, None),
+            Self::WorkCsv => (4, None),
+            Self::Missing => (5, None),
+            Self::RLat(lat, time) => (6, Some((lat, time))),
+            Self::WLat(lat, time) => (7, Some((lat, time))),
         }
     }
 
     fn same_group(&self, other: &Self) -> bool {
-        let (pos_a, lat_time_a) = self.pos();
-        let (pos_b, lat_time_b) = other.pos();
-        if lat_time_a.is_none() && lat_time_b.is_none() {
+        let (pos_a, pcts_a) = self.pos();
+        let (pos_b, pcts_b) = other.pos();
+        if pcts_a.is_none() && pcts_b.is_none() {
             true
         } else if pos_a != pos_b {
             false
         } else {
-            let (_, time_a) = lat_time_a.unwrap();
-            let (_, time_b) = lat_time_b.unwrap();
-            time_a == time_b
+            let (_, pct1_a) = pcts_a.unwrap();
+            let (_, pct1_b) = pcts_b.unwrap();
+            pct1_a == pct1_b
         }
     }
 
@@ -212,14 +234,14 @@ impl DataSel {
 
 impl Ord for DataSel {
     fn cmp(&self, other: &Self) -> Ordering {
-        let (pos_a, lat_time_a) = self.pos();
-        let (pos_b, lat_time_b) = other.pos();
+        let (pos_a, pcts_a) = self.pos();
+        let (pos_b, pcts_b) = other.pos();
 
-        if pos_a == pos_b && lat_time_a.is_some() {
-            let (lat_a, time_a) = lat_time_a.unwrap();
-            let (lat_b, time_b) = lat_time_b.unwrap();
-            match Self::cmp_lat_sel(time_a, time_b) {
-                Ordering::Equal => Self::cmp_lat_sel(lat_a, lat_b),
+        if pos_a == pos_b && pcts_a.is_some() {
+            let (pct0_a, pct1_a) = pcts_a.unwrap();
+            let (pct0_b, pct1_b) = pcts_b.unwrap();
+            match Self::cmp_pct_sel(pct1_a, pct1_b) {
+                Ordering::Equal => Self::cmp_pct_sel(pct0_a, pct0_b),
                 ord => ord,
             }
         } else {
@@ -239,6 +261,7 @@ impl std::fmt::Display for DataSel {
         match self {
             Self::MOF => write!(f, "mof"),
             Self::Isol => write!(f, "isol"),
+            Self::IsolPct(pct) => write!(f, "isol-{}", pct),
             Self::LatImp => write!(f, "lat-imp"),
             Self::WorkCsv => write!(f, "work-csv"),
             Self::Missing => write!(f, "missing"),

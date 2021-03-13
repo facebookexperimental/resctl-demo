@@ -154,7 +154,7 @@ impl MemHog {
     const STABLE_HOLD: f64 = 15.0;
     const TIMEOUT: f64 = 300.0;
     const MEM_AVG_PERIOD: usize = 5;
-    const PCTS: [&'static str; 13] = [
+    pub const PCTS: [&'static str; 13] = [
         "00", "01", "05", "10", "16", "25", "50", "75", "84", "90", "95", "99", "100",
     ];
 

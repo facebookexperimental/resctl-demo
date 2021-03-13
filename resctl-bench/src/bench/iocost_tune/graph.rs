@@ -42,6 +42,7 @@ impl<'a> Grapher<'a> {
                 (ymin, 1.0)
             }
             DataSel::Isol => (0.0, 100.0),
+            DataSel::IsolPct(_) => (0.0, 100.0),
             DataSel::LatImp => (0.0, 100.0),
             DataSel::WorkCsv => (0.0, 100.0),
             DataSel::Missing => (0.0, 100.0),
