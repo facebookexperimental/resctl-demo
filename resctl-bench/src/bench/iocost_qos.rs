@@ -136,7 +136,11 @@ impl IoCostQoSJob {
 
     fn parse(spec: &JobSpec, prev_data: Option<&JobData>) -> Result<Self> {
         let mut storage_spec = JobSpec::new("storage", None, JobSpec::props(&[&[("active", "")]]));
-        let protection_spec = JobSpec::new("protection", None, JobSpec::props(&[]));
+        let protection_spec = JobSpec::new(
+            "protection",
+            None,
+            JobSpec::props(&[&[], &[("scenario", "mem-hog"), ("load", "0.75")]]),
+        );
 
         let mut vrate_min = 0.0;
         let mut vrate_max = DFL_VRATE_MAX;
