@@ -21,18 +21,17 @@ const PROT_TRIES: u32 = 4;
 const VRATE_INTVS_MIN: f64 = 1.0;
 
 // The absolute minimum performance level this bench will probe. It's
-// roughly 5% of what a modern 7200rpm hard disk can do. The bench itself
-// needs some access to IOs and going significantly lower than this may
-// affect system and bench stability. seqiops are artificially lowered to
-// avoid limiting throttling of older SSDs which have similar seqiops as
-// hard drives.
+// roughly 75% of what a modern 7200rpm hard disk can do. With default 16G
+// profile, going lower than this makes hashd too slow to recover from
+// reclaim hits. seqiops are artificially lowered to avoid limiting
+// throttling of older SSDs which have similar seqiops as hard drives.
 const ABS_MIN_PERF: IoCostModelParams = IoCostModelParams {
-    rbps: 8 << 20,
-    rseqiops: 16,
-    rrandiops: 16,
-    wbps: 8 << 20,
-    wseqiops: 16,
-    wrandiops: 16,
+    rbps: 125 << 20,
+    rseqiops: 280,
+    rrandiops: 280,
+    wbps: 125 << 20,
+    wseqiops: 280,
+    wrandiops: 280,
 };
 
 #[derive(Serialize, Deserialize, Debug, Default, Clone, PartialEq)]
@@ -74,6 +73,7 @@ struct IoCostQoSJob {
     prot_loops: u32,
     mem_profile: u32,
     dither_dist: Option<f64>,
+    ign_min_perf: bool,
     retries: u32,
     allow_fail: bool,
     stor_job: StorageJob,
@@ -150,6 +150,7 @@ impl IoCostQoSJob {
         let mut runs = vec![None];
         let mut dither = false;
         let mut dither_dist = None;
+        let mut ign_min_perf = false;
 
         for (k, v) in spec.props[0].iter() {
             match k.as_str() {
@@ -168,6 +169,7 @@ impl IoCostQoSJob {
                         dither_dist = Some(v.parse::<f64>()?);
                     }
                 }
+                "ignore-min-perf" => ign_min_perf = v.len() == 0 || v.parse::<bool>()?,
                 k if k.starts_with("storage-") => {
                     storage_spec.props[0].insert(k[8..].into(), v.into());
                 }
@@ -258,6 +260,7 @@ impl IoCostQoSJob {
             prot_loops,
             mem_profile,
             dither_dist,
+            ign_min_perf,
             retries,
             allow_fail,
             stor_job,
@@ -596,16 +599,18 @@ impl Job for IoCostQoSJob {
         }
 
         // Mark the ones with too low a max rate to run.
-        let abs_min_vrate = Self::calc_abs_min_vrate(&rctx.bench().iocost.model);
-        for ovr in self.runs.iter_mut() {
-            if let Some(ovr) = ovr.as_mut() {
-                if let Some(max) = ovr.max.as_mut() {
-                    if *max < abs_min_vrate {
-                        ovr.skip = true;
-                    } else if let Some(min) = ovr.min.as_mut() {
-                        if *min < abs_min_vrate {
-                            *min = abs_min_vrate;
-                            ovr.min_adj = true;
+        if !self.ign_min_perf {
+            let abs_min_vrate = Self::calc_abs_min_vrate(&rctx.bench().iocost.model);
+            for ovr in self.runs.iter_mut() {
+                if let Some(ovr) = ovr.as_mut() {
+                    if let Some(max) = ovr.max.as_mut() {
+                        if *max < abs_min_vrate {
+                            ovr.skip = true;
+                        } else if let Some(min) = ovr.min.as_mut() {
+                            if *min < abs_min_vrate {
+                                *min = abs_min_vrate;
+                                ovr.min_adj = true;
+                            }
                         }
                     }
                 }
