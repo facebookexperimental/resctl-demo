@@ -5,7 +5,7 @@ use log::{debug, error, info, warn};
 use std::collections::{BTreeSet, VecDeque};
 use std::fmt::Write;
 use std::process::Command;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::{spawn, JoinHandle};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -369,8 +369,13 @@ impl<'a> RunCtx<'a> {
     }
 
     pub fn update_incremental_jctx(&mut self, jctx: &JobCtx) {
+        static UPDATE_SEQ: AtomicU64 = AtomicU64::new(1);
+
         let mut jobs = self.jobs.lock().unwrap();
-        jobs.prev.by_uid_mut(jctx.prev_uid.unwrap()).unwrap().data = jctx.data.clone();
+        let prev = jobs.prev.by_uid_mut(jctx.prev_uid.unwrap()).unwrap();
+        prev.update_seq = UPDATE_SEQ.fetch_add(1, Ordering::Relaxed);
+        prev.data = jctx.data.clone();
+        jobs.prev.sort_by_update_seq();
         jobs.prev.save_results(self.result_path);
     }
 
@@ -971,7 +976,8 @@ impl<'a> RunCtx<'a> {
             .save(&self.bench_path)
             .with_context(|| format!("Setting up {:?}", &self.bench_path))?;
 
-        jctx.run(self).with_context(|| format!("Failed to run {}", &jctx.data.spec))?;
+        jctx.run(self)
+            .with_context(|| format!("Failed to run {}", &jctx.data.spec))?;
 
         if self.commit_bench {
             self.load_bench()?;

@@ -56,7 +56,7 @@ pub struct Jobs {
 impl Jobs {
     pub fn parse_job_spec_and_link(&mut self, spec: &JobSpec) -> Result<JobCtx> {
         let mut new = JobCtx::new(spec);
-        let prev = match self.prev.find_matching_unused_jctx_mut(spec) {
+        let prev = match self.prev.find_matching_unused_prev_mut(spec) {
             Some(prev) => {
                 debug!("{} has a matching entry in the result file", &new.data.spec);
                 prev.prev_used = true;
@@ -69,9 +69,10 @@ impl Jobs {
         new.parse_job_spec(prev.as_ref().map_or(None, |p| Some(&p.data)))?;
 
         if prev.is_none() {
-            let clone = new.weak_clone();
-            new.prev_uid = Some(clone.uid);
-            self.prev.vec.push(clone);
+            let mut prev = new.weak_clone();
+            prev.prev_used = true;
+            new.prev_uid = Some(prev.uid);
+            self.prev.vec.push(prev);
         }
         Ok(new)
     }

@@ -19,7 +19,7 @@ impl Bench for IoCostParamsBench {
 
 impl Job for IoCostParamsJob {
     fn sysreqs(&self) -> BTreeSet<SysReq> {
-        Default::default()
+        MIN_SYSREQS.clone()
     }
 
     fn run(&mut self, rctx: &mut RunCtx) -> Result<serde_json::Value> {

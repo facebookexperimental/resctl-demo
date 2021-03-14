@@ -22,8 +22,13 @@ use util::*;
 
 // Helpers shared by bench implementations.
 lazy_static::lazy_static! {
+    pub static ref MIN_SYSREQS: BTreeSet<SysReq> =
+        vec![
+            SysReq::Dependencies
+        ].into_iter().collect();
     pub static ref HASHD_SYSREQS: BTreeSet<SysReq> =
         vec![
+            SysReq::Dependencies,
             SysReq::AnonBalance,
             SysReq::SwapOnScratch,
             SysReq::Swap,

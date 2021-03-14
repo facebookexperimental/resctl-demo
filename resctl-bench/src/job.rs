@@ -100,6 +100,8 @@ pub struct JobCtx {
     pub prev_uid: Option<u64>,
     #[serde(skip)]
     pub prev_used: bool,
+    #[serde(skip)]
+    pub update_seq: u64,
 }
 
 impl std::fmt::Debug for JobCtx {
@@ -126,6 +128,7 @@ impl JobCtx {
             uid: Self::new_uid(),
             prev_uid: None,
             prev_used: false,
+            update_seq: std::u64::MAX,
         }
     }
 
@@ -163,6 +166,7 @@ impl JobCtx {
             uid: Self::new_uid(),
             prev_uid: None,
             prev_used: false,
+            update_seq: std::u64::MAX,
         }
     }
 
@@ -385,7 +389,11 @@ impl JobCtxs {
         None
     }
 
-    pub fn find_matching_unused_jctx_mut<'a>(
+    pub fn sort_by_update_seq(&mut self) {
+        self.vec.sort_by(|a, b| a.update_seq.cmp(&b.update_seq));
+    }
+
+    pub fn find_matching_unused_prev_mut<'a>(
         &'a mut self,
         spec: &JobSpec,
     ) -> Option<&'a mut JobCtx> {
