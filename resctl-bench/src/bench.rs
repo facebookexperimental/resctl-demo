@@ -50,7 +50,7 @@ struct HashdFakeCpuBench {
 }
 
 impl HashdFakeCpuBench {
-    fn start(&self, rctx: &RunCtx) -> Result<()> {
+    fn start(&self, rctx: &mut RunCtx) -> Result<()> {
         rctx.start_hashd_bench(
             self.balloon_size,
             self.log_bps,

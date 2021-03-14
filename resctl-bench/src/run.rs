@@ -2,7 +2,7 @@
 #![allow(dead_code)]
 use anyhow::{anyhow, bail, Context, Result};
 use log::{debug, error, info, warn};
-use std::collections::{BTreeSet, VecDeque};
+use std::collections::{HashSet, BTreeSet, VecDeque};
 use std::fmt::Write;
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -13,8 +13,8 @@ use thiserror::Error;
 use util::*;
 
 use super::progress::BenchProgress;
-use super::{Jobs, Program, AGENT_BIN};
-use crate::job::{JobCtx, JobData, SysReqs};
+use super::{Program, AGENT_BIN};
+use crate::job::{JobCtx, JobCtxs, JobData, SysReqs};
 use rd_agent_intf::{
     AgentFiles, ReportIter, RunnerState, Slice, SvcStateReport, SysReq, AGENT_SVC_NAME,
     HASHD_A_SVC_NAME, HASHD_BENCH_SVC_NAME, HASHD_B_SVC_NAME, IOCOST_BENCH_SVC_NAME,
@@ -50,7 +50,7 @@ fn run_nested_job_spec_int(
     spec: &JobSpec,
     args: &resctl_bench_intf::Args,
     base_bench: &mut rd_agent_intf::BenchKnobs,
-    jobs: Arc<Mutex<Jobs>>,
+    jobs: Arc<Mutex<JobCtxs>>,
 ) -> Result<bool> {
     let mut rctx = RunCtx::new(args, base_bench, jobs);
     let jctx = rctx.jobs.lock().unwrap().parse_job_spec_and_link(spec)?;
@@ -245,20 +245,21 @@ pub struct RunCtx<'a> {
     bench: rd_agent_intf::BenchKnobs,
     bench_path: String,
     demo_bench_path: String,
-    pub jobs: Arc<Mutex<Jobs>>,
-    pub prev_uid: Vec<u64>,
+    pub jobs: Arc<Mutex<JobCtxs>>,
+    pub uid: u64,
     pub sysreqs_forward: Option<SysReqs>,
     result_path: &'a str,
     pub test: bool,
     pub commit_bench: bool,
     args: &'a resctl_bench_intf::Args,
+    svcs: HashSet<String>,
 }
 
 impl<'a> RunCtx<'a> {
     pub fn new(
         args: &'a resctl_bench_intf::Args,
         base_bench: &'a mut rd_agent_intf::BenchKnobs,
-        jobs: Arc<Mutex<Jobs>>,
+        jobs: Arc<Mutex<JobCtxs>>,
     ) -> Self {
         Self {
             inner: Arc::new(Mutex::new(RunCtxInner {
@@ -288,12 +289,13 @@ impl<'a> RunCtx<'a> {
             demo_bench_path: args.demo_bench_path(),
             agent_init_fns: vec![],
             jobs,
-            prev_uid: vec![],
+            uid: 0,
             sysreqs_forward: None,
             result_path: &args.result,
             test: args.test,
             commit_bench: false,
             args,
+            svcs: Default::default(),
         }
     }
 
@@ -372,18 +374,19 @@ impl<'a> RunCtx<'a> {
         static UPDATE_SEQ: AtomicU64 = AtomicU64::new(1);
 
         let mut jobs = self.jobs.lock().unwrap();
-        let prev = jobs.prev.by_uid_mut(jctx.prev_uid.unwrap()).unwrap();
+        let prev = jobs.by_uid_mut(jctx.uid).unwrap();
         prev.update_seq = UPDATE_SEQ.fetch_add(1, Ordering::Relaxed);
         prev.data = jctx.data.clone();
-        jobs.prev.sort_by_update_seq();
-        jobs.prev.save_results(self.result_path);
+        if !self.study_mode() {
+            jobs.sort_by_update_seq();
+        }
+        jobs.save_results(self.result_path);
     }
 
     pub fn update_incremental_record(&mut self, record: serde_json::Value) {
-        let prev_uid = *self.prev_uid.iter().last().unwrap();
         let mut jobs = self.jobs.lock().unwrap();
-        jobs.prev.by_uid_mut(prev_uid).unwrap().data.record = Some(record);
-        jobs.prev.save_results(self.result_path);
+        jobs.by_uid_mut(self.uid).unwrap().data.record = Some(record);
+        jobs.save_results(self.result_path);
     }
 
     pub fn bench(&self) -> &rd_agent_intf::BenchKnobs {
@@ -500,6 +503,25 @@ impl<'a> RunCtx<'a> {
         )
     }
 
+    fn stop_svc(name: &str) {
+        debug!("Making sure {:?} is stopped", name);
+        for _ in 0..10 {
+            if let Ok(mut svc) = systemd::Unit::new_sys(name.to_owned()) {
+                if svc.state == systemd::UnitState::Running {
+                    info!("rd-agent failed to stop {:?}, stopping...", name);
+                    match svc.stop() {
+                        Ok(_) => return,
+                        Err(e) => error!("Failed to stop {:?} ({:#})", name, &e),
+                    }
+                } else {
+                    return;
+                }
+            }
+            std::thread::sleep(Duration::from_secs(1));
+        }
+        panic!("Failed to stop {:?}", name);
+    }
+
     pub fn start_agent(&mut self, extra_args: Vec<String>) -> Result<()> {
         if self.study_mode() {
             bail!("Can't run unfinished benchmarks when --study is specified");
@@ -580,6 +602,10 @@ impl<'a> RunCtx<'a> {
         if let Some(jh) = minder_jh {
             jh.join().unwrap();
         }
+
+        for svc in self.svcs.iter() {
+            Self::stop_svc(svc);
+        }
     }
 
     pub fn wait_cond<F>(
@@ -634,8 +660,9 @@ impl<'a> RunCtx<'a> {
         func(af)
     }
 
-    pub fn start_iocost_bench(&self) -> Result<()> {
+    pub fn start_iocost_bench(&mut self) -> Result<()> {
         debug!("Starting iocost benchmark ({})", &IOCOST_BENCH_SVC_NAME);
+        self.svcs.insert(IOCOST_BENCH_SVC_NAME.to_owned());
 
         let mut next_seq = 0;
         self.access_agent_files(|af| {
@@ -669,18 +696,22 @@ impl<'a> RunCtx<'a> {
             Some(CMD_TIMEOUT),
             None,
         )
-        .context("Waiting for iocost bench to stop")
+        .context("Waiting for iocost bench to stop")?;
+
+        Self::stop_svc(&IOCOST_BENCH_SVC_NAME);
+        Ok(())
     }
 
     pub const BENCH_FAKE_CPU_RPS_MAX: u32 = 2000;
 
     pub fn start_hashd_bench(
-        &self,
+        &mut self,
         ballon_size: usize,
         log_bps: u64,
         mut extra_args: Vec<String>,
     ) -> Result<()> {
         debug!("Starting hashd benchmark ({})", &HASHD_BENCH_SVC_NAME);
+        self.svcs.insert(HASHD_BENCH_SVC_NAME.to_owned());
 
         // Some benches monitor the memory usage of rd-hashd-bench.service.
         // On consecutive runs, some memory charges can shift to
@@ -728,11 +759,15 @@ impl<'a> RunCtx<'a> {
             Some(CMD_TIMEOUT),
             None,
         )
-        .context("Waiting for hashd bench to stop")
+        .context("Waiting for hashd bench to stop")?;
+
+        Self::stop_svc(&HASHD_BENCH_SVC_NAME);
+        Ok(())
     }
 
-    pub fn start_hashd(&self, load: f64) -> Result<()> {
+    pub fn start_hashd(&mut self, load: f64) -> Result<()> {
         debug!("Starting hashd ({})", &HASHD_A_SVC_NAME);
+        self.svcs.insert(HASHD_A_SVC_NAME.to_owned());
 
         self.access_agent_files(|af| {
             af.cmd.data.cmd_seq += 1;
@@ -746,7 +781,10 @@ impl<'a> RunCtx<'a> {
             Some(CMD_TIMEOUT),
             None,
         )
-        .context("Waiting for hashd to start")
+        .context("Waiting for hashd to start")?;
+
+        Self::stop_svc(&HASHD_A_SVC_NAME);
+        Ok(())
     }
 
     pub fn stabilize_hashd_with_params(
@@ -875,8 +913,9 @@ impl<'a> RunCtx<'a> {
         .context("Waiting for hashd to stop")
     }
 
-    pub fn start_sysload(&self, name: &str, kind: &str) -> Result<()> {
+    pub fn start_sysload(&mut self, name: &str, kind: &str) -> Result<()> {
         debug!("Starting sysload {}:{}", name, kind);
+        self.svcs.insert(rd_agent_intf::sysload_svc_name(name));
 
         self.access_agent_files(|af| {
             af.cmd.data.cmd_seq += 1;
@@ -922,12 +961,13 @@ impl<'a> RunCtx<'a> {
             af.cmd.data.sysloads.remove(&name.to_owned());
             af.cmd.save().unwrap();
         });
+
+        Self::stop_svc(&rd_agent_intf::sysload_svc_name(name));
     }
 
     pub fn prev_job_data(&self) -> Option<JobData> {
         let jobs = self.jobs.lock().unwrap();
-        let prev_uid = *self.prev_uid.iter().last().unwrap();
-        let prev = jobs.prev.by_uid(prev_uid).unwrap();
+        let prev = jobs.by_uid(self.uid).unwrap();
         match prev.data.record.is_some() {
             true => Some(prev.data.clone()),
             false => None,
@@ -935,8 +975,17 @@ impl<'a> RunCtx<'a> {
     }
 
     pub fn find_done_job_data(&mut self, kind: &str) -> Option<JobData> {
+        assert!(self.uid != 0);
         let jobs = self.jobs.lock().unwrap();
-        for jctx in jobs.done.vec.iter().rev() {
+        let mut iter = jobs.vec.iter().rev();
+        loop {
+            match iter.next() {
+                Some(jctx) if jctx.uid == self.uid => break,
+                Some(_) => {}
+                None => return None,
+            }
+        }
+        while let Some(jctx) = iter.next() {
             if jctx.data.spec.kind == kind {
                 if self.sysreqs_forward.is_none() {
                     self.sysreqs_forward = Some(jctx.data.sysreqs.clone());
@@ -976,8 +1025,20 @@ impl<'a> RunCtx<'a> {
             .save(&self.bench_path)
             .with_context(|| format!("Setting up {:?}", &self.bench_path))?;
 
-        jctx.run(self)
-            .with_context(|| format!("Failed to run {}", &jctx.data.spec))?;
+        assert_eq!(self.uid, 0);
+        assert_ne!(jctx.uid, 0);
+        self.uid = jctx.uid;
+
+        let res = jctx
+            .run(self)
+            .with_context(|| format!("Failed to run {}", &jctx.data.spec));
+
+        // We wanna save whatever came out of the run phase even if the
+        // study phase failed.
+        assert_eq!(self.uid, jctx.uid);
+        self.uid = 0;
+
+        res?;
 
         if self.commit_bench {
             self.load_bench()?;
@@ -987,8 +1048,6 @@ impl<'a> RunCtx<'a> {
 
         jctx.print(Mode::Summary, &vec![Default::default()])
             .unwrap();
-        self.jobs.lock().unwrap().done.vec.push(jctx);
-
         Ok(())
     }
 

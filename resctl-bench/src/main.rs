@@ -7,7 +7,7 @@ use std::process::{exit, Command};
 use std::sync::{Arc, Mutex};
 use util::*;
 
-use resctl_bench_intf::{Args, JobSpec, Mode};
+use resctl_bench_intf::{Args, Mode};
 
 mod bench;
 mod job;
@@ -15,7 +15,7 @@ mod progress;
 mod run;
 mod study;
 
-use job::{JobCtx, JobCtxs};
+use job::JobCtxs;
 use run::RunCtx;
 
 lazy_static::lazy_static! {
@@ -47,41 +47,10 @@ where
     }
 }
 
-#[derive(Default)]
-pub struct Jobs {
-    done: JobCtxs,
-    prev: JobCtxs,
-}
-
-impl Jobs {
-    pub fn parse_job_spec_and_link(&mut self, spec: &JobSpec) -> Result<JobCtx> {
-        let mut new = JobCtx::new(spec);
-        let prev = match self.prev.find_matching_unused_prev_mut(spec) {
-            Some(prev) => {
-                debug!("{} has a matching entry in the result file", &new.data.spec);
-                prev.prev_used = true;
-                new.prev_uid = Some(prev.uid);
-                Some(prev)
-            }
-            None => None,
-        };
-
-        new.parse_job_spec(prev.as_ref().map_or(None, |p| Some(&p.data)))?;
-
-        if prev.is_none() {
-            let mut prev = new.weak_clone();
-            prev.prev_used = true;
-            new.prev_uid = Some(prev.uid);
-            self.prev.vec.push(prev);
-        }
-        Ok(new)
-    }
-}
-
 struct Program {
     args_file: JsonConfigFile<Args>,
     args_updated: bool,
-    jobs: Arc<Mutex<Jobs>>,
+    jobs: Arc<Mutex<JobCtxs>>,
 }
 
 impl Program {
@@ -285,7 +254,7 @@ impl Program {
         debug!(
             "job_ids: pending={} prev={}",
             &pending.format_ids(),
-            jobs.prev.format_ids()
+            jobs.format_ids()
         );
 
         // Run the benches and print out the results.
@@ -305,7 +274,7 @@ impl Program {
         let empty_props = vec![Default::default()];
         let mut to_format = vec![];
         let mut jctxs = JobCtxs::default();
-        std::mem::swap(&mut jctxs, &mut self.jobs.lock().unwrap().prev);
+        std::mem::swap(&mut jctxs, &mut self.jobs.lock().unwrap());
 
         if specs.len() == 0 {
             to_format = jctxs.vec.into_iter().map(|x| (x, &empty_props)).collect();
@@ -354,7 +323,7 @@ impl Program {
         // Load existing result file into job_ctxs.
         if Path::new(&args.result).exists() {
             let mut jobs = self.jobs.lock().unwrap();
-            jobs.prev = match JobCtxs::load_results(&args.result) {
+            *jobs = match JobCtxs::load_results(&args.result) {
                 Ok(jctxs) => {
                     debug!("Loaded {} entries from result file", jctxs.vec.len());
                     jctxs
@@ -391,7 +360,7 @@ fn main() {
     Program {
         args_file,
         args_updated,
-        jobs: Arc::new(Mutex::new(Jobs::default())),
+        jobs: Arc::new(Mutex::new(JobCtxs::default())),
     }
     .main();
 }

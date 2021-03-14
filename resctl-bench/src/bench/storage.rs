@@ -217,7 +217,7 @@ impl StorageJob {
         }
     }
 
-    fn measure_supportable_memory_size(&mut self, rctx: &RunCtx) -> Result<(usize, f64)> {
+    fn measure_supportable_memory_size(&mut self, rctx: &mut RunCtx) -> Result<(usize, f64)> {
         let mem_size = (self.mem.profile as usize) << 30;
         let dfl_args = rd_hashd_intf::Args::with_mem_size(mem_size);
         let dfl_params = rd_hashd_intf::Params::default();

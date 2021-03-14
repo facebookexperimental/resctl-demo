@@ -1,7 +1,7 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
 use anyhow::{anyhow, bail, Error, Result};
 use chrono::{DateTime, Local};
-use log::warn;
+use log::{debug, warn};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 use std::fmt::Write;
@@ -97,9 +97,7 @@ pub struct JobCtx {
     #[serde(skip)]
     pub uid: u64,
     #[serde(skip)]
-    pub prev_uid: Option<u64>,
-    #[serde(skip)]
-    pub prev_used: bool,
+    pub used: bool,
     #[serde(skip)]
     pub update_seq: u64,
 }
@@ -125,9 +123,8 @@ impl JobCtx {
             bench: None,
             job: None,
             incremental: false,
-            uid: Self::new_uid(),
-            prev_uid: None,
-            prev_used: false,
+            uid: 0,
+            used: false,
             update_seq: std::u64::MAX,
         }
     }
@@ -163,9 +160,8 @@ impl JobCtx {
             bench: None,
             job: None,
             incremental: self.incremental,
-            uid: Self::new_uid(),
-            prev_uid: None,
-            prev_used: false,
+            uid: self.uid,
+            used: false,
             update_seq: std::u64::MAX,
         }
     }
@@ -176,7 +172,6 @@ impl JobCtx {
     }
 
     pub fn run(&mut self, rctx: &mut RunCtx) -> Result<()> {
-        rctx.prev_uid.push(self.prev_uid.unwrap());
         let pdata = rctx.prev_job_data();
         if rctx.study_mode() || (pdata.is_some() && !self.incremental) {
             self.data = pdata.ok_or(anyhow!(
@@ -206,8 +201,7 @@ impl JobCtx {
                     .jobs
                     .lock()
                     .unwrap()
-                    .prev
-                    .by_uid(self.prev_uid.unwrap())
+                    .by_uid(self.uid)
                     .unwrap()
                     .data
                     .sysreqs
@@ -238,7 +232,6 @@ impl JobCtx {
         // We still wanna save what came out of the run phase even if the
         // study phase failed.
         rctx.update_incremental_jctx(&self);
-        assert!(rctx.prev_uid.pop().unwrap() == self.prev_uid.unwrap());
 
         res
     }
@@ -398,7 +391,7 @@ impl JobCtxs {
         spec: &JobSpec,
     ) -> Option<&'a mut JobCtx> {
         for jctx in self.vec.iter_mut() {
-            if !jctx.prev_used
+            if !jctx.used
                 && jctx.data.spec.kind == spec.kind
                 && jctx.data.spec.id == spec.id
                 && jctx.are_results_compatible(spec)
@@ -407,6 +400,30 @@ impl JobCtxs {
             }
         }
         None
+    }
+
+    pub fn parse_job_spec_and_link(&mut self, spec: &JobSpec) -> Result<JobCtx> {
+        let mut new = JobCtx::new(spec);
+        let prev = self.find_matching_unused_prev_mut(spec);
+
+        new.parse_job_spec(prev.as_ref().map_or(None, |p| Some(&p.data)))?;
+
+        match prev {
+            Some(prev) => {
+                debug!("{} has a matching entry in the result file", &new.data.spec);
+                prev.used = true;
+                new.uid = prev.uid;
+            }
+            None => {
+                new.uid = JobCtx::new_uid();
+                debug!("{} is new, uid={}", &new.data.spec, new.uid);
+                let mut prev = new.weak_clone();
+                prev.used = true;
+                new.uid = prev.uid;
+                self.vec.push(prev);
+            }
+        }
+        Ok(new)
     }
 
     fn find_matching_jctx_idx(&self, spec: &JobSpec) -> Option<usize> {
@@ -457,10 +474,7 @@ impl JobCtxs {
     pub fn format_ids(&self) -> String {
         let mut buf = String::new();
         for jctx in self.vec.iter() {
-            match jctx.prev_uid {
-                Some(puid) => write!(buf, "{}->{} ", jctx.uid, puid).unwrap(),
-                None => write!(buf, "{} ", jctx.uid).unwrap(),
-            }
+            write!(buf, "{} ", jctx.uid).unwrap();
         }
         buf.pop();
         buf
