@@ -149,7 +149,7 @@ pub struct MemHogResult {
 
 impl MemHog {
     const NAME: &'static str = "mem-hog";
-    const DFL_LOOPS: u32 = 5;
+    const DFL_LOOPS: u32 = 2;
     const DFL_LOAD: f64 = 1.0;
     const STABLE_HOLD: f64 = 15.0;
     const TIMEOUT: f64 = 300.0;
