@@ -178,7 +178,7 @@ impl MemHog {
                 run_idx + 1,
                 self.loops
             );
-            warm_up_hashd(rctx, self.load).context("warming up hashd")?;
+            warm_up_hashd(rctx, self.load).context("Warming up hashd")?;
             let stable_at = unix_now();
 
             // hashd stabilized at the target load level. Hold for a bit to

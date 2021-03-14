@@ -2,7 +2,7 @@
 #![allow(dead_code)]
 use anyhow::{anyhow, bail, Context, Result};
 use log::{debug, error, info, warn};
-use std::collections::{HashSet, BTreeSet, VecDeque};
+use std::collections::{BTreeSet, HashSet, VecDeque};
 use std::fmt::Write;
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -781,10 +781,7 @@ impl<'a> RunCtx<'a> {
             Some(CMD_TIMEOUT),
             None,
         )
-        .context("Waiting for hashd to start")?;
-
-        Self::stop_svc(&HASHD_A_SVC_NAME);
-        Ok(())
+        .context("Waiting for hashd to start")
     }
 
     pub fn stabilize_hashd_with_params(
@@ -811,7 +808,7 @@ impl<'a> RunCtx<'a> {
                 last_at = ts;
 
                 if rep.hashd[0].svc.state != SvcStateReport::Running {
-                    err = Some(anyhow!("hashd not running ({:?})", rep.hashd[0].svc.state));
+                    err = Some(anyhow!("rd-hashd not running ({:?})", rep.hashd[0].svc.state));
                     return true;
                 }
 
@@ -910,7 +907,10 @@ impl<'a> RunCtx<'a> {
             Some(CMD_TIMEOUT),
             None,
         )
-        .context("Waiting for hashd to stop")
+        .context("Waiting for hashd to stop")?;
+
+        Self::stop_svc(&HASHD_A_SVC_NAME);
+        Ok(())
     }
 
     pub fn start_sysload(&mut self, name: &str, kind: &str) -> Result<()> {
