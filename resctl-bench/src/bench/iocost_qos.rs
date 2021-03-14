@@ -139,7 +139,7 @@ impl IoCostQoSJob {
         let protection_spec = JobSpec::new(
             "protection",
             None,
-            JobSpec::props(&[&[], &[("scenario", "mem-hog"), ("load", "0.75")]]),
+            JobSpec::props(&[&[], &[("scenario", "mem-hog"), ("load", "0.90")]]),
         );
 
         let mut vrate_min = 0.0;
