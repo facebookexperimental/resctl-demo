@@ -16,9 +16,9 @@ use super::progress::BenchProgress;
 use super::{Program, AGENT_BIN};
 use crate::job::{JobCtx, JobCtxs, JobData, SysReqs};
 use rd_agent_intf::{
-    AgentFiles, ReportIter, RunnerState, Slice, SvcStateReport, SysReq, AGENT_SVC_NAME,
-    HASHD_A_SVC_NAME, HASHD_BENCH_SVC_NAME, HASHD_B_SVC_NAME, IOCOST_BENCH_SVC_NAME,
-    SIDELOAD_SVC_PREFIX, SYSLOAD_SVC_PREFIX,
+    AgentFiles, ReportIter, ReportPathIter, RunnerState, Slice, SvcStateReport, SysReq,
+    AGENT_SVC_NAME, HASHD_A_SVC_NAME, HASHD_BENCH_SVC_NAME, HASHD_B_SVC_NAME,
+    IOCOST_BENCH_SVC_NAME, SIDELOAD_SVC_PREFIX, SYSLOAD_SVC_PREFIX,
 };
 use resctl_bench_intf::{JobSpec, Mode};
 
@@ -247,6 +247,7 @@ pub struct RunCtx<'a> {
     demo_bench_path: String,
     pub jobs: Arc<Mutex<JobCtxs>>,
     pub uid: u64,
+    run_started_at: u64,
     pub sysreqs_forward: Option<SysReqs>,
     result_path: &'a str,
     pub test: bool,
@@ -290,6 +291,7 @@ impl<'a> RunCtx<'a> {
             agent_init_fns: vec![],
             jobs,
             uid: 0,
+            run_started_at: 0,
             sysreqs_forward: None,
             result_path: &args.result,
             test: args.test,
@@ -385,7 +387,12 @@ impl<'a> RunCtx<'a> {
 
     pub fn update_incremental_record(&mut self, record: serde_json::Value) {
         let mut jobs = self.jobs.lock().unwrap();
-        jobs.by_uid_mut(self.uid).unwrap().data.record = Some(record);
+        let mut prev = jobs.by_uid_mut(self.uid).unwrap();
+        if prev.data.period.0 == 0 {
+            prev.data.period.0 = self.run_started_at;
+        }
+        prev.data.period.1 = prev.data.period.1.max(unix_now());
+        prev.data.record = Some(record);
         jobs.save_results(self.result_path);
     }
 
@@ -1027,6 +1034,7 @@ impl<'a> RunCtx<'a> {
 
         assert_eq!(self.uid, 0);
         assert_ne!(jctx.uid, 0);
+        self.run_started_at = unix_now();
         self.uid = jctx.uid;
 
         let res = jctx
@@ -1106,17 +1114,25 @@ impl<'a> RunCtx<'a> {
         ctx.report_sample.clone()
     }
 
-    pub fn report_iter(&self, period: (u64, u64)) -> ReportIter {
+    fn report_path(&self) -> String {
         match AGENT_WAS_ACTIVE.load(Ordering::Relaxed) {
             true => {
                 let ctx = self.inner.lock().unwrap();
-                ReportIter::new(&ctx.agent_files.index.data.report_d, period)
+                ctx.agent_files.index.data.report_d.clone()
             }
             false => match self.args.study_rep_d.as_ref() {
-                Some(v) => ReportIter::new(v, period),
-                None => ReportIter::new(&format!("{}/report.d", &self.args.dir), period),
+                Some(v) => v.clone(),
+                None => format!("{}/report.d", &self.args.dir),
             },
         }
+    }
+
+    pub fn report_path_iter(&self, period: (u64, u64)) -> ReportPathIter {
+        ReportPathIter::new(&self.report_path(), period)
+    }
+
+    pub fn report_iter(&self, period: (u64, u64)) -> ReportIter {
+        ReportIter::new(&self.report_path(), period)
     }
 
     pub fn first_report(&self, period: (u64, u64)) -> Option<(rd_agent_intf::Report, u64)> {

@@ -35,6 +35,7 @@ pub enum Mode {
     Run,
     Format,
     Summary,
+    Pack,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -256,6 +257,9 @@ impl JsonArgs for Args {
                             .help("Results to format - \"BENCY_TYPE[:KEY=VAL...]\""),
                     ),
             )
+            .subcommand(clap::SubCommand::with_name("pack").about(
+                "Create a tarball containing the result file and the associated report files",
+            ))
             .get_matches()
     }
 
@@ -327,6 +331,10 @@ impl JsonArgs for Args {
             ("run", Some(subm)) => self.process_subcommand(Mode::Run, subm),
             ("format", Some(subm)) => self.process_subcommand(Mode::Format, subm),
             ("summary", Some(subm)) => self.process_subcommand(Mode::Summary, subm),
+            ("pack", Some(_)) => {
+                self.mode = Mode::Pack;
+                false
+            }
             _ => false,
         };
 

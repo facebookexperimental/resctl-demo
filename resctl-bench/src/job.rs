@@ -42,8 +42,7 @@ pub struct SysReqs {
 #[derive(Serialize, Deserialize, Clone)]
 pub struct JobData {
     pub spec: JobSpec,
-    pub started_at: u64,
-    pub ended_at: u64,
+    pub period: (u64, u64),
     pub sysreqs: SysReqs,
     pub record: Option<serde_json::Value>,
     pub result: Option<serde_json::Value>,
@@ -54,8 +53,7 @@ impl JobData {
     fn new(spec: &JobSpec) -> Self {
         Self {
             spec: spec.clone(),
-            started_at: 0,
-            ended_at: 0,
+            period: (0, 0),
             sysreqs: Default::default(),
             record: None,
             result: None,
@@ -184,9 +182,14 @@ impl JobCtx {
             data.sysreqs.required = job.sysreqs();
             rctx.add_sysreqs(data.sysreqs.required.clone());
 
-            data.started_at = unix_now();
+            data.period.0 = unix_now();
+            if self.incremental {
+                if let Some(pdata) = pdata.as_ref() {
+                    data.period.0 = pdata.period.0.min(data.period.0);
+                }
+            }
             let record = job.run(rctx)?;
-            data.ended_at = unix_now();
+            data.period.1 = unix_now();
 
             if rctx.sysreqs_report().is_some() {
                 data.sysreqs.report = Some((*rctx.sysreqs_report().unwrap()).clone());
@@ -246,9 +249,9 @@ impl JobCtx {
         writeln!(
             buf,
             "{} - {}\n",
-            DateTime::<Local>::from(UNIX_EPOCH + Duration::from_secs(data.started_at))
+            DateTime::<Local>::from(UNIX_EPOCH + Duration::from_secs(data.period.0))
                 .format("%Y-%m-%d %T"),
-            DateTime::<Local>::from(UNIX_EPOCH + Duration::from_secs(data.ended_at)).format("%T")
+            DateTime::<Local>::from(UNIX_EPOCH + Duration::from_secs(data.period.1)).format("%T")
         )
         .unwrap();
 

@@ -25,8 +25,8 @@ pub use index::Index;
 pub use oomd::{OomdKnobs, OomdSliceMemPressureKnobs, OomdSliceSenpaiKnobs};
 pub use report::{
     BenchHashdReport, BenchIoCostReport, HashdReport, IoCostModelReport, IoCostQoSReport,
-    IoCostReport, IoLatReport, OomdReport, Report, ReportIter, ResCtlReport, SideloadReport,
-    SideloaderReport, SvcReport, SvcStateReport, SysloadReport, UsageReport,
+    IoCostReport, IoLatReport, OomdReport, Report, ReportIter, ReportPathIter, ResCtlReport,
+    SideloadReport, SideloaderReport, SvcReport, SvcStateReport, SysloadReport, UsageReport,
 };
 pub use side_defs::{SideloadDefs, SideloadSpec};
 pub use slices::{DisableSeqKnobs, MemoryKnob, Slice, SliceConfig, SliceKnobs, ROOT_SLICE};

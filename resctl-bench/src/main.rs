@@ -317,6 +317,90 @@ impl Program {
         self.commit_args();
     }
 
+    fn do_pack(&mut self) -> Result<()> {
+        let args = &self.args_file.data;
+        let res_path = Path::new(&args.result);
+        let stem = res_path.file_stem().unwrap().to_string_lossy().to_string();
+        let fname = res_path.file_name().unwrap().to_string_lossy().to_string();
+
+        let mut collected = vec![];
+        for job in self.jobs.lock().unwrap().vec.iter() {
+            let per = job.data.period;
+            if per.0 < per.1 {
+                collected.push(per);
+            }
+        }
+
+        collected.sort();
+        let mut pers = vec![];
+        let mut cur = (0, 0);
+        for per in collected.into_iter() {
+            if cur.0 == cur.1 {
+                cur = per;
+            } else if cur.1 < per.0 {
+                pers.push(cur);
+                cur = per;
+            } else {
+                cur.1 = cur.1.max(per.1);
+            }
+        }
+        if cur.0 < cur.1 {
+            pers.push(cur);
+        }
+
+        let tarball = format!("{}.tar.gz", &stem);
+        let repdir = format!("{}-report.d", &stem);
+        info!(
+            "Creating {:?} containing the following report periods",
+            &tarball
+        );
+        for (i, per) in pers.iter().enumerate() {
+            info!("[{:02}] {}", i, format_period(*per));
+        }
+
+        let f = std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(&tarball)
+            .with_context(|| format!("Opening {:?}", &tarball))?;
+        let mut tgz =
+            tar::Builder::new(libflate::gzip::Encoder::new(f).context("Creating gzip encore")?);
+        let mut base_bench = Default::default();
+
+        let rctx = RunCtx::new(&args, &mut base_bench, self.jobs.clone());
+
+        debug!("Packing {:?} as {:?}", &args.result, &fname);
+        tgz.append_path_with_name(&args.result, &fname)
+            .with_context(|| format!("Packing {:?}", &args.result))?;
+
+        let mut nr_packed = 0;
+        let mut nr_skipped = 0;
+        for per in pers.iter() {
+            for (path, _at) in rctx.report_path_iter(*per) {
+                if !path.exists() {
+                    nr_skipped += 1;
+                    continue;
+                }
+                nr_packed += 1;
+                let target_path = format!(
+                    "{}/{}",
+                    &repdir,
+                    path.file_name().unwrap().to_str().unwrap()
+                );
+                debug!("Packing {:?} as {:?}", &path, &target_path);
+                tgz.append_path_with_name(&path, &target_path)
+                    .with_context(|| format!("Packing {:?}", path))?;
+            }
+        }
+
+        info!("Packed {}/{} reports", nr_packed, nr_packed + nr_skipped);
+
+        let gz = tgz.into_inner().context("Finishing up archive")?;
+        gz.finish().into_result().context("Finishing up gzip")?;
+        Ok(())
+    }
+
     fn main(mut self) {
         let args = &self.args_file.data;
 
@@ -342,6 +426,7 @@ impl Program {
             Mode::Run => self.do_run(),
             Mode::Format => self.do_format(Mode::Format),
             Mode::Summary => self.do_format(Mode::Summary),
+            Mode::Pack => self.do_pack().unwrap(),
         }
     }
 }

@@ -476,13 +476,13 @@ impl JsonSave for Report {
     }
 }
 
-pub struct ReportIter {
+pub struct ReportPathIter {
     dir: String,
     front: u64,
     back: u64,
 }
 
-impl ReportIter {
+impl ReportPathIter {
     pub fn new(dir: &str, period: (u64, u64)) -> Self {
         Self {
             dir: dir.into(),
@@ -492,8 +492,8 @@ impl ReportIter {
     }
 }
 
-impl Iterator for ReportIter {
-    type Item = (Result<Report>, u64);
+impl Iterator for ReportPathIter {
+    type Item = (std::path::PathBuf, u64);
     fn next(&mut self) -> Option<Self::Item> {
         if self.front >= self.back {
             return None;
@@ -501,12 +501,11 @@ impl Iterator for ReportIter {
         let front = self.front;
         self.front += 1;
 
-        let path = format!("{}/{}.json", &self.dir, front);
-        Some((Report::load(&path), front))
+        Some((format!("{}/{}.json", &self.dir, front).into(), front))
     }
 }
 
-impl DoubleEndedIterator for ReportIter {
+impl DoubleEndedIterator for ReportPathIter {
     fn next_back(&mut self) -> Option<Self::Item> {
         if self.front >= self.back {
             return None;
@@ -514,7 +513,35 @@ impl DoubleEndedIterator for ReportIter {
         let back = self.back;
         self.back -= 1;
 
-        let path = format!("{}/{}.json", &self.dir, back);
-        Some((Report::load(&path), back))
+        Some((format!("{}/{}.json", &self.dir, back).into(), back))
+    }
+}
+
+pub struct ReportIter {
+    piter: ReportPathIter,
+}
+
+impl ReportIter {
+    pub fn new(dir: &str, period: (u64, u64)) -> Self {
+        Self {
+            piter: ReportPathIter::new(dir, period),
+        }
+    }
+}
+
+impl Iterator for ReportIter {
+    type Item = (Result<Report>, u64);
+    fn next(&mut self) -> Option<Self::Item> {
+        self.piter
+            .next()
+            .map(|(path, at)| (Report::load(&path), at))
+    }
+}
+
+impl DoubleEndedIterator for ReportIter {
+    fn next_back(&mut self) -> Option<Self::Item> {
+        self.piter
+            .next_back()
+            .map(|(path, at)| (Report::load(&path), at))
     }
 }
