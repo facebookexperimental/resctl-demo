@@ -57,6 +57,24 @@ fn warm_up_hashd(rctx: &mut RunCtx, load: f64) -> Result<()> {
     rctx.stabilize_hashd(Some(load))
 }
 
+fn baseline_hold(rctx: &mut RunCtx) -> Result<(u64, u64)> {
+    const BASELINE_HOLD: f64 = 15.0;
+
+    // hashd stabilized at the target load level. Hold for a bit on
+    // the first run to determine the baseline load and latency.
+    info!(
+        "protection: Holding for {} to measure the baseline",
+        format_duration(BASELINE_HOLD)
+    );
+    let started_at = unix_now();
+    WorkloadMon::default()
+        .hashd()
+        .timeout(Duration::from_secs_f64(BASELINE_HOLD))
+        .monitor(rctx)
+        .context("holding")?;
+    Ok((started_at, unix_now()))
+}
+
 fn ws_status(mon: &WorkloadMon, af: &AgentFiles) -> Result<(bool, String)> {
     let mut status = String::new();
     let rep = &af.report.data;
@@ -149,7 +167,6 @@ impl MemHog {
     const NAME: &'static str = "mem-hog";
     const DFL_LOOPS: u32 = 2;
     const DFL_LOAD: f64 = 1.0;
-    const BASELINE_HOLD: f64 = 15.0;
     const TIMEOUT: f64 = 300.0;
     const MEM_AVG_PERIOD: usize = 5;
     pub const PCTS: [&'static str; 13] = [
@@ -157,12 +174,98 @@ impl MemHog {
     ];
 
     fn read_hog_rep(rep: &Report) -> Result<BanditMemHogReport> {
-        let mh_rep_path = match rep.sysloads.get(Self::NAME) {
+        let hog_rep_path = match rep.sysloads.get(Self::NAME) {
             Some(sl) => format!("{}/report.json", &sl.scr_path),
             None => bail!("agent report doesn't contain \"mem-hog\" sysload"),
         };
-        BanditMemHogReport::load(&mh_rep_path)
-            .with_context(|| format!("failed to read bandit-mem-hog report {:?}", &mh_rep_path))
+        BanditMemHogReport::load(&hog_rep_path)
+            .with_context(|| format!("failed to read bandit-mem-hog report {:?}", &hog_rep_path))
+    }
+
+    fn run_one(
+        rctx: &mut RunCtx,
+        run_name: &str,
+        hashd_load: f64,
+        hog_speed: MemHogSpeed,
+        do_base_hold: bool,
+        mut timeout: f64,
+    ) -> Result<(MemHogRun, Option<(u64, u64)>)> {
+        info!(
+            "protection: Stabilizing hashd at {}% for {}",
+            format_pct(hashd_load),
+            run_name
+        );
+        warm_up_hashd(rctx, hashd_load).context("Warming up hashd")?;
+
+        let mut base_period = None;
+        if do_base_hold {
+            base_period = Some(baseline_hold(rctx)?);
+        }
+
+        info!("protection: Starting memory hog");
+        let hog_started_at = unix_now();
+        if rctx.test {
+            timeout = 10.0;
+        }
+
+        rctx.start_sysload("mem-hog", hog_speed.to_sideload_name())?;
+
+        let hog_svc_name = rd_agent_intf::sysload_svc_name(Self::NAME);
+        let mut first_hog_rep = Err(anyhow!("swap usage stayed zero"));
+        let mut hog_mem_rec = VecDeque::<usize>::new();
+
+        // Memory hog is running. Monitor it until it dies or the
+        // timeout expires. Record the memory hog report when the swap
+        // usage is first seen, which will be used as the baseline for
+        // calculating the total amount of needed and performed IOs.
+        WorkloadMon::default()
+            .hashd()
+            .sysload("mem-hog")
+            .timeout(Duration::from_secs_f64(timeout))
+            .monitor_with_status(
+                rctx,
+                |wm: &WorkloadMon, af: &AgentFiles| -> Result<(bool, String)> {
+                    let rep = &af.report.data;
+                    if let (Some(usage), Ok(hog_rep)) =
+                        (rep.usages.get(&hog_svc_name), Self::read_hog_rep(rep))
+                    {
+                        if first_hog_rep.is_err() {
+                            if usage.swap_bytes > 0 || rctx.test {
+                                first_hog_rep = Ok(hog_rep);
+                            }
+                        } else {
+                            hog_mem_rec.push_front(usage.mem_bytes as usize);
+                            hog_mem_rec.truncate(Self::MEM_AVG_PERIOD);
+                        }
+                    }
+                    ws_status(wm, af)
+                },
+            )
+            .context("monitoring mem-hog")?;
+
+        // Memory hog is dead. Unwrap the first report and read the last
+        // report to calculate delta.
+        let first_hog_rep = first_hog_rep?;
+        let last_hog_rep =
+            rctx.access_agent_files::<_, Result<_>>(|af| Self::read_hog_rep(&af.report.data))?;
+        let last_hog_mem = hog_mem_rec.iter().sum::<usize>() / hog_mem_rec.len();
+
+        rctx.stop_sysload("mem-hog");
+
+        info!(
+            "protection: Memory hog terminated after {}, {} finished",
+            format_duration((unix_now() - hog_started_at) as f64),
+            run_name,
+        );
+
+        Ok((
+            MemHogRun {
+                first_hog_rep,
+                last_hog_rep,
+                last_hog_mem,
+            },
+            base_period,
+        ))
     }
 
     fn run(&mut self, rctx: &mut RunCtx) -> Result<MemHogRecord> {
@@ -170,93 +273,18 @@ impl MemHog {
         let mut base_period = (0, 0);
         let mut runs = vec![];
         for run_idx in 0..self.loops {
-            info!(
-                "protection: Stabilizing hashd at {}% for run {}/{}",
-                format_pct(self.load),
-                run_idx + 1,
-                self.loops
-            );
-            warm_up_hashd(rctx, self.load).context("Warming up hashd")?;
-
+            let (hog_run, bper) = Self::run_one(
+                rctx,
+                &format!("run {}/{}", run_idx + 1, self.loops),
+                self.load,
+                self.speed,
+                run_idx == 0,
+                Self::TIMEOUT,
+            )?;
             if run_idx == 0 {
-                // hashd stabilized at the target load level. Hold for a bit on
-                // the first run to determine the baseline load and latency.
-                info!(
-                    "protection: Holding for {} to measure the baseline",
-                    format_duration(Self::BASELINE_HOLD)
-                );
-                base_period.0 = unix_now();
-                WorkloadMon::default()
-                    .hashd()
-                    .timeout(Duration::from_secs_f64(Self::BASELINE_HOLD))
-                    .monitor(rctx)
-                    .context("holding")?;
-                base_period.1 = unix_now();
+                base_period = bper.unwrap();
             }
-
-            info!("protection: Starting memory hog");
-            let hog_started_at = unix_now();
-            let timeout = match rctx.test {
-                false => Self::TIMEOUT,
-                true => 10.0,
-            };
-
-            rctx.start_sysload("mem-hog", self.speed.to_sideload_name())?;
-
-            let mh_svc_name = rd_agent_intf::sysload_svc_name(Self::NAME);
-            let mut first_hog_rep = Err(anyhow!("swap usage stayed zero"));
-            let mut mh_mem_rec = VecDeque::<usize>::new();
-
-            // Memory hog is running. Monitor it until it dies or the
-            // timeout expires. Record the memory hog report when the swap
-            // usage is first seen, which will be used as the baseline for
-            // calculating the total amount of needed and performed IOs.
-            WorkloadMon::default()
-                .hashd()
-                .sysload("mem-hog")
-                .timeout(Duration::from_secs_f64(timeout))
-                .monitor_with_status(
-                    rctx,
-                    |wm: &WorkloadMon, af: &AgentFiles| -> Result<(bool, String)> {
-                        let rep = &af.report.data;
-                        if let (Some(usage), Ok(mh_rep)) =
-                            (rep.usages.get(&mh_svc_name), Self::read_hog_rep(rep))
-                        {
-                            if first_hog_rep.is_err() {
-                                if usage.swap_bytes > 0 || rctx.test {
-                                    first_hog_rep = Ok(mh_rep);
-                                }
-                            } else {
-                                mh_mem_rec.push_front(usage.mem_bytes as usize);
-                                mh_mem_rec.truncate(Self::MEM_AVG_PERIOD);
-                            }
-                        }
-                        ws_status(wm, af)
-                    },
-                )
-                .context("monitoring mem-hog")?;
-
-            // Memory hog is dead. Unwrap the first report and read the last
-            // report to calculate delta.
-            let first_hog_rep = first_hog_rep?;
-            let last_hog_rep =
-                rctx.access_agent_files::<_, Result<_>>(|af| Self::read_hog_rep(&af.report.data))?;
-            let last_hog_mem = mh_mem_rec.iter().sum::<usize>() / mh_mem_rec.len();
-
-            rctx.stop_sysload("mem-hog");
-
-            info!(
-                "protection: Memory hog terminated after {}, run {}/{} finished",
-                format_duration((unix_now() - hog_started_at) as f64),
-                run_idx + 1,
-                self.loops
-            );
-
-            runs.push(MemHogRun {
-                first_hog_rep,
-                last_hog_rep,
-                last_hog_mem,
-            });
+            runs.push(hog_run);
         }
 
         let rec = MemHogRecord {
@@ -355,13 +383,13 @@ impl MemHog {
 
         // Collect IO usage and unused budgets which will be used to
         // calculate work conservation factor.
-        let mh_svc_name = rd_agent_intf::sysload_svc_name(Self::NAME);
+        let hog_svc_name = rd_agent_intf::sysload_svc_name(Self::NAME);
         let (mut io_usage, mut io_unused, mut hog_io_usage) = (0.0_f64, 0.0_f64, 0.0_f64);
         let (last_root_io_usage, last_hog_io_usage) = (RefCell::new(None), RefCell::new(None));
 
         let mut study_io_usages = StudyMutFn::new(|arg| {
             let root = arg.rep.usages[ROOT_SLICE].io_usage;
-            let hog = match arg.rep.usages.get(&mh_svc_name) {
+            let hog = match arg.rep.usages.get(&hog_svc_name) {
                 Some(u) => u.io_usage,
                 None => return,
             };
