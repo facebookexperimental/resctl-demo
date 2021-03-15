@@ -92,9 +92,6 @@ fn ws_status(mon: &WorkloadMon, af: &AgentFiles) -> Result<(bool, String)> {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MemHogRun {
-    pub stable_at: u64,
-    pub hog_started_at: u64,
-    pub hog_ended_at: u64,
     pub first_hog_rep: BanditMemHogReport,
     pub last_hog_rep: BanditMemHogReport,
     pub last_hog_mem: usize,
@@ -110,6 +107,7 @@ pub struct MemHog {
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct MemHogRecord {
     pub period: (u64, u64),
+    pub base_period: (u64, u64),
     pub runs: Vec<MemHogRun>,
     #[serde(skip)]
     result: RefCell<Option<MemHogResult>>,
@@ -151,7 +149,7 @@ impl MemHog {
     const NAME: &'static str = "mem-hog";
     const DFL_LOOPS: u32 = 2;
     const DFL_LOAD: f64 = 1.0;
-    const STABLE_HOLD: f64 = 15.0;
+    const BASELINE_HOLD: f64 = 15.0;
     const TIMEOUT: f64 = 300.0;
     const MEM_AVG_PERIOD: usize = 5;
     pub const PCTS: [&'static str; 13] = [
@@ -169,9 +167,9 @@ impl MemHog {
 
     fn run(&mut self, rctx: &mut RunCtx) -> Result<MemHogRecord> {
         let started_at = unix_now();
+        let mut base_period = (0, 0);
         let mut runs = vec![];
         for run_idx in 0..self.loops {
-            let started_at = unix_now();
             info!(
                 "protection: Stabilizing hashd at {}% for run {}/{}",
                 format_pct(self.load),
@@ -179,22 +177,22 @@ impl MemHog {
                 self.loops
             );
             warm_up_hashd(rctx, self.load).context("Warming up hashd")?;
-            let stable_at = unix_now();
 
-            // hashd stabilized at the target load level. Hold for a bit to
-            // guarantee some idle time between runs. These periods are also
-            // used to determine the baseline load and latency.
-            info!(
-                "protection: Stabilized at {}% after {}, holding for {}",
-                format_pct(self.load),
-                format_duration((stable_at - started_at) as f64),
-                format_duration(Self::STABLE_HOLD)
-            );
-            WorkloadMon::default()
-                .hashd()
-                .timeout(Duration::from_secs_f64(Self::STABLE_HOLD))
-                .monitor(rctx)
-                .context("holding")?;
+            if run_idx == 0 {
+                // hashd stabilized at the target load level. Hold for a bit on
+                // the first run to determine the baseline load and latency.
+                info!(
+                    "protection: Holding for {} to measure the baseline",
+                    format_duration(Self::BASELINE_HOLD)
+                );
+                base_period.0 = unix_now();
+                WorkloadMon::default()
+                    .hashd()
+                    .timeout(Duration::from_secs_f64(Self::BASELINE_HOLD))
+                    .monitor(rctx)
+                    .context("holding")?;
+                base_period.1 = unix_now();
+            }
 
             info!("protection: Starting memory hog");
             let hog_started_at = unix_now();
@@ -247,19 +245,14 @@ impl MemHog {
 
             rctx.stop_sysload("mem-hog");
 
-            let hog_ended_at = unix_now();
-
             info!(
                 "protection: Memory hog terminated after {}, run {}/{} finished",
-                format_duration((hog_ended_at - hog_started_at) as f64),
+                format_duration((unix_now() - hog_started_at) as f64),
                 run_idx + 1,
                 self.loops
             );
 
             runs.push(MemHogRun {
-                stable_at,
-                hog_started_at,
-                hog_ended_at,
                 first_hog_rep,
                 last_hog_rep,
                 last_hog_mem,
@@ -268,6 +261,7 @@ impl MemHog {
 
         let rec = MemHogRecord {
             period: (started_at, unix_now()),
+            base_period,
             runs,
             result: RefCell::new(None),
         };
@@ -310,9 +304,8 @@ impl MemHog {
         // counters and time interval between reports instead where
         // possible.
 
-        // Determine the baseline rps and latency by averaging them over all
-        // hold periods. We need these values for the isolation and latency
-        // impact studies. Run these first.
+        // Determine the baseline rps and latency. We need these values for
+        // the isolation and latency impact studies. Run these first.
         let last_nr_done = RefCell::new(None);
         let mut study_base_rps = StudyMean::new(|arg| {
             let nr_done = arg.rep.hashd[0].nr_done;
@@ -324,14 +317,10 @@ impl MemHog {
 
         let mut study_base_lat = StudyMean::new(|arg| [arg.rep.hashd[0].lat.ctl].repeat(arg.cnt));
 
-        let mut studies = Studies::new()
+        Studies::new()
             .add(&mut study_base_rps)
-            .add(&mut study_base_lat);
-
-        for run in rec.runs.iter() {
-            last_nr_done.replace(None);
-            studies.run(rctx, (run.stable_at, run.hog_started_at))?;
-        }
+            .add(&mut study_base_lat)
+            .run(rctx, rec.base_period)?;
 
         let (base_rps, base_rps_stdev, _, _) = study_base_rps.result();
         let (base_lat, base_lat_stdev, _, _) = study_base_lat.result();
