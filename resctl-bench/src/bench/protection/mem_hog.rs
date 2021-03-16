@@ -66,19 +66,29 @@ pub struct MemHog {
     pub speed: MemHogSpeed,
 }
 
+impl Default for MemHog {
+    fn default() -> Self {
+        Self {
+            loops: 2,
+            load: 1.0,
+            speed: MemHogSpeed::Hog2x,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct MemHogRecord {
     pub period: (u64, u64),
     pub base_period: (u64, u64),
+    pub base_rps: f64,
     pub runs: Vec<MemHogRun>,
     #[serde(skip)]
-    result: RefCell<Option<MemHogResult>>,
+    pub result: RefCell<Option<MemHogResult>>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct MemHogResult {
     pub base_rps: f64,
-    pub base_rps_stdev: f64,
     pub base_lat: f64,
     pub base_lat_stdev: f64,
 
@@ -109,9 +119,7 @@ pub struct MemHogResult {
 
 impl MemHog {
     const NAME: &'static str = "mem-hog";
-    pub const DFL_LOOPS: u32 = 2;
-    pub const DFL_LOAD: f64 = 1.0;
-    const TIMEOUT: f64 = 300.0;
+    pub const TIMEOUT: f64 = 300.0;
     const MEM_AVG_PERIOD: usize = 5;
     pub const PCTS: [&'static str; 13] = [
         "00", "01", "05", "10", "16", "25", "50", "75", "84", "90", "95", "99", "100",
@@ -126,14 +134,18 @@ impl MemHog {
             .with_context(|| format!("failed to read bandit-mem-hog report {:?}", &hog_rep_path))
     }
 
-    fn run_one(
+    pub fn run_one<F>(
         rctx: &mut RunCtx,
         run_name: &str,
         hashd_load: f64,
         hog_speed: MemHogSpeed,
         do_base_hold: bool,
         mut timeout: f64,
-    ) -> Result<(MemHogRun, Option<(u64, u64)>)> {
+        mut is_done: F,
+    ) -> Result<(MemHogRun, Option<(u64, u64)>)>
+    where
+        F: FnMut(&AgentFiles, &rd_agent_intf::UsageReport, &BanditMemHogReport) -> bool,
+    {
         info!(
             "protection: Stabilizing hashd at {}% for {}",
             format_pct(hashd_load),
@@ -170,9 +182,11 @@ impl MemHog {
                 rctx,
                 |wm: &WorkloadMon, af: &AgentFiles| -> Result<(bool, String)> {
                     let rep = &af.report.data;
+                    let mut done = false;
                     if let (Some(usage), Ok(hog_rep)) =
                         (rep.usages.get(&hog_svc_name), Self::read_hog_rep(rep))
                     {
+                        done = is_done(af, &usage, &hog_rep);
                         if first_hog_rep.is_err() {
                             if usage.swap_bytes > 0 || rctx.test {
                                 first_hog_rep = Ok(hog_rep);
@@ -182,7 +196,8 @@ impl MemHog {
                             hog_mem_rec.truncate(Self::MEM_AVG_PERIOD);
                         }
                     }
-                    super::ws_status(wm, af)
+                    let (ws_done, status) = super::ws_status(wm, af)?;
+                    Ok((done | ws_done, status))
                 },
             )
             .context("monitoring mem-hog")?;
@@ -224,6 +239,7 @@ impl MemHog {
                 self.speed,
                 run_idx == 0,
                 Self::TIMEOUT,
+                |_, _, _| false,
             )?;
             if run_idx == 0 {
                 base_period = bper.unwrap();
@@ -234,6 +250,7 @@ impl MemHog {
         let rec = MemHogRecord {
             period: (started_at, unix_now()),
             base_period,
+            base_rps: rctx.bench().hashd.rps_max as f64 * self.load,
             runs,
             result: RefCell::new(None),
         };
@@ -241,7 +258,7 @@ impl MemHog {
         // Protection benches can take a long time. Pre-run study so that we
         // can report progress. Later study phase will simply take result
         // computed here if available.
-        let result = self.study(rctx, &rec)?;
+        let result = Self::study(rctx, &rec)?;
         info!(
             "protection: isol={}%:{} lat_imp={}%:{} work_csv={}% missing={}%",
             format_pct(result.isol),
@@ -264,7 +281,7 @@ impl MemHog {
         (lat / base_lat - 1.0).max(0.0)
     }
 
-    pub fn study(&self, rctx: &RunCtx, rec: &MemHogRecord) -> Result<MemHogResult> {
+    pub fn study(rctx: &RunCtx, rec: &MemHogRecord) -> Result<MemHogResult> {
         // We might already have run before as a part of the run phase. If
         // so, return the cached result.
         if let Some(res) = rec.result.replace(None) {
@@ -276,25 +293,14 @@ impl MemHog {
         // counters and time interval between reports instead where
         // possible.
 
-        // Determine the baseline rps and latency. We need these values for
-        // the isolation and latency impact studies. Run these first.
-        let last_nr_done = RefCell::new(None);
-        let mut study_base_rps = StudyMean::new(|arg| {
-            let nr_done = arg.rep.hashd[0].nr_done;
-            match last_nr_done.replace(Some(nr_done)) {
-                Some(last) => [(nr_done - last) as f64 / arg.dur].repeat(arg.cnt),
-                None => vec![],
-            }
-        });
-
+        // Determine the baseline latency. We need it for the latency impact
+        // study. Run it first.
         let mut study_base_lat = StudyMean::new(|arg| [arg.rep.hashd[0].lat.ctl].repeat(arg.cnt));
 
         Studies::new()
-            .add(&mut study_base_rps)
             .add(&mut study_base_lat)
             .run(rctx, rec.base_period)?;
 
-        let (base_rps, base_rps_stdev, _, _) = study_base_rps.result();
         let (base_lat, base_lat_stdev, _, _) = study_base_lat.result();
 
         // Study work isolation and latency impact. The former is defined as
@@ -307,8 +313,11 @@ impl MemHog {
             |arg| {
                 let nr_done = arg.rep.hashd[0].nr_done;
                 match last_nr_done.replace(Some(nr_done)) {
-                    Some(last) => [Self::calc_isol((nr_done - last) as f64 / arg.dur, base_rps)]
-                        .repeat(arg.cnt),
+                    Some(last) => [Self::calc_isol(
+                        (nr_done - last) as f64 / arg.dur,
+                        rec.base_rps,
+                    )]
+                    .repeat(arg.cnt),
                     None => vec![],
                 }
             },
@@ -430,8 +439,7 @@ impl MemHog {
         };
 
         Ok(MemHogResult {
-            base_rps,
-            base_rps_stdev,
+            base_rps: rec.base_rps,
             base_lat,
             base_lat_stdev,
 
@@ -490,7 +498,6 @@ impl MemHog {
             if rec.runs.len() > 1 {
                 // Weighted variance sum for pooled variance calculation.
                 let vsum = |c: &mut f64, v: f64| *c += v.powi(2) * (rec.runs.len() - 1) as f64;
-                vsum(&mut cmb.base_rps_stdev, res.base_rps_stdev);
                 vsum(&mut cmb.base_lat_stdev, res.base_lat_stdev);
                 vsum(&mut cmb.isol_stdev, res.isol_stdev);
                 vsum(&mut cmb.lat_imp_stdev, res.lat_imp_stdev);
@@ -521,7 +528,6 @@ impl MemHog {
         if total_runs > rrs.len() {
             let base = (total_runs - rrs.len()) as f64;
             let vsum_to_stdev = |v: &mut f64| *v = (*v / base).sqrt();
-            vsum_to_stdev(&mut cmb.base_rps_stdev);
             vsum_to_stdev(&mut cmb.base_lat_stdev);
             vsum_to_stdev(&mut cmb.lat_imp_stdev);
             vsum_to_stdev(&mut cmb.isol_stdev);
@@ -609,9 +615,8 @@ impl MemHog {
     fn format_info<'a>(out: &mut Box<dyn Write + 'a>, result: &MemHogResult) {
         writeln!(
             out,
-            "Info: baseline_rps={:.2}:{:.2} baseline_lat={}:{} vrate={:.2}:{:.2}",
+            "Info: baseline_rps={:.2} baseline_lat={}:{} vrate={:.2}:{:.2}",
             result.base_rps,
-            result.base_rps_stdev,
             format_duration(result.base_lat),
             format_duration(result.base_lat_stdev),
             result.vrate,

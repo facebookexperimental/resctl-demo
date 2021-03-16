@@ -26,7 +26,7 @@ const MINDER_AGENT_TIMEOUT: Duration = Duration::from_secs(120);
 const CMD_TIMEOUT: Duration = Duration::from_secs(120);
 const REP_RECORD_CADENCE: u64 = 10;
 const REP_RECORD_RETENTION: usize = 3;
-const HASHD_SLOPER_SLOTS: usize = 10;
+const HASHD_SLOPER_SLOTS: usize = 15;
 
 static AGENT_WAS_ACTIVE: AtomicBool = AtomicBool::new(false);
 
@@ -512,19 +512,25 @@ impl<'a> RunCtx<'a> {
 
     fn stop_svc(name: &str) {
         debug!("Making sure {:?} is stopped", name);
-        for _ in 0..10 {
+        for i in 0..15 {
             if let Ok(mut svc) = systemd::Unit::new_sys(name.to_owned()) {
                 if svc.state == systemd::UnitState::Running {
-                    info!("rd-agent failed to stop {:?}, stopping...", name);
-                    match svc.stop() {
-                        Ok(_) => return,
-                        Err(e) => error!("Failed to stop {:?} ({:#})", name, &e),
+                    if i < 5 {
+                        debug!("rd-agent hasn't stopped {:?} yet, waiting...", name);
+                    } else {
+                        info!("rd-agent hasn't stopped {:?} yet, stopping...", name);
+                        match svc.stop() {
+                            Ok(_) => return,
+                            Err(e) => error!("Failed to stop {:?} ({:#})", name, &e),
+                        }
                     }
                 } else {
                     return;
                 }
             }
-            std::thread::sleep(Duration::from_secs(1));
+            if !prog_exiting() {
+                std::thread::sleep(Duration::from_secs(1));
+            }
         }
         panic!("Failed to stop {:?}", name);
     }

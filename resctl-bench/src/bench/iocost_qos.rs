@@ -732,6 +732,7 @@ impl Job for IoCostQoSJob {
                 for scn in pjob.scenarios.iter_mut() {
                     match scn {
                         protection::Scenario::MemHog(mh) => mh.loops = self.prot_loops,
+                        _ => panic!("Unknown protection scenario"),
                     }
                 }
 
@@ -849,6 +850,7 @@ impl Job for IoCostQoSJob {
                     .format_result(&mut out, &recr.stor, &resr.stor, false, sub_full);
                 self.prot_job.format_result(
                     &mut out,
+                    &recr.prot,
                     &resr.prot,
                     sub_full,
                     &format!("RUN {:02} - Protection ", i),

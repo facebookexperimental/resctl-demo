@@ -3,7 +3,9 @@ use super::*;
 use std::collections::BTreeMap;
 
 mod mem_hog;
+mod mem_hog_tune;
 pub use mem_hog::{MemHog, MemHogRecord, MemHogResult, MemHogSpeed};
+pub use mem_hog_tune::{MemHogTune, MemHogTuneRecord, MemHogTuneResult};
 
 fn warm_up_hashd(rctx: &mut RunCtx, load: f64) -> Result<()> {
     rctx.start_hashd(load)?;
@@ -64,37 +66,67 @@ fn ws_status(mon: &WorkloadMon, af: &AgentFiles) -> Result<(bool, String)> {
 #[derive(Clone, Debug)]
 pub enum Scenario {
     MemHog(MemHog),
+    MemHogTune(MemHogTune),
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum ScenarioRecord {
     MemHog(MemHogRecord),
+    MemHogTune(MemHogTuneRecord),
 }
 
 #[derive(Clone, Serialize, Deserialize)]
 pub enum ScenarioResult {
     MemHog(MemHogResult),
+    MemHogTune(MemHogTuneResult),
 }
 
 impl Scenario {
     fn parse(mut props: BTreeMap<String, String>) -> Result<Self> {
         match props.remove("scenario").as_deref() {
             Some("mem-hog") => {
-                let mut loops = MemHog::DFL_LOOPS;
-                let mut load = MemHog::DFL_LOAD;
-                let mut speed = MemHogSpeed::Hog2x;
+                let mut hog = MemHog::default();
                 for (k, v) in props.iter() {
                     match k.as_str() {
-                        "loops" => loops = v.parse::<u32>()?,
-                        "load" => load = parse_frac(v)?,
-                        "speed" => speed = MemHogSpeed::from_str(&v)?,
+                        "loops" => hog.loops = v.parse::<u32>()?,
+                        "load" => hog.load = parse_frac(v)?,
+                        "speed" => hog.speed = MemHogSpeed::from_str(v)?,
                         k => bail!("unknown mem-hog property {:?}", k),
                     }
-                    if loops == 0 {
-                        bail!("\"loops\" can't be 0");
+                }
+                if hog.loops == 0 || hog.load == 0.0 {
+                    bail!("\"loops\" and \"load\" can't be 0");
+                }
+                Ok(Self::MemHog(hog))
+            }
+            Some("mem-hog-tune") => {
+                let mut tune = MemHogTune::default();
+                for (k, v) in props.iter() {
+                    match k.as_str() {
+                        "load" => tune.load = parse_frac(v)?,
+                        "speed" => tune.speed = MemHogSpeed::from_str(v)?,
+                        "size-min" => tune.size_range.0 = parse_size(v)? as usize,
+                        "size-max" => tune.size_range.1 = parse_size(v)? as usize,
+                        "gran" => tune.gran = parse_frac(v)?,
+                        "isol-pct" => tune.isol_pct = v.to_owned(),
+                        "isol-thr" => tune.isol_thr = parse_frac(v)?,
+                        k => bail!("unknown mem-hog-tune property {:?}", k),
                     }
                 }
-                Ok(Self::MemHog(MemHog { loops, load, speed }))
+                if tune.load == 0.0 || tune.gran == 0.0 {
+                    bail!("\"load\" and \"gran\" can't be 0");
+                }
+                if tune.size_range.0 >= tune.size_range.1 {
+                    bail!("Empty size range");
+                }
+                if !MemHog::PCTS.contains(&tune.isol_pct.as_str()) {
+                    bail!(
+                        "Invalid isol-pct {:?}, supported: {:?}",
+                        &tune.isol_pct,
+                        &MemHog::PCTS
+                    );
+                }
+                Ok(Self::MemHogTune(tune))
             }
             _ => bail!("\"scenario\" invalid or missing"),
         }
@@ -102,15 +134,20 @@ impl Scenario {
 
     fn run(&mut self, rctx: &mut RunCtx) -> Result<ScenarioRecord> {
         Ok(match self {
-            Self::MemHog(mem_hog) => ScenarioRecord::MemHog(mem_hog.run(rctx)?),
+            Self::MemHog(hog) => ScenarioRecord::MemHog(hog.run(rctx)?),
+            Self::MemHogTune(tune) => ScenarioRecord::MemHogTune(tune.run(rctx)?),
         })
     }
 
     fn study(&self, rctx: &RunCtx, rec: &ScenarioRecord) -> Result<ScenarioResult> {
         Ok(match (self, rec) {
-            (Self::MemHog(mem_hog), ScenarioRecord::MemHog(rec)) => {
-                ScenarioResult::MemHog(mem_hog.study(rctx, rec)?)
+            (Self::MemHog(_hog), ScenarioRecord::MemHog(rec)) => {
+                ScenarioResult::MemHog(MemHog::study(rctx, rec)?)
             }
+            (Self::MemHogTune(tune), ScenarioRecord::MemHogTune(rec)) => {
+                ScenarioResult::MemHogTune(tune.study(rctx, rec)?)
+            }
+            _ => panic!("Unsupported (scenario, record) pair"),
         })
     }
 }
@@ -193,7 +230,8 @@ impl ProtectionJob {
     pub fn format_result<'a>(
         &self,
         mut out: &mut Box<dyn Write + 'a>,
-        result: &ProtectionResult,
+        rec: &ProtectionRecord,
+        res: &ProtectionResult,
         full: bool,
         prefix: &str,
     ) {
@@ -202,38 +240,59 @@ impl ProtectionJob {
             _ => "-",
         };
 
-        if full {
-            for (idx, (scn, res)) in self
-                .scenarios
-                .iter()
-                .zip(result.scenarios.iter())
-                .enumerate()
-            {
-                match (scn, res) {
-                    (Scenario::MemHog(mh), ScenarioResult::MemHog(mhr)) => {
-                        writeln!(
-                            out,
-                            "\n{}",
-                            custom_underline(
-                                &format!(
-                                    "{}Scenario {}/{} - Memory Hog",
-                                    prefix,
-                                    idx + 1,
-                                    self.scenarios.len()
-                                ),
-                                underline_char
-                            )
-                        )
-                        .unwrap();
-                        mh.format_params(&mut out);
+        let print_header = |out: &mut Box<dyn Write>, idx, name| {
+            writeln!(
+                out,
+                "\n{}",
+                custom_underline(
+                    &format!(
+                        "{}Scenario {}/{} - {}",
+                        prefix,
+                        idx + 1,
+                        self.scenarios.len(),
+                        name,
+                    ),
+                    underline_char
+                )
+            )
+            .unwrap();
+        };
+
+        for (idx, ((scn, rec), res)) in self
+            .scenarios
+            .iter()
+            .zip(rec.scenarios.iter())
+            .zip(res.scenarios.iter())
+            .enumerate()
+        {
+            match (scn, rec, res) {
+                (
+                    Scenario::MemHog(scn),
+                    ScenarioRecord::MemHog(_rec),
+                    ScenarioResult::MemHog(res),
+                ) => {
+                    if full {
+                        print_header(&mut out, idx, "Memory Hog");
+                        scn.format_params(&mut out);
                         writeln!(out, "").unwrap();
-                        MemHog::format_result(out, mhr, full);
+                        MemHog::format_result(out, res, full);
                     }
                 }
+                (
+                    Scenario::MemHogTune(scn),
+                    ScenarioRecord::MemHogTune(rec),
+                    ScenarioResult::MemHogTune(res),
+                ) => {
+                    print_header(&mut out, idx, "Memory Hog Tuning");
+                    scn.format_params(&mut out);
+                    writeln!(out, "").unwrap();
+                    scn.format_result(&mut out, rec, res, full);
+                }
+                _ => panic!("Unsupported (scenario, record, result) tuple"),
             }
         }
 
-        if let Some(hog_result) = result.combined_mem_hog.as_ref() {
+        if let Some(hog_result) = res.combined_mem_hog.as_ref() {
             writeln!(
                 out,
                 "\n{}",
@@ -275,17 +334,18 @@ impl Job for ProtectionJob {
             result.scenarios.push(scn.study(rctx, rec)?);
         }
 
-        let mut mhs = vec![];
+        let mut mem_hogs = vec![];
         for (rec, res) in rec.scenarios.iter().zip(result.scenarios.iter()) {
             match (rec, res) {
                 (ScenarioRecord::MemHog(rec), ScenarioResult::MemHog(res)) => {
-                    mhs.push((rec, res));
+                    mem_hogs.push((rec, res));
                 }
+                _ => {}
             }
         }
 
-        if mhs.len() > 0 {
-            result.combined_mem_hog = Some(MemHog::combine_results(rctx, &mhs)?);
+        if mem_hogs.len() > 0 {
+            result.combined_mem_hog = Some(MemHog::combine_results(rctx, &mem_hogs)?);
         }
 
         Ok(serde_json::to_value(&result).unwrap())
@@ -298,8 +358,9 @@ impl Job for ProtectionJob {
         full: bool,
         _props: &JobProps,
     ) -> Result<()> {
-        let result: ProtectionResult = data.parse_result()?;
-        self.format_result(&mut out, &result, full, "");
+        let rec: ProtectionRecord = data.parse_record()?;
+        let res: ProtectionResult = data.parse_result()?;
+        self.format_result(&mut out, &rec, &res, full, "");
         Ok(())
     }
 }
