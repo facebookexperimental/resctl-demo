@@ -16,7 +16,8 @@ const DFL_VRATE_MAX: f64 = 100.0;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum DataSel {
-    MOF,                  // Memory offloading
+    MOF,                  // Memory offloading Factor
+    AMOF,                 // Adjusted Memory Offloading Factor
     Isol,                 // Isolation Factor Mean
     IsolPct(String),      // Isolation Factor Percentiles
     LatImp,               // Request Latency impact
@@ -28,8 +29,9 @@ enum DataSel {
 
 impl DataSel {
     fn parse(sel: &str) -> Result<DataSel> {
-        match sel {
+        match sel.to_lowercase().as_str() {
             "mof" => return Ok(Self::MOF),
+            "amof" => return Ok(Self::AMOF),
             "isol" => return Ok(Self::Isol),
             "lat-imp" => return Ok(Self::LatImp),
             "work-csv" => return Ok(Self::WorkCsv),
@@ -120,11 +122,13 @@ impl DataSel {
 
     fn select(&self, resr: &IoCostQoSResultRun) -> Option<f64> {
         let stor = &resr.stor;
-        let hog = resr.prot.combined_mem_hog.as_ref();
+        let tune = resr.prot.scenarios[0].as_mem_hog_tune().unwrap();
+        let hog = tune.final_run.as_ref();
         match self {
             Self::MOF => Some(stor.mem_offload_factor),
             // Missing hog indicates failed prot bench. Report 0 for
             // isolation and skip other prot results.
+            Self::AMOF => resr.adjusted_mem_offload_factor,
             Self::Isol => Some(hog.map(|x| x.isol).unwrap_or(0.0)),
             Self::LatImp => hog.map(|x| x.lat_imp),
             Self::IsolPct(pct) => hog.map(|x| {
@@ -172,13 +176,14 @@ impl DataSel {
     fn pos<'a>(&'a self) -> (u32, Option<(&'a str, &'a str)>) {
         match self {
             Self::MOF => (0, None),
-            Self::Isol => (1, None),
-            Self::IsolPct(pct) => (2, Some((pct, "NONE"))),
-            Self::LatImp => (3, None),
-            Self::WorkCsv => (4, None),
-            Self::Missing => (5, None),
-            Self::RLat(lat, time) => (6, Some((lat, time))),
-            Self::WLat(lat, time) => (7, Some((lat, time))),
+            Self::AMOF => (1, None),
+            Self::Isol => (2, None),
+            Self::IsolPct(pct) => (3, Some((pct, "NONE"))),
+            Self::LatImp => (4, None),
+            Self::WorkCsv => (5, None),
+            Self::Missing => (6, None),
+            Self::RLat(lat, time) => (7, Some((lat, time))),
+            Self::WLat(lat, time) => (8, Some((lat, time))),
         }
     }
 
@@ -259,7 +264,8 @@ impl PartialOrd for DataSel {
 impl std::fmt::Display for DataSel {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::MOF => write!(f, "mof"),
+            Self::MOF => write!(f, "MOF"),
+            Self::AMOF => write!(f, "aMOF"),
             Self::Isol => write!(f, "isol"),
             Self::IsolPct(pct) => write!(f, "isol{}", pct),
             Self::LatImp => write!(f, "lat-imp"),
@@ -410,6 +416,7 @@ impl Bench for IoCostTuneBench {
 
         job.sels = [
             DataSel::MOF,
+            DataSel::AMOF,
             DataSel::Isol,
             DataSel::LatImp,
             DataSel::WorkCsv,
@@ -671,6 +678,10 @@ impl DataSeries {
     }
 
     fn fit_lines(&mut self, gran: f64) {
+        if self.points.len() == 0 {
+            return;
+        }
+
         let start = self.points.iter().next().unwrap().0;
         let end = self.points.iter().last().unwrap().0;
         let intvs = ((end - start) / gran).ceil() as u32 + 1;
@@ -718,6 +729,10 @@ impl DataSeries {
     }
 
     fn filter_outliers(&mut self) {
+        if self.points.len() < 2 {
+            return;
+        }
+
         let mut points = vec![];
         points.append(&mut self.points);
 

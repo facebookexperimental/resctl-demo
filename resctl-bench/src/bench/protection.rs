@@ -75,13 +75,65 @@ pub enum ScenarioRecord {
     MemHogTune(MemHogTuneRecord),
 }
 
+impl ScenarioRecord {
+    #[allow(dead_code)]
+    pub fn as_mem_hog<'a>(&'a self) -> Option<&'a MemHogRecord> {
+        match self {
+            Self::MemHog(hog) => Some(hog),
+            _ => None,
+        }
+    }
+
+    #[allow(dead_code)]
+    pub fn as_mem_hog_tune<'a>(&'a self) -> Option<&'a MemHogTuneRecord> {
+        match self {
+            Self::MemHogTune(tune) => Some(tune),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum ScenarioResult {
     MemHog(MemHogResult),
     MemHogTune(MemHogTuneResult),
 }
 
+impl ScenarioResult {
+    #[allow(dead_code)]
+    pub fn as_mem_hog<'a>(&'a self) -> Option<&'a MemHogResult> {
+        match self {
+            Self::MemHog(hog) => Some(hog),
+            _ => None,
+        }
+    }
+
+    #[allow(dead_code)]
+    pub fn as_mem_hog_tune<'a>(&'a self) -> Option<&'a MemHogTuneResult> {
+        match self {
+            Self::MemHogTune(tune) => Some(tune),
+            _ => None,
+        }
+    }
+}
+
 impl Scenario {
+    #[allow(dead_code)]
+    pub fn as_mem_hog<'a>(&'a self) -> Option<&'a MemHog> {
+        match self {
+            Self::MemHog(hog) => Some(hog),
+            _ => None,
+        }
+    }
+
+    #[allow(dead_code)]
+    pub fn as_mem_hog_tune<'a>(&'a self) -> Option<&'a MemHogTune> {
+        match self {
+            Self::MemHogTune(tune) => Some(tune),
+            _ => None,
+        }
+    }
+
     fn parse(mut props: BTreeMap<String, String>) -> Result<Self> {
         match props.remove("scenario").as_deref() {
             Some("mem-hog") => {

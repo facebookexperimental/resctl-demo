@@ -41,6 +41,14 @@ impl<'a> Grapher<'a> {
                 };
                 (ymin, 1.0)
             }
+            DataSel::AMOF => {
+                let ymin = if val_min >= 1.0 {
+                    1.0
+                } else {
+                    val_min - (val_max - val_min) / 10.0
+                };
+                (ymin, 1.0)
+            }
             DataSel::Isol => (0.0, 100.0),
             DataSel::IsolPct(_) => (0.0, 100.0),
             DataSel::LatImp => (0.0, 100.0),
@@ -74,7 +82,7 @@ impl<'a> Grapher<'a> {
         }
 
         let view = ContinuousView::new()
-            .x_range(0.0, vrate_max * 1.1)
+            .x_range(0.0, (vrate_max * 1.1).max(0.000001))
             .y_range(ymin * yscale, ymax * yscale)
             .x_label(xlabel)
             .y_label(ylabel);

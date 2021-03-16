@@ -531,20 +531,6 @@ impl IoCostQoSJob {
         })
     }
 
-    fn prot_tune_rec<'a>(prec: &'a ProtectionRecord) -> &'a protection::MemHogTuneRecord {
-        match &prec.scenarios[0] {
-            protection::ScenarioRecord::MemHogTune(rec) => rec,
-            _ => panic!("Unknown protection record: {:?}", &prec.scenarios[0]),
-        }
-    }
-
-    fn prot_tune_res<'a>(pres: &'a ProtectionResult) -> &'a protection::MemHogTuneResult {
-        match &pres.scenarios[0] {
-            protection::ScenarioResult::MemHogTune(res) => res,
-            _ => panic!("Unknown protection result: {:?}", &pres.scenarios[0]),
-        }
-    }
-
     fn study_one(
         &self,
         rctx: &mut RunCtx,
@@ -566,7 +552,7 @@ impl IoCostQoSJob {
 
         // These are trivial to calculate but cumbersome to access. Let's
         // cache the results.
-        let trec = Self::prot_tune_rec(&recr.prot);
+        let trec = recr.prot.scenarios[0].as_mem_hog_tune().unwrap();
         let adjusted_mem_size = trec.final_size;
         let adjusted_mem_offload_factor = trec
             .final_size
@@ -971,7 +957,12 @@ impl Job for IoCostQoSJob {
                 Some(resr) => {
                     write!(out, "[{:02}] {:>7.3}  ", i, resr.stor.mem_offload_factor).unwrap();
                     if resr.adjusted_mem_offload_factor.is_some() {
-                        let hog = Self::prot_tune_res(&resr.prot).final_run.as_ref().unwrap();
+                        let hog = resr.prot.scenarios[0]
+                            .as_mem_hog_tune()
+                            .unwrap()
+                            .final_run
+                            .as_ref()
+                            .unwrap();
 
                         writeln!(
                             out,
