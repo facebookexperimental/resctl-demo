@@ -240,7 +240,7 @@ impl RunCtxInner {
 
 pub struct RunCtx<'a> {
     inner: Arc<Mutex<RunCtxInner>>,
-    agent_init_fns: Vec<Box<dyn FnOnce(&mut RunCtx)>>,
+    agent_init_fns: Vec<Box<dyn FnMut(&mut RunCtx)>>,
     base_bench: &'a mut rd_agent_intf::BenchKnobs,
     bench: rd_agent_intf::BenchKnobs,
     bench_path: String,
@@ -253,6 +253,7 @@ pub struct RunCtx<'a> {
     pub test: bool,
     pub commit_bench: bool,
     args: &'a resctl_bench_intf::Args,
+    extra_args: Vec<String>,
     svcs: HashSet<String>,
 }
 
@@ -297,6 +298,7 @@ impl<'a> RunCtx<'a> {
             test: args.test,
             commit_bench: false,
             args,
+            extra_args: vec![],
             svcs: Default::default(),
         }
     }
@@ -312,7 +314,7 @@ impl<'a> RunCtx<'a> {
 
     pub fn add_agent_init_fn<F>(&mut self, init_fn: F) -> &mut Self
     where
-        F: FnOnce(&mut RunCtx) + 'static,
+        F: FnMut(&mut RunCtx) + 'static,
     {
         self.agent_init_fns.push(Box::new(init_fn));
         self
@@ -365,6 +367,21 @@ impl<'a> RunCtx<'a> {
 
     pub fn set_commit_bench(&mut self) -> &mut Self {
         self.commit_bench = true;
+        self
+    }
+
+    pub fn clear(&mut self) -> &mut Self {
+        let mut inner = self.inner.lock().unwrap();
+        inner.need_linux_tar = false;
+        inner.prep_testfiles = false;
+        inner.bypass = false;
+        inner.passive_all = false;
+        inner.passive_keep_crit_mem_prot = false;
+        drop(inner);
+
+        self.agent_init_fns.clear();
+        self.commit_bench = false;
+        self.extra_args.clear();
         self
     }
 
@@ -545,7 +562,7 @@ impl<'a> RunCtx<'a> {
         let mut ctx = self.inner.lock().unwrap();
         ctx.minder_state = MinderState::Ok;
 
-        ctx.start_agent(extra_args).context("Starting rd_agent")?;
+        ctx.start_agent(extra_args.clone()).context("Starting rd_agent")?;
 
         // Start minder and wait for the agent to become Running.
         let inner = self.inner.clone();
@@ -587,11 +604,15 @@ impl<'a> RunCtx<'a> {
 
         // Run init functions.
         if self.agent_init_fns.len() > 0 {
-            let mut init_fns: Vec<Box<dyn FnOnce(&mut RunCtx)>> = vec![];
+            let mut init_fns: Vec<Box<dyn FnMut(&mut RunCtx)>> = vec![];
             init_fns.append(&mut self.agent_init_fns);
-            for init_fn in init_fns.into_iter() {
+
+            for init_fn in init_fns.iter_mut() {
                 init_fn(self);
             }
+
+            self.agent_init_fns.append(&mut init_fns);
+
             if let Err(e) = self.cmd_barrier() {
                 self.stop_agent();
                 return Err(e.context("Waiting for rd-agent to ack after running init functions"));
@@ -601,11 +622,12 @@ impl<'a> RunCtx<'a> {
         // Start recording reports.
         self.inner.lock().unwrap().record_rep(true);
 
+        self.extra_args = extra_args;
         AGENT_WAS_ACTIVE.store(true, Ordering::Relaxed);
         Ok(())
     }
 
-    pub fn stop_agent(&self) {
+    fn stop_agent_no_clear(&mut self) {
         let agent_svc = self.inner.lock().unwrap().agent_svc.take();
         if let Some(svc) = agent_svc {
             drop(svc);
@@ -621,6 +643,16 @@ impl<'a> RunCtx<'a> {
         for svc in self.svcs.iter() {
             Self::stop_svc(svc);
         }
+    }
+
+    pub fn stop_agent(&mut self) {
+        self.stop_agent_no_clear();
+        self.clear();
+    }
+
+    pub fn restart_agent(&mut self) -> Result<()> {
+        self.stop_agent_no_clear();
+        self.start_agent(self.extra_args.clone()).context("Restarting agent...")
     }
 
     pub fn wait_cond<F>(

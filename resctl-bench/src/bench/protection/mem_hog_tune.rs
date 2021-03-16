@@ -80,7 +80,7 @@ impl MemHogTune {
                 }
             };
 
-        let (run, bper) = MemHog::run_one(
+        let (run, bper) = match MemHog::run_one(
             rctx,
             desc,
             self.load,
@@ -88,7 +88,14 @@ impl MemHogTune {
             base_period.0 == base_period.1,
             3600.0,
             is_done,
-        )?;
+        ) {
+            Ok(v) => v,
+            Err(e) => {
+                info!("protection: {} failed, {:#}", desc, &e);
+                rctx.restart_agent()?;
+                return Ok(None);
+            }
+        };
         if base_period.0 == base_period.1 {
             *base_period = bper.unwrap();
         }
