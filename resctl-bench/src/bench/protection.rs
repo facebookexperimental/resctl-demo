@@ -107,14 +107,14 @@ impl Scenario {
                         "speed" => tune.speed = MemHogSpeed::from_str(v)?,
                         "size-min" => tune.size_range.0 = parse_size(v)? as usize,
                         "size-max" => tune.size_range.1 = parse_size(v)? as usize,
-                        "gran" => tune.gran = parse_frac(v)?,
+                        "intvs" => tune.intvs = v.parse::<u32>()?,
                         "isol-pct" => tune.isol_pct = v.to_owned(),
                         "isol-thr" => tune.isol_thr = parse_frac(v)?,
                         k => bail!("unknown mem-hog-tune property {:?}", k),
                     }
                 }
-                if tune.load == 0.0 || tune.gran == 0.0 {
-                    bail!("\"load\" and \"gran\" can't be 0");
+                if tune.load == 0.0 || tune.intvs == 0 {
+                    bail!("\"load\" and \"intvs\" can't be 0");
                 }
                 if tune.size_range.1 == 0 || tune.size_range.1 < tune.size_range.0 {
                     bail!("Invalid size range");

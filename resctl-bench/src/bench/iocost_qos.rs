@@ -11,8 +11,10 @@ use std::collections::BTreeMap;
 // run it just once by default.
 const DFL_VRATE_MAX: f64 = 100.0;
 const DFL_VRATE_INTVS: u32 = 5;
-const DFL_STORAGE_BASE_LOOPS: u32 = 3;
-const DFL_STORAGE_LOOPS: u32 = 1;
+const DFL_STOR_BASE_LOOPS: u32 = 3;
+const DFL_STOR_LOOPS: u32 = 1;
+const DFL_ISOL_PCT: &'static str = "10";
+const DFL_ISOL_THR: f64 = 0.9;
 const DFL_RETRIES: u32 = 1;
 
 // Don't go below 1% of the specified model when applying vrate-intvs.
@@ -68,6 +70,8 @@ impl IoCostQoSOvr {
 struct IoCostQoSJob {
     stor_base_loops: u32,
     stor_loops: u32,
+    isol_pct: String,
+    isol_thr: f64,
     mem_profile: u32,
     dither_dist: Option<f64>,
     ign_min_perf: bool,
@@ -134,8 +138,8 @@ impl IoCostQoSJob {
     const VRATE_PCTS: [&'static str; 9] = ["00", "01", "10", "16", "50", "84", "90", "99", "100"];
 
     fn parse(spec: &JobSpec, prev_data: Option<&JobData>) -> Result<Self> {
-        let mut storage_spec = JobSpec::new("storage", None, JobSpec::props(&[&[("active", "")]]));
-        let protection_spec = JobSpec::new(
+        let mut stor_spec = JobSpec::new("storage", None, JobSpec::props(&[&[("active", "")]]));
+        let mut prot_spec = JobSpec::new(
             "protection",
             None,
             JobSpec::props(&[
@@ -152,8 +156,10 @@ impl IoCostQoSJob {
         let mut vrate_min = 0.0;
         let mut vrate_max = DFL_VRATE_MAX;
         let mut vrate_intvs = 0;
-        let mut stor_base_loops = DFL_STORAGE_BASE_LOOPS;
-        let mut stor_loops = DFL_STORAGE_LOOPS;
+        let mut stor_base_loops = DFL_STOR_BASE_LOOPS;
+        let mut stor_loops = DFL_STOR_LOOPS;
+        let mut isol_pct = DFL_ISOL_PCT.to_owned();
+        let mut isol_thr = DFL_ISOL_THR;
         let mut mem_profile = 0;
         let mut retries = DFL_RETRIES;
         let mut allow_fail = false;
@@ -169,6 +175,8 @@ impl IoCostQoSJob {
                 "vrate-intvs" => vrate_intvs = v.parse::<u32>()?,
                 "storage-base-loops" => stor_base_loops = v.parse::<u32>()?,
                 "storage-loops" => stor_loops = v.parse::<u32>()?,
+                "isol-pct" => isol_pct = v.to_owned(),
+                "isol-thr" => isol_thr = parse_frac(v)?,
                 "mem-profile" => mem_profile = v.parse::<u32>()?,
                 "retries" => retries = v.parse::<u32>()?,
                 "allow-fail" => allow_fail = v.parse::<bool>()?,
@@ -180,7 +188,7 @@ impl IoCostQoSJob {
                 }
                 "ignore-min-perf" => ign_min_perf = v.len() == 0 || v.parse::<bool>()?,
                 k if k.starts_with("storage-") => {
-                    storage_spec.props[0].insert(k[8..].into(), v.into());
+                    stor_spec.props[0].insert(k[8..].into(), v.into());
                 }
                 k => bail!("unknown property key {:?}", k),
             }
@@ -206,8 +214,11 @@ impl IoCostQoSJob {
             runs.push(Some(ovr));
         }
 
-        let stor_job = StorageJob::parse(&storage_spec)?;
-        let prot_job = ProtectionJob::parse(&protection_spec)?;
+        prot_spec.props[1].insert("isol-pct".to_owned(), isol_pct.clone());
+        prot_spec.props[1].insert("isol-thr".to_owned(), format!("{}", isol_thr));
+
+        let stor_job = StorageJob::parse(&stor_spec)?;
+        let prot_job = ProtectionJob::parse(&prot_spec)?;
 
         if runs.len() == 1 && vrate_intvs == 0 {
             vrate_intvs = DFL_VRATE_INTVS;
@@ -266,6 +277,8 @@ impl IoCostQoSJob {
         Ok(IoCostQoSJob {
             stor_base_loops,
             stor_loops,
+            isol_pct,
+            isol_thr,
             mem_profile,
             dither_dist,
             ign_min_perf,
@@ -483,10 +496,10 @@ impl IoCostQoSJob {
         rctx.set_balloon_size(balloon_size);
         Self::apply_ovr(rctx, &ovr);
 
-        // Probe between a bit below the memory share and storage probed size.
+        // Probe between the memory share and storage probed size.
         match &mut pjob.scenarios[0] {
             protection::Scenario::MemHogTune(tune) => {
-                tune.size_range = (stor_rec.mem.share * 4 / 5, stor_res.mem_size);
+                tune.size_range = (stor_rec.mem.share, stor_res.mem_size);
             }
             _ => panic!("Unknown protection scenario"),
         }
@@ -692,8 +705,10 @@ impl Job for IoCostQoSJob {
         if nr_to_run > 0 {
             if prev_matches || nr_to_run == self.runs.len() {
                 info!(
-                    "iocost-qos: {} storage and protection bench sets to run",
-                    nr_to_run
+                    "iocost-qos: {} storage and protection bench sets to run, isol{} <= {}%",
+                    nr_to_run,
+                    self.isol_pct,
+                    format_pct(self.isol_thr),
                 );
             } else {
                 bail!(
@@ -902,11 +917,12 @@ impl Job for IoCostQoSJob {
 
                         writeln!(
                             out,
-                            "            adjusted_mof={:.3}@{}({:.3}x) isol05={}% lat_imp={}%:{} work_csv={}%",
+                            "            adjusted_mof={:.3}@{}({:.3}x) isol{}={}% lat_imp={}%:{} work_csv={}%",
                             format_pct(amof),
                             recr.stor.mem.profile,
                             amof / base_stor_res.mem_offload_factor,
-                            format_pct(hog.isol_pcts["10"]),
+                            &self.isol_pct,
+                            format_pct(hog.isol_pcts[&self.isol_pct]),
                             format_pct(hog.lat_imp),
                             format_pct(hog.lat_imp_stdev),
                             format_pct(hog.work_csv),
@@ -945,7 +961,8 @@ impl Job for IoCostQoSJob {
         writeln!(out, "").unwrap();
         writeln!(
             out,
-            "         MOF        isol%       lat-imp%  work-csv%  missing%"
+            "         MOF     aMOF  isol{}%       lat-imp%  work-csv%  missing%",
+            &self.isol_pct
         )
         .unwrap();
 
@@ -953,21 +970,24 @@ impl Job for IoCostQoSJob {
             match resr {
                 Some(resr) => {
                     write!(out, "[{:02}] {:>7.3}  ", i, resr.stor.mem_offload_factor).unwrap();
-                    match resr.prot.combined_mem_hog.as_ref() {
-                        Some(hog) => writeln!(
+                    if resr.adjusted_mem_offload_factor.is_some() {
+                        let hog = Self::prot_tune_res(&resr.prot).final_run.as_ref().unwrap();
+
+                        writeln!(
                             out,
-                            "{:>5.1}:{:>5.1}  {:>6.1}:{:>6.1}      {:>5.1}     {:>5.1}",
-                            hog.isol * TO_PCT,
-                            hog.isol_stdev * TO_PCT,
+                            "{:>7.3}    {:>5.1}  {:>6.1}:{:>6.1}      {:>5.1}     {:>5.1}",
+                            resr.adjusted_mem_offload_factor.unwrap(),
+                            hog.isol_pcts[&self.isol_pct] * 100.0,
                             hog.lat_imp * TO_PCT,
                             hog.lat_imp_stdev * TO_PCT,
                             hog.work_csv * TO_PCT,
                             Studies::reports_missing(resr.nr_reports) * TO_PCT,
                         )
-                        .unwrap(),
-                        None => writeln!(
+                        .unwrap();
+                    } else {
+                        writeln!(
                             out,
-                            "{:>5}:{:>5}  {:>5}:{:>5}      {:>5}     {:>5.1}",
+                            "{:>7}    {:>5}  {:>6}:{:>6}      {:>5}     {:>5.1}",
                             "FAIL",
                             "-",
                             "-",
@@ -975,10 +995,10 @@ impl Job for IoCostQoSJob {
                             "-",
                             Studies::reports_missing(resr.nr_reports) * TO_PCT,
                         )
-                        .unwrap(),
+                        .unwrap()
                     }
                 }
-                None => writeln!(out, "[{:02}]  failed", i).unwrap(),
+                None => writeln!(out, "[{:02}]  Skipped", i).unwrap(),
             }
         }
 
@@ -1016,7 +1036,7 @@ impl Job for IoCostQoSJob {
                         )
                         .unwrap();
                     }
-                    None => writeln!(out, "[{:02}]  failed", i).unwrap(),
+                    None => writeln!(out, "[{:02}]  Skipped", i).unwrap(),
                 }
             }
         };

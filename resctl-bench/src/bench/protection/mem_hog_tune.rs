@@ -7,7 +7,7 @@ pub struct MemHogTune {
     pub load: f64,
     pub speed: MemHogSpeed,
     pub size_range: (usize, usize),
-    pub gran: f64,
+    pub intvs: u32,
     pub isol_pct: String,
     pub isol_thr: f64,
     pub dur: f64,
@@ -20,10 +20,10 @@ impl Default for MemHogTune {
             load: dfl_hog.load,
             speed: dfl_hog.speed,
             size_range: (0, 0),
-            gran: 0.025,
-            isol_pct: "10".to_owned(),
+            intvs: 10,
+            isol_pct: "05".to_owned(),
             isol_thr: 0.9,
-            dur: 60.0,
+            dur: 120.0,
         }
     }
 }
@@ -45,8 +45,8 @@ impl MemHogTune {
     fn run_one(
         &self,
         rctx: &mut RunCtx,
+        desc: &str,
         size: usize,
-        prev_size: usize,
         base_period: &mut (u64, u64),
     ) -> Result<Option<MemHogRecord>> {
         let started_at = unix_now();
@@ -80,16 +80,9 @@ impl MemHogTune {
                 }
             };
 
-        // hashd's behavior after reducing its memory footprint is
-        // significantly worse than after freshly ramping up to the same
-        // size. Reset if we're going down.
-        if size < prev_size {
-            rctx.stop_hashd()?;
-        }
-
         let (run, bper) = MemHog::run_one(
             rctx,
-            &format!("probing {}", format_size(size)),
+            desc,
             self.load,
             self.speed,
             base_period.0 == base_period.1,
@@ -103,8 +96,7 @@ impl MemHogTune {
         if fail_cnt > early_fail_cnt {
             info!(
                 "protection: {} failed, early fail with fail_cnt={}",
-                format_size(size),
-                fail_cnt
+                desc, fail_cnt
             );
             return Ok(None);
         }
@@ -122,7 +114,7 @@ impl MemHogTune {
         if isol_res < self.isol_thr {
             info!(
                 "protection: {} failed, isol{}={}% < {}%",
-                format_size(size),
+                desc,
                 self.isol_pct,
                 format_pct(isol_res),
                 format_pct(self.isol_thr),
@@ -131,7 +123,7 @@ impl MemHogTune {
         } else {
             info!(
                 "protection: {} succeeded, isol{}={}% >= {}%",
-                format_size(size),
+                desc,
                 self.isol_pct,
                 format_pct(isol_res),
                 format_pct(self.isol_thr),
@@ -143,36 +135,25 @@ impl MemHogTune {
     pub fn run(&mut self, rctx: &mut RunCtx) -> Result<MemHogTuneRecord> {
         let started_at = unix_now();
         let mut base_period = (0, 0);
-
-        let (mut left, mut right) = self.size_range;
-        let mut prev_size = 0;
-        let mut cur_size = right;
         let mut final_size = None;
         let mut final_run = None;
 
-        loop {
-            let next_size = match self.run_one(rctx, cur_size, prev_size, &mut base_period)? {
-                Some(rec) => {
-                    final_size = Some(cur_size);
-                    final_run = Some(rec);
-                    left = cur_size;
-                    (left + right) / 2
-                }
-                None => {
-                    right = cur_size;
-                    if cur_size == self.size_range.1 {
-                        self.size_range.0
-                    } else {
-                        (left + right) / 2
-                    }
-                }
-            };
+        let step = (self.size_range.1 - self.size_range.0) as f64 / self.intvs as f64;
+        for idx in 0..self.intvs {
+            let size = self
+                .size_range
+                .1
+                .saturating_sub((idx as f64 * step).round() as usize)
+                .max(self.size_range.0);
 
-            prev_size = cur_size;
-            cur_size = next_size;
-            if cur_size == prev_size
-                || right - left <= (self.size_range.1 as f64 * self.gran).round() as usize
-            {
+            if let Some(rec) = self.run_one(
+                rctx,
+                &format!("Probing {} ({}/{})", format_size(size), idx + 1, self.intvs),
+                size,
+                &mut base_period,
+            )? {
+                final_size = Some(size);
+                final_run = Some(rec);
                 break;
             }
         }
@@ -197,12 +178,12 @@ impl MemHogTune {
     pub fn format_params<'a>(&self, out: &mut Box<dyn Write + 'a>) {
         writeln!(
             out,
-            "Params: load={} speed={} size={}-{} gran={}%",
+            "Params: load={} speed={} size={}-{} intvs={}",
             self.load,
             self.speed,
             format_size(self.size_range.0),
             format_size(self.size_range.1),
-            format_pct(self.gran),
+            self.intvs,
         )
         .unwrap();
         writeln!(
