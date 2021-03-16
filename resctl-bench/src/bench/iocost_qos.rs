@@ -13,9 +13,7 @@ const DFL_VRATE_MAX: f64 = 100.0;
 const DFL_VRATE_INTVS: u32 = 5;
 const DFL_STORAGE_BASE_LOOPS: u32 = 3;
 const DFL_STORAGE_LOOPS: u32 = 1;
-const DFL_PROT_LOOPS: u32 = 2;
 const DFL_RETRIES: u32 = 1;
-const PROT_TRIES: u32 = 4;
 
 // Don't go below 1% of the specified model when applying vrate-intvs.
 const VRATE_INTVS_MIN: f64 = 1.0;
@@ -70,7 +68,6 @@ impl IoCostQoSOvr {
 struct IoCostQoSJob {
     stor_base_loops: u32,
     stor_loops: u32,
-    prot_loops: u32,
     mem_profile: u32,
     dither_dist: Option<f64>,
     ign_min_perf: bool,
@@ -119,6 +116,8 @@ pub struct IoCostQoSRecord {
 pub struct IoCostQoSResultRun {
     pub stor: StorageResult,
     pub prot: ProtectionResult,
+    pub adjusted_mem_size: Option<usize>,
+    pub adjusted_mem_offload_factor: Option<f64>,
     pub vrate: f64,
     pub vrate_stdev: f64,
     pub vrate_pcts: BTreeMap<String, f64>,
@@ -139,7 +138,15 @@ impl IoCostQoSJob {
         let protection_spec = JobSpec::new(
             "protection",
             None,
-            JobSpec::props(&[&[], &[("scenario", "mem-hog"), ("load", "0.90")]]),
+            JobSpec::props(&[
+                &[],
+                &[
+                    ("scenario", "mem-hog-tune"),
+                    ("load", "1.0"),
+                    ("size-min", "1"),
+                    ("size-max", "1"),
+                ],
+            ]),
         );
 
         let mut vrate_min = 0.0;
@@ -147,7 +154,6 @@ impl IoCostQoSJob {
         let mut vrate_intvs = 0;
         let mut stor_base_loops = DFL_STORAGE_BASE_LOOPS;
         let mut stor_loops = DFL_STORAGE_LOOPS;
-        let mut prot_loops = DFL_PROT_LOOPS;
         let mut mem_profile = 0;
         let mut retries = DFL_RETRIES;
         let mut allow_fail = false;
@@ -163,7 +169,6 @@ impl IoCostQoSJob {
                 "vrate-intvs" => vrate_intvs = v.parse::<u32>()?,
                 "storage-base-loops" => stor_base_loops = v.parse::<u32>()?,
                 "storage-loops" => stor_loops = v.parse::<u32>()?,
-                "protection-loops" => prot_loops = v.parse::<u32>()?,
                 "mem-profile" => mem_profile = v.parse::<u32>()?,
                 "retries" => retries = v.parse::<u32>()?,
                 "allow-fail" => allow_fail = v.parse::<bool>()?,
@@ -261,7 +266,6 @@ impl IoCostQoSJob {
         Ok(IoCostQoSJob {
             stor_base_loops,
             stor_loops,
-            prot_loops,
             mem_profile,
             dither_dist,
             ign_min_perf,
@@ -464,52 +468,39 @@ impl IoCostQoSJob {
         // don't get committed to the base bench.
         rctx.load_bench()?;
 
-        // Run the protection bench.
-        let mut tries = 0;
-        let prot_rec = loop {
-            tries += 1;
-            // The saved bench result is of the last run of the storage
-            // bench. Update it with the current mean size.
-            rctx.update_bench_from_mem_size(stor_res.mem_size)?;
+        // Run the protection bench. The saved bench result is of the last
+        // run of the storage bench. Update it with the current mean size.
+        rctx.update_bench_from_mem_size(stor_res.mem_size)?;
 
-            // Storage benches ran with mem_target but protection runs get
-            // full mem_share. As mem_share is based on measurement, FB
-            // prod or not doens't make any difference.
-            let work_low = stor_rec.mem.share
-                - rd_agent_intf::SliceConfig::dfl_mem_margin(stor_rec.mem.share, false) as usize;
-            let balloon_size = stor_rec.mem.avail.saturating_sub(stor_rec.mem.share);
+        // Storage benches ran with mem_target but protection runs get full
+        // mem_share. As mem_share is based on measurement, FB prod or not
+        // doens't make any difference.
+        let work_low = stor_rec.mem.share
+            - rd_agent_intf::SliceConfig::dfl_mem_margin(stor_rec.mem.share, false) as usize;
+        let balloon_size = stor_rec.mem.avail.saturating_sub(stor_rec.mem.share);
 
-            rctx.set_workload_mem_low(work_low);
-            rctx.set_balloon_size(balloon_size);
-            Self::apply_ovr(rctx, &ovr);
+        rctx.set_workload_mem_low(work_low);
+        rctx.set_balloon_size(balloon_size);
+        Self::apply_ovr(rctx, &ovr);
 
-            let out = pjob.clone().run(rctx);
+        // Probe between a bit below the memory share and storage probed size.
+        match &mut pjob.scenarios[0] {
+            protection::Scenario::MemHogTune(tune) => {
+                tune.size_range = (stor_rec.mem.share * 4 / 5, stor_res.mem_size);
+            }
+            _ => panic!("Unknown protection scenario"),
+        }
 
-            rctx.stop_agent();
-            match out {
-                Ok(r) => {
-                    break parse_json_value_or_dump::<ProtectionRecord>(r)
-                        .context("Parsing protection record")
-                        .unwrap()
-                }
-                Err(e) => {
-                    if prog_exiting() {
-                        return Err(e);
-                    }
-                    if tries < PROT_TRIES {
-                        warn!(
-                            "iocost-qos: Protection benchmark failed ({:#}), retrying...",
-                            &e
-                        );
-                    } else {
-                        warn!(
-                            "iocost-qos: Protection benchmark failed too many times \
-                             ({:#}), skipping...",
-                            &e
-                        );
-                        break ProtectionRecord::default();
-                    }
-                }
+        let out = pjob.run(rctx);
+        rctx.stop_agent();
+
+        let prot_rec = match out {
+            Ok(r) => parse_json_value_or_dump::<ProtectionRecord>(r)
+                .context("Parsing protection record")
+                .unwrap(),
+            Err(e) => {
+                warn!("iocost-qos: Protection benchmark failed ({:#})", &e);
+                ProtectionRecord::default()
             }
         };
 
@@ -527,24 +518,46 @@ impl IoCostQoSJob {
         })
     }
 
+    fn prot_tune_rec<'a>(prec: &'a ProtectionRecord) -> &'a protection::MemHogTuneRecord {
+        match &prec.scenarios[0] {
+            protection::ScenarioRecord::MemHogTune(rec) => rec,
+            _ => panic!("Unknown protection record: {:?}", &prec.scenarios[0]),
+        }
+    }
+
+    fn prot_tune_res<'a>(pres: &'a ProtectionResult) -> &'a protection::MemHogTuneResult {
+        match &pres.scenarios[0] {
+            protection::ScenarioResult::MemHogTune(res) => res,
+            _ => panic!("Unknown protection result: {:?}", &pres.scenarios[0]),
+        }
+    }
+
     fn study_one(
         &self,
         rctx: &mut RunCtx,
         recr: &IoCostQoSRecordRun,
     ) -> Result<IoCostQoSResultRun> {
-        let stor: StorageResult = parse_json_value_or_dump(
+        let sres: StorageResult = parse_json_value_or_dump(
             self.stor_job
                 .study(rctx, serde_json::to_value(&recr.stor).unwrap())
                 .context("Studying storage record")?,
         )
         .context("Parsing storage result")?;
 
-        let prot: ProtectionResult = parse_json_value_or_dump(
+        let pres: ProtectionResult = parse_json_value_or_dump(
             self.prot_job
                 .study(rctx, serde_json::to_value(&recr.prot).unwrap())
                 .context("Studying protection record")?,
         )
         .context("Parsing protection result")?;
+
+        // These are trivial to calculate but cumbersome to access. Let's
+        // cache the results.
+        let (trec, tres) = (Self::prot_tune_rec(&recr.prot), Self::prot_tune_res(&pres));
+        let adjusted_mem_size = trec.final_size;
+        let adjusted_mem_offload_factor = trec
+            .final_size
+            .map(|size| size as f64 / tres.final_run.as_ref().unwrap().mem_usage as f64);
 
         // Study the vrate and IO latency distributions across all the runs.
         let mut study_vrate_mean_pcts = StudyMeanPcts::new(|arg| vec![arg.rep.iocost.vrate], None);
@@ -563,8 +576,10 @@ impl IoCostQoSJob {
         ];
 
         Ok(IoCostQoSResultRun {
-            stor: stor,
-            prot: prot,
+            stor: sres,
+            prot: pres,
+            adjusted_mem_size,
+            adjusted_mem_offload_factor,
             vrate,
             vrate_stdev,
             vrate_pcts,
@@ -727,14 +742,7 @@ impl Job for IoCostQoSJob {
                     0 => self.stor_base_loops,
                     _ => self.stor_loops,
                 };
-
                 let mut pjob = self.prot_job.clone();
-                for scn in pjob.scenarios.iter_mut() {
-                    match scn {
-                        protection::Scenario::MemHog(mh) => mh.loops = self.prot_loops,
-                        _ => panic!("Unknown protection scenario"),
-                    }
-                }
 
                 match Self::run_one(rctx, &mut sjob, &mut pjob, ovr.as_ref(), self.retries) {
                     Ok(recr) => {
@@ -885,19 +893,32 @@ impl Job for IoCostQoSJob {
                     )
                     .unwrap();
 
-                    match resr.prot.combined_mem_hog.as_ref() {
-                        Some(hog) => writeln!(
+                    if let Some(amof) = resr.adjusted_mem_offload_factor {
+                        let tune_res = match &resr.prot.scenarios[0] {
+                            protection::ScenarioResult::MemHogTune(tune_res) => tune_res,
+                            _ => bail!("Unknown protection result: {:?}", resr.prot.scenarios[0]),
+                        };
+                        let hog = tune_res.final_run.as_ref().unwrap();
+
+                        writeln!(
                             out,
-                            "            isol={}:{}% lat_imp={}%:{} work_csv={}%",
-                            format_pct(hog.isol),
-                            format_pct(hog.isol_stdev),
+                            "            adjusted_mof={:.3}@{}({:.3}x) isol05={}% lat_imp={}%:{} work_csv={}%",
+                            format_pct(amof),
+                            recr.stor.mem.profile,
+                            amof / base_stor_res.mem_offload_factor,
+                            format_pct(hog.isol_pcts["10"]),
                             format_pct(hog.lat_imp),
                             format_pct(hog.lat_imp_stdev),
                             format_pct(hog.work_csv),
-                        ),
-                        None => writeln!(out, "            isol=FAIL lat_imp=FAIL work_csv=FAIL",),
+                        )
+                        .unwrap();
+                    } else {
+                        writeln!(
+                            out,
+                            "            adjust_mof=FAIL isol=FAIL lat_imp=FAIL work_csv=FAIL"
+                        )
+                        .unwrap();
                     }
-                    .unwrap();
                 }
             }
 

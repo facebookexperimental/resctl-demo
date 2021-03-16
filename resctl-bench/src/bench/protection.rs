@@ -75,7 +75,7 @@ pub enum ScenarioRecord {
     MemHogTune(MemHogTuneRecord),
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum ScenarioResult {
     MemHog(MemHogResult),
     MemHogTune(MemHogTuneResult),
@@ -116,8 +116,8 @@ impl Scenario {
                 if tune.load == 0.0 || tune.gran == 0.0 {
                     bail!("\"load\" and \"gran\" can't be 0");
                 }
-                if tune.size_range.0 >= tune.size_range.1 {
-                    bail!("Empty size range");
+                if tune.size_range.1 == 0 || tune.size_range.1 < tune.size_range.0 {
+                    bail!("Invalid size range");
                 }
                 if !MemHog::PCTS.contains(&tune.isol_pct.as_str()) {
                     bail!(

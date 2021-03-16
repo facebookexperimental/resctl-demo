@@ -527,6 +527,8 @@ impl<'a> RunCtx<'a> {
                 } else {
                     return;
                 }
+            } else {
+                return;
             }
             if !prog_exiting() {
                 std::thread::sleep(Duration::from_secs(1));

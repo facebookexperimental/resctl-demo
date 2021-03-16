@@ -20,8 +20,8 @@ impl Default for MemHogTune {
             load: dfl_hog.load,
             speed: dfl_hog.speed,
             size_range: (0, 0),
-            gran: 0.01,
-            isol_pct: "05".to_owned(),
+            gran: 0.025,
+            isol_pct: "10".to_owned(),
             isol_thr: 0.9,
             dur: 60.0,
         }
@@ -33,12 +33,12 @@ pub struct MemHogTuneRecord {
     pub period: (u64, u64),
     pub base_period: (u64, u64),
     pub final_size: Option<usize>,
-    pub final_record: Option<MemHogRecord>,
+    pub final_run: Option<MemHogRecord>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct MemHogTuneResult {
-    pub final_result: Option<MemHogResult>,
+    pub final_run: Option<MemHogResult>,
 }
 
 impl MemHogTune {
@@ -148,22 +148,30 @@ impl MemHogTune {
         let mut prev_size = 0;
         let mut cur_size = right;
         let mut final_size = None;
-        let mut final_record = None;
+        let mut final_run = None;
 
         loop {
-            match self.run_one(rctx, cur_size, prev_size, &mut base_period)? {
+            let next_size = match self.run_one(rctx, cur_size, prev_size, &mut base_period)? {
                 Some(rec) => {
                     final_size = Some(cur_size);
-                    final_record = Some(rec);
+                    final_run = Some(rec);
                     left = cur_size;
+                    (left + right) / 2
                 }
-                None => right = cur_size,
-            }
+                None => {
+                    right = cur_size;
+                    if cur_size == self.size_range.1 {
+                        self.size_range.0
+                    } else {
+                        (left + right) / 2
+                    }
+                }
+            };
 
             prev_size = cur_size;
-            cur_size = (left + right) / 2;
-            if cur_size.saturating_sub(left)
-                <= (self.size_range.1 as f64 * self.gran).round() as usize
+            cur_size = next_size;
+            if cur_size == prev_size
+                || right - left <= (self.size_range.1 as f64 * self.gran).round() as usize
             {
                 break;
             }
@@ -173,16 +181,16 @@ impl MemHogTune {
             period: (started_at, unix_now()),
             base_period,
             final_size,
-            final_record,
+            final_run,
         })
     }
 
     pub fn study(&self, rctx: &RunCtx, rec: &MemHogTuneRecord) -> Result<MemHogTuneResult> {
-        match rec.final_record.as_ref() {
+        match rec.final_run.as_ref() {
             Some(rec) => Ok(MemHogTuneResult {
-                final_result: Some(MemHog::study(rctx, rec)?),
+                final_run: Some(MemHog::study(rctx, rec)?),
             }),
-            None => Ok(MemHogTuneResult { final_result: None }),
+            None => Ok(MemHogTuneResult { final_run: None }),
         }
     }
 
@@ -216,7 +224,7 @@ impl MemHogTune {
     ) {
         match rec.final_size {
             Some(final_size) => {
-                MemHog::format_result(out, &res.final_result.as_ref().unwrap(), full);
+                MemHog::format_result(out, &res.final_run.as_ref().unwrap(), full);
                 writeln!(
                     out,
                     "        hashd memory size {}/{} can be protected at isol{} <= {}%",
