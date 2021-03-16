@@ -37,8 +37,8 @@ impl DataSel {
             _ => {}
         }
 
-        if sel.starts_with("isol-") {
-            let pct = &sel[5..];
+        if sel.starts_with("isol") {
+            let pct = &sel[4..];
             if pct == "max" {
                 return Ok(Self::IsolPct("100".to_owned()));
             }
@@ -50,15 +50,15 @@ impl DataSel {
             bail!("Invalid isol pct {}, supported: {:?}", pct, &MemHog::PCTS);
         }
 
-        let rw = if sel.starts_with("rlat-") {
+        let rw = if sel.starts_with("rlat") {
             READ
-        } else if sel.starts_with("wlat-") {
+        } else if sel.starts_with("wlat") {
             WRITE
         } else {
             bail!("unknown data selector {:?}", sel);
         };
 
-        let pcts: Vec<&str> = sel[5..].split("-").collect();
+        let pcts: Vec<&str> = sel[4..].split("-").collect();
         if pcts.len() == 0 || pcts.len() > 2 {
             bail!("unknown data selector {:?}", sel);
         }
@@ -261,12 +261,12 @@ impl std::fmt::Display for DataSel {
         match self {
             Self::MOF => write!(f, "mof"),
             Self::Isol => write!(f, "isol"),
-            Self::IsolPct(pct) => write!(f, "isol-{}", pct),
+            Self::IsolPct(pct) => write!(f, "isol{}", pct),
             Self::LatImp => write!(f, "lat-imp"),
             Self::WorkCsv => write!(f, "work-csv"),
             Self::Missing => write!(f, "missing"),
-            Self::RLat(lat_pct, time_pct) => write!(f, "rlat-{}-{}", lat_pct, time_pct),
-            Self::WLat(lat_pct, time_pct) => write!(f, "wlat-{}-{}", lat_pct, time_pct),
+            Self::RLat(lat_pct, time_pct) => write!(f, "rlat{}-{}", lat_pct, time_pct),
+            Self::WLat(lat_pct, time_pct) => write!(f, "wlat{}-{}", lat_pct, time_pct),
         }
     }
 }
@@ -296,7 +296,7 @@ impl<'de> serde::de::Deserialize<'de> for DataSel {
             fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
                 formatter.write_str(
                     "`mof`, `isol`, `lat-imp`, `work-csv`, `missing`, \
-                     `rlat-LAT-TIME` or `wlat-LAT-TIME`",
+                     `rlatLAT-TIME` or `wlatLAT-TIME`",
                 )
             }
 

@@ -121,7 +121,7 @@ impl MemHogTune {
         let isol_res = hog_res.isol_pcts[&self.isol_pct];
         if isol_res < self.isol_thr {
             info!(
-                "protection: {} failed, isol-{}={}% < {}%",
+                "protection: {} failed, isol{}={}% < {}%",
                 format_size(size),
                 self.isol_pct,
                 format_pct(isol_res),
@@ -130,7 +130,7 @@ impl MemHogTune {
             Ok(None)
         } else {
             info!(
-                "protection: {} succeeded, isol-{}={}% >= {}%",
+                "protection: {} succeeded, isol{}={}% >= {}%",
                 format_size(size),
                 self.isol_pct,
                 format_pct(isol_res),
@@ -199,7 +199,7 @@ impl MemHogTune {
         .unwrap();
         writeln!(
             out,
-            "        isol-{} >= {}% for {}",
+            "        isol{} >= {}% for {}",
             self.isol_pct,
             format_pct(self.isol_thr),
             format_duration(self.dur)
@@ -219,7 +219,7 @@ impl MemHogTune {
                 MemHog::format_result(out, &res.final_result.as_ref().unwrap(), full);
                 writeln!(
                     out,
-                    "        hashd memory size {}/{} can be protected at isol-{} <= {}%",
+                    "        hashd memory size {}/{} can be protected at isol{} <= {}%",
                     format_size(final_size),
                     format_size(self.size_range.1),
                     self.isol_pct,
@@ -229,7 +229,7 @@ impl MemHogTune {
             }
             None => writeln!(
                 out,
-                "Result: Failed to find size to keep isol-{} above {}% in [{}, {}]",
+                "Result: Failed to find size to keep isol{} above {}% in [{}, {}]",
                 self.isol_pct,
                 format_pct(self.isol_thr),
                 format_size(self.size_range.0),
