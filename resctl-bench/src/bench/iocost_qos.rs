@@ -496,10 +496,10 @@ impl IoCostQoSJob {
         rctx.set_balloon_size(balloon_size);
         Self::apply_ovr(rctx, &ovr);
 
-        // Probe between the memory share and storage probed size.
+        // Probe between a bit below the memory share and storage probed size.
         match &mut pjob.scenarios[0] {
             protection::Scenario::MemHogTune(tune) => {
-                tune.size_range = (stor_rec.mem.share, stor_res.mem_size);
+                tune.size_range = (stor_rec.mem.share * 4 / 5, stor_res.mem_size);
             }
             _ => panic!("Unknown protection scenario"),
         }

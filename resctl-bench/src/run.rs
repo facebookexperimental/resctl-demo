@@ -562,7 +562,8 @@ impl<'a> RunCtx<'a> {
         let mut ctx = self.inner.lock().unwrap();
         ctx.minder_state = MinderState::Ok;
 
-        ctx.start_agent(extra_args.clone()).context("Starting rd_agent")?;
+        ctx.start_agent(extra_args.clone())
+            .context("Starting rd_agent")?;
 
         // Start minder and wait for the agent to become Running.
         let inner = self.inner.clone();
@@ -652,7 +653,8 @@ impl<'a> RunCtx<'a> {
 
     pub fn restart_agent(&mut self) -> Result<()> {
         self.stop_agent_no_clear();
-        self.start_agent(self.extra_args.clone()).context("Restarting agent...")
+        self.start_agent(self.extra_args.clone())
+            .context("Restarting agent...")
     }
 
     pub fn wait_cond<F>(
