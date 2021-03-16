@@ -102,9 +102,6 @@ pub struct MemHogResult {
 
     pub work_csv: f64,
 
-    pub mem_usage: f64,
-    pub mem_usage_stdev: f64,
-
     pub iolat_pcts: [BTreeMap<String, BTreeMap<String, f64>>; 2],
 
     pub nr_reports: (u64, u64),
@@ -337,15 +334,6 @@ impl MemHog {
             None,
         );
 
-        let mut study_mem_usage = StudyMean::new(|arg| {
-            [arg.rep
-                .usages
-                .get(rd_agent_intf::HASHD_A_SVC_NAME)
-                .map(|ur| ur.mem_bytes)
-                .unwrap_or(0)]
-            .repeat(arg.cnt)
-        });
-
         // Collect IO usage and unused budgets which will be used to
         // calculate work conservation factor.
         let hog_svc_name = rd_agent_intf::sysload_svc_name(Self::NAME);
@@ -380,7 +368,6 @@ impl MemHog {
         let mut studies = Studies::new()
             .add(&mut study_isol)
             .add(&mut study_lat_imp)
-            .add(&mut study_mem_usage)
             .add(&mut study_io_usages);
 
         let hog_periods: Vec<(u64, u64)> = rec
@@ -402,7 +389,6 @@ impl MemHog {
         }
 
         let (isol, isol_stdev, isol_pcts) = study_isol.result(&Self::PCTS);
-        let (mem_usage, mem_usage_stdev, _, _) = study_mem_usage.result();
         let (lat_imp, lat_imp_stdev, lat_imp_pcts) = study_lat_imp.result(&Self::PCTS);
 
         // The followings are captured over the entire period. vrate mean
@@ -467,8 +453,6 @@ impl MemHog {
 
             work_csv,
 
-            mem_usage,
-            mem_usage_stdev,
             iolat_pcts,
 
             nr_reports,
@@ -509,7 +493,6 @@ impl MemHog {
             wsum(&mut cmb.isol, res.isol);
             wsum(&mut cmb.lat_imp, res.lat_imp);
             wsum(&mut cmb.work_csv, res.work_csv);
-            wsum(&mut cmb.mem_usage, res.mem_usage);
             wsum(&mut cmb.vrate, res.vrate);
 
             if rec.runs.len() > 1 {
@@ -518,7 +501,6 @@ impl MemHog {
                 vsum(&mut cmb.base_lat_stdev, res.base_lat_stdev);
                 vsum(&mut cmb.isol_stdev, res.isol_stdev);
                 vsum(&mut cmb.lat_imp_stdev, res.lat_imp_stdev);
-                vsum(&mut cmb.mem_usage_stdev, res.mem_usage_stdev);
                 vsum(&mut cmb.vrate_stdev, res.vrate_stdev);
             }
 
@@ -541,7 +523,6 @@ impl MemHog {
         cmb.isol /= base;
         cmb.lat_imp /= base;
         cmb.work_csv /= base;
-        cmb.mem_usage /= base;
         cmb.vrate /= base;
 
         if total_runs > rrs.len() {
@@ -551,7 +532,6 @@ impl MemHog {
             vsum_to_stdev(&mut cmb.lat_imp_stdev);
             vsum_to_stdev(&mut cmb.isol_stdev);
             vsum_to_stdev(&mut cmb.lat_imp_stdev);
-            vsum_to_stdev(&mut cmb.mem_usage_stdev);
             vsum_to_stdev(&mut cmb.vrate_stdev);
         }
 

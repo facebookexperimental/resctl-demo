@@ -566,11 +566,11 @@ impl IoCostQoSJob {
 
         // These are trivial to calculate but cumbersome to access. Let's
         // cache the results.
-        let (trec, tres) = (Self::prot_tune_rec(&recr.prot), Self::prot_tune_res(&pres));
+        let trec = Self::prot_tune_rec(&recr.prot);
         let adjusted_mem_size = trec.final_size;
         let adjusted_mem_offload_factor = trec
             .final_size
-            .map(|size| size as f64 / tres.final_run.as_ref().unwrap().mem_usage as f64);
+            .map(|size| size as f64 / sres.mem_usage as f64);
 
         // Study the vrate and IO latency distributions across all the runs.
         let mut study_vrate_mean_pcts = StudyMeanPcts::new(|arg| vec![arg.rep.iocost.vrate], None);
