@@ -453,6 +453,7 @@ impl JobCtxs {
         let mut vec: Vec<JobCtx> = serde_json::from_str(&buf)?;
         for jctx in vec.iter_mut() {
             jctx.uid = JobCtx::new_uid();
+            jctx.update_seq = std::u64::MAX;
             if let Err(e) = jctx.parse_job_spec(None) {
                 bail!("Failed to parse {} ({:#})", &jctx.data.spec, &e);
             }

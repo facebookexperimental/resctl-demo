@@ -1027,6 +1027,8 @@ impl<'a> RunCtx<'a> {
         assert!(self.uid != 0);
         let jobs = self.jobs.lock().unwrap();
         let mut iter = jobs.vec.iter().rev();
+
+        // While walking back, skip till the current one.
         loop {
             match iter.next() {
                 Some(jctx) if jctx.uid == self.uid => break,
@@ -1034,6 +1036,8 @@ impl<'a> RunCtx<'a> {
                 None => return None,
             }
         }
+
+        // Find the closest matching.
         while let Some(jctx) = iter.next() {
             if jctx.data.spec.kind == kind {
                 if self.sysreqs_forward.is_none() {
