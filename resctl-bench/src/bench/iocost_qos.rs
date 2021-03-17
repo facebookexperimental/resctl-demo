@@ -691,7 +691,7 @@ impl Job for IoCostQoSJob {
         if nr_to_run > 0 {
             if prev_matches || nr_to_run == self.runs.len() {
                 info!(
-                    "iocost-qos: {} storage and protection bench sets to run, isol{} <= {}%",
+                    "iocost-qos: {} storage and protection bench sets to run, isol-{} <= {}%",
                     nr_to_run,
                     self.isol_pct,
                     format_pct(self.isol_thr),
@@ -903,7 +903,7 @@ impl Job for IoCostQoSJob {
 
                         writeln!(
                             out,
-                            "            adjusted_mof={:.3}@{}({:.3}x) isol{}={}% lat_imp={}%:{} work_csv={}%",
+                            "            adjusted_mof={:.3}@{}({:.3}x) isol-{}={}% lat_imp={}%:{} work_csv={}%",
                             format_pct(amof),
                             recr.stor.mem.profile,
                             amof / base_stor_res.mem_offload_factor,
@@ -947,7 +947,7 @@ impl Job for IoCostQoSJob {
         writeln!(out, "").unwrap();
         writeln!(
             out,
-            "         MOF     aMOF  isol{}%       lat-imp%  work-csv%  missing%",
+            "         MOF     aMOF  isol-{}%       lat-imp%  work-csv%  missing%",
             &self.isol_pct
         )
         .unwrap();
@@ -966,7 +966,7 @@ impl Job for IoCostQoSJob {
 
                         writeln!(
                             out,
-                            "{:>7.3}    {:>5.1}  {:>6.1}:{:>6.1}      {:>5.1}     {:>5.1}",
+                            "{:>7.3}     {:>5.1}  {:>6.1}:{:>6.1}      {:>5.1}     {:>5.1}",
                             resr.adjusted_mem_offload_factor.unwrap(),
                             hog.isol_pcts[&self.isol_pct] * 100.0,
                             hog.lat_imp * TO_PCT,
@@ -978,7 +978,7 @@ impl Job for IoCostQoSJob {
                     } else {
                         writeln!(
                             out,
-                            "{:>7}    {:>5}  {:>6}:{:>6}      {:>5}     {:>5.1}",
+                            "{:>7}     {:>5}  {:>6}:{:>6}      {:>5}     {:>5.1}",
                             "FAIL",
                             "-",
                             "-",
