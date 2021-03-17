@@ -430,7 +430,7 @@ impl Bench for IoCostTuneBench {
         job.sels = [
             DataSel::MOF,
             DataSel::AMOF,
-            DataSel::IsolProt,
+            DataSel::IsolPct("01".to_owned()),
             DataSel::LatImp,
             DataSel::WorkCsv,
             DataSel::Missing,
