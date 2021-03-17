@@ -1,5 +1,7 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
-use super::iocost_qos::{IoCostQoSOvr, IoCostQoSRecord, IoCostQoSResult, IoCostQoSResultRun};
+use super::iocost_qos::{
+    IoCostQoSOvr, IoCostQoSRecord, IoCostQoSRecordRun, IoCostQoSResult, IoCostQoSResultRun,
+};
 use super::protection::MemHog;
 use super::*;
 use statrs::distribution::{Normal, Univariate};
@@ -18,8 +20,9 @@ const DFL_VRATE_MAX: f64 = 100.0;
 enum DataSel {
     MOF,                  // Memory offloading Factor
     AMOF,                 // Adjusted Memory Offloading Factor
-    Isol,                 // Isolation Factor Mean
+    IsolProt,             // Isolation Factor Percentile used by protection bench
     IsolPct(String),      // Isolation Factor Percentiles
+    Isol,                 // Isolation Factor Mean
     LatImp,               // Request Latency impact
     WorkCsv,              // Work conservation
     Missing,              // Report missing
@@ -32,6 +35,7 @@ impl DataSel {
         match sel.to_lowercase().as_str() {
             "mof" => return Ok(Self::MOF),
             "amof" => return Ok(Self::AMOF),
+            "isol-prot" => return Ok(Self::IsolProt),
             "isol" => return Ok(Self::Isol),
             "lat-imp" => return Ok(Self::LatImp),
             "work-csv" => return Ok(Self::WorkCsv),
@@ -120,27 +124,34 @@ impl DataSel {
         })
     }
 
-    fn select(&self, resr: &IoCostQoSResultRun) -> Option<f64> {
-        let stor = &resr.stor;
-        let tune = resr.prot.scenarios[0].as_mem_hog_tune().unwrap();
-        let hog = tune.final_run.as_ref();
+    fn select(&self, recr: &IoCostQoSRecordRun, resr: &IoCostQoSResultRun) -> Option<f64> {
+        let stor_res = &resr.stor;
+        let tune_rec = recr.prot.scenarios[0].as_mem_hog_tune().unwrap();
+        let tune_res = resr.prot.scenarios[0].as_mem_hog_tune().unwrap();
+        let hog_res = tune_res.final_run.as_ref();
         match self {
-            Self::MOF => Some(stor.mem_offload_factor),
+            Self::MOF => Some(stor_res.mem_offload_factor),
             // Missing hog indicates failed prot bench. Report 0 for
             // isolation and skip other prot results.
             Self::AMOF => resr.adjusted_mem_offload_factor,
-            Self::Isol => Some(hog.map(|x| x.isol).unwrap_or(0.0)),
-            Self::LatImp => hog.map(|x| x.lat_imp),
-            Self::IsolPct(pct) => hog.map(|x| {
+            Self::IsolProt => hog_res.map(|x| {
+                *x.isol_pcts
+                    .get(&tune_rec.isol_pct)
+                    .context("Finding isol_pct_prot")
+                    .unwrap()
+            }),
+            Self::IsolPct(pct) => hog_res.map(|x| {
                 *x.isol_pcts
                     .get(pct)
                     .with_context(|| format!("Finding isol_pcts[{:?}]", pct))
                     .unwrap()
             }),
-            Self::WorkCsv => hog.map(|x| x.work_csv),
+            Self::Isol => Some(hog_res.map(|x| x.isol).unwrap_or(0.0)),
+            Self::LatImp => hog_res.map(|x| x.lat_imp),
+            Self::WorkCsv => hog_res.map(|x| x.work_csv),
             Self::Missing => Some(Studies::reports_missing(resr.nr_reports)),
             Self::RLat(lat_pct, time_pct) => Some(
-                *stor.iolat_pcts.as_ref()[READ]
+                *stor_res.iolat_pcts.as_ref()[READ]
                     .get(lat_pct)
                     .with_context(|| format!("Finding rlat[{:?}]", lat_pct))
                     .unwrap()
@@ -149,7 +160,7 @@ impl DataSel {
                     .unwrap(),
             ),
             Self::WLat(lat_pct, time_pct) => Some(
-                *stor.iolat_pcts.as_ref()[WRITE]
+                *stor_res.iolat_pcts.as_ref()[WRITE]
                     .get(lat_pct)
                     .with_context(|| format!("Finding wlat[{:?}]", lat_pct))
                     .unwrap()
@@ -177,13 +188,14 @@ impl DataSel {
         match self {
             Self::MOF => (0, None),
             Self::AMOF => (1, None),
-            Self::Isol => (2, None),
+            Self::IsolProt => (2, Some(("NONE", "NONE"))),
             Self::IsolPct(pct) => (3, Some((pct, "NONE"))),
-            Self::LatImp => (4, None),
-            Self::WorkCsv => (5, None),
-            Self::Missing => (6, None),
-            Self::RLat(lat, time) => (7, Some((lat, time))),
-            Self::WLat(lat, time) => (8, Some((lat, time))),
+            Self::Isol => (4, None),
+            Self::LatImp => (5, None),
+            Self::WorkCsv => (6, None),
+            Self::Missing => (7, None),
+            Self::RLat(lat, time) => (8, Some((lat, time))),
+            Self::WLat(lat, time) => (9, Some((lat, time))),
         }
     }
 
@@ -266,8 +278,9 @@ impl std::fmt::Display for DataSel {
         match self {
             Self::MOF => write!(f, "MOF"),
             Self::AMOF => write!(f, "aMOF"),
-            Self::Isol => write!(f, "isol"),
+            Self::IsolProt => write!(f, "isol-prot"),
             Self::IsolPct(pct) => write!(f, "isol{}", pct),
+            Self::Isol => write!(f, "isol"),
             Self::LatImp => write!(f, "lat-imp"),
             Self::WorkCsv => write!(f, "work-csv"),
             Self::Missing => write!(f, "missing"),
@@ -301,8 +314,8 @@ impl<'de> serde::de::Deserialize<'de> for DataSel {
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
                 formatter.write_str(
-                    "`mof`, `isol`, `lat-imp`, `work-csv`, `missing`, \
-                     `rlatLAT-TIME` or `wlatLAT-TIME`",
+                    "`mof`, `amof`, `isol-prot`, `isolPCT`, `isol`, `lat-imp`, `work-csv`, \
+                     `missing`, `rlatLAT-TIME` or `wlatLAT-TIME`",
                 )
             }
 
@@ -417,7 +430,7 @@ impl Bench for IoCostTuneBench {
         job.sels = [
             DataSel::MOF,
             DataSel::AMOF,
-            DataSel::Isol,
+            DataSel::IsolProt,
             DataSel::LatImp,
             DataSel::WorkCsv,
             DataSel::Missing,
@@ -778,6 +791,7 @@ pub struct IoCostTuneResult {
     base_model: IoCostModelParams,
     base_qos: IoCostQoSParams,
     mem_profile: u32,
+    isol_prot_pct: String,
     data: BTreeMap<DataSel, DataSeries>,
     results: Vec<QoSResult>,
 }
@@ -863,7 +877,7 @@ impl Job for IoCostTuneJob {
                     }) if min == max => min,
                     _ => continue,
                 };
-                if let Some(val) = sel.select(qresr) {
+                if let Some(val) = sel.select(qrecr, qresr) {
                     series.points.push((vrate, val));
                 }
             }
@@ -876,6 +890,14 @@ impl Job for IoCostTuneJob {
 
         let base_model = qrec.base_model.clone();
         let base_qos = qrec.base_qos.clone();
+        let isol_prot_pct = match qrec.runs.iter().next() {
+            Some(Some(recr)) => recr.prot.scenarios[0]
+                .as_mem_hog_tune()
+                .unwrap()
+                .isol_pct
+                .clone(),
+            _ => "10".to_owned(),
+        };
 
         let mut results = Vec::<QoSResult>::new();
         for rule in self.rules.iter().cloned() {
@@ -911,6 +933,7 @@ impl Job for IoCostTuneJob {
             base_model,
             base_qos,
             mem_profile: self.mem_profile,
+            isol_prot_pct,
             data,
             results,
         })?)
@@ -935,7 +958,7 @@ impl Job for IoCostTuneJob {
             }
         }
 
-        let result: IoCostTuneResult = data.parse_result()?;
+        let res: IoCostTuneResult = data.parse_result()?;
 
         write!(
             out,
@@ -945,7 +968,7 @@ impl Job for IoCostTuneJob {
         .unwrap();
 
         let mut grapher = graph::Grapher::new(out, graph_prefix.as_deref());
-        grapher.plot(data, &result)?;
+        grapher.plot(data, &res)?;
         Ok(())
     }
 }

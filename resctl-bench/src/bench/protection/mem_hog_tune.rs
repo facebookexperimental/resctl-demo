@@ -32,6 +32,8 @@ impl Default for MemHogTune {
 pub struct MemHogTuneRecord {
     pub period: (u64, u64),
     pub base_period: (u64, u64),
+    pub isol_pct: String,
+    pub isol_thr: f64,
     pub final_size: Option<usize>,
     pub final_run: Option<MemHogRecord>,
 }
@@ -168,6 +170,8 @@ impl MemHogTune {
         Ok(MemHogTuneRecord {
             period: (started_at, unix_now()),
             base_period,
+            isol_pct: self.isol_pct.clone(),
+            isol_thr: self.isol_thr,
             final_size,
             final_run,
         })

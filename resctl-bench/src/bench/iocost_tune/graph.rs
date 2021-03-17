@@ -22,6 +22,7 @@ impl<'a> Grapher<'a> {
         sel: &DataSel,
         series: &DataSeries,
         mem_profile: u32,
+        isol_prot_pct: &str,
         extra_info: Option<&str>,
     ) -> (ContinuousView, f64, f64) {
         let (vrate_max, val_max, val_min) = series
@@ -49,8 +50,9 @@ impl<'a> Grapher<'a> {
                 };
                 (ymin, 1.0)
             }
-            DataSel::Isol => (0.0, 100.0),
+            DataSel::IsolProt => (0.0, 100.0),
             DataSel::IsolPct(_) => (0.0, 100.0),
+            DataSel::Isol => (0.0, 100.0),
             DataSel::LatImp => (0.0, 100.0),
             DataSel::WorkCsv => (0.0, 100.0),
             DataSel::Missing => (0.0, 100.0),
@@ -74,7 +76,8 @@ impl<'a> Grapher<'a> {
         xlabel += &format!("err={:.3})", series.error * yscale);
 
         let mut ylabel = match sel {
-            DataSel::MOF => format!("{}@{}", sel, mem_profile),
+            DataSel::MOF | DataSel::AMOF => format!("{}@{}", sel, mem_profile),
+            DataSel::IsolProt => format!("isol{}", isol_prot_pct),
             sel => format!("{}", sel),
         };
         if extra_info.is_some() {
@@ -95,9 +98,11 @@ impl<'a> Grapher<'a> {
         sel: &DataSel,
         series: &DataSeries,
         mem_profile: u32,
+        isol_prot_pct: &str,
     ) -> Result<()> {
         const SIZE: (u32, u32) = (80, 24);
-        let (view, vrate_max, yscale) = Self::setup_view(sel, series, mem_profile, None);
+        let (view, vrate_max, yscale) =
+            Self::setup_view(sel, series, mem_profile, isol_prot_pct, None);
 
         let mut lines = vec![];
         for i in 0..SIZE.0 {
@@ -137,11 +142,12 @@ impl<'a> Grapher<'a> {
         sel: &DataSel,
         series: &DataSeries,
         mem_profile: u32,
+        isol_prot_pct: &str,
         extra_info: &str,
     ) -> Result<()> {
         const SIZE: (u32, u32) = (576, 468);
         let (view, vrate_max, yscale) =
-            Self::setup_view(sel, series, mem_profile, Some(extra_info));
+            Self::setup_view(sel, series, mem_profile, isol_prot_pct, Some(extra_info));
 
         let points = series
             .outliers
@@ -220,20 +226,21 @@ impl<'a> Grapher<'a> {
         )
     }
 
-    pub fn plot(&mut self, data: &JobData, result: &IoCostTuneResult) -> Result<()> {
-        for (sel, series) in result.data.iter() {
-            self.plot_one_text(sel, series, result.mem_profile)?;
+    pub fn plot(&mut self, data: &JobData, res: &IoCostTuneResult) -> Result<()> {
+        for (sel, series) in res.data.iter() {
+            self.plot_one_text(sel, series, res.mem_profile, &res.isol_prot_pct)?;
         }
         if self.file_prefix.is_none() {
             return Ok(());
         }
 
-        for (sel, series) in result.data.iter() {
+        for (sel, series) in res.data.iter() {
             let sr = data.sysreqs.report.as_ref().unwrap();
             if let Err(e) = self.plot_one_svg(
                 sel,
                 series,
-                result.mem_profile,
+                res.mem_profile,
+                &res.isol_prot_pct,
                 &format!("{}", sr.scr_dev_model.trim()),
             ) {
                 bail!(
@@ -244,7 +251,7 @@ impl<'a> Grapher<'a> {
             }
         }
 
-        let sels = result.data.iter().map(|(sel, _)| sel).cloned().collect();
+        let sels = res.data.iter().map(|(sel, _)| sel).cloned().collect();
         let dst = format!("{}.pdf", self.file_prefix.as_ref().unwrap());
         self.collect_svgs(sels, &dst)
             .map_err(|e| anyhow!("Failed to collect graphs into {:?} ({})", &dst, &e))
