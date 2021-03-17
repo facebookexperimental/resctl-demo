@@ -433,6 +433,20 @@ impl IoCostQoSJob {
         });
     }
 
+    fn set_prot_size_range(
+        pjob: &mut ProtectionJob,
+        stor_rec: &StorageRecord,
+        stor_res: &StorageResult,
+    ) {
+        // Probe between a bit below the memory share and storage probed size.
+        match &mut pjob.scenarios[0] {
+            protection::Scenario::MemHogTune(tune) => {
+                tune.size_range = (stor_rec.mem.share * 4 / 5, stor_res.mem_size);
+            }
+            _ => panic!("Unknown protection scenario"),
+        }
+    }
+
     fn run_one(
         rctx: &mut RunCtx,
         sjob: &mut StorageJob,
@@ -495,14 +509,7 @@ impl IoCostQoSJob {
         rctx.set_workload_mem_low(work_low);
         rctx.set_balloon_size(balloon_size);
         Self::apply_ovr(rctx, &ovr);
-
-        // Probe between a bit below the memory share and storage probed size.
-        match &mut pjob.scenarios[0] {
-            protection::Scenario::MemHogTune(tune) => {
-                tune.size_range = (stor_rec.mem.share * 4 / 5, stor_res.mem_size);
-            }
-            _ => panic!("Unknown protection scenario"),
-        }
+        Self::set_prot_size_range(pjob, &stor_rec, &stor_res);
 
         let out = pjob.run(rctx);
         rctx.stop_agent();
@@ -857,7 +864,10 @@ impl Job for IoCostQoSJob {
 
                 self.stor_job
                     .format_result(&mut out, &recr.stor, &resr.stor, false, sub_full);
-                self.prot_job.format_result(
+
+                let mut pjob = self.prot_job.clone();
+                Self::set_prot_size_range(&mut pjob, &recr.stor, &resr.stor);
+                pjob.format_result(
                     &mut out,
                     &recr.prot,
                     &resr.prot,
@@ -904,7 +914,7 @@ impl Job for IoCostQoSJob {
                         writeln!(
                             out,
                             "            adjusted_mof={:.3}@{}({:.3}x) isol-{}={}% lat_imp={}%:{} work_csv={}%",
-                            format_pct(amof),
+                            amof,
                             recr.stor.mem.profile,
                             amof / base_stor_res.mem_offload_factor,
                             &self.isol_pct,
