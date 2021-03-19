@@ -1,6 +1,6 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
 use super::super::*;
-use rd_agent_intf::{bandit_report::BanditMemHogReport, Report};
+use rd_agent_intf::{bandit_report::BanditMemHogReport, Report, Slice};
 use std::cell::RefCell;
 use std::collections::{BTreeMap, VecDeque};
 
@@ -103,6 +103,10 @@ pub struct MemHogResult {
     pub work_csv: f64,
 
     pub iolat_pcts: [BTreeMap<String, BTreeMap<String, f64>>; 2],
+
+    pub root_rstat: ResourceStat,
+    pub work_rstat: ResourceStat,
+    pub sys_rstat: ResourceStat,
 
     pub nr_reports: (u64, u64),
     pub periods: Vec<(u64, u64)>,
@@ -310,17 +314,11 @@ impl MemHog {
         // with 0.0 indicating no latency impact.
         let last_nr_done = RefCell::new(None);
         let mut study_isol = StudyMeanPcts::new(
-            |arg| {
-                let nr_done = arg.rep.hashd[0].nr_done;
-                match last_nr_done.replace(Some(nr_done)) {
-                    Some(last) => [Self::calc_isol(
-                        (nr_done - last) as f64 / arg.dur,
-                        rec.base_rps,
-                    )]
-                    .repeat(arg.cnt),
-                    None => vec![],
-                }
-            },
+            sel_delta_calc(
+                |arg| arg.rep.hashd[0].nr_done,
+                |arg, cur, last| Self::calc_isol((cur - last) as f64 / arg.dur, rec.base_rps),
+                &last_nr_done,
+            ),
             None,
         );
         let mut study_lat_imp = StudyMeanPcts::new(
@@ -365,10 +363,22 @@ impl MemHog {
             }
         });
 
+        let root_rstat_study_ctx = ResourceStatStudyCtx::default();
+        let work_rstat_study_ctx = ResourceStatStudyCtx::default();
+        let sys_rstat_study_ctx = ResourceStatStudyCtx::default();
+        let mut root_rstat_study =
+            ResourceStatStudy::new(rd_agent_intf::ROOT_SLICE, &root_rstat_study_ctx);
+        let mut work_rstat_study =
+            ResourceStatStudy::new(Slice::Work.name(), &work_rstat_study_ctx);
+        let mut sys_rstat_study = ResourceStatStudy::new(Slice::Sys.name(), &sys_rstat_study_ctx);
+
         let mut studies = Studies::new()
             .add(&mut study_isol)
             .add(&mut study_lat_imp)
-            .add(&mut study_io_usages);
+            .add(&mut study_io_usages)
+            .add_multiple(&mut root_rstat_study.studies())
+            .add_multiple(&mut work_rstat_study.studies())
+            .add_multiple(&mut sys_rstat_study.studies());
 
         let hog_periods: Vec<(u64, u64)> = rec
             .runs
@@ -385,11 +395,17 @@ impl MemHog {
             last_nr_done.replace(None);
             last_root_io_usage.replace(None);
             last_hog_io_usage.replace(None);
+            work_rstat_study_ctx.reset();
+            sys_rstat_study_ctx.reset();
+
             studies.run(rctx, *per)?;
         }
 
         let (isol, isol_stdev, isol_pcts) = study_isol.result(&Self::PCTS);
         let (lat_imp, lat_imp_stdev, lat_imp_pcts) = study_lat_imp.result(&Self::PCTS);
+        let root_rstat = root_rstat_study.result(&Self::PCTS);
+        let work_rstat = work_rstat_study.result(&Self::PCTS);
+        let sys_rstat = sys_rstat_study.result(&Self::PCTS);
 
         // The followings are captured over the entire period. vrate mean
         // isn't used in the process but report to help visibility.
@@ -454,6 +470,10 @@ impl MemHog {
             work_csv,
 
             iolat_pcts,
+
+            root_rstat,
+            work_rstat,
+            sys_rstat,
 
             nr_reports,
             periods: vec![rec.period],
@@ -569,7 +589,21 @@ impl MemHog {
             None,
         );
 
-        let mut studies = Studies::new().add(&mut study_isol).add(&mut study_lat_imp);
+        let work_rstat_study_ctx = ResourceStatStudyCtx::default();
+        let sys_rstat_study_ctx = ResourceStatStudyCtx::default();
+        let root_rstat_study_ctx = ResourceStatStudyCtx::default();
+        let mut root_rstat_study =
+            ResourceStatStudy::new(rd_agent_intf::ROOT_SLICE, &root_rstat_study_ctx);
+        let mut work_rstat_study =
+            ResourceStatStudy::new(Slice::Work.name(), &work_rstat_study_ctx);
+        let mut sys_rstat_study = ResourceStatStudy::new(Slice::Sys.name(), &sys_rstat_study_ctx);
+
+        let mut studies = Studies::new()
+            .add(&mut study_isol)
+            .add(&mut study_lat_imp)
+            .add_multiple(&mut root_rstat_study.studies())
+            .add_multiple(&mut work_rstat_study.studies())
+            .add_multiple(&mut sys_rstat_study.studies());
 
         for (_rec, res) in rrs.iter() {
             base_rps.replace(res.base_rps);
@@ -583,6 +617,9 @@ impl MemHog {
 
         cmb.isol_pcts = study_isol.result(&Self::PCTS);
         cmb.lat_imp_pcts = study_lat_imp.result(&Self::PCTS);
+        cmb.root_rstat = root_rstat_study.result(&Self::PCTS);
+        cmb.work_rstat = work_rstat_study.result(&Self::PCTS);
+        cmb.sys_rstat = sys_rstat_study.result(&Self::PCTS);
 
         let mut study_read_lat_pcts = StudyIoLatPcts::new("read", None);
         let mut study_write_lat_pcts = StudyIoLatPcts::new("write", None);
@@ -645,33 +682,30 @@ impl MemHog {
 
         StudyIoLatPcts::format_rw(out, result.iolat_pcts.as_ref(), full, None);
 
+        if full {
+            writeln!(out, "\nSlice resource stat:\n").unwrap();
+            result.root_rstat.format(out, "ROOT", &Self::PCTS);
+            writeln!(out, "").unwrap();
+            result.work_rstat.format(out, "WORKLOAD", &Self::PCTS);
+            writeln!(out, "").unwrap();
+            result.sys_rstat.format(out, "SYSTEM", &Self::PCTS);
+        }
+
         writeln!(
             out,
             "\nIsolation and Request Latency Impact Distributions:\n"
         )
         .unwrap();
-        writeln!(
+
+        print_pcts_header(out, "", &Self::PCTS);
+        print_pcts_line(out, "isol%", &result.isol_pcts, format_pct, &Self::PCTS);
+        print_pcts_line(
             out,
-            "         {}",
-            Self::PCTS
-                .iter()
-                .map(|x| format!("{:>4}", format_percentile(*x)))
-                .collect::<Vec<String>>()
-                .join(" ")
-        )
-        .unwrap();
-
-        write!(out, "isol%    ").unwrap();
-        for pct in Self::PCTS.iter() {
-            write!(out, "{:>4} ", format_pct(result.isol_pcts[*pct])).unwrap();
-        }
-        writeln!(out, "").unwrap();
-
-        write!(out, "lat-imp% ").unwrap();
-        for pct in Self::PCTS.iter() {
-            write!(out, "{:>4} ", format_pct(result.lat_imp_pcts[*pct])).unwrap();
-        }
-        writeln!(out, "").unwrap();
+            "lat-imp%",
+            &result.lat_imp_pcts,
+            format_pct,
+            &Self::PCTS,
+        );
 
         writeln!(
             out,

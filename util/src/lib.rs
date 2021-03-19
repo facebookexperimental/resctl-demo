@@ -203,7 +203,7 @@ pub fn double_underline(content: &str) -> String {
     custom_underline(content, "=")
 }
 
-fn format_size_internal<T>(size: T, zero: &str) -> String
+fn format_size_internal<T>(size: T, zero: &str, short: bool) -> String
 where
     T: num::ToPrimitive,
 {
@@ -212,7 +212,7 @@ where
 
         if size < unit {
             Some(zero.to_string())
-        } else if size < (99.94999 * unit as f64) as u64 {
+        } else if size < (if short { 9.94999 } else { 99.94999 } * unit as f64) as u64 {
             Some(format!("{:.1}{}", size as f64 / unit as f64, suffix))
         } else if size < 1024 * unit {
             Some(format!("{:.0}{}", size as f64 / unit as f64, suffix))
@@ -236,14 +236,21 @@ pub fn format_size<T>(size: T) -> String
 where
     T: num::ToPrimitive,
 {
-    format_size_internal(size, "0")
+    format_size_internal(size, "0", false)
 }
 
 pub fn format_size_dashed<T>(size: T) -> String
 where
     T: num::ToPrimitive,
 {
-    format_size_internal(size, "-")
+    format_size_internal(size, "-", false)
+}
+
+pub fn format_size_short<T>(size: T) -> String
+where
+    T: num::ToPrimitive,
+{
+    format_size_internal(size, "0", true)
 }
 
 fn format_duration_internal(dur: f64, zero: &str) -> String {

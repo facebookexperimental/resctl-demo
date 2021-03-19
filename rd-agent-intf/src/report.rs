@@ -204,7 +204,11 @@ pub struct SideloadReport {
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct UsageReport {
+    pub cpu_util: f64,
+    pub cpu_sys: f64,
     pub cpu_usage: f64,
+    pub cpu_usage_sys: f64,
+    pub cpu_usage_base: f64,
     pub mem_bytes: u64,
     pub swap_bytes: u64,
     pub swap_free: u64,
@@ -214,6 +218,9 @@ pub struct UsageReport {
     pub io_wbps: u64,
     pub io_usage: f64,
     pub io_util: f64,
+    pub cpu_stalls: (f64, f64),
+    pub mem_stalls: (f64, f64),
+    pub io_stalls: (f64, f64),
     pub cpu_pressures: (f64, f64),
     pub mem_pressures: (f64, f64),
     pub io_pressures: (f64, f64),
@@ -221,7 +228,10 @@ pub struct UsageReport {
 
 impl ops::AddAssign<&UsageReport> for UsageReport {
     fn add_assign(&mut self, rhs: &UsageReport) {
+        self.cpu_util += rhs.cpu_util;
+        self.cpu_sys += rhs.cpu_sys;
         self.cpu_usage += rhs.cpu_usage;
+        self.cpu_usage_sys += rhs.cpu_usage_sys;
         self.mem_bytes += rhs.mem_bytes;
         self.swap_bytes += rhs.swap_bytes;
         self.swap_free += rhs.swap_free;
@@ -231,6 +241,12 @@ impl ops::AddAssign<&UsageReport> for UsageReport {
         self.io_wbps += rhs.io_wbps;
         self.io_usage += rhs.io_usage;
         self.io_util += rhs.io_util;
+        self.cpu_stalls.0 += rhs.cpu_stalls.0;
+        self.cpu_stalls.1 += rhs.cpu_stalls.1;
+        self.mem_stalls.0 += rhs.mem_stalls.0;
+        self.mem_stalls.1 += rhs.mem_stalls.1;
+        self.io_stalls.0 += rhs.io_stalls.0;
+        self.io_stalls.1 += rhs.io_stalls.1;
         self.cpu_pressures.0 += rhs.cpu_pressures.0;
         self.cpu_pressures.1 += rhs.cpu_pressures.1;
         self.mem_pressures.0 += rhs.mem_pressures.0;
@@ -243,16 +259,26 @@ impl ops::AddAssign<&UsageReport> for UsageReport {
 impl<T: Into<f64>> ops::DivAssign<T> for UsageReport {
     fn div_assign(&mut self, rhs: T) {
         let div = rhs.into();
+        let div_u64 = |v: &mut u64| *v = (*v as f64 / div).round() as u64;
+        self.cpu_util /= div;
+        self.cpu_sys /= div;
         self.cpu_usage /= div;
-        self.mem_bytes = (self.mem_bytes as f64 / div).round() as u64;
-        self.swap_bytes = (self.swap_bytes as f64 / div).round() as u64;
-        self.swap_free = (self.swap_free as f64 / div).round() as u64;
-        self.io_rbytes = (self.io_rbytes as f64 / div).round() as u64;
-        self.io_wbytes = (self.io_wbytes as f64 / div).round() as u64;
-        self.io_rbps = (self.io_rbps as f64 / div).round() as u64;
-        self.io_wbps = (self.io_wbps as f64 / div).round() as u64;
+        self.cpu_usage_sys /= div;
+        div_u64(&mut self.mem_bytes);
+        div_u64(&mut self.swap_bytes);
+        div_u64(&mut self.swap_free);
+        div_u64(&mut self.io_rbytes);
+        div_u64(&mut self.io_wbytes);
+        div_u64(&mut self.io_rbps);
+        div_u64(&mut self.io_wbps);
         self.io_usage /= div;
         self.io_util /= div;
+        self.cpu_stalls.0 /= div;
+        self.cpu_stalls.1 /= div;
+        self.mem_stalls.0 /= div;
+        self.mem_stalls.1 /= div;
+        self.io_stalls.0 /= div;
+        self.io_stalls.1 /= div;
         self.cpu_pressures.0 /= div;
         self.cpu_pressures.1 /= div;
         self.mem_pressures.0 /= div;

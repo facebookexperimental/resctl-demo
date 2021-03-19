@@ -1,7 +1,9 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
 use anyhow::{bail, Result};
+use std::cell::RefCell;
 use num_traits::cast::AsPrimitive;
 use quantiles::ckms::CKMS;
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fmt::Write;
 use util::*;
@@ -33,6 +35,41 @@ pub fn sel_factory_iolat(io_type: &str, pct: &str) -> impl FnMut(&SelArg) -> Vec
             vec![]
         }
     }
+}
+
+pub fn sel_delta_calc<'a, T, U, F, G>(
+    mut sel_val: F,
+    mut calc_delta: G,
+    last: &'a std::cell::RefCell<Option<T>>,
+) -> impl FnMut(&SelArg) -> Vec<U> + 'a
+where
+    T: Clone,
+    U: AsPrimitive<f64>,
+    F: FnMut(&SelArg) -> T + 'a,
+    G: FnMut(&SelArg, T, T) -> U + 'a,
+{
+    move |arg: &SelArg| {
+        let cur = sel_val(arg);
+        match last.replace(Some(cur.clone())) {
+            Some(last) => [calc_delta(arg, cur, last)].repeat(arg.cnt),
+            None => vec![],
+        }
+    }
+}
+
+pub fn sel_delta<'a, T, F>(
+    sel_val: F,
+    last: &'a std::cell::RefCell<Option<T>>,
+) -> impl FnMut(&SelArg) -> Vec<f64> + 'a
+where
+    T: AsPrimitive<f64>,
+    F: FnMut(&SelArg) -> T + 'a,
+{
+    sel_delta_calc(
+        sel_val,
+        |arg, cur, last| ((cur.as_() - last.as_()) / arg.dur).max(0.0),
+        last,
+    )
 }
 
 //
@@ -166,7 +203,10 @@ where
         pcts.iter()
             .map(|pct| {
                 let pctf = pct.parse::<f64>().unwrap() / 100.0;
-                (pct.to_string(), self.ckms.query(pctf).map(|x| x.1).unwrap())
+                (
+                    pct.to_string(),
+                    self.ckms.query(pctf).map(|x| x.1).unwrap_or(0.0),
+                )
             })
             .collect()
     }
@@ -488,6 +528,232 @@ impl<'a> Studies<'a> {
             nr_reports.1 as f64 / (nr_reports.0 + nr_reports.1) as f64
         } else {
             0.0
+        }
+    }
+}
+
+//
+// Pcts print helpers
+//
+pub fn print_pcts_header<'a>(out: &mut Box<dyn Write + 'a>, name: &str, pcts: &[&str]) {
+    writeln!(
+        out,
+        "{:<9}  {}",
+        name,
+        pcts.iter()
+            .map(|x| format!("{:>4}", format_percentile(*x)))
+            .collect::<Vec<String>>()
+            .join(" ")
+    )
+    .unwrap();
+}
+
+pub fn print_pcts_line<'a, F>(
+    out: &mut Box<dyn Write + 'a>,
+    field_name: &str,
+    data: &BTreeMap<String, f64>,
+    fmt: F,
+    pcts: &[&str],
+) where
+    F: Fn(f64) -> String,
+{
+    write!(out, "{:<9}  ", field_name).unwrap();
+    for pct in pcts.iter() {
+        write!(out, "{:>4} ", fmt(data[*pct])).unwrap();
+    }
+    writeln!(out, "").unwrap();
+}
+
+//
+// Resource stat
+//
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ResourceStat {
+    pub cpu_util_pcts: BTreeMap<String, f64>,
+    pub cpu_sys_pcts: BTreeMap<String, f64>,
+    pub io_util_pcts: BTreeMap<String, f64>,
+    pub io_bps_pcts: (BTreeMap<String, f64>, BTreeMap<String, f64>),
+    pub psi_cpu_pcts: BTreeMap<String, f64>,
+    pub psi_mem_pcts: (BTreeMap<String, f64>, BTreeMap<String, f64>),
+    pub psi_io_pcts: (BTreeMap<String, f64>, BTreeMap<String, f64>),
+}
+
+impl ResourceStat {
+    pub fn format<'a>(&self, out: &mut Box<dyn Write + 'a>, name: &str, pcts: &[&str]) {
+        print_pcts_header(out, name, pcts);
+        print_pcts_line(out, "cpu%", &self.cpu_util_pcts, format_pct, pcts);
+        print_pcts_line(out, "sys%", &self.cpu_sys_pcts, format_pct, pcts);
+        print_pcts_line(out, "io%", &self.io_util_pcts, format_pct, pcts);
+        print_pcts_line(out, "rbps", &self.io_bps_pcts.0, format_size_short, pcts);
+        print_pcts_line(out, "wbps", &self.io_bps_pcts.1, format_size_short, pcts);
+        print_pcts_line(out, "cpu-some%", &self.psi_cpu_pcts, format_pct, pcts);
+        print_pcts_line(out, "mem-some%", &self.psi_mem_pcts.0, format_pct, pcts);
+        print_pcts_line(out, "mem-full%", &self.psi_mem_pcts.1, format_pct, pcts);
+        print_pcts_line(out, "io-some%", &self.psi_io_pcts.0, format_pct, pcts);
+        print_pcts_line(out, "io-full%", &self.psi_io_pcts.1, format_pct, pcts);
+    }
+}
+
+#[derive(Default)]
+pub struct ResourceStatStudyCtx {
+    cpu_usage: RefCell<Option<(f64, f64)>>,
+    cpu_usage_sys: RefCell<Option<(f64, f64)>>,
+    io_usage: RefCell<Option<f64>>,
+    io_bps: (RefCell<Option<u64>>, RefCell<Option<u64>>),
+    cpu_stall: RefCell<Option<f64>>,
+    mem_stalls: (RefCell<Option<f64>>, RefCell<Option<f64>>),
+    io_stalls: (RefCell<Option<f64>>, RefCell<Option<f64>>),
+}
+
+impl ResourceStatStudyCtx {
+    pub fn reset(&self) {
+        self.cpu_usage.replace(None);
+        self.cpu_usage_sys.replace(None);
+        self.io_usage.replace(None);
+        self.io_bps.0.replace(None);
+        self.io_bps.1.replace(None);
+        self.cpu_stall.replace(None);
+        self.mem_stalls.0.replace(None);
+        self.mem_stalls.1.replace(None);
+        self.io_stalls.0.replace(None);
+        self.io_stalls.1.replace(None);
+    }
+}
+
+pub struct ResourceStatStudy<'a> {
+    cpu_util_study: Box<dyn StudyPctsTrait + 'a>,
+    cpu_sys_study: Box<dyn StudyPctsTrait + 'a>,
+    io_util_study: Box<dyn StudyPctsTrait + 'a>,
+    io_bps_studies: (Box<dyn StudyPctsTrait + 'a>, Box<dyn StudyPctsTrait + 'a>),
+    psi_cpu_study: Box<dyn StudyPctsTrait + 'a>,
+    psi_mem_studies: (Box<dyn StudyPctsTrait + 'a>, Box<dyn StudyPctsTrait + 'a>),
+    psi_io_studies: (Box<dyn StudyPctsTrait + 'a>, Box<dyn StudyPctsTrait + 'a>),
+}
+
+impl<'a> ResourceStatStudy<'a> {
+    fn calc_cpu_util(_arg: &SelArg, cur: (f64, f64), last: (f64, f64)) -> f64 {
+        let base = cur.1 - last.1;
+        if base > 0.0 {
+            ((cur.0 - last.0) / base).max(0.0)
+        } else {
+            0.0
+        }
+    }
+
+    pub fn new(name: &'static str, ctx: &'a ResourceStatStudyCtx) -> Self {
+        Self {
+            cpu_util_study: Box::new(StudyPcts::new(
+                sel_delta_calc(
+                    move |arg| {
+                        (
+                            arg.rep.usages[name].cpu_usage,
+                            arg.rep.usages[name].cpu_usage_base,
+                        )
+                    },
+                    Self::calc_cpu_util,
+                    &ctx.cpu_usage,
+                ),
+                None,
+            )),
+            cpu_sys_study: Box::new(StudyPcts::new(
+                sel_delta_calc(
+                    move |arg| {
+                        (
+                            arg.rep.usages[name].cpu_usage_sys,
+                            arg.rep.usages[name].cpu_usage_base,
+                        )
+                    },
+                    Self::calc_cpu_util,
+                    &ctx.cpu_usage_sys,
+                ),
+                None,
+            )),
+            io_util_study: Box::new(StudyPcts::new(
+                sel_delta(move |arg| arg.rep.usages[name].io_usage, &ctx.io_usage),
+                None,
+            )),
+            io_bps_studies: (
+                Box::new(StudyPcts::new(
+                    sel_delta(move |arg| arg.rep.usages[name].io_rbytes, &ctx.io_bps.0),
+                    None,
+                )),
+                Box::new(StudyPcts::new(
+                    sel_delta(move |arg| arg.rep.usages[name].io_wbytes, &ctx.io_bps.1),
+                    None,
+                )),
+            ),
+            psi_cpu_study: Box::new(StudyPcts::new(
+                sel_delta(move |arg| arg.rep.usages[name].cpu_stalls.0, &ctx.cpu_stall),
+                None,
+            )),
+            psi_mem_studies: (
+                Box::new(StudyPcts::new(
+                    sel_delta(
+                        move |arg| arg.rep.usages[name].mem_stalls.0,
+                        &ctx.mem_stalls.0,
+                    ),
+                    None,
+                )),
+                Box::new(StudyPcts::new(
+                    sel_delta(
+                        move |arg| arg.rep.usages[name].mem_stalls.1,
+                        &ctx.mem_stalls.1,
+                    ),
+                    None,
+                )),
+            ),
+            psi_io_studies: (
+                Box::new(StudyPcts::new(
+                    sel_delta(
+                        move |arg| arg.rep.usages[name].io_stalls.0,
+                        &ctx.io_stalls.0,
+                    ),
+                    None,
+                )),
+                Box::new(StudyPcts::new(
+                    sel_delta(
+                        move |arg| arg.rep.usages[name].io_stalls.1,
+                        &ctx.io_stalls.1,
+                    ),
+                    None,
+                )),
+            ),
+        }
+    }
+
+    pub fn studies(&mut self) -> Vec<&mut dyn Study> {
+        vec![
+            self.cpu_util_study.as_study_mut(),
+            self.cpu_sys_study.as_study_mut(),
+            self.io_util_study.as_study_mut(),
+            self.io_bps_studies.0.as_study_mut(),
+            self.io_bps_studies.1.as_study_mut(),
+            self.psi_cpu_study.as_study_mut(),
+            self.psi_mem_studies.0.as_study_mut(),
+            self.psi_mem_studies.1.as_study_mut(),
+            self.psi_io_studies.0.as_study_mut(),
+            self.psi_io_studies.1.as_study_mut(),
+        ]
+    }
+
+    pub fn result(&self, pcts: &[&str]) -> ResourceStat {
+        ResourceStat {
+            cpu_util_pcts: self.cpu_util_study.result(pcts),
+            cpu_sys_pcts: self.cpu_sys_study.result(pcts),
+            io_util_pcts: self.io_util_study.result(pcts),
+            io_bps_pcts: (
+                self.io_bps_studies.0.result(pcts),
+                self.io_bps_studies.1.result(pcts),
+            ),
+            psi_cpu_pcts: self.psi_cpu_study.result(pcts),
+            psi_mem_pcts: (
+                self.psi_mem_studies.0.result(pcts),
+                self.psi_mem_studies.1.result(pcts),
+            ),
+            psi_io_pcts: (
+                self.psi_io_studies.0.result(pcts),
+                self.psi_io_studies.1.result(pcts),
+            ),
         }
     }
 }

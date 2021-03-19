@@ -29,6 +29,7 @@ use rd_agent_intf::{
 #[derive(Debug, Default)]
 struct Usage {
     cpu_busy: f64,
+    cpu_sys: f64,
     mem_bytes: u64,
     swap_bytes: u64,
     swap_free: u64,
@@ -79,6 +80,7 @@ fn read_system_usage(devnr: (u32, u32)) -> Result<(Usage, f64)> {
     let mut cpu_busy = cpu_total - cpu.idle as f64 - cpu.iowait.unwrap() as f64;
 
     let tps = procfs::ticks_per_second()? as f64;
+    let cpu_sys = cpu.system as f64 / tps;
     cpu_busy /= tps;
     cpu_total /= tps;
 
@@ -107,6 +109,7 @@ fn read_system_usage(devnr: (u32, u32)) -> Result<(Usage, f64)> {
     Ok((
         Usage {
             cpu_busy,
+            cpu_sys,
             mem_bytes,
             swap_bytes,
             swap_free: mstat.swap_free,
@@ -158,6 +161,9 @@ fn read_cgroup_usage(cgrp: &str, devnr: (u32, u32)) -> Usage {
     if let Ok(cs) = read_cgroup_flat_keyed_file(&(cgrp.to_string() + "/cpu.stat")) {
         if let Some(v) = cs.get("usage_usec") {
             usage.cpu_busy = *v as f64 / 1_000_000.0;
+        }
+        if let Some(v) = cs.get("system_usec") {
+            usage.cpu_sys = *v as f64 / 1_000_000.0;
         }
     }
 
@@ -264,13 +270,19 @@ impl UsageTracker {
             let mut rep: UsageReport = Default::default();
             let last = self.usages.get(unit).unwrap_or(&zero_usage);
 
-            let cpu_total = cpu_total - self.cpu_total;
-            if cpu_total > 0.0 {
-                rep.cpu_usage = ((cur.cpu_busy - last.cpu_busy) / cpu_total)
+            let cpu_total_delta = cpu_total - self.cpu_total;
+            if cpu_total_delta > 0.0 {
+                rep.cpu_util = ((cur.cpu_busy - last.cpu_busy) / cpu_total_delta)
+                    .min(1.0)
+                    .max(0.0);
+                rep.cpu_sys = ((cur.cpu_sys - last.cpu_sys) / cpu_total_delta)
                     .min(1.0)
                     .max(0.0);
             }
 
+            rep.cpu_usage = cur.cpu_busy;
+            rep.cpu_usage_sys = cur.cpu_sys;
+            rep.cpu_usage_base = cpu_total;
             rep.mem_bytes = cur.mem_bytes;
             rep.swap_bytes = cur.swap_bytes;
             rep.swap_free = cur.swap_free;
@@ -286,6 +298,9 @@ impl UsageTracker {
                 }
                 rep.io_util = (cur.io_usage - last.io_usage) as f64 / 1_000_000.0 / dur;
                 rep.io_usage = cur.io_usage as f64 / 1_000_000.0;
+                rep.cpu_stalls = cur.cpu_stalls;
+                rep.mem_stalls = cur.mem_stalls;
+                rep.io_stalls = cur.io_stalls;
                 rep.cpu_pressures = (
                     ((cur.cpu_stalls.0 - last.cpu_stalls.0) / dur)
                         .min(1.0)
