@@ -1,9 +1,9 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
 use anyhow::{bail, Result};
-use std::cell::RefCell;
 use num_traits::cast::AsPrimitive;
 use quantiles::ckms::CKMS;
 use serde::{Deserialize, Serialize};
+use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::fmt::Write;
 use util::*;
@@ -145,16 +145,17 @@ where
 //
 // Calculate percentiles.
 //
-pub struct StudyPcts<T, F>
+pub struct StudyMeanPcts<T, F>
 where
     T: AsPrimitive<f64>,
     F: FnMut(&SelArg) -> Vec<T>,
 {
     sel: F,
     ckms: CKMS<f64>,
+    data: Vec<f64>,
 }
 
-impl<T, F> StudyPcts<T, F>
+impl<T, F> StudyMeanPcts<T, F>
 where
     T: AsPrimitive<f64>,
     F: FnMut(&SelArg) -> Vec<T>,
@@ -164,18 +165,20 @@ where
         Self {
             sel,
             ckms: CKMS::<f64>::new(error.unwrap_or(CKMS_DFL_ERROR)),
+            data: vec![],
         }
     }
 
     fn study_data(&mut self, data: &[T]) -> Result<()> {
         for v in data {
             self.ckms.insert(v.as_());
+            self.data.push(v.as_());
         }
         Ok(())
     }
 }
 
-impl<T, F> Study for StudyPcts<T, F>
+impl<T, F> Study for StudyMeanPcts<T, F>
 where
     T: AsPrimitive<f64>,
     F: FnMut(&SelArg) -> Vec<T>,
@@ -190,75 +193,8 @@ where
     }
 }
 
-pub trait StudyPctsTrait: Study {
-    fn result(&self, pcts: &[&str]) -> BTreeMap<String, f64>;
-}
-
-impl<T, F> StudyPctsTrait for StudyPcts<T, F>
-where
-    T: AsPrimitive<f64>,
-    F: FnMut(&SelArg) -> Vec<T>,
-{
-    fn result(&self, pcts: &[&str]) -> BTreeMap<String, f64> {
-        pcts.iter()
-            .map(|pct| {
-                let pctf = pct.parse::<f64>().unwrap() / 100.0;
-                (
-                    pct.to_string(),
-                    self.ckms.query(pctf).map(|x| x.1).unwrap_or(0.0),
-                )
-            })
-            .collect()
-    }
-}
-
-//
-// Calculate mean and percentiles.
-//
-pub struct StudyMeanPcts<T, F>
-where
-    T: AsPrimitive<f64>,
-    F: FnMut(&SelArg) -> Vec<T>,
-{
-    sel: F,
-    study_mean: StudyMean<T, fn(&SelArg) -> Vec<T>>,
-    study_pcts: StudyPcts<T, fn(&SelArg) -> Vec<T>>,
-}
-
-impl<T, F> StudyMeanPcts<T, F>
-where
-    T: AsPrimitive<f64>,
-    F: FnMut(&SelArg) -> Vec<T>,
-{
-    pub fn new(sel: F, error: Option<f64>) -> Self {
-        let dummy_sel = |_: &SelArg| -> Vec<T> { vec![] };
-        Self {
-            sel,
-            study_pcts: StudyPcts::new(dummy_sel.clone(), error),
-            study_mean: StudyMean::new(dummy_sel),
-        }
-    }
-}
-
-impl<T, F> Study for StudyMeanPcts<T, F>
-where
-    T: AsPrimitive<f64>,
-    F: FnMut(&SelArg) -> Vec<T>,
-{
-    fn study(&mut self, arg: &SelArg) -> Result<()> {
-        let data = (self.sel)(arg);
-        self.study_mean
-            .study_data(&data)
-            .and(self.study_pcts.study_data(&data))
-    }
-
-    fn as_study_mut(&mut self) -> &mut dyn Study {
-        self
-    }
-}
-
 pub trait StudyMeanPctsTrait: Study {
-    fn result(&self, pcts: &[&str]) -> (f64, f64, BTreeMap<String, f64>);
+    fn result(&self, pcts: &[&str]) -> BTreeMap<String, f64>;
 }
 
 impl<T, F> StudyMeanPctsTrait for StudyMeanPcts<T, F>
@@ -266,10 +202,26 @@ where
     T: AsPrimitive<f64>,
     F: FnMut(&SelArg) -> Vec<T>,
 {
-    fn result(&self, pcts: &[&str]) -> (f64, f64, BTreeMap<String, f64>) {
-        let (mean, stdev, _, _) = self.study_mean.result();
-        let pcts = self.study_pcts.result(pcts);
-        (mean, stdev, pcts)
+    fn result(&self, pcts: &[&str]) -> BTreeMap<String, f64> {
+        pcts.iter()
+            .map(|pct| {
+                let val = match *pct {
+                    "mean" => statistical::mean(&self.data),
+                    "stdev" => {
+                        if self.data.len() <= 1 {
+                            0.0
+                        } else {
+                            statistical::standard_deviation(&self.data, None)
+                        }
+                    }
+                    pct => {
+                        let pctf = pct.parse::<f64>().unwrap() / 100.0;
+                        self.ckms.query(pctf).map(|x| x.1).unwrap_or(0.0)
+                    }
+                };
+                (pct.to_string(), val)
+            })
+            .collect()
     }
 }
 
@@ -313,8 +265,9 @@ pub struct StudyIoLatPcts {
 
 impl StudyIoLatPcts {
     pub const LAT_PCTS: &'static [&'static str] = &IoLatReport::PCTS;
-    pub const TIME_PCTS: [&'static str; 14] = [
+    pub const TIME_PCTS: [&'static str; 16] = [
         "00", "01", "05", "10", "16", "25", "50", "75", "84", "90", "95", "99", "99.9", "100",
+        "mean", "stdev",
     ];
     pub const TIME_FORMAT_PCTS: [&'static str; 9] =
         ["00", "16", "50", "84", "90", "95", "99", "99.9", "100"];
@@ -347,9 +300,7 @@ impl StudyIoLatPcts {
     ) -> BTreeMap<String, BTreeMap<String, f64>> {
         let mut result = BTreeMap::<String, BTreeMap<String, f64>>::new();
         for (lat_pct, study) in Self::LAT_PCTS.iter().zip(self.studies.iter()) {
-            let (mean, stdev, mut pcts) = study.result(&time_pcts.unwrap_or(&Self::TIME_PCTS));
-            pcts.insert("mean".to_string(), mean);
-            pcts.insert("stdev".to_string(), stdev);
+            let pcts = study.result(&time_pcts.unwrap_or(&Self::TIME_PCTS));
             result.insert(lat_pct.to_string(), pcts);
         }
 
@@ -621,13 +572,22 @@ impl ResourceStatStudyCtx {
 }
 
 pub struct ResourceStatStudy<'a> {
-    cpu_util_study: Box<dyn StudyPctsTrait + 'a>,
-    cpu_sys_study: Box<dyn StudyPctsTrait + 'a>,
-    io_util_study: Box<dyn StudyPctsTrait + 'a>,
-    io_bps_studies: (Box<dyn StudyPctsTrait + 'a>, Box<dyn StudyPctsTrait + 'a>),
-    psi_cpu_study: Box<dyn StudyPctsTrait + 'a>,
-    psi_mem_studies: (Box<dyn StudyPctsTrait + 'a>, Box<dyn StudyPctsTrait + 'a>),
-    psi_io_studies: (Box<dyn StudyPctsTrait + 'a>, Box<dyn StudyPctsTrait + 'a>),
+    cpu_util_study: Box<dyn StudyMeanPctsTrait + 'a>,
+    cpu_sys_study: Box<dyn StudyMeanPctsTrait + 'a>,
+    io_util_study: Box<dyn StudyMeanPctsTrait + 'a>,
+    io_bps_studies: (
+        Box<dyn StudyMeanPctsTrait + 'a>,
+        Box<dyn StudyMeanPctsTrait + 'a>,
+    ),
+    psi_cpu_study: Box<dyn StudyMeanPctsTrait + 'a>,
+    psi_mem_studies: (
+        Box<dyn StudyMeanPctsTrait + 'a>,
+        Box<dyn StudyMeanPctsTrait + 'a>,
+    ),
+    psi_io_studies: (
+        Box<dyn StudyMeanPctsTrait + 'a>,
+        Box<dyn StudyMeanPctsTrait + 'a>,
+    ),
 }
 
 impl<'a> ResourceStatStudy<'a> {
@@ -642,7 +602,7 @@ impl<'a> ResourceStatStudy<'a> {
 
     pub fn new(name: &'static str, ctx: &'a ResourceStatStudyCtx) -> Self {
         Self {
-            cpu_util_study: Box::new(StudyPcts::new(
+            cpu_util_study: Box::new(StudyMeanPcts::new(
                 sel_delta_calc(
                     move |arg| {
                         (
@@ -655,7 +615,7 @@ impl<'a> ResourceStatStudy<'a> {
                 ),
                 None,
             )),
-            cpu_sys_study: Box::new(StudyPcts::new(
+            cpu_sys_study: Box::new(StudyMeanPcts::new(
                 sel_delta_calc(
                     move |arg| {
                         (
@@ -668,33 +628,33 @@ impl<'a> ResourceStatStudy<'a> {
                 ),
                 None,
             )),
-            io_util_study: Box::new(StudyPcts::new(
+            io_util_study: Box::new(StudyMeanPcts::new(
                 sel_delta(move |arg| arg.rep.usages[name].io_usage, &ctx.io_usage),
                 None,
             )),
             io_bps_studies: (
-                Box::new(StudyPcts::new(
+                Box::new(StudyMeanPcts::new(
                     sel_delta(move |arg| arg.rep.usages[name].io_rbytes, &ctx.io_bps.0),
                     None,
                 )),
-                Box::new(StudyPcts::new(
+                Box::new(StudyMeanPcts::new(
                     sel_delta(move |arg| arg.rep.usages[name].io_wbytes, &ctx.io_bps.1),
                     None,
                 )),
             ),
-            psi_cpu_study: Box::new(StudyPcts::new(
+            psi_cpu_study: Box::new(StudyMeanPcts::new(
                 sel_delta(move |arg| arg.rep.usages[name].cpu_stalls.0, &ctx.cpu_stall),
                 None,
             )),
             psi_mem_studies: (
-                Box::new(StudyPcts::new(
+                Box::new(StudyMeanPcts::new(
                     sel_delta(
                         move |arg| arg.rep.usages[name].mem_stalls.0,
                         &ctx.mem_stalls.0,
                     ),
                     None,
                 )),
-                Box::new(StudyPcts::new(
+                Box::new(StudyMeanPcts::new(
                     sel_delta(
                         move |arg| arg.rep.usages[name].mem_stalls.1,
                         &ctx.mem_stalls.1,
@@ -703,14 +663,14 @@ impl<'a> ResourceStatStudy<'a> {
                 )),
             ),
             psi_io_studies: (
-                Box::new(StudyPcts::new(
+                Box::new(StudyMeanPcts::new(
                     sel_delta(
                         move |arg| arg.rep.usages[name].io_stalls.0,
                         &ctx.io_stalls.0,
                     ),
                     None,
                 )),
-                Box::new(StudyPcts::new(
+                Box::new(StudyMeanPcts::new(
                     sel_delta(
                         move |arg| arg.rep.usages[name].io_stalls.1,
                         &ctx.io_stalls.1,

@@ -122,10 +122,8 @@ pub struct IoCostQoSResultRun {
     pub prot: ProtectionResult,
     pub adjusted_mem_size: Option<usize>,
     pub adjusted_mem_offload_factor: Option<f64>,
-    pub vrate: f64,
-    pub vrate_stdev: f64,
-    pub vrate_pcts: BTreeMap<String, f64>,
-    pub iolat_pcts: [BTreeMap<String, BTreeMap<String, f64>>; 2],
+    pub vrate: BTreeMap<String, f64>,
+    pub iolat: [BTreeMap<String, BTreeMap<String, f64>>; 2],
     pub nr_reports: (u64, u64),
 }
 
@@ -135,7 +133,9 @@ pub struct IoCostQoSResult {
 }
 
 impl IoCostQoSJob {
-    const VRATE_PCTS: [&'static str; 9] = ["00", "01", "10", "16", "50", "84", "90", "99", "100"];
+    const VRATE_PCTS: [&'static str; 11] = [
+        "00", "01", "10", "16", "50", "84", "90", "99", "100", "mean", "stdev",
+    ];
 
     fn parse(spec: &JobSpec, prev_data: Option<&JobData>) -> Result<Self> {
         let mut stor_spec = JobSpec::new("storage", None, JobSpec::props(&[&[("active", "")]]));
@@ -566,17 +566,17 @@ impl IoCostQoSJob {
             .map(|size| size as f64 / sres.mem_usage as f64);
 
         // Study the vrate and IO latency distributions across all the runs.
-        let mut study_vrate_mean_pcts = StudyMeanPcts::new(|arg| vec![arg.rep.iocost.vrate], None);
+        let mut study_vrate = StudyMeanPcts::new(|arg| vec![arg.rep.iocost.vrate], None);
         let mut study_read_lat_pcts = StudyIoLatPcts::new("read", None);
         let mut study_write_lat_pcts = StudyIoLatPcts::new("write", None);
         let nr_reports = Studies::new()
-            .add(&mut study_vrate_mean_pcts)
+            .add(&mut study_vrate)
             .add_multiple(&mut study_read_lat_pcts.studies())
             .add_multiple(&mut study_write_lat_pcts.studies())
             .run(rctx, recr.period)?;
 
-        let (vrate, vrate_stdev, vrate_pcts) = study_vrate_mean_pcts.result(&Self::VRATE_PCTS);
-        let iolat_pcts = [
+        let vrate = study_vrate.result(&Self::VRATE_PCTS);
+        let iolat = [
             study_read_lat_pcts.result(rctx, None),
             study_write_lat_pcts.result(rctx, None),
         ];
@@ -587,9 +587,7 @@ impl IoCostQoSJob {
             adjusted_mem_size,
             adjusted_mem_offload_factor,
             vrate,
-            vrate_stdev,
-            vrate_pcts,
-            iolat_pcts,
+            iolat,
             nr_reports,
         })
     }
@@ -877,7 +875,7 @@ impl Job for IoCostQoSJob {
 
                 writeln!(out, "\n{}", underline(&format!("RUN {:02} - Result", i))).unwrap();
 
-                StudyIoLatPcts::format_rw(&mut out, &resr.iolat_pcts, full, None);
+                StudyIoLatPcts::format_rw(&mut out, &resr.iolat, full, None);
 
                 if recr.qos.is_some() {
                     write!(out, "\nvrate:").unwrap();
@@ -886,7 +884,7 @@ impl Job for IoCostQoSJob {
                             out,
                             " p{}={}",
                             pct,
-                            resr.vrate_pcts.get(&pct.to_string()).unwrap()
+                            resr.vrate.get(&pct.to_string()).unwrap()
                         )
                         .unwrap();
                     }
@@ -898,8 +896,8 @@ impl Job for IoCostQoSJob {
                         resr.stor.mem_offload_factor,
                         recr.stor.mem.profile,
                         resr.stor.mem_offload_factor / base_stor_res.mem_offload_factor,
-                        resr.vrate,
-                        resr.vrate_stdev,
+                        resr.vrate["mean"],
+                        resr.vrate["stdev"],
                         format_pct(Studies::reports_missing(resr.nr_reports)),
                     )
                     .unwrap();
@@ -918,9 +916,9 @@ impl Job for IoCostQoSJob {
                             recr.stor.mem.profile,
                             amof / base_stor_res.mem_offload_factor,
                             &self.isol_pct,
-                            format_pct(hog.isol_pcts[&self.isol_pct]),
-                            format_pct(hog.lat_imp),
-                            format_pct(hog.lat_imp_stdev),
+                            format_pct(hog.isol[&self.isol_pct]),
+                            format_pct(hog.lat_imp["mean"]),
+                            format_pct(hog.lat_imp["stdev"]),
                             format_pct(hog.work_csv),
                         )
                         .unwrap();
@@ -978,9 +976,9 @@ impl Job for IoCostQoSJob {
                             out,
                             "{:>7.3}     {:>5.1}  {:>6.1}:{:>6.1}      {:>5.1}     {:>5.1}",
                             resr.adjusted_mem_offload_factor.unwrap(),
-                            hog.isol_pcts[&self.isol_pct] * 100.0,
-                            hog.lat_imp * TO_PCT,
-                            hog.lat_imp_stdev * TO_PCT,
+                            hog.isol[&self.isol_pct] * 100.0,
+                            hog.lat_imp["mean"] * TO_PCT,
+                            hog.lat_imp["stdev"] * TO_PCT,
                             hog.work_csv * TO_PCT,
                             Studies::reports_missing(resr.nr_reports) * TO_PCT,
                         )
@@ -1003,7 +1001,7 @@ impl Job for IoCostQoSJob {
             }
         }
 
-        let mut format_iolat_pcts = |rw, title| {
+        let mut format_iolat = |rw, title| {
             writeln!(out, "").unwrap();
             writeln!(
                 out,
@@ -1015,25 +1013,24 @@ impl Job for IoCostQoSJob {
             for (i, resr) in res.runs.iter().enumerate() {
                 match resr {
                     Some(resr) => {
-                        let iolat_pcts: &BTreeMap<String, BTreeMap<String, f64>> =
-                            &resr.iolat_pcts[rw];
+                        let iolat: &BTreeMap<String, BTreeMap<String, f64>> = &resr.iolat[rw];
                         writeln!(
                             out,
                             "[{:02}] {:>5}:{:>5}/{:>5}  {:>5}:{:>5}/{:>5}  \
                               {:>5}:{:>5}/{:>5}  {:>5}:{:>5}/{:>5}",
                             i,
-                            format_duration(iolat_pcts["50"]["mean"]),
-                            format_duration(iolat_pcts["50"]["stdev"]),
-                            format_duration(iolat_pcts["50"]["100"]),
-                            format_duration(iolat_pcts["90"]["mean"]),
-                            format_duration(iolat_pcts["90"]["stdev"]),
-                            format_duration(iolat_pcts["90"]["100"]),
-                            format_duration(iolat_pcts["99"]["mean"]),
-                            format_duration(iolat_pcts["99"]["stdev"]),
-                            format_duration(iolat_pcts["99"]["100"]),
-                            format_duration(iolat_pcts["100"]["mean"]),
-                            format_duration(iolat_pcts["100"]["stdev"]),
-                            format_duration(iolat_pcts["100"]["100"])
+                            format_duration(iolat["50"]["mean"]),
+                            format_duration(iolat["50"]["stdev"]),
+                            format_duration(iolat["50"]["100"]),
+                            format_duration(iolat["90"]["mean"]),
+                            format_duration(iolat["90"]["stdev"]),
+                            format_duration(iolat["90"]["100"]),
+                            format_duration(iolat["99"]["mean"]),
+                            format_duration(iolat["99"]["stdev"]),
+                            format_duration(iolat["99"]["100"]),
+                            format_duration(iolat["100"]["mean"]),
+                            format_duration(iolat["100"]["stdev"]),
+                            format_duration(iolat["100"]["100"])
                         )
                         .unwrap();
                     }
@@ -1042,8 +1039,8 @@ impl Job for IoCostQoSJob {
             }
         };
 
-        format_iolat_pcts(READ, "RLAT");
-        format_iolat_pcts(WRITE, "WLAT");
+        format_iolat(READ, "RLAT");
+        format_iolat(WRITE, "WLAT");
 
         Ok(())
     }

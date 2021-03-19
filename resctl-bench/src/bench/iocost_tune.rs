@@ -135,19 +135,19 @@ impl DataSel {
             // isolation and skip other prot results.
             Self::AMOF => resr.adjusted_mem_offload_factor,
             Self::IsolProt => hog_res.map(|x| {
-                *x.isol_pcts
+                *x.isol
                     .get(&tune_rec.isol_pct)
                     .context("Finding isol_pct_prot")
                     .unwrap()
             }),
             Self::IsolPct(pct) => hog_res.map(|x| {
-                *x.isol_pcts
+                *x.isol
                     .get(pct)
                     .with_context(|| format!("Finding isol_pcts[{:?}]", pct))
                     .unwrap()
             }),
-            Self::Isol => Some(hog_res.map(|x| x.isol).unwrap_or(0.0)),
-            Self::LatImp => hog_res.map(|x| x.lat_imp),
+            Self::Isol => Some(hog_res.map(|x| x.isol["mean"]).unwrap_or(0.0)),
+            Self::LatImp => hog_res.map(|x| x.lat_imp["mean"]),
             Self::WorkCsv => hog_res.map(|x| x.work_csv),
             Self::Missing => Some(Studies::reports_missing(resr.nr_reports)),
             Self::RLat(lat_pct, time_pct) => Some(

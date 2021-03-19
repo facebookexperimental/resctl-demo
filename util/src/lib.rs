@@ -210,11 +210,11 @@ where
     let format_size_helper = |size: u64, shift: u32, suffix: &str| -> Option<String> {
         let unit: u64 = 1 << shift;
 
-        if size < unit {
+        if size == 0 {
             Some(zero.to_string())
-        } else if size < (if short { 9.94999 } else { 99.94999 } * unit as f64) as u64 {
-            Some(format!("{:.1}{}", size as f64 / unit as f64, suffix))
-        } else if size < 1024 * unit {
+        } else if (size as f64) < if short { 9.94999 } else { 99.94999 } * unit as f64 {
+            Some(format!("{:.1}{}", (size as f64 / unit as f64).max(0.1), suffix))
+        } else if (size as f64) < if short { 999.4999 } else { 1024.0 } * unit as f64 {
             Some(format!("{:.0}{}", size as f64 / unit as f64, suffix))
         } else {
             None
@@ -255,10 +255,10 @@ where
 
 fn format_duration_internal(dur: f64, zero: &str) -> String {
     let format_nsecs_helper = |nsecs: u64, unit: u64, max: u64, suffix: &str| -> Option<String> {
-        if nsecs < unit {
+        if nsecs == 0 {
             Some(zero.to_string())
-        } else if nsecs < (99.94999 * unit as f64) as u64 {
-            Some(format!("{:.1}{}", nsecs as f64 / unit as f64, suffix))
+        } else if (nsecs as f64) < 99.94999 * unit as f64 {
+            Some(format!("{:.1}{}", (nsecs as f64 / unit as f64).max(0.1), suffix))
         } else if nsecs < max * unit {
             Some(format!("{:.0}{}", nsecs as f64 / unit as f64, suffix))
         } else {

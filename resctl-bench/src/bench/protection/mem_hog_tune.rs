@@ -119,7 +119,7 @@ impl MemHogTune {
         };
         let hog_res = MemHog::study(rctx, &hog_rec)?;
 
-        let isol_res = hog_res.isol_pcts[&self.isol_pct];
+        let isol_res = hog_res.isol[&self.isol_pct];
         if isol_res < self.isol_thr {
             info!(
                 "protection: {} failed, isol-{}={}% < {}%",
