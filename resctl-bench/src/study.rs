@@ -258,9 +258,31 @@ where
 //
 // Helpers.
 //
+#[derive(Default)]
+struct StudyIoLatCum {
+    at: u64,
+    rep: Option<IoLatReport>,
+}
+
+impl Study for StudyIoLatCum {
+    fn study(&mut self, arg: &SelArg) -> Result<()> {
+        let ts = arg.rep.timestamp.timestamp() as u64;
+        if self.at < ts {
+            self.at = ts;
+            self.rep.replace(arg.rep.iolat_cum.clone());
+        }
+        Ok(())
+    }
+
+    fn as_study_mut(&mut self) -> &mut dyn Study {
+        self
+    }
+}
+
 pub struct StudyIoLatPcts {
     io_type: String,
     studies: Vec<Box<dyn StudyMeanPctsTrait>>,
+    cum_study: StudyIoLatCum,
 }
 
 impl StudyIoLatPcts {
@@ -283,35 +305,35 @@ impl StudyIoLatPcts {
                         as Box<dyn StudyMeanPctsTrait>
                 })
                 .collect(),
+            cum_study: Default::default(),
         }
     }
 
     pub fn studies(&mut self) -> Vec<&mut dyn Study> {
-        self.studies
+        let mut studies: Vec<&mut dyn Study> = self
+            .studies
             .iter_mut()
             .map(|study| study.as_study_mut())
-            .collect()
+            .collect();
+        studies.push(self.cum_study.as_study_mut());
+        studies
     }
 
-    pub fn result(
-        &self,
-        rctx: &RunCtx,
-        time_pcts: Option<&[&str]>,
-    ) -> BTreeMap<String, BTreeMap<String, f64>> {
+    pub fn result(&self, time_pcts: Option<&[&str]>) -> BTreeMap<String, BTreeMap<String, f64>> {
         let mut result = BTreeMap::<String, BTreeMap<String, f64>>::new();
         for (lat_pct, study) in Self::LAT_PCTS.iter().zip(self.studies.iter()) {
             let pcts = study.result(&time_pcts.unwrap_or(&Self::TIME_PCTS));
             result.insert(lat_pct.to_string(), pcts);
         }
 
-        rctx.access_agent_files(|af| {
+        if let Some(cum_rep) = self.cum_study.rep.as_ref() {
             for lat_pct in Self::LAT_PCTS.iter() {
-                result.get_mut(*lat_pct).unwrap().insert(
-                    "cum".to_string(),
-                    af.report.data.iolat_cum.map[&self.io_type][*lat_pct],
-                );
+                result
+                    .get_mut(*lat_pct)
+                    .unwrap()
+                    .insert("cum".to_string(), cum_rep.map[&self.io_type][*lat_pct]);
             }
-        });
+        }
         result
     }
 

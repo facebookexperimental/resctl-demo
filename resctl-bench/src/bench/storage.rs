@@ -626,8 +626,8 @@ impl Job for StorageJob {
             rbps_final: study_rbps_final.result().0 as usize,
             wbps_final: study_wbps_final.result().0 as usize,
             iolat_pcts: [
-                study_read_lat_pcts.result(rctx, None),
-                study_write_lat_pcts.result(rctx, None),
+                study_read_lat_pcts.result(None),
+                study_write_lat_pcts.result(None),
             ],
             nr_reports,
         };

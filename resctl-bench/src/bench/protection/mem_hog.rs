@@ -415,8 +415,8 @@ impl MemHog {
 
         let (vrate, vrate_stdev, _, _) = study_vrate_mean.result();
         let iolat = [
-            study_read_lat_pcts.result(rctx, None),
-            study_write_lat_pcts.result(rctx, None),
+            study_read_lat_pcts.result(None),
+            study_write_lat_pcts.result(None),
         ];
 
         // Collect how many bytes the memory hogs put out to swap and how
@@ -611,8 +611,8 @@ impl MemHog {
         }
 
         cmb.iolat = [
-            study_read_lat_pcts.result(rctx, None),
-            study_write_lat_pcts.result(rctx, None),
+            study_read_lat_pcts.result(None),
+            study_write_lat_pcts.result(None),
         ];
 
         Ok(cmb)

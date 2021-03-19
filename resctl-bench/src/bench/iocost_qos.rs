@@ -577,8 +577,8 @@ impl IoCostQoSJob {
 
         let vrate = study_vrate.result(&Self::VRATE_PCTS);
         let iolat = [
-            study_read_lat_pcts.result(rctx, None),
-            study_write_lat_pcts.result(rctx, None),
+            study_read_lat_pcts.result(None),
+            study_write_lat_pcts.result(None),
         ];
 
         Ok(IoCostQoSResultRun {
