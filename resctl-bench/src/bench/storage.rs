@@ -85,11 +85,9 @@ pub struct StorageResult {
     pub mem_usage_stdev: usize,
     pub mem_size: usize,
     pub mem_size_stdev: usize,
-    pub rbps_all: usize,
-    pub wbps_all: usize,
-    pub rbps_final: usize,
-    pub wbps_final: usize,
-    pub iolat_pcts: [BTreeMap<String, BTreeMap<String, f64>>; 2],
+    pub all_rstat: ResourceStat,
+    pub final_rstat: ResourceStat,
+    pub iolat: [BTreeMap<String, BTreeMap<String, f64>>; 2],
     pub nr_reports: (u64, u64),
 }
 
@@ -351,9 +349,9 @@ impl StorageJob {
     pub fn format_header<'a>(
         &self,
         out: &mut Box<dyn Write + 'a>,
-        include_loops: bool,
         rec: &StorageRecord,
         _res: &StorageResult,
+        include_loops: bool,
     ) {
         write!(
             out,
@@ -381,19 +379,27 @@ impl StorageJob {
         .unwrap();
     }
 
-    fn format_io_summary<'a>(
+    fn format_rstat<'a>(
         &self,
         out: &mut Box<dyn Write + 'a>,
         _rec: &StorageRecord,
         res: &StorageResult,
+        full: bool,
     ) {
+        if full {
+            writeln!(out, "Resource stat:\n").unwrap();
+            res.all_rstat.format(out, "ALL", None);
+            writeln!(out, "").unwrap();
+            res.final_rstat.format(out, "FINAL", None);
+            writeln!(out, "").unwrap();
+        }
         writeln!(
             out,
             "IO BPS: read_final={} write_final={} read_all={} write_all={}",
-            format_size(res.rbps_final),
-            format_size(res.wbps_final),
-            format_size(res.rbps_all),
-            format_size(res.wbps_all)
+            format_size(res.final_rstat.io_bps.0["mean"]),
+            format_size(res.final_rstat.io_bps.1["mean"]),
+            format_size(res.all_rstat.io_bps.0["mean"]),
+            format_size(res.all_rstat.io_bps.1["mean"])
         )
         .unwrap();
     }
@@ -442,13 +448,13 @@ impl StorageJob {
         full: bool,
     ) {
         if header {
-            self.format_header(out, true, rec, res);
+            self.format_header(out, rec, res, true);
             writeln!(out, "").unwrap();
         }
-        StudyIoLatPcts::format_rw(out, &res.iolat_pcts, full, None);
+        StudyIoLatPcts::format_rw(out, &res.iolat, full, None);
 
         writeln!(out, "").unwrap();
-        self.format_io_summary(out, rec, res);
+        self.format_rstat(out, rec, res, full);
 
         writeln!(out, "").unwrap();
         self.format_mem_summary(out, rec, res);
@@ -578,24 +584,21 @@ impl Job for StorageJob {
         let rec: StorageRecord = parse_json_value_or_dump(rec_json)?;
 
         // Study and record the results.
-        let mut study_rbps_all = StudyMean::new(|arg| vec![arg.rep.usages[ROOT_SLICE].io_rbps]);
-        let mut study_wbps_all = StudyMean::new(|arg| vec![arg.rep.usages[ROOT_SLICE].io_wbps]);
+        let all_rstat_study_ctx = ResourceStatStudyCtx::default();
+        let mut all_rstat_study = ResourceStatStudy::new(ROOT_SLICE, &all_rstat_study_ctx);
         let mut study_read_lat_pcts = StudyIoLatPcts::new("read", None);
         let mut study_write_lat_pcts = StudyIoLatPcts::new("write", None);
 
         let mut studies = Studies::new()
-            .add(&mut study_rbps_all)
-            .add(&mut study_wbps_all)
+            .add_multiple(&mut all_rstat_study.studies())
             .add_multiple(&mut study_read_lat_pcts.studies())
             .add_multiple(&mut study_write_lat_pcts.studies());
 
         let nr_reports = studies.run(rctx, rec.period)?;
 
-        let mut study_rbps_final = StudyMean::new(|arg| vec![arg.rep.usages[ROOT_SLICE].io_rbps]);
-        let mut study_wbps_final = StudyMean::new(|arg| vec![arg.rep.usages[ROOT_SLICE].io_wbps]);
-        let mut studies = Studies::new()
-            .add(&mut study_rbps_final)
-            .add(&mut study_wbps_final);
+        let final_rstat_study_ctx = ResourceStatStudyCtx::default();
+        let mut final_rstat_study = ResourceStatStudy::new(ROOT_SLICE, &final_rstat_study_ctx);
+        let mut studies = Studies::new().add_multiple(&mut final_rstat_study.studies());
 
         for (start, end) in rec.final_mem_probe_periods.iter() {
             studies.run(rctx, (*start, *end))?;
@@ -621,11 +624,9 @@ impl Job for StorageJob {
             mem_usage_stdev: mem_usage_stdev as usize,
             mem_size: mem_size as usize,
             mem_size_stdev: mem_size_stdev as usize,
-            rbps_all: study_rbps_all.result().0 as usize,
-            wbps_all: study_wbps_all.result().0 as usize,
-            rbps_final: study_rbps_final.result().0 as usize,
-            wbps_final: study_wbps_final.result().0 as usize,
-            iolat_pcts: [
+            all_rstat: all_rstat_study.result(None),
+            final_rstat: final_rstat_study.result(None),
+            iolat: [
                 study_read_lat_pcts.result(None),
                 study_write_lat_pcts.result(None),
             ],

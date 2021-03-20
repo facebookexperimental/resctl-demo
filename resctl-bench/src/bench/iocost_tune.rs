@@ -151,7 +151,7 @@ impl DataSel {
             Self::WorkCsv => hog_res.map(|x| x.work_csv),
             Self::Missing => Some(Studies::reports_missing(resr.nr_reports)),
             Self::RLat(lat_pct, time_pct) => Some(
-                *stor_res.iolat_pcts.as_ref()[READ]
+                *stor_res.iolat.as_ref()[READ]
                     .get(lat_pct)
                     .with_context(|| format!("Finding rlat[{:?}]", lat_pct))
                     .unwrap()
@@ -160,7 +160,7 @@ impl DataSel {
                     .unwrap(),
             ),
             Self::WLat(lat_pct, time_pct) => Some(
-                *stor_res.iolat_pcts.as_ref()[WRITE]
+                *stor_res.iolat.as_ref()[WRITE]
                     .get(lat_pct)
                     .with_context(|| format!("Finding wlat[{:?}]", lat_pct))
                     .unwrap()

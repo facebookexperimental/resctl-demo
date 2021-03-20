@@ -34,8 +34,8 @@ pub struct MemHogTuneRecord {
     pub base_period: (u64, u64),
     pub isol_pct: String,
     pub isol_thr: f64,
-    pub final_size: Option<usize>,
     pub final_run: Option<MemHogRecord>,
+    pub final_size: Option<usize>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -50,7 +50,8 @@ impl MemHogTune {
         desc: &str,
         size: usize,
         base_period: &mut (u64, u64),
-    ) -> Result<Option<MemHogRecord>> {
+        is_last: bool,
+    ) -> Result<(bool, Option<MemHogRecord>)> {
         let started_at = unix_now();
 
         rctx.update_bench_from_mem_size(size)?;
@@ -74,7 +75,7 @@ impl MemHogTune {
                     return true;
                 }
 
-                if af.report.data.hashd[0].rps < fail_rps_thr {
+                if !is_last && af.report.data.hashd[0].rps < fail_rps_thr {
                     fail_cnt += 1;
                     fail_cnt > early_fail_cnt
                 } else {
@@ -95,7 +96,7 @@ impl MemHogTune {
             Err(e) => {
                 info!("protection: {} failed, {:#}", desc, &e);
                 rctx.restart_agent()?;
-                return Ok(None);
+                return Ok((false, None));
             }
         };
         if base_period.0 == base_period.1 {
@@ -107,7 +108,7 @@ impl MemHogTune {
                 "protection: {} failed, early fail with fail_cnt={}",
                 desc, fail_cnt
             );
-            return Ok(None);
+            return Ok((false, None));
         }
 
         let hog_rec = MemHogRecord {
@@ -128,7 +129,7 @@ impl MemHogTune {
                 format_pct(isol_res),
                 format_pct(self.isol_thr),
             );
-            Ok(None)
+            Ok((false, Some(hog_rec)))
         } else {
             info!(
                 "protection: {} succeeded, isol-{}={}% >= {}%",
@@ -137,15 +138,15 @@ impl MemHogTune {
                 format_pct(isol_res),
                 format_pct(self.isol_thr),
             );
-            Ok(Some(hog_rec))
+            Ok((true, Some(hog_rec)))
         }
     }
 
     pub fn run(&mut self, rctx: &mut RunCtx) -> Result<MemHogTuneRecord> {
         let started_at = unix_now();
         let mut base_period = (0, 0);
-        let mut final_size = None;
         let mut final_run = None;
+        let mut final_size = None;
 
         let step = (self.size_range.1 - self.size_range.0) as f64 / self.intvs as f64;
         for idx in 0..self.intvs {
@@ -155,15 +156,20 @@ impl MemHogTune {
                 .saturating_sub((idx as f64 * step).round() as usize)
                 .max(self.size_range.0);
 
-            if let Some(rec) = self.run_one(
+            match self.run_one(
                 rctx,
                 &format!("Probing {} ({}/{})", format_size(size), idx + 1, self.intvs),
                 size,
                 &mut base_period,
+                idx == self.intvs - 1,
             )? {
-                final_size = Some(size);
-                final_run = Some(rec);
-                break;
+                (true, Some(run)) => {
+                    final_size = Some(size);
+                    final_run = Some(run);
+                    break;
+                }
+                (false, Some(run)) => final_run = Some(run),
+                _ => {}
             }
         }
 
@@ -172,8 +178,8 @@ impl MemHogTune {
             base_period,
             isol_pct: self.isol_pct.clone(),
             isol_thr: self.isol_thr,
-            final_size,
             final_run,
+            final_size,
         })
     }
 
@@ -214,9 +220,17 @@ impl MemHogTune {
         res: &MemHogTuneResult,
         full: bool,
     ) {
+        match res.final_run.as_ref() {
+            Some(run) => MemHog::format_result(out, run, full),
+            None => writeln!(
+                out,
+                "Result: A successful full mem-hog run was not recorded"
+            )
+            .unwrap(),
+        }
+
         match rec.final_size {
             Some(final_size) => {
-                MemHog::format_result(out, &res.final_run.as_ref().unwrap(), full);
                 writeln!(
                     out,
                     "        hashd memory size {}/{} can be protected at isol-{} <= {}%",
@@ -229,7 +243,7 @@ impl MemHogTune {
             }
             None => writeln!(
                 out,
-                "Result: Failed to find size to keep isol-{} above {}% in [{}, {}]",
+                "        Failed to find size to keep isol-{} above {}% in [{}, {}]",
                 self.isol_pct,
                 format_pct(self.isol_thr),
                 format_size(self.size_range.0),

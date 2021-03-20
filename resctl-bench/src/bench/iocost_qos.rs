@@ -575,7 +575,7 @@ impl IoCostQoSJob {
             .add_multiple(&mut study_write_lat_pcts.studies())
             .run(rctx, recr.period)?;
 
-        let vrate = study_vrate.result(&Self::VRATE_PCTS);
+        let vrate = study_vrate.result(Some(&Self::VRATE_PCTS));
         let iolat = [
             study_read_lat_pcts.result(None),
             study_write_lat_pcts.result(None),
@@ -842,7 +842,7 @@ impl Job for IoCostQoSJob {
         let base_stor_res = &res.runs[0].as_ref().unwrap().stor;
 
         self.stor_job
-            .format_header(&mut out, false, base_stor_rec, base_stor_res);
+            .format_header(&mut out, base_stor_rec, base_stor_res, false);
 
         if full {
             for (i, (recr, resr)) in rec.runs.iter().zip(res.runs.iter()).enumerate() {

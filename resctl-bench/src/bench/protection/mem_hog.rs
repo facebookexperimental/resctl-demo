@@ -118,10 +118,7 @@ impl MemHog {
     const NAME: &'static str = "mem-hog";
     pub const TIMEOUT: f64 = 300.0;
     const MEM_AVG_PERIOD: usize = 5;
-    pub const PCTS: [&'static str; 15] = [
-        "00", "01", "05", "10", "16", "25", "50", "75", "84", "90", "95", "99", "100", "mean",
-        "stdev",
-    ];
+    pub const PCTS: [&'static str; 15] = DFL_PCTS;
 
     fn read_hog_rep(rep: &Report) -> Result<BanditMemHogReport> {
         let hog_rep_path = match rep.sysloads.get(Self::NAME) {
@@ -360,8 +357,7 @@ impl MemHog {
         let root_rstat_study_ctx = ResourceStatStudyCtx::default();
         let work_rstat_study_ctx = ResourceStatStudyCtx::default();
         let sys_rstat_study_ctx = ResourceStatStudyCtx::default();
-        let mut root_rstat_study =
-            ResourceStatStudy::new(rd_agent_intf::ROOT_SLICE, &root_rstat_study_ctx);
+        let mut root_rstat_study = ResourceStatStudy::new(ROOT_SLICE, &root_rstat_study_ctx);
         let mut work_rstat_study =
             ResourceStatStudy::new(Slice::Work.name(), &work_rstat_study_ctx);
         let mut sys_rstat_study = ResourceStatStudy::new(Slice::Sys.name(), &sys_rstat_study_ctx);
@@ -395,11 +391,11 @@ impl MemHog {
             studies.run(rctx, *per)?;
         }
 
-        let isol = study_isol.result(&Self::PCTS);
-        let lat_imp = study_lat_imp.result(&Self::PCTS);
-        let root_rstat = root_rstat_study.result(&Self::PCTS);
-        let work_rstat = work_rstat_study.result(&Self::PCTS);
-        let sys_rstat = sys_rstat_study.result(&Self::PCTS);
+        let isol = study_isol.result(None);
+        let lat_imp = study_lat_imp.result(None);
+        let root_rstat = root_rstat_study.result(None);
+        let work_rstat = work_rstat_study.result(None);
+        let sys_rstat = sys_rstat_study.result(None);
 
         // The followings are captured over the entire period. vrate mean
         // isn't used in the process but report to help visibility.
@@ -593,11 +589,11 @@ impl MemHog {
             }
         }
 
-        cmb.isol = study_isol.result(&Self::PCTS);
-        cmb.lat_imp = study_lat_imp.result(&Self::PCTS);
-        cmb.root_rstat = root_rstat_study.result(&Self::PCTS);
-        cmb.work_rstat = work_rstat_study.result(&Self::PCTS);
-        cmb.sys_rstat = sys_rstat_study.result(&Self::PCTS);
+        cmb.isol = study_isol.result(None);
+        cmb.lat_imp = study_lat_imp.result(None);
+        cmb.root_rstat = root_rstat_study.result(None);
+        cmb.work_rstat = work_rstat_study.result(None);
+        cmb.sys_rstat = sys_rstat_study.result(None);
 
         let mut study_read_lat_pcts = StudyIoLatPcts::new("read", None);
         let mut study_write_lat_pcts = StudyIoLatPcts::new("write", None);
@@ -662,11 +658,11 @@ impl MemHog {
 
         if full {
             writeln!(out, "\nSlice resource stat:\n").unwrap();
-            result.root_rstat.format(out, "ROOT", &Self::PCTS);
+            result.root_rstat.format(out, "ROOT", None);
             writeln!(out, "").unwrap();
-            result.work_rstat.format(out, "WORKLOAD", &Self::PCTS);
+            result.work_rstat.format(out, "WORKLOAD", None);
             writeln!(out, "").unwrap();
-            result.sys_rstat.format(out, "SYSTEM", &Self::PCTS);
+            result.sys_rstat.format(out, "SYSTEM", None);
         }
 
         writeln!(
@@ -675,9 +671,9 @@ impl MemHog {
         )
         .unwrap();
 
-        print_pcts_header(out, "", &Self::PCTS);
-        print_pcts_line(out, "isol%", &result.isol, format_pct, &Self::PCTS);
-        print_pcts_line(out, "lat-imp%", &result.lat_imp, format_pct, &Self::PCTS);
+        print_pcts_header(out, "", None);
+        print_pcts_line(out, "isol%", &result.isol, format_pct, None);
+        print_pcts_line(out, "lat-imp%", &result.lat_imp, format_pct, None);
 
         writeln!(
             out,

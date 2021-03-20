@@ -11,6 +11,10 @@ use util::*;
 use super::run::RunCtx;
 use rd_agent_intf::{IoLatReport, Report};
 
+pub const DFL_PCTS: [&'static str; 15] = [
+    "00", "01", "05", "10", "16", "25", "50", "75", "84", "90", "95", "99", "100", "mean", "stdev",
+];
+
 pub struct SelArg<'a> {
     pub rep: &'a Report,
     pub dur: f64,
@@ -194,7 +198,7 @@ where
 }
 
 pub trait StudyMeanPctsTrait: Study {
-    fn result(&self, pcts: &[&str]) -> BTreeMap<String, f64>;
+    fn result(&self, pcts: Option<&[&str]>) -> BTreeMap<String, f64>;
 }
 
 impl<T, F> StudyMeanPctsTrait for StudyMeanPcts<T, F>
@@ -202,7 +206,8 @@ where
     T: AsPrimitive<f64>,
     F: FnMut(&SelArg) -> Vec<T>,
 {
-    fn result(&self, pcts: &[&str]) -> BTreeMap<String, f64> {
+    fn result(&self, pcts: Option<&[&str]>) -> BTreeMap<String, f64> {
+        let pcts = pcts.unwrap_or(&DFL_PCTS);
         pcts.iter()
             .map(|pct| {
                 let val = match *pct {
@@ -322,7 +327,7 @@ impl StudyIoLatPcts {
     pub fn result(&self, time_pcts: Option<&[&str]>) -> BTreeMap<String, BTreeMap<String, f64>> {
         let mut result = BTreeMap::<String, BTreeMap<String, f64>>::new();
         for (lat_pct, study) in Self::LAT_PCTS.iter().zip(self.studies.iter()) {
-            let pcts = study.result(&time_pcts.unwrap_or(&Self::TIME_PCTS));
+            let pcts = study.result(Some(&time_pcts.unwrap_or(&Self::TIME_PCTS)));
             result.insert(lat_pct.to_string(), pcts);
         }
 
@@ -508,7 +513,8 @@ impl<'a> Studies<'a> {
 //
 // Pcts print helpers
 //
-pub fn print_pcts_header<'a>(out: &mut Box<dyn Write + 'a>, name: &str, pcts: &[&str]) {
+pub fn print_pcts_header<'a>(out: &mut Box<dyn Write + 'a>, name: &str, pcts: Option<&[&str]>) {
+    let pcts = pcts.unwrap_or(&DFL_PCTS);
     writeln!(
         out,
         "{:<9}  {}",
@@ -526,13 +532,26 @@ pub fn print_pcts_line<'a, F>(
     field_name: &str,
     data: &BTreeMap<String, f64>,
     fmt: F,
-    pcts: &[&str],
+    pcts: Option<&[&str]>,
 ) where
     F: Fn(f64) -> String,
 {
+    let pcts = pcts.unwrap_or(&DFL_PCTS);
     write!(out, "{:<9}  ", field_name).unwrap();
-    for pct in pcts.iter() {
-        write!(out, "{:>4} ", fmt(data[*pct])).unwrap();
+
+    if pcts
+        .iter()
+        .filter(|pct| data[**pct] != 0.0)
+        .next()
+        .is_some()
+    {
+        for pct in pcts.iter() {
+            write!(out, "{:>4} ", fmt(data[*pct])).unwrap();
+        }
+    } else {
+        for _ in pcts.iter() {
+            write!(out, "{:>4} ", "-").unwrap();
+        }
     }
     writeln!(out, "").unwrap();
 }
@@ -542,28 +561,28 @@ pub fn print_pcts_line<'a, F>(
 //
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ResourceStat {
-    pub cpu_util_pcts: BTreeMap<String, f64>,
-    pub cpu_sys_pcts: BTreeMap<String, f64>,
-    pub io_util_pcts: BTreeMap<String, f64>,
-    pub io_bps_pcts: (BTreeMap<String, f64>, BTreeMap<String, f64>),
-    pub psi_cpu_pcts: BTreeMap<String, f64>,
-    pub psi_mem_pcts: (BTreeMap<String, f64>, BTreeMap<String, f64>),
-    pub psi_io_pcts: (BTreeMap<String, f64>, BTreeMap<String, f64>),
+    pub cpu_util: BTreeMap<String, f64>,
+    pub cpu_sys: BTreeMap<String, f64>,
+    pub io_util: BTreeMap<String, f64>,
+    pub io_bps: (BTreeMap<String, f64>, BTreeMap<String, f64>),
+    pub psi_cpu: BTreeMap<String, f64>,
+    pub psi_mem: (BTreeMap<String, f64>, BTreeMap<String, f64>),
+    pub psi_io: (BTreeMap<String, f64>, BTreeMap<String, f64>),
 }
 
 impl ResourceStat {
-    pub fn format<'a>(&self, out: &mut Box<dyn Write + 'a>, name: &str, pcts: &[&str]) {
+    pub fn format<'a>(&self, out: &mut Box<dyn Write + 'a>, name: &str, pcts: Option<&[&str]>) {
         print_pcts_header(out, name, pcts);
-        print_pcts_line(out, "cpu%", &self.cpu_util_pcts, format_pct, pcts);
-        print_pcts_line(out, "sys%", &self.cpu_sys_pcts, format_pct, pcts);
-        print_pcts_line(out, "io%", &self.io_util_pcts, format_pct, pcts);
-        print_pcts_line(out, "rbps", &self.io_bps_pcts.0, format_size_short, pcts);
-        print_pcts_line(out, "wbps", &self.io_bps_pcts.1, format_size_short, pcts);
-        print_pcts_line(out, "cpu-some%", &self.psi_cpu_pcts, format_pct, pcts);
-        print_pcts_line(out, "mem-some%", &self.psi_mem_pcts.0, format_pct, pcts);
-        print_pcts_line(out, "mem-full%", &self.psi_mem_pcts.1, format_pct, pcts);
-        print_pcts_line(out, "io-some%", &self.psi_io_pcts.0, format_pct, pcts);
-        print_pcts_line(out, "io-full%", &self.psi_io_pcts.1, format_pct, pcts);
+        print_pcts_line(out, "cpu%", &self.cpu_util, format_pct, pcts);
+        print_pcts_line(out, "sys%", &self.cpu_sys, format_pct, pcts);
+        print_pcts_line(out, "io%", &self.io_util, format_pct, pcts);
+        print_pcts_line(out, "rbps", &self.io_bps.0, format_size_short, pcts);
+        print_pcts_line(out, "wbps", &self.io_bps.1, format_size_short, pcts);
+        print_pcts_line(out, "cpu-some%", &self.psi_cpu, format_pct, pcts);
+        print_pcts_line(out, "mem-some%", &self.psi_mem.0, format_pct, pcts);
+        print_pcts_line(out, "mem-full%", &self.psi_mem.1, format_pct, pcts);
+        print_pcts_line(out, "io-some%", &self.psi_io.0, format_pct, pcts);
+        print_pcts_line(out, "io-full%", &self.psi_io.1, format_pct, pcts);
     }
 }
 
@@ -718,21 +737,21 @@ impl<'a> ResourceStatStudy<'a> {
         ]
     }
 
-    pub fn result(&self, pcts: &[&str]) -> ResourceStat {
+    pub fn result(&self, pcts: Option<&[&str]>) -> ResourceStat {
         ResourceStat {
-            cpu_util_pcts: self.cpu_util_study.result(pcts),
-            cpu_sys_pcts: self.cpu_sys_study.result(pcts),
-            io_util_pcts: self.io_util_study.result(pcts),
-            io_bps_pcts: (
+            cpu_util: self.cpu_util_study.result(pcts),
+            cpu_sys: self.cpu_sys_study.result(pcts),
+            io_util: self.io_util_study.result(pcts),
+            io_bps: (
                 self.io_bps_studies.0.result(pcts),
                 self.io_bps_studies.1.result(pcts),
             ),
-            psi_cpu_pcts: self.psi_cpu_study.result(pcts),
-            psi_mem_pcts: (
+            psi_cpu: self.psi_cpu_study.result(pcts),
+            psi_mem: (
                 self.psi_mem_studies.0.result(pcts),
                 self.psi_mem_studies.1.result(pcts),
             ),
-            psi_io_pcts: (
+            psi_io: (
                 self.psi_io_studies.0.result(pcts),
                 self.psi_io_studies.1.result(pcts),
             ),
