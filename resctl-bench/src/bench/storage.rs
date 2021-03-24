@@ -69,7 +69,7 @@ impl Bench for StorageBench {
     }
 }
 
-#[derive(Clone, Default, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct StorageRecord {
     pub period: (u64, u64),
     pub final_mem_probe_periods: Vec<(u64, u64)>,

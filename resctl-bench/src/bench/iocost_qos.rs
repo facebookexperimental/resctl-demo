@@ -97,7 +97,7 @@ impl Bench for IoCostQoSBench {
     }
 }
 
-#[derive(Clone, Default, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct IoCostQoSRecordRun {
     pub period: (u64, u64),
     pub ovr: Option<IoCostQoSOvr>,
@@ -559,11 +559,16 @@ impl IoCostQoSJob {
 
         // These are trivial to calculate but cumbersome to access. Let's
         // cache the results.
-        let trec = recr.prot.scenarios[0].as_mem_hog_tune().unwrap();
-        let adjusted_mem_size = trec.final_size;
-        let adjusted_mem_offload_factor = trec
-            .final_size
-            .map(|size| size as f64 / sres.mem_usage as f64);
+        let (adjusted_mem_size, adjusted_mem_offload_factor) = if recr.prot.scenarios.len() > 0 {
+            let trec = recr.prot.scenarios[0].as_mem_hog_tune().unwrap();
+            (
+                trec.final_size,
+                trec.final_size
+                    .map(|size| size as f64 / sres.mem_usage as f64),
+            )
+        } else {
+            (None, None)
+        };
 
         // Study the vrate and IO latency distributions across all the runs.
         let mut study_vrate = StudyMeanPcts::new(|arg| vec![arg.rep.iocost.vrate], None);
@@ -997,7 +1002,7 @@ impl Job for IoCostQoSJob {
                         .unwrap()
                     }
                 }
-                None => writeln!(out, "[{:02}]  Skipped", i).unwrap(),
+                None => writeln!(out, "[{:02}]  SKIP", i).unwrap(),
             }
         }
 

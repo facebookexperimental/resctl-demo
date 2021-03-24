@@ -124,11 +124,22 @@ impl DataSel {
         })
     }
 
-    fn select(&self, recr: &IoCostQoSRecordRun, resr: &IoCostQoSResultRun) -> Option<f64> {
+    fn select(
+        &self,
+        recr: &IoCostQoSRecordRun,
+        resr: &IoCostQoSResultRun,
+        isol_prot_pct: &str,
+    ) -> Option<f64> {
         let stor_res = &resr.stor;
-        let tune_rec = recr.prot.scenarios[0].as_mem_hog_tune().unwrap();
-        let tune_res = resr.prot.scenarios[0].as_mem_hog_tune().unwrap();
-        let hog_res = tune_res.final_run.as_ref();
+        let hog_res = if recr.prot.scenarios.len() > 0 {
+            resr.prot.scenarios[0]
+                .as_mem_hog_tune()
+                .unwrap()
+                .final_run
+                .as_ref()
+        } else {
+            None
+        };
         match self {
             Self::MOF => Some(stor_res.mem_offload_factor),
             // Missing hog indicates failed prot bench. Report 0 for
@@ -136,7 +147,7 @@ impl DataSel {
             Self::AMOF => resr.adjusted_mem_offload_factor,
             Self::IsolProt => hog_res.map(|x| {
                 *x.isol
-                    .get(&tune_rec.isol_pct)
+                    .get(isol_prot_pct)
                     .context("Finding isol_pct_prot")
                     .unwrap()
             }),
@@ -856,6 +867,15 @@ impl Job for IoCostTuneJob {
             .context("Parsing iocost-qos result")?;
         let mut data = BTreeMap::<DataSel, DataSeries>::default();
 
+        let isol_prot_pct = match qrec.runs.iter().next() {
+            Some(Some(recr)) if recr.prot.scenarios.len() > 0 => recr.prot.scenarios[0]
+                .as_mem_hog_tune()
+                .unwrap()
+                .isol_pct
+                .clone(),
+            _ => "10".to_owned(),
+        };
+
         for sel in self.sels.iter() {
             let mut series = DataSeries::default();
             for (qrecr, qresr) in qrec
@@ -877,7 +897,7 @@ impl Job for IoCostTuneJob {
                     }) if min == max => min,
                     _ => continue,
                 };
-                if let Some(val) = sel.select(qrecr, qresr) {
+                if let Some(val) = sel.select(qrecr, qresr, &isol_prot_pct) {
                     series.points.push((vrate, val));
                 }
             }
@@ -890,14 +910,6 @@ impl Job for IoCostTuneJob {
 
         let base_model = qrec.base_model.clone();
         let base_qos = qrec.base_qos.clone();
-        let isol_prot_pct = match qrec.runs.iter().next() {
-            Some(Some(recr)) => recr.prot.scenarios[0]
-                .as_mem_hog_tune()
-                .unwrap()
-                .isol_pct
-                .clone(),
-            _ => "10".to_owned(),
-        };
 
         let mut results = Vec::<QoSResult>::new();
         for rule in self.rules.iter().cloned() {

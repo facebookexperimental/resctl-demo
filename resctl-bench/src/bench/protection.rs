@@ -222,7 +222,7 @@ impl Bench for ProtectionBench {
     }
 }
 
-#[derive(Clone, Default, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct ProtectionRecord {
     pub scenarios: Vec<ScenarioRecord>,
 }
