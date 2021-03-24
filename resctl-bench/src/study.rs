@@ -563,6 +563,7 @@ pub fn print_pcts_line<'a, F>(
 pub struct ResourceStat {
     pub cpu_util: BTreeMap<String, f64>,
     pub cpu_sys: BTreeMap<String, f64>,
+    pub mem_bytes: BTreeMap<String, f64>,
     pub io_util: BTreeMap<String, f64>,
     pub io_bps: (BTreeMap<String, f64>, BTreeMap<String, f64>),
     pub psi_cpu: BTreeMap<String, f64>,
@@ -575,6 +576,7 @@ impl ResourceStat {
         print_pcts_header(out, name, pcts);
         print_pcts_line(out, "cpu%", &self.cpu_util, format_pct, pcts);
         print_pcts_line(out, "sys%", &self.cpu_sys, format_pct, pcts);
+        print_pcts_line(out, "mem", &self.mem_bytes, format_size, pcts);
         print_pcts_line(out, "io%", &self.io_util, format_pct, pcts);
         print_pcts_line(out, "rbps", &self.io_bps.0, format_size_short, pcts);
         print_pcts_line(out, "wbps", &self.io_bps.1, format_size_short, pcts);
@@ -615,6 +617,7 @@ impl ResourceStatStudyCtx {
 pub struct ResourceStatStudy<'a> {
     cpu_util_study: Box<dyn StudyMeanPctsTrait + 'a>,
     cpu_sys_study: Box<dyn StudyMeanPctsTrait + 'a>,
+    mem_bytes_study: Box<dyn StudyMeanPctsTrait + 'a>,
     io_util_study: Box<dyn StudyMeanPctsTrait + 'a>,
     io_bps_studies: (
         Box<dyn StudyMeanPctsTrait + 'a>,
@@ -667,6 +670,10 @@ impl<'a> ResourceStatStudy<'a> {
                     Self::calc_cpu_util,
                     &ctx.cpu_usage_sys,
                 ),
+                None,
+            )),
+            mem_bytes_study: Box::new(StudyMeanPcts::new(
+                move |arg| [arg.rep.usages[name].mem_bytes].repeat(arg.cnt),
                 None,
             )),
             io_util_study: Box::new(StudyMeanPcts::new(
@@ -726,6 +733,7 @@ impl<'a> ResourceStatStudy<'a> {
         vec![
             self.cpu_util_study.as_study_mut(),
             self.cpu_sys_study.as_study_mut(),
+            self.mem_bytes_study.as_study_mut(),
             self.io_util_study.as_study_mut(),
             self.io_bps_studies.0.as_study_mut(),
             self.io_bps_studies.1.as_study_mut(),
@@ -741,6 +749,7 @@ impl<'a> ResourceStatStudy<'a> {
         ResourceStat {
             cpu_util: self.cpu_util_study.result(pcts),
             cpu_sys: self.cpu_sys_study.result(pcts),
+            mem_bytes: self.mem_bytes_study.result(pcts),
             io_util: self.io_util_study.result(pcts),
             io_bps: (
                 self.io_bps_studies.0.result(pcts),
