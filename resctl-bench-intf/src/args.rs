@@ -11,19 +11,21 @@ use rd_agent_intf;
 
 lazy_static::lazy_static! {
     static ref TOP_ARGS_STR: String = format!(
-        "<RESULTFILE>           'Record the bench results into the specified json file'
-         -d, --dir=[TOPDIR]     'Top-level dir for operation and scratch files (default: {dfl_dir})'
-         -D, --dev=[DEVICE]     'Scratch device override (e.g. nvme0n1)'
-         -l, --linux=[PATH]     'Path to linux.tar, downloaded automatically if not specified'
-         -R, --rep-retention=[SECS] '1s report retention in seconds (default: {dfl_rep_ret:.1}h)'
+        "<RESULTFILE>                 'Record the bench results into the specified json file'
+         -d, --dir=[TOPDIR]           'Top-level dir for operation and scratch files (default: {dfl_dir})'
+         -D, --dev=[DEVICE]           'Scratch device override (e.g. nvme0n1)'
+         -l, --linux=[PATH]           'Path to linux.tar, downloaded automatically if not specified'
+         -R, --rep-retention=[SECS]   '1s report retention in seconds (default: {dfl_rep_ret:.1}h)'
              --systemd-timeout=[SECS] 'Systemd timeout (default: {dfl_systemd_timeout})'
-         -a, --args=[FILE]      'Load base command line arguments from FILE'
-         -c, --iocost-from-sys  'Use iocost parameters from io.cost.{{model,qos}} instead of bench.json'
-         -s, --study=[DIR]      'Study reports in the specified directory, all benches must be complete'
-             --keep-reports     'Don't delete expired report files'
-             --clear-reports    'Remove existing report files'
-             --test             'Test mode for development'
-         -v...                  'Sets the level of verbosity'",
+             --hashd-size=[SIZE]      'Override hashd memory footprint'
+             --hashd-cpu-load=[keep|fake|real] 'Override hashd fake cpu load mode'
+         -s, --study=[DIR]            'Study reports in the specified directory, all benches must be complete'
+         -a, --args=[FILE]            'Load base command line arguments from FILE'
+         -c, --iocost-from-sys        'Use iocost parameters from io.cost.{{model,qos}} instead of bench.json'
+             --keep-reports           'Don't delete expired report files'
+             --clear-reports          'Remove existing report files'
+             --test                   'Test mode for development'
+         -v...                        'Sets the level of verbosity'",
         dfl_dir = Args::default().dir,
         dfl_rep_ret = Args::default().rep_retention,
         dfl_systemd_timeout = format_duration(Args::default().systemd_timeout),
@@ -46,9 +48,11 @@ pub struct Args {
     pub linux_tar: Option<String>,
     pub rep_retention: u64,
     pub systemd_timeout: f64,
+    pub hashd_size: Option<usize>,
+    pub hashd_fake_cpu_load: Option<bool>,
+    pub study_rep_d: Option<String>,
     pub mode: Mode,
     pub job_specs: Vec<JobSpec>,
-    pub study_rep_d: Option<String>,
 
     #[serde(skip)]
     pub result: String,
@@ -76,6 +80,8 @@ impl Default for Args {
             study_rep_d: None,
             rep_retention: 7 * 24 * 3600,
             systemd_timeout: 120.0,
+            hashd_size: None,
+            hashd_fake_cpu_load: None,
             iocost_from_sys: false,
             keep_reports: false,
             clear_reports: false,
@@ -308,6 +314,23 @@ impl JsonArgs for Args {
                 parse_duration(v).unwrap().max(1.0)
             } else {
                 dfl.systemd_timeout
+            };
+            updated = true;
+        }
+        if let Some(v) = matches.value_of("hashd-size") {
+            self.hashd_size = if v.len() > 0 {
+                Some((parse_size(v).unwrap() as usize).max(*PAGE_SIZE))
+            } else {
+                None
+            };
+            updated = true;
+        }
+        if let Some(v) = matches.value_of("hashd-cpu-load") {
+            self.hashd_fake_cpu_load = match v {
+                "keep" | "" => None,
+                "fake" => Some(true),
+                "real" => Some(false),
+                v => panic!("Invalid --hashd-cpu-load value {:?}", v),
             };
             updated = true;
         }

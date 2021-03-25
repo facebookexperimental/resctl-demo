@@ -177,6 +177,19 @@ impl Program {
             info!("Using iocost parameters from {:?}", &demo_bench_path);
         }
 
+        if let Some(size) = args.hashd_size {
+            if bench.hashd.mem_size < size as u64 {
+                bench.hashd.mem_size = size as u64;
+                bench.hashd.mem_frac = 1.0;
+            } else {
+                bench.hashd.mem_frac = size as f64 / bench.hashd.mem_size as f64;
+            }
+        }
+
+        if let Some(fake) = args.hashd_fake_cpu_load {
+            bench.hashd.fake_cpu_load = fake;
+        }
+
         Ok(bench)
     }
 
