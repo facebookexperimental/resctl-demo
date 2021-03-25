@@ -404,6 +404,7 @@ struct QoSRule {
 
 #[derive(Debug)]
 struct IoCostTuneJob {
+    qos_data: Option<JobData>,
     mem_profile: u32,
     gran: f64,
     vrate_min: f64,
@@ -415,6 +416,7 @@ struct IoCostTuneJob {
 impl Default for IoCostTuneJob {
     fn default() -> Self {
         Self {
+            qos_data: None,
             mem_profile: 0,
             gran: DFL_GRAN,
             vrate_min: DFL_VRATE_MIN,
@@ -812,8 +814,8 @@ impl Job for IoCostTuneJob {
         Default::default()
     }
 
-    fn run(&mut self, rctx: &mut RunCtx) -> Result<serde_json::Value> {
-        let qos_data = match rctx.find_done_job_data("iocost-qos") {
+    fn pre_run(&mut self, rctx: &mut RunCtx) -> Result<()> {
+        self.qos_data = Some(match rctx.find_done_job_data("iocost-qos") {
             Some(v) => v,
             None => {
                 let mut spec = format!(
@@ -828,10 +830,15 @@ impl Job for IoCostTuneJob {
 
                 rctx.run_nested_job_spec(&resctl_bench_intf::Args::parse_job_spec(&spec).unwrap())
                     .context("Failed to run iocost-qos")?;
-                rctx.find_done_job_data("iocost-qos").unwrap()
+                rctx.find_done_job_data("iocost-qos")
+                    .ok_or(anyhow!("Failed to find iocost-qos result after nested run"))?
             }
-        };
+        });
+        Ok(())
+    }
 
+    fn run(&mut self, _rctx: &mut RunCtx) -> Result<serde_json::Value> {
+        let qos_data = self.qos_data.as_ref().unwrap();
         let qrec: IoCostQoSRecord = qos_data
             .parse_record()
             .context("Parsing iocost-qos record")?;
@@ -855,10 +862,8 @@ impl Job for IoCostTuneJob {
         Ok(serde_json::to_value(true)?)
     }
 
-    fn study(&self, rctx: &mut RunCtx, _rec_json: serde_json::Value) -> Result<serde_json::Value> {
-        let qos_data = rctx
-            .find_done_job_data("iocost-qos")
-            .ok_or(anyhow!("iocost-qos result not available"))?;
+    fn study(&self, _rctx: &mut RunCtx, _rec_json: serde_json::Value) -> Result<serde_json::Value> {
+        let qos_data = self.qos_data.as_ref().unwrap();
         let qrec: IoCostQoSRecord = qos_data
             .parse_record()
             .context("Parsing iocost-qos record")?;

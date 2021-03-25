@@ -330,7 +330,7 @@ impl Default for IoLatReport {
     }
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct IoCostModelReport {
     pub ctrl: String,
     pub model: String,
@@ -371,7 +371,7 @@ impl IoCostModelReport {
     }
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct IoCostQoSReport {
     pub enable: u32,
     pub ctrl: String,
@@ -412,7 +412,7 @@ impl Default for IoCostQoSReport {
     }
 }
 
-#[derive(Clone, Default, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct IoCostReport {
     pub vrate: f64,
     pub model: IoCostModelReport,

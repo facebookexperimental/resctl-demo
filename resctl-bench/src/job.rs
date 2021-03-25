@@ -1,5 +1,5 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
-use anyhow::{anyhow, bail, Error, Result};
+use anyhow::{anyhow, bail, Context, Error, Result};
 use chrono::{DateTime, Local};
 use log::{debug, warn};
 use serde::{Deserialize, Serialize};
@@ -18,6 +18,9 @@ use resctl_bench_intf::{JobProps, JobSpec, Mode};
 
 pub trait Job {
     fn sysreqs(&self) -> BTreeSet<SysReq>;
+    fn pre_run(&mut self, _rctx: &mut RunCtx) -> Result<()> {
+        Ok(())
+    }
     fn run(&mut self, rctx: &mut RunCtx) -> Result<serde_json::Value>;
     fn study(&self, _rctx: &mut RunCtx, _rec_json: serde_json::Value) -> Result<serde_json::Value> {
         Ok(serde_json::Value::Bool(true))
@@ -31,7 +34,7 @@ pub trait Job {
     ) -> Result<()>;
 }
 
-#[derive(Serialize, Deserialize, Clone, Default)]
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct SysReqs {
     pub required: BTreeSet<SysReq>,
     pub missed: BTreeSet<SysReq>,
@@ -39,7 +42,7 @@ pub struct SysReqs {
     pub iocost: rd_agent_intf::IoCostReport,
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct JobData {
     pub spec: JobSpec,
     pub period: (u64, u64),
@@ -170,7 +173,14 @@ impl JobCtx {
     }
 
     pub fn run(&mut self, rctx: &mut RunCtx) -> Result<()> {
+        self.job
+            .as_mut()
+            .unwrap()
+            .pre_run(rctx)
+            .context("Executing pre-run")?;
+
         let pdata = rctx.prev_job_data();
+
         if rctx.study_mode() || (pdata.is_some() && !self.incremental) {
             self.data = pdata.ok_or(anyhow!(
                 "--study specified but {} isn't complete",

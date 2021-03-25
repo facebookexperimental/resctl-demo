@@ -55,7 +55,7 @@ pub enum SysReq {
     Dependencies,
 }
 
-#[derive(Clone, Default, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct SysReqsReport {
     pub satisfied: BTreeSet<SysReq>,
     pub missed: BTreeSet<SysReq>,

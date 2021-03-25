@@ -1037,13 +1037,17 @@ impl<'a> RunCtx<'a> {
             }
         }
 
-        // Find the closest matching.
+        // Find the nearest matching.
         while let Some(jctx) = iter.next() {
             if jctx.data.spec.kind == kind {
                 if self.sysreqs_forward.is_none() {
                     self.sysreqs_forward = Some(jctx.data.sysreqs.clone());
                 }
-                return Some(jctx.data.clone());
+                if jctx.update_seq != std::u64::MAX {
+                    return Some(jctx.data.clone());
+                } else {
+                    return None;
+                };
             }
         }
         None
