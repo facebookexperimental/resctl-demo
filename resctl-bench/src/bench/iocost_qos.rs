@@ -493,11 +493,11 @@ impl IoCostQoSJob {
         // Stash the bench result for the protection runs. This needs to be
         // done manually because storage bench runs use fake-cpu-load which
         // don't get committed to the base bench.
-        rctx.load_bench()?;
+        rctx.base.load_bench_knobs()?;
 
         // Run the protection bench. The saved bench result is of the last
         // run of the storage bench. Update it with the current mean size.
-        rctx.update_bench_from_mem_size(stor_res.mem_size)?;
+        rctx.base.set_hashd_mem_size(stor_res.mem_size)?;
 
         // Storage benches ran with mem_target but protection runs get full
         // mem_share. As mem_share is based on measurement, FB prod or not
@@ -604,18 +604,23 @@ impl Job for IoCostQoSJob {
     }
 
     fn run(&mut self, rctx: &mut RunCtx) -> Result<serde_json::Value> {
-        let mut bench = rctx.bench().clone();
+        // Make sure we have iocost parameters available.
+        let mut bench_knobs = rctx.base.bench_knobs.clone();
+        if bench_knobs.iocost_seq == 0 {
+            rctx.maybe_run_nested_iocost_params()?;
+            bench_knobs = rctx.base.bench_knobs.clone();
+        }
 
         let (prev_matches, mut prev_rec) = match rctx.prev_job_data() {
             Some(pd) => {
                 let prec: IoCostQoSRecord = pd.parse_record()?;
-                (self.prev_matches(&prec, &bench), prec)
+                (self.prev_matches(&prec, &bench_knobs), prec)
             }
             None => (
                 true,
                 IoCostQoSRecord {
-                    base_model: bench.iocost.model.clone(),
-                    base_qos: bench.iocost.qos.clone(),
+                    base_model: bench_knobs.iocost.model.clone(),
+                    base_qos: bench_knobs.iocost.qos.clone(),
                     dither_dist: self.dither_dist,
                     ..Default::default()
                 },
@@ -628,7 +633,7 @@ impl Job for IoCostQoSJob {
 
         // Mark the ones with too low a max rate to run.
         if !self.ign_min_perf {
-            let abs_min_vrate = Self::calc_abs_min_vrate(&rctx.bench().iocost.model);
+            let abs_min_vrate = Self::calc_abs_min_vrate(&bench_knobs.iocost.model);
             for ovr in self.runs.iter_mut() {
                 if let Some(ovr) = ovr.as_mut() {
                     if let Some(max) = ovr.max.as_mut() {
@@ -645,32 +650,11 @@ impl Job for IoCostQoSJob {
             }
         }
 
-        // Do we already have all results in prev? Otherwise, make sure we
-        // have iocost parameters available.
-        if rctx.bench().iocost_seq == 0 {
-            let mut has_all = true;
-            for ovr in self.runs.iter_mut() {
-                if (ovr.is_none() || !ovr.as_ref().unwrap().skip)
-                    && Self::find_matching_rec_run(ovr.as_ref(), &prev_rec).is_none()
-                {
-                    has_all = false;
-                    break;
-                }
-            }
-
-            if !has_all {
-                rctx.maybe_run_nested_iocost_params()?;
-            }
-            bench = rctx.bench().clone();
-            prev_rec.base_model = bench.iocost.model.clone();
-            prev_rec.base_qos = bench.iocost.qos.clone();
-        }
-
         // Print out what to do beforehand so that the user can spot errors
         // without waiting for the benches to run.
         let mut nr_to_run = 0;
         for (i, ovr) in self.runs.iter().enumerate() {
-            let qos = &bench.iocost.qos;
+            let qos = &bench_knobs.iocost.qos;
             let mut skip = false;
             let mut extra_state = " ";
             if let Some(ovr) = ovr.as_ref() {
@@ -726,7 +710,7 @@ impl Job for IoCostQoSJob {
 
         let mut runs = vec![];
         for (i, ovr) in self.runs.iter().enumerate() {
-            let qos = &bench.iocost.qos;
+            let qos = &bench_knobs.iocost.qos;
             if let Some(recr) = Self::find_matching_rec_run(ovr.as_ref(), &prev_rec) {
                 runs.push(Some(recr.clone()));
                 continue;
@@ -793,8 +777,8 @@ impl Job for IoCostQoSJob {
         runs.resize(self.runs.len(), None);
 
         Ok(serde_json::to_value(&IoCostQoSRecord {
-            base_model: bench.iocost.model,
-            base_qos: bench.iocost.qos,
+            base_model: bench_knobs.iocost.model,
+            base_qos: bench_knobs.iocost.qos,
             mem_profile: last_mem_profile.unwrap_or(0),
             runs,
             dither_dist: self.dither_dist,

@@ -94,11 +94,11 @@ impl Default for Args {
 impl Args {
     pub const RB_BENCH_FILENAME: &'static str = "rb-bench.json";
 
-    pub fn demo_bench_path(&self) -> String {
+    pub fn demo_bench_knobs_path(&self) -> String {
         self.dir.clone() + "/" + rd_agent_intf::BENCH_FILENAME
     }
 
-    pub fn bench_path(&self) -> String {
+    pub fn bench_knobs_path(&self) -> String {
         self.dir.clone() + "/" + Self::RB_BENCH_FILENAME
     }
 

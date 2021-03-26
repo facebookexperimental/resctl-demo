@@ -213,7 +213,11 @@ where
         if size == 0 {
             Some(zero.to_string())
         } else if (size as f64) < if short { 9.94999 } else { 99.94999 } * unit as f64 {
-            Some(format!("{:.1}{}", (size as f64 / unit as f64).max(0.1), suffix))
+            Some(format!(
+                "{:.1}{}",
+                (size as f64 / unit as f64).max(0.1),
+                suffix
+            ))
         } else if (size as f64) < if short { 999.4999 } else { 1024.0 } * unit as f64 {
             Some(format!("{:.0}{}", size as f64 / unit as f64, suffix))
         } else {
@@ -258,7 +262,11 @@ fn format_duration_internal(dur: f64, zero: &str) -> String {
         if nsecs == 0 {
             Some(zero.to_string())
         } else if (nsecs as f64) < 99.94999 * unit as f64 {
-            Some(format!("{:.1}{}", (nsecs as f64 / unit as f64).max(0.1), suffix))
+            Some(format!(
+                "{:.1}{}",
+                (nsecs as f64 / unit as f64).max(0.1),
+                suffix
+            ))
         } else if nsecs < max * unit {
             Some(format!("{:.0}{}", nsecs as f64 / unit as f64, suffix))
         } else {

@@ -1,14 +1,15 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
-use anyhow::{anyhow, bail, Context, Error, Result};
+use anyhow::{bail, Context, Error, Result};
 use log::{debug, error, info, warn};
 use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::{exit, Command};
 use std::sync::{Arc, Mutex};
 use util::*;
 
 use resctl_bench_intf::{Args, Mode};
 
+mod base;
 mod bench;
 mod job;
 mod progress;
@@ -104,95 +105,6 @@ impl Program {
         Ok(())
     }
 
-    fn prep_base_bench(
-        &self,
-        scr_devname: &str,
-        iocost_sys_save: &IoCostSysSave,
-    ) -> Result<rd_agent_intf::BenchKnobs> {
-        let args = &self.args_file.data;
-
-        let (dev_model, dev_fwrev, dev_size) =
-            devname_to_model_fwrev_size(&scr_devname).map_err(|e| {
-                anyhow!(
-                    "failed to resolve model/fwrev/size for {:?} ({})",
-                    &scr_devname,
-                    &e
-                )
-            })?;
-
-        let demo_bench_path = args.demo_bench_path();
-
-        let mut bench = match rd_agent_intf::BenchKnobs::load(&demo_bench_path) {
-            Ok(v) => v,
-            Err(e) => {
-                match e.downcast_ref::<std::io::Error>() {
-                    Some(e) if e.raw_os_error() == Some(libc::ENOENT) => (),
-                    _ => warn!(
-                        "Failed to load {:?} ({}), remove the file",
-                        &demo_bench_path, &e
-                    ),
-                }
-                Default::default()
-            }
-        };
-
-        if bench.iocost_dev_model.len() > 0 && bench.iocost_dev_model != dev_model {
-            bail!(
-                "benchfile device model {:?} doesn't match detected {:?}",
-                &bench.iocost_dev_model,
-                &dev_model
-            );
-        }
-        if bench.iocost_dev_fwrev.len() > 0 && bench.iocost_dev_fwrev != dev_fwrev {
-            bail!(
-                "benchfile device firmware revision {:?} doesn't match detected {:?}",
-                &bench.iocost_dev_fwrev,
-                &dev_fwrev
-            );
-        }
-        if bench.iocost_dev_size > 0 && bench.iocost_dev_size != dev_size {
-            bail!(
-                "benchfile device size {} doesn't match detected {}",
-                bench.iocost_dev_size,
-                dev_size
-            );
-        }
-
-        bench.iocost_dev_model = dev_model;
-        bench.iocost_dev_fwrev = dev_fwrev;
-        bench.iocost_dev_size = dev_size;
-
-        if args.iocost_from_sys {
-            if !iocost_sys_save.enable {
-                bail!(
-                    "--iocost-from-sys specified but iocost is disabled for {:?}",
-                    &scr_devname
-                );
-            }
-            bench.iocost_seq = 1;
-            bench.iocost.model = iocost_sys_save.model.clone();
-            bench.iocost.qos = iocost_sys_save.qos.clone();
-            info!("Using iocost parameters from \"/sys/fs/cgroup/io.cost.model,qos\"");
-        } else {
-            info!("Using iocost parameters from {:?}", &demo_bench_path);
-        }
-
-        if let Some(size) = args.hashd_size {
-            if bench.hashd.mem_size < size as u64 {
-                bench.hashd.mem_size = size as u64;
-                bench.hashd.mem_frac = 1.0;
-            } else {
-                bench.hashd.mem_frac = size as f64 / bench.hashd.mem_size as f64;
-            }
-        }
-
-        if let Some(fake) = args.hashd_fake_cpu_load {
-            bench.hashd.fake_cpu_load = fake;
-        }
-
-        Ok(bench)
-    }
-
     fn commit_args(&self) {
         // Everything parsed okay. Update the args file.
         if self.args_updated {
@@ -204,41 +116,10 @@ impl Program {
     }
 
     fn do_run(&mut self) {
-        let mut base_bench = if self.args_file.data.study_rep_d.is_none() {
-            // Use alternate bench file to avoid clobbering resctl-demo bench
-            // results w/ e.g. fake_cpu_load ones.
-            let scr_devname = match self.args_file.data.dev.as_ref() {
-                Some(dev) => dev.clone(),
-                None => {
-                    let mut scr_path = PathBuf::from(&self.args_file.data.dir);
-                    scr_path.push("scratch");
-                    while !scr_path.exists() {
-                        if !scr_path.pop() {
-                            panic!("failed to find existing ancestor dir for scratch path");
-                        }
-                    }
-                    path_to_devname(&scr_path.as_os_str().to_str().unwrap())
-                        .expect("failed to resolve device for scratch path")
-                        .into_string()
-                        .unwrap()
-                }
-            };
-            let scr_devnr = devname_to_devnr(&scr_devname)
-                .expect("failed to resolve device number for scratch device");
-            let iocost_sys_save =
-                IoCostSysSave::read_from_sys(scr_devnr).expect("failed to read iocost.model,qos");
-
-            match self.prep_base_bench(&scr_devname, &iocost_sys_save) {
-                Ok(v) => v,
-                Err(e) => {
-                    error!("Failed to prepare bench files ({})", &e);
-                    panic!();
-                }
-            }
+        let mut base = if self.args_file.data.study_rep_d.is_none() {
+            base::Base::new(&self.args_file.data)
         } else {
-            // We aren't actually gonna run anything in study mode. Just use
-            // dummy value.
-            Default::default()
+            base::Base::dummy()
         };
 
         // Collect the pending jobs.
@@ -273,7 +154,7 @@ impl Program {
         // Run the benches and print out the results.
         drop(jobs);
         for jctx in pending.vec.into_iter() {
-            let mut rctx = RunCtx::new(&args, &mut base_bench, self.jobs.clone());
+            let mut rctx = RunCtx::new(&args, &mut base, self.jobs.clone());
             let name = format!("{}", &jctx.data.spec);
             if let Err(e) = rctx.run_jctx(jctx) {
                 error!("{}: {:?}", &name, &e);
@@ -379,9 +260,9 @@ impl Program {
             .with_context(|| format!("Opening {:?}", &tarball))?;
         let mut tgz =
             tar::Builder::new(libflate::gzip::Encoder::new(f).context("Creating gzip encore")?);
-        let mut base_bench = Default::default();
+        let mut base = base::Base::dummy();
 
-        let rctx = RunCtx::new(&args, &mut base_bench, self.jobs.clone());
+        let rctx = RunCtx::new(&args, &mut base, self.jobs.clone());
 
         debug!("Packing {:?} as {:?}", &args.result, &fname);
         tgz.append_path_with_name(&args.result, &fname)

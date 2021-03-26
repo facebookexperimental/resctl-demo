@@ -12,6 +12,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use thiserror::Error;
 use util::*;
 
+use super::base::Base;
 use super::progress::BenchProgress;
 use super::{Program, AGENT_BIN};
 use crate::job::{JobCtx, JobCtxs, JobData, SysReqs};
@@ -49,13 +50,12 @@ pub enum MinderState {
 fn run_nested_job_spec_int(
     spec: &JobSpec,
     args: &resctl_bench_intf::Args,
-    base_bench: &mut rd_agent_intf::BenchKnobs,
+    base: &mut Base,
     jobs: Arc<Mutex<JobCtxs>>,
-) -> Result<bool> {
-    let mut rctx = RunCtx::new(args, base_bench, jobs);
+) -> Result<()> {
+    let mut rctx = RunCtx::new(args, base, jobs);
     let jctx = rctx.jobs.lock().unwrap().parse_job_spec_and_link(spec)?;
-    rctx.run_jctx(jctx)?;
-    Ok(rctx.commit_bench)
+    rctx.run_jctx(jctx)
 }
 
 struct Sloper {
@@ -241,10 +241,7 @@ impl RunCtxInner {
 pub struct RunCtx<'a> {
     inner: Arc<Mutex<RunCtxInner>>,
     agent_init_fns: Vec<Box<dyn FnMut(&mut RunCtx)>>,
-    base_bench: &'a mut rd_agent_intf::BenchKnobs,
-    bench: rd_agent_intf::BenchKnobs,
-    bench_path: String,
-    demo_bench_path: String,
+    pub base: &'a mut Base,
     pub jobs: Arc<Mutex<JobCtxs>>,
     pub uid: u64,
     run_started_at: u64,
@@ -260,7 +257,7 @@ pub struct RunCtx<'a> {
 impl<'a> RunCtx<'a> {
     pub fn new(
         args: &'a resctl_bench_intf::Args,
-        base_bench: &'a mut rd_agent_intf::BenchKnobs,
+        base: &'a mut Base,
         jobs: Arc<Mutex<JobCtxs>>,
     ) -> Self {
         Self {
@@ -285,10 +282,7 @@ impl<'a> RunCtx<'a> {
                 reports: VecDeque::new(),
                 report_sample: None,
             })),
-            bench: base_bench.clone(),
-            base_bench: base_bench,
-            bench_path: args.bench_path(),
-            demo_bench_path: args.demo_bench_path(),
+            base,
             agent_init_fns: vec![],
             jobs,
             uid: 0,
@@ -411,10 +405,6 @@ impl<'a> RunCtx<'a> {
         prev.data.period.1 = prev.data.period.1.max(unix_now());
         prev.data.record = Some(record);
         jobs.save_results(self.result_path);
-    }
-
-    pub fn bench(&self) -> &rd_agent_intf::BenchKnobs {
-        &self.bench
     }
 
     fn minder(inner: Arc<Mutex<RunCtxInner>>) {
@@ -1053,34 +1043,9 @@ impl<'a> RunCtx<'a> {
         None
     }
 
-    fn save_bench(&self, path: &str) -> Result<()> {
-        self.bench
-            .save(path)
-            .with_context(|| format!("Committing ench result to {:?}", self.demo_bench_path))
-    }
-
-    pub fn load_bench(&mut self) -> Result<()> {
-        self.bench = rd_agent_intf::BenchKnobs::load(&self.bench_path)
-            .with_context(|| format!("Loading {:?}", &self.bench_path))?;
-        Ok(())
-    }
-
-    pub fn update_bench_from_mem_size(&mut self, mem_size: usize) -> Result<()> {
-        let hb = &mut self.bench.hashd;
-        let old_mem_frac = hb.mem_frac;
-        hb.mem_frac = mem_size as f64 / hb.mem_size as f64;
-        let result = self.save_bench(&self.bench_path);
-        if result.is_err() {
-            self.bench.hashd.mem_frac = old_mem_frac;
-        }
-        result.with_context(|| format!("Updating {:?}", &self.bench_path))
-    }
-
     pub fn run_jctx(&mut self, mut jctx: JobCtx) -> Result<()> {
         // Always start with a fresh bench file.
-        self.bench
-            .save(&self.bench_path)
-            .with_context(|| format!("Setting up {:?}", &self.bench_path))?;
+        self.base.initialize()?;
 
         assert_eq!(self.uid, 0);
         assert_ne!(jctx.uid, 0);
@@ -1098,11 +1063,7 @@ impl<'a> RunCtx<'a> {
 
         res?;
 
-        if self.commit_bench {
-            self.load_bench()?;
-            *self.base_bench = self.bench.clone();
-            self.save_bench(&self.demo_bench_path)?;
-        }
+        self.base.finish(self.commit_bench)?;
 
         jctx.print(Mode::Summary, &vec![Default::default()])
             .unwrap();
@@ -1113,22 +1074,11 @@ impl<'a> RunCtx<'a> {
         if self.inner.lock().unwrap().agent_svc.is_some() {
             bail!("can't nest bench execution while rd-agent is already running for outer bench");
         }
-        match run_nested_job_spec_int(spec, self.args, &mut self.bench, self.jobs.clone()) {
-            Ok(true) => {
-                // Nested job finished successfully and updated self.bench
-                // and the demo bench file. Propagate it to our base_bench
-                // too. The demo bench file update and propagation might
-                // need to become finer grained in the future.
-                *self.base_bench = self.bench.clone();
-                Ok(())
-            }
-            Ok(false) => Ok(()),
-            Err(e) => Err(e),
-        }
+        run_nested_job_spec_int(spec, self.args, &mut self.base, self.jobs.clone())
     }
 
     pub fn maybe_run_nested_iocost_params(&mut self) -> Result<()> {
-        if self.bench().iocost_seq > 0 {
+        if self.base.bench_knobs.iocost_seq > 0 {
             return Ok(());
         }
         info!(
@@ -1139,7 +1089,7 @@ impl<'a> RunCtx<'a> {
     }
 
     pub fn maybe_run_nested_hashd_params(&mut self) -> Result<()> {
-        if self.bench().hashd_seq > 0 {
+        if self.base.bench_knobs.hashd_seq > 0 {
             return Ok(());
         }
         info!("iocost-qos: hashd parameters missing, running hashd-params");
