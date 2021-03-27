@@ -3,20 +3,24 @@ use log::{error, info, warn};
 use rd_agent_intf::BenchKnobs;
 use resctl_bench_intf::Args;
 use std::path::PathBuf;
+use std::time::Duration;
 use util::*;
 
-#[derive(Default)]
-pub struct Base {
+use super::run::RunCtx;
+
+pub struct Base<'a> {
     pub scr_devname: String,
     pub bench_knobs_path: String,
     pub demo_bench_knobs_path: String,
     pub saved_bench_knobs: BenchKnobs,
     pub bench_knobs: BenchKnobs,
+    mem_avail: usize,
+    args: &'a Args,
 }
 
-impl Base {
+impl<'a> Base<'a> {
     fn prep_bench(
-        args: &Args,
+        args: &'a Args,
         scr_devname: &str,
         iocost_sys_save: &IoCostSysSave,
     ) -> Result<rd_agent_intf::BenchKnobs> {
@@ -102,7 +106,7 @@ impl Base {
         Ok(bench)
     }
 
-    pub fn new(args: &Args) -> Self {
+    pub fn new(args: &'a Args) -> Self {
         // Use alternate bench file to avoid clobbering resctl-demo bench
         // results w/ e.g. fake_cpu_load ones.
         let scr_devname = match args.dev.as_ref() {
@@ -140,11 +144,21 @@ impl Base {
             demo_bench_knobs_path: args.demo_bench_knobs_path(),
             saved_bench_knobs: bench_knobs.clone(),
             bench_knobs,
+            mem_avail: args.mem_avail,
+            args,
         }
     }
 
-    pub fn dummy() -> Self {
-        Default::default()
+    pub fn dummy(args: &'a Args) -> Self {
+        Self {
+            scr_devname: "".to_owned(),
+            bench_knobs_path: "".to_owned(),
+            demo_bench_knobs_path: "".to_owned(),
+            saved_bench_knobs: Default::default(),
+            bench_knobs: Default::default(),
+            mem_avail: 0,
+            args,
+        }
     }
 
     fn save_bench_knobs(&self, path: &str) -> Result<()> {
@@ -184,5 +198,74 @@ impl Base {
             self.bench_knobs.hashd.mem_frac = old_mem_frac;
         }
         result.with_context(|| format!("Updating {:?}", &self.bench_knobs_path))
+    }
+
+    fn estimate_available_memory(&mut self) -> Result<()> {
+        let orig_bench_knobs = self.bench_knobs.clone();
+
+        info!("Measuring available memory...");
+
+        // Estimate available memory by running hashd w/ fake cpu load and
+        // flat memory access pattern. Reduce file_frac as much as possible
+        // and disable log so that we can ramp up memory usage quickly even
+        // on really slow IO devices.
+        let dfl_params = rd_hashd_intf::Params::default();
+        self.bench_knobs.hashd = rd_agent_intf::HashdKnobs {
+            hash_size: dfl_params.file_size_mean,
+            rps_max: RunCtx::BENCH_FAKE_CPU_RPS_MAX,
+            mem_size: total_memory() as u64,
+            mem_frac: 1.0,
+            chunk_pages: dfl_params.chunk_pages,
+            fake_cpu_load: true,
+        };
+        self.save_bench_knobs(&self.bench_knobs_path)?;
+
+        let mut rctx = RunCtx::new(self.args, self, Default::default());
+        rctx.set_passive_keep_crit_mem_prot()
+            .set_prep_testfiles()
+            .start_agent(vec![])?;
+
+        rctx.access_agent_files(|af| {
+            let mut cmd = rd_agent_intf::Cmd::default();
+            cmd.hashd[0] = rd_agent_intf::HashdCmd {
+                active: true,
+                lat_target: 1.0,
+                anon_addr_stdev: Some(1.0),
+                file_ratio: rd_hashd_intf::Params::FILE_FRAC_MIN,
+                log_bps: 0,
+                ..Default::default()
+            };
+            af.cmd.data = cmd;
+            af.cmd.save().unwrap();
+        });
+
+        rctx.start_hashd(1.0)?;
+        rctx.stabilize_hashd_with_params(
+            None,
+            None,
+            Some((0.0025, 0.0025)),
+            Some(Duration::from_secs(300)),
+        )
+        .context("Measuring mem-avail")?;
+
+        let mem_avail = rctx.access_agent_files(|af| {
+            af.report.data.usages[rd_agent_intf::HASHD_A_SVC_NAME].mem_bytes as usize
+        });
+
+        drop(rctx);
+
+        self.mem_avail = mem_avail;
+        self.bench_knobs = orig_bench_knobs;
+        self.save_bench_knobs(&self.bench_knobs_path)?;
+
+        info!("Available memory: {}", format_size(self.mem_avail));
+        Ok(())
+    }
+
+    pub fn mem_avail(&mut self, force: bool) -> Result<usize> {
+        if force || self.mem_avail == 0 {
+            self.estimate_available_memory()?;
+        }
+        Ok(self.mem_avail)
     }
 }

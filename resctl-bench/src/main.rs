@@ -119,8 +119,9 @@ impl Program {
         let mut base = if self.args_file.data.study_rep_d.is_none() {
             base::Base::new(&self.args_file.data)
         } else {
-            base::Base::dummy()
+            base::Base::dummy(&self.args_file.data)
         };
+        info!("Available memory={}", base.mem_avail(false).unwrap());
 
         // Collect the pending jobs.
         let mut jobs = self.jobs.lock().unwrap();
@@ -260,7 +261,7 @@ impl Program {
             .with_context(|| format!("Opening {:?}", &tarball))?;
         let mut tgz =
             tar::Builder::new(libflate::gzip::Encoder::new(f).context("Creating gzip encore")?);
-        let mut base = base::Base::dummy();
+        let mut base = base::Base::dummy(args);
 
         let rctx = RunCtx::new(&args, &mut base, self.jobs.clone());
 

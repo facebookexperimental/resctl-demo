@@ -87,7 +87,7 @@ impl Default for HashdCmd {
         Self {
             active: false,
             lat_target_pct: rd_hashd_intf::Params::default().lat_target_pct,
-            lat_target: 100.0 * MSEC,
+            lat_target: rd_hashd_intf::Params::default().lat_target,
             rps_target_ratio: 0.5,
             mem_ratio: None,
             file_addr_stdev: None,

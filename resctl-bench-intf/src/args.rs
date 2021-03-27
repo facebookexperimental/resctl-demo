@@ -16,6 +16,8 @@ lazy_static::lazy_static! {
          -D, --dev=[DEVICE]           'Scratch device override (e.g. nvme0n1)'
          -l, --linux=[PATH]           'Path to linux.tar, downloaded automatically if not specified'
          -R, --rep-retention=[SECS]   '1s report retention in seconds (default: {dfl_rep_ret:.1}h)'
+         -M, --mem-profile=[PROF|off] 'Memory profile in power-of-two gigabytes, \"max\" to probe, \"off\" to disable (default: {dfl_mem_prof})'
+         -m, --mem-avail=[SIZE]       'Amount of memory available for resctl-bench'
              --systemd-timeout=[SECS] 'Systemd timeout (default: {dfl_systemd_timeout})'
              --hashd-size=[SIZE]      'Override hashd memory footprint'
              --hashd-cpu-load=[keep|fake|real] 'Override hashd fake cpu load mode'
@@ -28,6 +30,7 @@ lazy_static::lazy_static! {
          -v...                        'Sets the level of verbosity'",
         dfl_dir = Args::default().dir,
         dfl_rep_ret = Args::default().rep_retention,
+        dfl_mem_prof = Args::default().mem_profile.unwrap(),
         dfl_systemd_timeout = format_duration(Args::default().systemd_timeout),
     );
 }
@@ -50,6 +53,8 @@ pub struct Args {
     pub systemd_timeout: f64,
     pub hashd_size: Option<usize>,
     pub hashd_fake_cpu_load: Option<bool>,
+    pub mem_profile: Option<u32>,
+    pub mem_avail: usize,
     pub study_rep_d: Option<String>,
     pub mode: Mode,
     pub job_specs: Vec<JobSpec>,
@@ -82,6 +87,8 @@ impl Default for Args {
             systemd_timeout: 120.0,
             hashd_size: None,
             hashd_fake_cpu_load: None,
+            mem_profile: Some(16),
+            mem_avail: 0,
             iocost_from_sys: false,
             keep_reports: false,
             clear_reports: false,
@@ -331,6 +338,22 @@ impl JsonArgs for Args {
                 "fake" => Some(true),
                 "real" => Some(false),
                 v => panic!("Invalid --hashd-cpu-load value {:?}", v),
+            };
+            updated = true;
+        }
+        if let Some(v) = matches.value_of("mem-profile") {
+            self.mem_profile = match v {
+                "off" => None,
+                "max" | "" => Some(0),
+                v => Some(v.parse::<u32>().expect("Invalid mem-profile")),
+            };
+            updated = true;
+        }
+        if let Some(v) = matches.value_of("mem-avail") {
+            self.mem_avail = if v.len() > 0 {
+                parse_size(v).unwrap() as usize
+            } else {
+                0
             };
             updated = true;
         }

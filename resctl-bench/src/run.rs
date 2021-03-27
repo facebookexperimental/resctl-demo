@@ -238,10 +238,10 @@ impl RunCtxInner {
     }
 }
 
-pub struct RunCtx<'a> {
+pub struct RunCtx<'a, 'b> {
     inner: Arc<Mutex<RunCtxInner>>,
     agent_init_fns: Vec<Box<dyn FnMut(&mut RunCtx)>>,
-    pub base: &'a mut Base,
+    pub base: &'a mut Base<'b>,
     pub jobs: Arc<Mutex<JobCtxs>>,
     pub uid: u64,
     run_started_at: u64,
@@ -254,10 +254,10 @@ pub struct RunCtx<'a> {
     svcs: HashSet<String>,
 }
 
-impl<'a> RunCtx<'a> {
+impl<'a, 'b> RunCtx<'a, 'b> {
     pub fn new(
         args: &'a resctl_bench_intf::Args,
-        base: &'a mut Base,
+        base: &'a mut Base<'b>,
         jobs: Arc<Mutex<JobCtxs>>,
     ) -> Self {
         Self {
@@ -1156,7 +1156,7 @@ impl<'a> RunCtx<'a> {
     }
 }
 
-impl Drop for RunCtx<'_> {
+impl Drop for RunCtx<'_, '_> {
     fn drop(&mut self) {
         self.stop_agent();
     }
