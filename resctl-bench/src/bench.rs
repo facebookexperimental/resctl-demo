@@ -37,20 +37,18 @@ lazy_static::lazy_static! {
     pub static ref ALL_SYSREQS: BTreeSet<SysReq> = rd_agent_intf::ALL_SYSREQS_SET.clone();
 }
 
-struct HashdFakeCpuBench {
-    size: u64,
-    balloon_size: usize,
-    preload_size: usize,
-    log_bps: u64,
-    log_size: u64,
-    hash_size: usize,
-    chunk_pages: usize,
-    rps_max: u32,
-    file_frac: f64,
+pub struct HashdFakeCpuBench {
+    pub size: u64,
+    pub balloon_size: usize,
+    pub log_bps: u64,
+    pub hash_size: usize,
+    pub chunk_pages: usize,
+    pub rps_max: u32,
+    pub grain_factor: f64,
 }
 
 impl HashdFakeCpuBench {
-    fn start(&self, rctx: &mut RunCtx) -> Result<()> {
+    pub fn start(&self, rctx: &mut RunCtx) -> Result<()> {
         rctx.start_hashd_bench(
             self.balloon_size,
             self.log_bps,
@@ -59,14 +57,11 @@ impl HashdFakeCpuBench {
             // the same mem_profile.
             vec![
                 format!("--size={}", self.size),
-                format!("--bench-preload-cache={}", self.preload_size),
-                format!("--log-size={}", self.log_size),
                 "--bench-fake-cpu-load".into(),
                 format!("--bench-hash-size={}", self.hash_size),
                 format!("--bench-chunk-pages={}", self.chunk_pages),
                 format!("--bench-rps-max={}", self.rps_max),
-                format!("--bench-file-frac={}", self.file_frac),
-                format!("--file-max={}", self.file_frac),
+                format!("--bench-grain={}", self.grain_factor),
             ],
         )
         .context("Starting fake-cpu-load hashd bench")

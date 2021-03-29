@@ -103,7 +103,6 @@ impl StorageJob {
                 "log-bps" => job.log_bps = v.parse::<u64>()?,
                 "loops" => job.loops = v.parse::<u32>()?,
                 "mem-profile" => job.mem_profile_ask = Some(v.parse::<u32>()?),
-                "mem-avail" => job.mem.avail = v.parse::<usize>()?,
                 "mem-avail-err-max" => job.mem_avail_err_max = v.parse::<f64>()?,
                 "mem-avail-inner-retries" => job.mem_avail_inner_retries = v.parse::<u32>()?,
                 "mem-avail-outer-retries" => job.mem_avail_outer_retries = v.parse::<u32>()?,
@@ -119,53 +118,6 @@ impl StorageJob {
             Some(usage) => usage.mem_bytes as usize,
             None => 0,
         }
-    }
-
-    fn hashd_mem_usage_rctx(rctx: &RunCtx) -> usize {
-        rctx.access_agent_files(|af| Self::hashd_mem_usage_rep(&af.report.data))
-    }
-
-    fn estimate_available_memory(&mut self, rctx: &mut RunCtx) -> Result<usize> {
-        // Estimate available memory by running the up and bisect phases of
-        // rd-hashd benchmark. Reduce file_frac as much as possible and
-        // disable log so that we can ramp up memory usage quickly even on
-        // really slow IO devices.
-        HashdFakeCpuBench {
-            size: rd_hashd_intf::Args::DFL_SIZE_MULT * total_memory() as u64,
-            balloon_size: 0,
-            preload_size: 0,
-            log_bps: 0,
-            log_size: 0,
-            hash_size: self.hash_size,
-            chunk_pages: self.chunk_pages,
-            rps_max: self.rps_max,
-            file_frac: rd_hashd_intf::Params::FILE_FRAC_MIN,
-        }
-        .start(rctx)?;
-
-        rctx.wait_cond(
-            |af, progress| {
-                let rep = &af.report.data;
-                if rep.bench_hashd.phase > rd_hashd_intf::Phase::BenchMemBisect
-                    || rep.state != rd_agent_intf::RunnerState::BenchHashd
-                {
-                    true
-                } else {
-                    progress.set_status(&format!(
-                        "[{}] Estimating available memory... {}",
-                        rep.bench_hashd.phase.name(),
-                        format_size(Self::hashd_mem_usage_rep(rep))
-                    ));
-                    false
-                }
-            },
-            None,
-            Some(BenchProgress::new().monitor_systemd_unit(HASHD_BENCH_SVC_NAME)),
-        )?;
-
-        let mem_usage = Self::hashd_mem_usage_rctx(rctx);
-        rctx.stop_hashd_bench()?;
-        Ok(mem_usage)
     }
 
     fn mem_share(mem_profile: u32) -> Result<usize> {
@@ -218,18 +170,15 @@ impl StorageJob {
     fn measure_supportable_memory_size(&mut self, rctx: &mut RunCtx) -> Result<(usize, f64)> {
         let mem_size = (self.mem.profile as usize) << 30;
         let dfl_args = rd_hashd_intf::Args::with_mem_size(mem_size);
-        let dfl_params = rd_hashd_intf::Params::default();
 
         HashdFakeCpuBench {
             size: dfl_args.size,
             balloon_size: self.mem.avail.saturating_sub(self.mem.target),
-            preload_size: dfl_args.bench_preload_cache_size(),
             log_bps: self.log_bps,
-            log_size: dfl_args.log_size,
             hash_size: self.hash_size,
             chunk_pages: self.chunk_pages,
             rps_max: self.rps_max,
-            file_frac: dfl_params.file_frac,
+            grain_factor: 1.0,
         }
         .start(rctx)?;
 
@@ -467,6 +416,8 @@ impl Job for StorageJob {
     }
 
     fn run(&mut self, rctx: &mut RunCtx) -> Result<serde_json::Value> {
+        self.mem.avail = rctx.base.mem_avail()?;
+
         if !self.active {
             rctx.set_passive_keep_crit_mem_prot();
         }
@@ -481,16 +432,6 @@ impl Job for StorageJob {
             af.slices.data.disable_seqs.mem = af.report.data.seq;
             af.slices.save().unwrap();
         });
-
-        if self.mem.avail == 0 {
-            info!("storage: Estimating available memory");
-            self.mem.avail = self.estimate_available_memory(rctx)?;
-        } else {
-            info!(
-                "storage: Starting with the specified available memory {}",
-                format_size(self.mem.avail)
-            );
-        }
 
         let saved_mem_avail_inner_retries = self.mem_avail_inner_retries;
 
@@ -518,7 +459,7 @@ impl Job for StorageJob {
                         format_size(self.mem.avail),
                     );
                     self.mem_avail_outer_retries -= 1;
-                    self.mem.avail = self.estimate_available_memory(rctx)?;
+                    self.mem.avail = rctx.base.mem_avail_refresh()?;
                     continue 'outer;
                 }
                 bail!("mem_avail too small for the memory profile, use lower mem-profile");

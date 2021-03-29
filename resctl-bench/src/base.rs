@@ -1,9 +1,8 @@
 use anyhow::{anyhow, bail, Context, Result};
 use log::{error, info, warn};
-use rd_agent_intf::BenchKnobs;
+use rd_agent_intf::{BenchKnobs, HASHD_BENCH_SVC_NAME};
 use resctl_bench_intf::Args;
 use std::path::PathBuf;
-use std::time::Duration;
 use util::*;
 
 use super::run::RunCtx;
@@ -27,7 +26,7 @@ impl<'a> Base<'a> {
         let (dev_model, dev_fwrev, dev_size) =
             devname_to_model_fwrev_size(&scr_devname).map_err(|e| {
                 anyhow!(
-                    "failed to resolve model/fwrev/size for {:?} ({})",
+                    "Failed to resolve model/fwrev/size for {:?} ({})",
                     &scr_devname,
                     &e
                 )
@@ -200,72 +199,75 @@ impl<'a> Base<'a> {
         result.with_context(|| format!("Updating {:?}", &self.bench_knobs_path))
     }
 
+    fn hashd_mem_usage_rep(rep: &rd_agent_intf::Report) -> usize {
+        match rep.usages.get(HASHD_BENCH_SVC_NAME) {
+            Some(usage) => usage.mem_bytes as usize,
+            None => 0,
+        }
+    }
+
     fn estimate_available_memory(&mut self) -> Result<()> {
-        let orig_bench_knobs = self.bench_knobs.clone();
-
         info!("Measuring available memory...");
-
-        // Estimate available memory by running hashd w/ fake cpu load and
-        // flat memory access pattern. Reduce file_frac as much as possible
-        // and disable log so that we can ramp up memory usage quickly even
-        // on really slow IO devices.
-        let dfl_params = rd_hashd_intf::Params::default();
-        self.bench_knobs.hashd = rd_agent_intf::HashdKnobs {
-            hash_size: dfl_params.file_size_mean,
-            rps_max: RunCtx::BENCH_FAKE_CPU_RPS_MAX,
-            mem_size: total_memory() as u64,
-            mem_frac: 1.0,
-            chunk_pages: dfl_params.chunk_pages,
-            fake_cpu_load: true,
-        };
-        self.save_bench_knobs(&self.bench_knobs_path)?;
 
         let mut rctx = RunCtx::new(self.args, self, Default::default());
         rctx.set_passive_keep_crit_mem_prot()
             .set_prep_testfiles()
             .start_agent(vec![])?;
 
-        rctx.access_agent_files(|af| {
-            let mut cmd = rd_agent_intf::Cmd::default();
-            cmd.hashd[0] = rd_agent_intf::HashdCmd {
-                active: true,
-                lat_target: 1.0,
-                anon_addr_stdev: Some(1.0),
-                file_ratio: rd_hashd_intf::Params::FILE_FRAC_MIN,
-                log_bps: 0,
-                ..Default::default()
-            };
-            af.cmd.data = cmd;
-            af.cmd.save().unwrap();
-        });
+        // Estimate available memory by running the up and bisect phases of
+        // rd-hashd benchmark.
+        let dfl_params = rd_hashd_intf::Params::default();
 
-        rctx.start_hashd(1.0)?;
-        rctx.stabilize_hashd_with_params(
+        super::bench::HashdFakeCpuBench {
+            size: rd_hashd_intf::Args::DFL_SIZE_MULT * total_memory() as u64,
+            balloon_size: 0,
+            log_bps: dfl_params.log_bps,
+            hash_size: dfl_params.file_size_mean,
+            chunk_pages: dfl_params.chunk_pages,
+            rps_max: RunCtx::BENCH_FAKE_CPU_RPS_MAX,
+            grain_factor: 2.0,
+        }
+        .start(&mut rctx)?;
+
+        rctx.wait_cond(
+            |af, progress| {
+                let rep = &af.report.data;
+                if rep.bench_hashd.phase > rd_hashd_intf::Phase::BenchMemBisect
+                    || rep.state != rd_agent_intf::RunnerState::BenchHashd
+                {
+                    true
+                } else {
+                    progress.set_status(&format!(
+                        "[{}] Estimating available memory... {}",
+                        rep.bench_hashd.phase.name(),
+                        format_size(Self::hashd_mem_usage_rep(rep))
+                    ));
+                    false
+                }
+            },
             None,
-            None,
-            Some((0.0025, 0.0025)),
-            Some(Duration::from_secs(300)),
-        )
-        .context("Measuring mem-avail")?;
+            Some(super::progress::BenchProgress::new().monitor_systemd_unit(HASHD_BENCH_SVC_NAME)),
+        )?;
 
-        let mem_avail = rctx.access_agent_files(|af| {
-            af.report.data.usages[rd_agent_intf::HASHD_A_SVC_NAME].mem_bytes as usize
-        });
+        let mem_avail = rctx.access_agent_files(|af| Self::hashd_mem_usage_rep(&af.report.data));
 
+        rctx.stop_hashd_bench()?;
         drop(rctx);
 
         self.mem_avail = mem_avail;
-        self.bench_knobs = orig_bench_knobs;
-        self.save_bench_knobs(&self.bench_knobs_path)?;
-
         info!("Available memory: {}", format_size(self.mem_avail));
         Ok(())
     }
 
-    pub fn mem_avail(&mut self, force: bool) -> Result<usize> {
-        if force || self.mem_avail == 0 {
+    pub fn mem_avail(&mut self) -> Result<usize> {
+        if self.mem_avail == 0 {
             self.estimate_available_memory()?;
         }
+        Ok(self.mem_avail)
+    }
+
+    pub fn mem_avail_refresh(&mut self) -> Result<usize> {
+        self.estimate_available_memory()?;
         Ok(self.mem_avail)
     }
 }

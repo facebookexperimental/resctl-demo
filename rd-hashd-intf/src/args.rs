@@ -123,6 +123,7 @@ lazy_static::lazy_static! {
                  --bench-cpu               'Benchmark cpu, implied by --bench'
                  --bench-mem               'Benchmark memory, implied by --bench'
                  --bench-test              'Use quick pseudo bench for testing'
+                 --bench-grain=[FACTOR]    'Adjust bench granularity'
                  --bench-fake-cpu-load     'Fake CPU load while benchmarking memory'
                  --bench-hash-size=[SIZE]  'Use the specified hash size'
                  --bench-chunk-pages=[PAGES] 'Use the specified chunk pages'
@@ -187,6 +188,8 @@ pub struct Args {
     #[serde(skip)]
     pub bench_test: bool,
     #[serde(skip)]
+    pub bench_grain: f64,
+    #[serde(skip)]
     pub bench_fake_cpu_load: bool,
     #[serde(skip)]
     pub bench_hash_size: Option<usize>,
@@ -233,6 +236,7 @@ impl Args {
             bench_cpu: false,
             bench_mem: false,
             bench_test: false,
+            bench_grain: 1.0,
             bench_fake_cpu_load: false,
             bench_hash_size: None,
             bench_chunk_pages: None,
@@ -423,6 +427,11 @@ impl JsonArgs for Args {
             if self.bench_cpu || self.bench_mem {
                 self.prepare_testfiles = false;
             }
+        }
+
+        if let Some(v) = matches.value_of("bench-grain") {
+            self.bench_grain = v.parse::<f64>().unwrap();
+            assert!(self.bench_grain > 0.0);
         }
 
         self.bench_fake_cpu_load = matches.is_present("bench-fake-cpu-load");

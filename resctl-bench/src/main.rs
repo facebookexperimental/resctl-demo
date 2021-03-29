@@ -121,7 +121,6 @@ impl Program {
         } else {
             base::Base::dummy(&self.args_file.data)
         };
-        info!("Available memory={}", base.mem_avail(false).unwrap());
 
         // Collect the pending jobs.
         let mut jobs = self.jobs.lock().unwrap();

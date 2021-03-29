@@ -74,13 +74,11 @@ impl Job for HashdParamsJob {
             HashdFakeCpuBench {
                 size: dfl_args.size,
                 balloon_size: self.balloon_size,
-                preload_size: dfl_args.bench_preload_cache_size(),
                 log_bps: self.log_bps,
-                log_size: dfl_args.log_size,
                 hash_size: self.hash_size.unwrap_or(dfl_params.file_size_mean),
                 chunk_pages: self.chunk_pages.unwrap_or(dfl_params.chunk_pages),
                 rps_max: self.rps_max.unwrap_or(RunCtx::BENCH_FAKE_CPU_RPS_MAX),
-                file_frac: dfl_params.file_frac,
+                grain_factor: 1.0,
             }
             .start(rctx)?;
         } else {
