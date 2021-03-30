@@ -241,7 +241,7 @@ impl RunCtxInner {
 pub struct RunCtx<'a, 'b> {
     inner: Arc<Mutex<RunCtxInner>>,
     agent_init_fns: Vec<Box<dyn FnMut(&mut RunCtx)>>,
-    pub base: &'a mut Base<'b>,
+    base: &'a mut Base<'b>,
     pub jobs: Arc<Mutex<JobCtxs>>,
     pub uid: u64,
     run_started_at: u64,
@@ -1095,6 +1095,49 @@ impl<'a, 'b> RunCtx<'a, 'b> {
         info!("iocost-qos: hashd parameters missing, running hashd-params");
         self.run_nested_job_spec(&resctl_bench_intf::Args::parse_job_spec("hashd-params").unwrap())
             .context("Running hashd-params")
+    }
+
+    pub fn bench_knobs(&'a self) -> &'a rd_agent_intf::BenchKnobs {
+        &self.base.bench_knobs
+    }
+
+    pub fn load_bench_knobs(&mut self) -> Result<()> {
+        self.base.load_bench_knobs()
+    }
+
+    pub fn set_hashd_mem_size(&mut self, size: usize) -> Result<()> {
+        self.base.set_hashd_mem_size(size)
+    }
+
+    fn estimate_available_memory(&mut self) -> Result<()> {
+        // Mem avail estimation creates its own rctx. Make sure that
+        // rd-agent isn't running for this instance.
+        let was_running = self.inner.lock().unwrap().agent_svc.is_some();
+        self.stop_agent_no_clear();
+
+        self.base.estimate_available_memory()?;
+
+        if was_running {
+            self.restart_agent()?;
+        }
+        Ok(())
+    }
+
+    pub fn mem_avail(&mut self) -> Result<usize> {
+        if self.base.mem_avail == 0 {
+            self.estimate_available_memory()?;
+        }
+        Ok(self.base.mem_avail)
+    }
+
+    pub fn mem_avail_refresh(&mut self) -> Result<usize> {
+        self.estimate_available_memory()?;
+        Ok(self.base.mem_avail)
+    }
+
+    // Sometimes, benchmarks themselves can discover mem_avail.
+    pub fn update_mem_avail(&mut self, size: usize) {
+        self.base.mem_avail = size;
     }
 
     pub fn sysreqs_report(&self) -> Option<Arc<rd_agent_intf::SysReqsReport>> {

@@ -245,7 +245,7 @@ impl MemHog {
         let rec = MemHogRecord {
             period: (started_at, unix_now()),
             base_period,
-            base_rps: rctx.base.bench_knobs.hashd.rps_max as f64 * self.load,
+            base_rps: rctx.bench_knobs().hashd.rps_max as f64 * self.load,
             runs,
             result: RefCell::new(None),
         };

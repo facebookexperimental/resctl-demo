@@ -54,8 +54,8 @@ impl MemHogTune {
     ) -> Result<(bool, Option<MemHogRecord>)> {
         let started_at = unix_now();
 
-        rctx.base.set_hashd_mem_size(size)?;
-        let base_rps = rctx.base.bench_knobs.hashd.rps_max as f64 * self.load;
+        rctx.set_hashd_mem_size(size)?;
+        let base_rps = rctx.bench_knobs().hashd.rps_max as f64 * self.load;
         let fail_pct = self.isol_pct.parse::<f64>().unwrap() / 100.0;
         let early_fail_cnt = (self.dur * fail_pct).ceil() as u64;
         let fail_rps_thr = base_rps * self.isol_thr;

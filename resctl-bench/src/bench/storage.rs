@@ -416,7 +416,7 @@ impl Job for StorageJob {
     }
 
     fn run(&mut self, rctx: &mut RunCtx) -> Result<serde_json::Value> {
-        self.mem.avail = rctx.base.mem_avail()?;
+        self.mem.avail = rctx.mem_avail()?;
 
         if !self.active {
             rctx.set_passive_keep_crit_mem_prot();
@@ -459,7 +459,7 @@ impl Job for StorageJob {
                         format_size(self.mem.avail),
                     );
                     self.mem_avail_outer_retries -= 1;
-                    self.mem.avail = rctx.base.mem_avail_refresh()?;
+                    self.mem.avail = rctx.mem_avail_refresh()?;
                     continue 'outer;
                 }
                 bail!("mem_avail too small for the memory profile, use lower mem-profile");

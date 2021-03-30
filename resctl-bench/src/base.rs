@@ -13,7 +13,7 @@ pub struct Base<'a> {
     pub demo_bench_knobs_path: String,
     pub saved_bench_knobs: BenchKnobs,
     pub bench_knobs: BenchKnobs,
-    mem_avail: usize,
+    pub mem_avail: usize,
     args: &'a Args,
 }
 
@@ -206,7 +206,7 @@ impl<'a> Base<'a> {
         }
     }
 
-    fn estimate_available_memory(&mut self) -> Result<()> {
+    pub fn estimate_available_memory(&mut self) -> Result<()> {
         info!("Measuring available memory...");
 
         let mut rctx = RunCtx::new(self.args, self, Default::default());
@@ -257,17 +257,5 @@ impl<'a> Base<'a> {
         self.mem_avail = mem_avail;
         info!("Available memory: {}", format_size(self.mem_avail));
         Ok(())
-    }
-
-    pub fn mem_avail(&mut self) -> Result<usize> {
-        if self.mem_avail == 0 {
-            self.estimate_available_memory()?;
-        }
-        Ok(self.mem_avail)
-    }
-
-    pub fn mem_avail_refresh(&mut self) -> Result<usize> {
-        self.estimate_available_memory()?;
-        Ok(self.mem_avail)
     }
 }

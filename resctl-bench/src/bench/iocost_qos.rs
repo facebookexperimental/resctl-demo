@@ -493,11 +493,11 @@ impl IoCostQoSJob {
         // Stash the bench result for the protection runs. This needs to be
         // done manually because storage bench runs use fake-cpu-load which
         // don't get committed to the base bench.
-        rctx.base.load_bench_knobs()?;
+        rctx.load_bench_knobs()?;
 
         // Run the protection bench. The saved bench result is of the last
         // run of the storage bench. Update it with the current mean size.
-        rctx.base.set_hashd_mem_size(stor_res.mem_size)?;
+        rctx.set_hashd_mem_size(stor_res.mem_size)?;
 
         // Storage benches ran with mem_target but protection runs get full
         // mem_share. As mem_share is based on measurement, FB prod or not
@@ -605,10 +605,10 @@ impl Job for IoCostQoSJob {
 
     fn run(&mut self, rctx: &mut RunCtx) -> Result<serde_json::Value> {
         // Make sure we have iocost parameters available.
-        let mut bench_knobs = rctx.base.bench_knobs.clone();
+        let mut bench_knobs = rctx.bench_knobs().clone();
         if bench_knobs.iocost_seq == 0 {
             rctx.maybe_run_nested_iocost_params()?;
-            bench_knobs = rctx.base.bench_knobs.clone();
+            bench_knobs = rctx.bench_knobs().clone();
         }
 
         let (prev_matches, mut prev_rec) = match rctx.prev_job_data() {
