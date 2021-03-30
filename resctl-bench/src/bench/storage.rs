@@ -3,16 +3,6 @@ use super::*;
 use rd_agent_intf::{HASHD_BENCH_SVC_NAME, ROOT_SLICE};
 use std::collections::{BTreeMap, VecDeque};
 
-const STD_MEM_PROFILE: u32 = 16;
-
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
-pub struct MemInfo {
-    pub avail: usize,
-    pub profile: u32,
-    pub share: usize,
-    pub target: usize,
-}
-
 #[derive(Clone)]
 pub struct StorageJob {
     pub hash_size: usize,
@@ -24,7 +14,6 @@ pub struct StorageJob {
     pub mem_avail_err_max: f64,
     pub mem_avail_inner_retries: u32,
     pub mem_avail_outer_retries: u32,
-    pub mem: MemInfo,
     pub active: bool,
 
     first_try: bool,
@@ -47,7 +36,6 @@ impl Default for StorageJob {
             mem_avail_err_max: 0.1,
             mem_avail_inner_retries: 2,
             mem_avail_outer_retries: 2,
-            mem: Default::default(),
             active: false,
             first_try: true,
             mem_usage: 0,
@@ -120,60 +108,14 @@ impl StorageJob {
         }
     }
 
-    fn mem_share(mem_profile: u32) -> Result<usize> {
-        match mem_profile {
-            v if v == 0 || (v & (v - 1)) != 0 => Err(anyhow!(
-                "storage: invalid memory profile {}, must be positive power of two",
-                mem_profile
-            )),
-            v if v <= 4 => Ok(((v as usize) << 30) / 2),
-            v if v <= 16 => Ok(((v as usize) << 30) * 3 / 4),
-            v => Ok(((v as usize) - 8) << 30),
-        }
-    }
-
-    fn mem_target(mem_share: usize) -> usize {
-        // We want to pretend that the system has only @mem_share bytes
-        // available to hashd. However, when rd-agent runs hashd benches
-        // with default parameters, it configures a small balloon to give
-        // the system and hashd some breathing room as longer runs with the
-        // benchmarked parameters tend to need a bit more memory to run
-        // reliably.
-        //
-        // We want to maintain the same slack to keep results consistent
-        // with the default parameter runs and ensure that the system has
-        // enough breathing room for e.g. reliable protection benchs.
-        let slack = rd_agent_intf::Cmd::bench_hashd_memory_slack(mem_share);
-        mem_share - slack
-    }
-
-    fn select_memory_profile(&self) -> Result<(u32, usize, usize)> {
-        match self.mem_profile_ask.as_ref() {
-            Some(&ask) => {
-                if ask != STD_MEM_PROFILE {
-                    warn!(
-                        "storage: Using non-standard mem-profile {}, \
-                         the result won't be directly comparable",
-                        ask
-                    );
-                }
-                let ms = Self::mem_share(ask)?;
-                Ok((ask, ms, Self::mem_target(ms)))
-            }
-            None => {
-                let ms = Self::mem_share(STD_MEM_PROFILE)?;
-                Ok((STD_MEM_PROFILE, ms, Self::mem_target(ms)))
-            }
-        }
-    }
-
     fn measure_supportable_memory_size(&mut self, rctx: &mut RunCtx) -> Result<(usize, f64)> {
-        let mem_size = (self.mem.profile as usize) << 30;
+        let mem = rctx.mem_info();
+        let mem_size = (mem.profile as usize) << 30;
         let dfl_args = rd_hashd_intf::Args::with_mem_size(mem_size);
 
         HashdFakeCpuBench {
             size: dfl_args.size,
-            balloon_size: self.mem.avail.saturating_sub(self.mem.target),
+            balloon_size: mem.avail.saturating_sub(mem.target),
             log_bps: self.log_bps,
             hash_size: self.hash_size,
             chunk_pages: self.chunk_pages,
@@ -199,8 +141,8 @@ impl StorageJob {
                 self.mem_probe_at = rep.bench_hashd.mem_probe_at.timestamp() as u64;
 
                 if !rctx.test {
-                    mem_avail_err =
-                        (self.mem_usage as f64 - self.mem.target as f64) / self.mem.target as f64;
+                    let mem = rctx.mem_info();
+                    mem_avail_err = (self.mem_usage as f64 - mem.target as f64) / mem.target as f64;
                 }
 
                 // Abort early iff we go over. Memory usage may keep rising
@@ -244,8 +186,9 @@ impl StorageJob {
         Ok((mem_size, mem_avail_err))
     }
 
-    fn process_retry(&mut self) -> Result<bool> {
-        let cur_mem_avail = self.mem.avail + self.mem_usage - self.mem.target;
+    fn process_retry(&mut self, rctx: &mut RunCtx) -> Result<bool> {
+        let mem = rctx.mem_info();
+        let cur_mem_avail = mem.avail + self.mem_usage - mem.target;
         let consistent = (cur_mem_avail as f64 - self.prev_mem_avail as f64).abs()
             < self.mem_avail_err_max * cur_mem_avail as f64;
 
@@ -272,7 +215,7 @@ impl StorageJob {
             (false, false, true) => {
                 warn!(
                     "storage: Retrying without updating mem_avail {} (prev {}, cur {})",
-                    format_size(self.mem.avail),
+                    format_size(mem.avail),
                     format_size(self.prev_mem_avail),
                     format_size(cur_mem_avail)
                 );
@@ -282,7 +225,7 @@ impl StorageJob {
         };
 
         if retry_outer {
-            self.mem.avail = cur_mem_avail;
+            rctx.update_mem_avail(cur_mem_avail)?;
             if self.mem_avail_outer_retries == 0 {
                 bail!("available memory keeps fluctuating, keep the system idle");
             }
@@ -416,12 +359,12 @@ impl Job for StorageJob {
     }
 
     fn run(&mut self, rctx: &mut RunCtx) -> Result<serde_json::Value> {
-        self.mem.avail = rctx.mem_avail()?;
-
         if !self.active {
             rctx.set_passive_keep_crit_mem_prot();
         }
-        rctx.set_prep_testfiles().start_agent(vec![])?;
+        rctx.set_init_mem_profile()
+            .set_prep_testfiles()
+            .start_agent(vec![])?;
 
         // Depending on mem-profile, we might be using a large balloon which
         // can push down available memory below workload's memory.low
@@ -447,31 +390,6 @@ impl Job for StorageJob {
             self.mem_avail_inner_retries = saved_mem_avail_inner_retries;
             started_at = unix_now();
 
-            let (mp, ms, mt) = self.select_memory_profile()?;
-            self.mem.profile = mp;
-            self.mem.share = ms;
-            self.mem.target = mt;
-
-            if self.mem.avail < self.mem.target && !rctx.test {
-                if self.mem_avail_outer_retries > 0 {
-                    warn!(
-                        "storage: mem_avail {} too small for the memory profile, re-estimating",
-                        format_size(self.mem.avail),
-                    );
-                    self.mem_avail_outer_retries -= 1;
-                    self.mem.avail = rctx.mem_avail_refresh()?;
-                    continue 'outer;
-                }
-                bail!("mem_avail too small for the memory profile, use lower mem-profile");
-            }
-            info!(
-                "storage: Memory profile {}G (mem_avail {}, mem_share {}, mem_target {})",
-                self.mem.profile,
-                format_size(self.mem.avail),
-                format_size(self.mem.share),
-                format_size(self.mem.target),
-            );
-
             // We now know all the parameters. Let's run the actual benchmark.
             'inner: loop {
                 info!(
@@ -489,7 +407,7 @@ impl Job for StorageJob {
                         self.mem_avail_err_max * 100.0
                     );
 
-                    if self.process_retry()? {
+                    if self.process_retry(rctx)? {
                         continue 'outer;
                     } else {
                         continue 'inner;
@@ -515,7 +433,7 @@ impl Job for StorageJob {
         Ok(serde_json::to_value(&StorageRecord {
             period: (started_at, unix_now()),
             final_mem_probe_periods,
-            mem: self.mem.clone(),
+            mem: rctx.mem_info().clone(),
             mem_usages,
             mem_sizes,
         })?)

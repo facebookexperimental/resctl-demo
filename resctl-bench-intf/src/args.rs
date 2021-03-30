@@ -16,7 +16,7 @@ lazy_static::lazy_static! {
          -D, --dev=[DEVICE]           'Scratch device override (e.g. nvme0n1)'
          -l, --linux=[PATH]           'Path to linux.tar, downloaded automatically if not specified'
          -R, --rep-retention=[SECS]   '1s report retention in seconds (default: {dfl_rep_ret:.1}h)'
-         -M, --mem-profile=[PROF|off] 'Memory profile in power-of-two gigabytes, \"max\" to probe, \"off\" to disable (default: {dfl_mem_prof})'
+         -M, --mem-profile=[PROF|off] 'Memory profile in power-of-two gigabytes, \"off\" to disable (default: {dfl_mem_prof})'
          -m, --mem-avail=[SIZE]       'Amount of memory available for resctl-bench'
              --systemd-timeout=[SECS] 'Systemd timeout (default: {dfl_systemd_timeout})'
              --hashd-size=[SIZE]      'Override hashd memory footprint'
@@ -87,7 +87,7 @@ impl Default for Args {
             systemd_timeout: 120.0,
             hashd_size: None,
             hashd_fake_cpu_load: None,
-            mem_profile: Some(16),
+            mem_profile: Some(Self::DFL_MEM_PROFILE),
             mem_avail: 0,
             iocost_from_sys: false,
             keep_reports: false,
@@ -100,6 +100,7 @@ impl Default for Args {
 
 impl Args {
     pub const RB_BENCH_FILENAME: &'static str = "rb-bench.json";
+    pub const DFL_MEM_PROFILE: u32 = 16;
 
     pub fn demo_bench_knobs_path(&self) -> String {
         self.dir.clone() + "/" + rd_agent_intf::BENCH_FILENAME
@@ -344,7 +345,6 @@ impl JsonArgs for Args {
         if let Some(v) = matches.value_of("mem-profile") {
             self.mem_profile = match v {
                 "off" => None,
-                "max" | "" => Some(0),
                 v => Some(v.parse::<u32>().expect("Invalid mem-profile")),
             };
             updated = true;

@@ -2,10 +2,19 @@ use anyhow::{anyhow, bail, Context, Result};
 use log::{error, info, warn};
 use rd_agent_intf::{BenchKnobs, HASHD_BENCH_SVC_NAME};
 use resctl_bench_intf::Args;
+use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use util::*;
 
 use super::run::RunCtx;
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct MemInfo {
+    pub avail: usize,
+    pub profile: u32,
+    pub share: usize,
+    pub target: usize,
+}
 
 pub struct Base<'a> {
     pub scr_devname: String,
@@ -13,7 +22,7 @@ pub struct Base<'a> {
     pub demo_bench_knobs_path: String,
     pub saved_bench_knobs: BenchKnobs,
     pub bench_knobs: BenchKnobs,
-    pub mem_avail: usize,
+    pub mem: MemInfo,
     args: &'a Args,
 }
 
@@ -143,7 +152,10 @@ impl<'a> Base<'a> {
             demo_bench_knobs_path: args.demo_bench_knobs_path(),
             saved_bench_knobs: bench_knobs.clone(),
             bench_knobs,
-            mem_avail: args.mem_avail,
+            mem: MemInfo {
+                avail: args.mem_avail,
+                ..Default::default()
+            },
             args,
         }
     }
@@ -155,7 +167,7 @@ impl<'a> Base<'a> {
             demo_bench_knobs_path: "".to_owned(),
             saved_bench_knobs: Default::default(),
             bench_knobs: Default::default(),
-            mem_avail: 0,
+            mem: Default::default(),
             args,
         }
     }
@@ -254,8 +266,74 @@ impl<'a> Base<'a> {
         rctx.stop_hashd_bench()?;
         drop(rctx);
 
-        self.mem_avail = mem_avail;
-        info!("Available memory: {}", format_size(self.mem_avail));
+        self.mem.avail = mem_avail;
+        Ok(())
+    }
+
+    fn mem_share(mem_profile: u32) -> Result<usize> {
+        match mem_profile {
+            v if v == 0 || (v & (v - 1)) != 0 => Err(anyhow!(
+                "mem-profile: invalid profile {}, must be positive power of two",
+                mem_profile
+            )),
+            v if v <= 4 => Ok(((v as usize) << 30) / 2),
+            v if v <= 16 => Ok(((v as usize) << 30) * 3 / 4),
+            v => Ok(((v as usize) - 8) << 30),
+        }
+    }
+
+    fn mem_target(mem_share: usize) -> usize {
+        // We want to pretend that the system has only @mem_share bytes
+        // available to hashd. However, when rd-agent runs hashd benches
+        // with default parameters, it configures a small balloon to give
+        // the system and hashd some breathing room as longer runs with the
+        // benchmarked parameters tend to need a bit more memory to run
+        // reliably.
+        //
+        // We want to maintain the same slack to keep results consistent
+        // with the default parameter runs and ensure that the system has
+        // enough breathing room for e.g. reliable protection benchs.
+        let slack = rd_agent_intf::Cmd::bench_hashd_memory_slack(mem_share);
+        mem_share - slack
+    }
+
+    pub fn update_mem_profile(&mut self) -> Result<()> {
+        if self.args.mem_profile.is_none() {
+            info!("mem-profile: Requested by benchmark but disabled on command line");
+            return Ok(());
+        }
+        assert!(self.mem.avail > 0);
+
+        if self.mem.profile == 0 {
+            let ask = self.args.mem_profile.unwrap();
+            if ask != resctl_bench_intf::Args::DFL_MEM_PROFILE {
+                warn!(
+                    "mem-profile: Non-standard profile {} requested, \
+                     the result won't be directly comparable",
+                    ask
+                );
+            }
+            self.mem.profile = ask;
+            self.mem.share = Self::mem_share(ask)?;
+            self.mem.target = Self::mem_target(self.mem.share);
+        }
+
+        if self.mem.share > self.mem.avail {
+            bail!(
+                "mem-profile: Available memory {} too small for profile {}, use lower mem-profile",
+                format_size(self.mem.avail),
+                self.mem.profile
+            );
+        }
+
+        info!(
+            "mem-profile: {}G (mem_avail {}, mem_share {}, mem_target {})",
+            self.mem.profile,
+            format_size(self.mem.avail),
+            format_size(self.mem.share),
+            format_size(self.mem.target)
+        );
+
         Ok(())
     }
 }

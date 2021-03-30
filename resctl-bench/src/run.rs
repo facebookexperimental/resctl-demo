@@ -12,7 +12,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use thiserror::Error;
 use util::*;
 
-use super::base::Base;
+use super::base::{Base, MemInfo};
 use super::progress::BenchProgress;
 use super::{Program, AGENT_BIN};
 use crate::job::{JobCtx, JobCtxs, JobData, SysReqs};
@@ -248,6 +248,7 @@ pub struct RunCtx<'a, 'b> {
     pub sysreqs_forward: Option<SysReqs>,
     result_path: &'a str,
     pub test: bool,
+    do_init_mem_profile: bool,
     pub commit_bench: bool,
     args: &'a resctl_bench_intf::Args,
     extra_args: Vec<String>,
@@ -290,6 +291,7 @@ impl<'a, 'b> RunCtx<'a, 'b> {
             sysreqs_forward: None,
             result_path: &args.result,
             test: args.test,
+            do_init_mem_profile: false,
             commit_bench: false,
             args,
             extra_args: vec![],
@@ -356,6 +358,11 @@ impl<'a, 'b> RunCtx<'a, 'b> {
 
     pub fn set_passive_keep_crit_mem_prot(&mut self) -> &mut Self {
         self.inner.lock().unwrap().passive_keep_crit_mem_prot = true;
+        self
+    }
+
+    pub fn set_init_mem_profile(&mut self) -> &mut Self {
+        self.do_init_mem_profile = true;
         self
     }
 
@@ -547,6 +554,10 @@ impl<'a, 'b> RunCtx<'a, 'b> {
     pub fn start_agent(&mut self, extra_args: Vec<String>) -> Result<()> {
         if self.study_mode() {
             bail!("Can't run unfinished benchmarks when --study is specified");
+        }
+
+        if self.do_init_mem_profile {
+            self.init_mem_profile()?;
         }
 
         let mut ctx = self.inner.lock().unwrap();
@@ -1109,35 +1120,35 @@ impl<'a, 'b> RunCtx<'a, 'b> {
         self.base.set_hashd_mem_size(size)
     }
 
-    fn estimate_available_memory(&mut self) -> Result<()> {
+    pub fn init_mem_profile(&mut self) -> Result<()> {
         // Mem avail estimation creates its own rctx. Make sure that
         // rd-agent isn't running for this instance.
-        let was_running = self.inner.lock().unwrap().agent_svc.is_some();
-        self.stop_agent_no_clear();
-
-        self.base.estimate_available_memory()?;
-
-        if was_running {
-            self.restart_agent()?;
+        if self.args.mem_profile.is_some() && self.base.mem.avail == 0 {
+            let was_running = self.inner.lock().unwrap().agent_svc.is_some();
+            self.stop_agent_no_clear();
+            self.base.estimate_available_memory()?;
+            if was_running {
+                self.restart_agent()?;
+            }
         }
+
+        self.base.update_mem_profile()?;
         Ok(())
     }
 
-    pub fn mem_avail(&mut self) -> Result<usize> {
-        if self.base.mem_avail == 0 {
-            self.estimate_available_memory()?;
-        }
-        Ok(self.base.mem_avail)
-    }
-
-    pub fn mem_avail_refresh(&mut self) -> Result<usize> {
-        self.estimate_available_memory()?;
-        Ok(self.base.mem_avail)
+    pub fn reset_mem_avail(&mut self) -> Result<()> {
+        self.base.mem.avail = 0;
+        self.init_mem_profile()
     }
 
     // Sometimes, benchmarks themselves can discover mem_avail.
-    pub fn update_mem_avail(&mut self, size: usize) {
-        self.base.mem_avail = size;
+    pub fn update_mem_avail(&mut self, size: usize) -> Result<()> {
+        self.base.mem.avail = size;
+        self.init_mem_profile()
+    }
+
+    pub fn mem_info(&'a self) -> &'a MemInfo {
+        &self.base.mem
     }
 
     pub fn sysreqs_report(&self) -> Option<Arc<rd_agent_intf::SysReqsReport>> {

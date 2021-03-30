@@ -702,7 +702,6 @@ impl Job for IoCostQoSJob {
         }
 
         // Run the needed benches.
-        let mut last_mem_avail = 0;
         let mut last_mem_profile = match self.mem_profile {
             0 => None,
             v => Some(v),
@@ -732,7 +731,6 @@ impl Job for IoCostQoSJob {
             loop {
                 let mut sjob = self.stor_job.clone();
                 sjob.mem_profile_ask = last_mem_profile;
-                sjob.mem.avail = last_mem_avail;
                 sjob.loops = match i {
                     0 => self.stor_base_loops,
                     _ => self.stor_loops,
@@ -742,7 +740,6 @@ impl Job for IoCostQoSJob {
                 match Self::run_one(rctx, &mut sjob, &mut pjob, ovr.as_ref(), self.retries) {
                     Ok(recr) => {
                         last_mem_profile = Some(recr.stor.mem.profile);
-                        last_mem_avail = recr.stor.mem.avail;
 
                         // Sanity check QoS params.
                         if recr.qos.is_some() {
