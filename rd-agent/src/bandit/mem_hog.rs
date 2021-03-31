@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Context, Result};
+use anyhow::{bail, Context, Result};
 use chrono::DateTime;
 use log::{debug, info, trace};
 use rd_agent_intf::{BanditMemHogArgs, BanditMemHogReport};
@@ -62,13 +62,16 @@ fn parse_bps(input: &str, base_env_key: &str) -> Result<usize> {
             if k == base_env_key {
                 let base_bps =
                     parse_size(&v).with_context(|| format!("failed to parse {:?}={:?}", k, v))?;
+                if base_bps == 0 {
+                    bail!("percentage specified but {:?} is 0", base_env_key);
+                }
                 return Ok((base_bps as f64 * pct / 100.0) as usize);
             }
         }
-        Err(anyhow!(
+        bail!(
             "percentage specified but environment variable {:?} not found",
             base_env_key
-        ))
+        );
     } else {
         Ok(parse_size(input)? as usize)
     }

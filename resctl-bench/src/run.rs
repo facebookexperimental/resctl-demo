@@ -248,7 +248,7 @@ pub struct RunCtx<'a, 'b> {
     pub sysreqs_forward: Option<SysReqs>,
     result_path: &'a str,
     pub test: bool,
-    do_init_mem_profile: bool,
+    skip_mem_profile: bool,
     pub commit_bench: bool,
     args: &'a resctl_bench_intf::Args,
     extra_args: Vec<String>,
@@ -291,7 +291,7 @@ impl<'a, 'b> RunCtx<'a, 'b> {
             sysreqs_forward: None,
             result_path: &args.result,
             test: args.test,
-            do_init_mem_profile: false,
+            skip_mem_profile: false,
             commit_bench: false,
             args,
             extra_args: vec![],
@@ -314,26 +314,6 @@ impl<'a, 'b> RunCtx<'a, 'b> {
     {
         self.agent_init_fns.push(Box::new(init_fn));
         self
-    }
-
-    pub fn set_balloon_size(&mut self, size: usize) -> &mut Self {
-        let ballon_ratio = size as f64 / total_memory() as f64;
-        self.add_agent_init_fn(move |rctx| {
-            rctx.access_agent_files(|af| {
-                af.cmd.data.balloon_ratio = ballon_ratio;
-                af.cmd.save().unwrap();
-            });
-        })
-    }
-
-    pub fn set_workload_mem_low(&mut self, size: usize) -> &mut Self {
-        self.add_agent_init_fn(move |rctx| {
-            rctx.access_agent_files(|af| {
-                af.slices.data[rd_agent_intf::Slice::Work].mem_low =
-                    rd_agent_intf::MemoryKnob::Bytes(size as u64);
-                af.slices.save().unwrap();
-            });
-        })
     }
 
     pub fn set_need_linux_tar(&mut self) -> &mut Self {
@@ -361,8 +341,8 @@ impl<'a, 'b> RunCtx<'a, 'b> {
         self
     }
 
-    pub fn set_init_mem_profile(&mut self) -> &mut Self {
-        self.do_init_mem_profile = true;
+    pub fn skip_mem_profile(&mut self) -> &mut Self {
+        self.skip_mem_profile = true;
         self
     }
 
@@ -556,7 +536,7 @@ impl<'a, 'b> RunCtx<'a, 'b> {
             bail!("Can't run unfinished benchmarks when --study is specified");
         }
 
-        if self.do_init_mem_profile {
+        if !self.skip_mem_profile {
             self.init_mem_profile()?;
         }
 
@@ -603,6 +583,21 @@ impl<'a, 'b> RunCtx<'a, 'b> {
         }
 
         drop(ctx);
+
+        // Configure memory profile.
+        if !self.skip_mem_profile {
+            let work_mem_low = self.base.workload_mem_low();
+            let ballon_ratio = self.base.balloon_size() as f64 / total_memory() as f64;
+
+            self.access_agent_files(|af| {
+                af.slices.data[rd_agent_intf::Slice::Work].mem_low =
+                    rd_agent_intf::MemoryKnob::Bytes(work_mem_low as u64);
+                af.slices.save()?;
+
+                af.cmd.data.balloon_ratio = ballon_ratio;
+                af.cmd.save()
+            })?;
+        }
 
         // Run init functions.
         if self.agent_init_fns.len() > 0 {
@@ -756,8 +751,8 @@ impl<'a, 'b> RunCtx<'a, 'b> {
 
     pub fn start_hashd_bench(
         &mut self,
-        ballon_size: usize,
-        log_bps: u64,
+        balloon_size: Option<usize>,
+        log_bps: Option<u64>,
         mut extra_args: Vec<String>,
     ) -> Result<()> {
         debug!("Starting hashd benchmark ({})", &HASHD_BENCH_SVC_NAME);
@@ -773,12 +768,14 @@ impl<'a, 'b> RunCtx<'a, 'b> {
             extra_args.push("--bench-test".into());
         }
 
+        let dfl_params = rd_hashd_intf::Params::default();
         let mut next_seq = 0;
         self.access_agent_files(|af| {
             next_seq = af.bench.data.hashd_seq + 1;
             af.cmd.data = Default::default();
-            af.cmd.data.hashd[0].log_bps = log_bps;
-            af.cmd.data.bench_hashd_balloon_size = ballon_size;
+            af.cmd.data.hashd[0].log_bps = log_bps.unwrap_or(dfl_params.log_bps);
+            af.cmd.data.bench_hashd_balloon_size =
+                balloon_size.unwrap_or(self.base.balloon_size_hashd_bench());
             af.cmd.data.bench_hashd_args = extra_args;
             af.cmd.data.bench_hashd_seq = next_seq;
             af.cmd.save().unwrap();
@@ -1132,8 +1129,7 @@ impl<'a, 'b> RunCtx<'a, 'b> {
             }
         }
 
-        self.base.update_mem_profile()?;
-        Ok(())
+        self.base.update_mem_profile()
     }
 
     pub fn reset_mem_avail(&mut self) -> Result<()> {

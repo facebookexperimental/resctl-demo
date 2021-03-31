@@ -362,6 +362,7 @@ impl Job for ProtectionJob {
     }
 
     fn run(&mut self, rctx: &mut RunCtx) -> Result<serde_json::Value> {
+        rctx.maybe_run_nested_iocost_params()?;
         rctx.maybe_run_nested_hashd_params()?;
 
         if self.passive {

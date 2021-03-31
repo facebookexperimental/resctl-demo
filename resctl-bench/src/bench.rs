@@ -40,8 +40,8 @@ lazy_static::lazy_static! {
 
 pub struct HashdFakeCpuBench {
     pub size: u64,
-    pub balloon_size: usize,
-    pub log_bps: u64,
+    pub balloon_size: Option<usize>,
+    pub log_bps: Option<u64>,
     pub hash_size: usize,
     pub chunk_pages: usize,
     pub rps_max: u32,
@@ -49,6 +49,21 @@ pub struct HashdFakeCpuBench {
 }
 
 impl HashdFakeCpuBench {
+    pub fn base(rctx: &RunCtx) -> Self {
+        let dfl_args = rd_hashd_intf::Args::with_mem_size(rctx.mem_info().share);
+        let dfl_params = rd_hashd_intf::Params::default();
+
+        Self {
+            size: dfl_args.size,
+            balloon_size: None,
+            log_bps: None,
+            hash_size: dfl_params.file_size_mean,
+            chunk_pages: dfl_params.chunk_pages,
+            rps_max: RunCtx::BENCH_FAKE_CPU_RPS_MAX,
+            grain_factor: 1.0,
+        }
+    }
+
     pub fn start(&self, rctx: &mut RunCtx) -> Result<()> {
         rctx.start_hashd_bench(
             self.balloon_size,

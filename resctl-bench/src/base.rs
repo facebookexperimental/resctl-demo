@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use util::*;
 
+use super::bench::HashdFakeCpuBench;
 use super::run::RunCtx;
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -228,16 +229,11 @@ impl<'a> Base<'a> {
 
         // Estimate available memory by running the up and bisect phases of
         // rd-hashd benchmark.
-        let dfl_params = rd_hashd_intf::Params::default();
-
-        super::bench::HashdFakeCpuBench {
+        HashdFakeCpuBench {
             size: rd_hashd_intf::Args::DFL_SIZE_MULT * total_memory() as u64,
-            balloon_size: 0,
-            log_bps: dfl_params.log_bps,
-            hash_size: dfl_params.file_size_mean,
-            chunk_pages: dfl_params.chunk_pages,
-            rps_max: RunCtx::BENCH_FAKE_CPU_RPS_MAX,
+            balloon_size: Some(0),
             grain_factor: 2.0,
+            ..HashdFakeCpuBench::base(&rctx)
         }
         .start(&mut rctx)?;
 
@@ -300,6 +296,12 @@ impl<'a> Base<'a> {
     pub fn update_mem_profile(&mut self) -> Result<()> {
         if self.args.mem_profile.is_none() {
             info!("mem-profile: Requested by benchmark but disabled on command line");
+            self.mem = MemInfo {
+                avail: total_memory(),
+                profile: 0,
+                share: total_memory(),
+                target: Self::mem_target(total_memory()),
+            };
             return Ok(());
         }
         assert!(self.mem.avail > 0);
@@ -335,5 +337,20 @@ impl<'a> Base<'a> {
         );
 
         Ok(())
+    }
+
+    pub fn workload_mem_low(&self) -> usize {
+        self.mem.share - rd_agent_intf::SliceConfig::dfl_mem_margin(self.mem.share, false) as usize
+    }
+
+    // hashd benches run with mem_target.
+    pub fn balloon_size_hashd_bench(&self) -> usize {
+        self.mem.avail.saturating_sub(self.mem.target)
+    }
+
+    // But other benchmark runs get full mem_share. As mem_share is based on
+    // measurement, FB prod or not doens't make difference.
+    pub fn balloon_size(&self) -> usize {
+        self.mem.avail.saturating_sub(self.mem.share)
     }
 }

@@ -109,18 +109,12 @@ impl StorageJob {
     }
 
     fn measure_supportable_memory_size(&mut self, rctx: &mut RunCtx) -> Result<(usize, f64)> {
-        let mem = rctx.mem_info();
-        let mem_size = (mem.profile as usize) << 30;
-        let dfl_args = rd_hashd_intf::Args::with_mem_size(mem_size);
-
         HashdFakeCpuBench {
-            size: dfl_args.size,
-            balloon_size: mem.avail.saturating_sub(mem.target),
-            log_bps: self.log_bps,
+            log_bps: Some(self.log_bps),
             hash_size: self.hash_size,
             chunk_pages: self.chunk_pages,
             rps_max: self.rps_max,
-            grain_factor: 1.0,
+            ..HashdFakeCpuBench::base(rctx)
         }
         .start(rctx)?;
 
@@ -362,9 +356,7 @@ impl Job for StorageJob {
         if !self.active {
             rctx.set_passive_keep_crit_mem_prot();
         }
-        rctx.set_init_mem_profile()
-            .set_prep_testfiles()
-            .start_agent(vec![])?;
+        rctx.set_prep_testfiles().start_agent(vec![])?;
 
         // Depending on mem-profile, we might be using a large balloon which
         // can push down available memory below workload's memory.low
