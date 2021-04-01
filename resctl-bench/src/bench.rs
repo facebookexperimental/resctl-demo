@@ -40,7 +40,6 @@ lazy_static::lazy_static! {
 
 pub struct HashdFakeCpuBench {
     pub size: u64,
-    pub balloon_size: Option<usize>,
     pub log_bps: Option<u64>,
     pub hash_size: usize,
     pub chunk_pages: usize,
@@ -55,7 +54,6 @@ impl HashdFakeCpuBench {
 
         Self {
             size: dfl_args.size,
-            balloon_size: None,
             log_bps: None,
             hash_size: dfl_params.file_size_mean,
             chunk_pages: dfl_params.chunk_pages,
@@ -66,7 +64,6 @@ impl HashdFakeCpuBench {
 
     pub fn start(&self, rctx: &mut RunCtx) -> Result<()> {
         rctx.start_hashd_bench(
-            self.balloon_size,
             self.log_bps,
             // We should specify all the total_memory() dependent values in
             // rd_hashd_intf::Args so that the behavior stays the same for

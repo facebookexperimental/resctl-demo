@@ -235,7 +235,7 @@ impl<'a> Grapher<'a> {
         }
 
         for (sel, series) in res.data.iter() {
-            let sr = data.sysreqs.report.as_ref().unwrap();
+            let sr = data.sysinfo.sysreqs_report.as_ref().unwrap();
             if let Err(e) = self.plot_one_svg(
                 sel,
                 series,

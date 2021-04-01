@@ -11,8 +11,8 @@ use super::run::RunCtx;
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct MemInfo {
-    pub avail: usize,
     pub profile: u32,
+    pub avail: usize,
     pub share: usize,
     pub target: usize,
 }
@@ -223,7 +223,8 @@ impl<'a> Base<'a> {
         info!("Measuring available memory...");
 
         let mut rctx = RunCtx::new(self.args, self, Default::default());
-        rctx.set_passive_keep_crit_mem_prot()
+        rctx.skip_mem_profile()
+            .set_passive_keep_crit_mem_prot()
             .set_prep_testfiles()
             .start_agent(vec![])?;
 
@@ -231,7 +232,6 @@ impl<'a> Base<'a> {
         // rd-hashd benchmark.
         HashdFakeCpuBench {
             size: rd_hashd_intf::Args::DFL_SIZE_MULT * total_memory() as u64,
-            balloon_size: Some(0),
             grain_factor: 2.0,
             ..HashdFakeCpuBench::base(&rctx)
         }

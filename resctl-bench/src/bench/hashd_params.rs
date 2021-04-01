@@ -86,7 +86,7 @@ impl Job for HashdParamsJob {
             if let Some(v) = self.rps_max {
                 extra_args.push(format!("--bench-rps-max={}", v));
             }
-            rctx.start_hashd_bench(None, Some(self.log_bps), extra_args)?;
+            rctx.start_hashd_bench(Some(self.log_bps), extra_args)?;
         }
         rctx.wait_cond(
             |af, progress| {

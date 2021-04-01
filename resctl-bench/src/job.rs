@@ -12,6 +12,7 @@ use std::sync::Arc;
 use std::time::{Duration, UNIX_EPOCH};
 use util::*;
 
+use super::base::MemInfo;
 use super::run::RunCtx;
 use rd_agent_intf::{SysReq, SysReqsReport};
 use resctl_bench_intf::{JobProps, JobSpec, Mode};
@@ -35,18 +36,19 @@ pub trait Job {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
-pub struct SysReqs {
-    pub required: BTreeSet<SysReq>,
-    pub missed: BTreeSet<SysReq>,
-    pub report: Option<SysReqsReport>,
+pub struct SysInfo {
+    pub sysreqs: BTreeSet<SysReq>,
+    pub sysreqs_missed: BTreeSet<SysReq>,
+    pub sysreqs_report: Option<SysReqsReport>,
     pub iocost: rd_agent_intf::IoCostReport,
+    pub mem: MemInfo,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct JobData {
     pub spec: JobSpec,
     pub period: (u64, u64),
-    pub sysreqs: SysReqs,
+    pub sysinfo: SysInfo,
     pub record: Option<serde_json::Value>,
     pub result: Option<serde_json::Value>,
 }
@@ -57,7 +59,7 @@ impl JobData {
         Self {
             spec: spec.clone(),
             period: (0, 0),
-            sysreqs: Default::default(),
+            sysinfo: Default::default(),
             record: None,
             result: None,
         }
@@ -189,8 +191,8 @@ impl JobCtx {
         } else {
             let job = self.job.as_mut().unwrap();
             let data = &mut self.data;
-            data.sysreqs.required = job.sysreqs();
-            rctx.add_sysreqs(data.sysreqs.required.clone());
+            data.sysinfo.sysreqs = job.sysreqs();
+            rctx.add_sysreqs(data.sysinfo.sysreqs.clone());
 
             data.period.0 = unix_now();
             if self.incremental {
@@ -202,22 +204,23 @@ impl JobCtx {
             data.period.1 = unix_now();
 
             if rctx.sysreqs_report().is_some() {
-                data.sysreqs.report = Some((*rctx.sysreqs_report().unwrap()).clone());
-                data.sysreqs.missed = rctx.missed_sysreqs();
+                data.sysinfo.sysreqs_report = Some((*rctx.sysreqs_report().unwrap()).clone());
+                data.sysinfo.sysreqs_missed = rctx.missed_sysreqs();
                 if let Some(rep) = rctx.report_sample() {
-                    data.sysreqs.iocost = rep.iocost.clone();
+                    data.sysinfo.iocost = rep.iocost.clone();
                 }
-            } else if rctx.sysreqs_forward.is_some() {
-                data.sysreqs = rctx.sysreqs_forward.take().unwrap();
+                data.sysinfo.mem = rctx.mem_info().clone();
+            } else if rctx.sysinfo_forward.is_some() {
+                data.sysinfo = rctx.sysinfo_forward.take().unwrap();
             } else if pdata.is_some() {
-                data.sysreqs = rctx
+                data.sysinfo = rctx
                     .jobs
                     .lock()
                     .unwrap()
                     .by_uid(self.uid)
                     .unwrap()
                     .data
-                    .sysreqs
+                    .sysinfo
                     .clone();
             } else {
                 warn!(
@@ -265,17 +268,29 @@ impl JobCtx {
         )
         .unwrap();
 
-        let sr = &data.sysreqs;
-        if sr.report.is_some() {
-            let rep = data.sysreqs.report.as_ref().unwrap();
+        let si = &data.sysinfo;
+        if si.sysreqs_report.is_some() {
+            let rep = data.sysinfo.sysreqs_report.as_ref().unwrap();
             writeln!(
                 buf,
-                "System info: nr_cpus={} memory={} swap={}\n",
+                "System info: nr_cpus={} memory={} swap={}",
                 rep.nr_cpus,
                 format_size(rep.total_memory),
                 format_size(rep.total_swap)
             )
             .unwrap();
+            if si.mem.profile > 0 {
+                writeln!(
+                    buf,
+                    "             mem_profile={} (avail={} share={} target={})",
+                    si.mem.profile,
+                    format_size(si.mem.avail),
+                    format_size(si.mem.share),
+                    format_size(si.mem.target)
+                )
+                .unwrap();
+            }
+            writeln!(buf, "").unwrap();
 
             writeln!(
                 buf,
@@ -292,22 +307,22 @@ impl JobCtx {
                 buf,
                 "         iosched={} wbt={} iocost={} other={}",
                 &rep.scr_dev_iosched,
-                match sr.missed.contains(&SysReq::NoWbt) {
+                match si.sysreqs_missed.contains(&SysReq::NoWbt) {
                     true => "on",
                     false => "off",
                 },
-                match sr.iocost.qos.enable > 0 {
+                match si.iocost.qos.enable > 0 {
                     true => "on",
                     false => "off",
                 },
-                match sr.missed.contains(&SysReq::NoOtherIoControllers) {
+                match si.sysreqs_missed.contains(&SysReq::NoOtherIoControllers) {
                     true => "on",
                     false => "off",
                 },
             )
             .unwrap();
 
-            let iocost = &data.sysreqs.iocost;
+            let iocost = &data.sysinfo.iocost;
             if iocost.qos.enable > 0 {
                 let model = &iocost.model;
                 let qos = &iocost.qos;
@@ -337,14 +352,14 @@ impl JobCtx {
             }
             writeln!(buf, "").unwrap();
 
-            if data.sysreqs.missed.len() > 0 {
+            if data.sysinfo.sysreqs_missed.len() > 0 {
                 writeln!(
                     buf,
                     "Missed requirements: {}\n",
                     &self
                         .data
-                        .sysreqs
-                        .missed
+                        .sysinfo
+                        .sysreqs_missed
                         .iter()
                         .map(|x| format!("{:?}", x))
                         .collect::<Vec<String>>()

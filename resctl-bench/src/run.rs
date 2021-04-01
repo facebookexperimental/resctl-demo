@@ -15,7 +15,7 @@ use util::*;
 use super::base::{Base, MemInfo};
 use super::progress::BenchProgress;
 use super::{Program, AGENT_BIN};
-use crate::job::{JobCtx, JobCtxs, JobData, SysReqs};
+use crate::job::{JobCtx, JobCtxs, JobData, SysInfo};
 use rd_agent_intf::{
     AgentFiles, ReportIter, ReportPathIter, RunnerState, Slice, SvcStateReport, SysReq,
     AGENT_SVC_NAME, HASHD_A_SVC_NAME, HASHD_BENCH_SVC_NAME, HASHD_B_SVC_NAME,
@@ -245,7 +245,7 @@ pub struct RunCtx<'a, 'b> {
     pub jobs: Arc<Mutex<JobCtxs>>,
     pub uid: u64,
     run_started_at: u64,
-    pub sysreqs_forward: Option<SysReqs>,
+    pub sysinfo_forward: Option<SysInfo>,
     result_path: &'a str,
     pub test: bool,
     skip_mem_profile: bool,
@@ -288,7 +288,7 @@ impl<'a, 'b> RunCtx<'a, 'b> {
             jobs,
             uid: 0,
             run_started_at: 0,
-            sysreqs_forward: None,
+            sysinfo_forward: None,
             result_path: &args.result,
             test: args.test,
             skip_mem_profile: false,
@@ -751,7 +751,6 @@ impl<'a, 'b> RunCtx<'a, 'b> {
 
     pub fn start_hashd_bench(
         &mut self,
-        balloon_size: Option<usize>,
         log_bps: Option<u64>,
         mut extra_args: Vec<String>,
     ) -> Result<()> {
@@ -774,8 +773,7 @@ impl<'a, 'b> RunCtx<'a, 'b> {
             next_seq = af.bench.data.hashd_seq + 1;
             af.cmd.data = Default::default();
             af.cmd.data.hashd[0].log_bps = log_bps.unwrap_or(dfl_params.log_bps);
-            af.cmd.data.bench_hashd_balloon_size =
-                balloon_size.unwrap_or(self.base.balloon_size_hashd_bench());
+            af.cmd.data.bench_hashd_balloon_size = self.base.balloon_size_hashd_bench();
             af.cmd.data.bench_hashd_args = extra_args;
             af.cmd.data.bench_hashd_seq = next_seq;
             af.cmd.save().unwrap();
@@ -1038,8 +1036,8 @@ impl<'a, 'b> RunCtx<'a, 'b> {
         // Find the nearest matching.
         while let Some(jctx) = iter.next() {
             if jctx.data.spec.kind == kind {
-                if self.sysreqs_forward.is_none() {
-                    self.sysreqs_forward = Some(jctx.data.sysreqs.clone());
+                if self.sysinfo_forward.is_none() {
+                    self.sysinfo_forward = Some(jctx.data.sysinfo.clone());
                 }
                 if jctx.update_seq != std::u64::MAX {
                     return Some(jctx.data.clone());
