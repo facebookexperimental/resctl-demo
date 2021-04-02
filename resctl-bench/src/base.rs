@@ -7,6 +7,7 @@ use std::path::PathBuf;
 use util::*;
 
 use super::bench::HashdFakeCpuBench;
+use super::iocost::IoCostQoSCfg;
 use super::run::RunCtx;
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -95,8 +96,12 @@ impl<'a> Base<'a> {
             bench.iocost.model = iocost_sys_save.model.clone();
             bench.iocost.qos = iocost_sys_save.qos.clone();
             info!("Using iocost parameters from \"/sys/fs/cgroup/io.cost.model,qos\"");
-        } else {
-            info!("Using iocost parameters from {:?}", &demo_bench_knobs_path);
+        }
+
+        if args.iocost_qos_ovr != Default::default() {
+            let qos_cfg = IoCostQoSCfg::new(&bench.iocost.qos, &args.iocost_qos_ovr);
+            info!("iocost QoS overrides: {}", qos_cfg.format());
+            bench.iocost.qos = qos_cfg.calc().unwrap();
         }
 
         if let Some(size) = args.hashd_size {

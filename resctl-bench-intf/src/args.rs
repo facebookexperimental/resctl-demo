@@ -1,12 +1,12 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
-use anyhow::{bail, Result};
+use anyhow::{bail, Context, Result};
 use log::error;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::process::exit;
 use util::*;
 
-use super::JobSpec;
+use super::{IoCostQoSOvr, JobSpec};
 use rd_agent_intf;
 
 lazy_static::lazy_static! {
@@ -55,6 +55,7 @@ pub struct Args {
     pub mem_profile: Option<u32>,
     pub mem_avail: usize,
     pub mode: Mode,
+    pub iocost_qos_ovr: IoCostQoSOvr,
     pub job_specs: Vec<JobSpec>,
 
     #[serde(skip)]
@@ -81,6 +82,7 @@ impl Default for Args {
             linux_tar: None,
             result: "".into(),
             mode: Mode::Run,
+            iocost_qos_ovr: Default::default(),
             job_specs: Default::default(),
             study_rep_d: None,
             rep_retention: 7 * 24 * 3600,
@@ -110,6 +112,24 @@ impl Args {
         self.dir.clone() + "/" + Self::RB_BENCH_FILENAME
     }
 
+    pub fn parse_propset(input: &str) -> BTreeMap<String, String> {
+        let mut propset = BTreeMap::<String, String>::new();
+        for tok in input.split(',') {
+            if tok.len() == 0 {
+                continue;
+            }
+
+            // Allow key-only properties.
+            let mut kv = tok.splitn(2, '=').collect::<Vec<&str>>();
+            while kv.len() < 2 {
+                kv.push("");
+            }
+
+            propset.insert(kv[0].into(), kv[1].into());
+        }
+        propset
+    }
+
     pub fn parse_job_spec(spec: &str) -> Result<JobSpec> {
         let mut groups = spec.split(':');
 
@@ -122,24 +142,9 @@ impl Args {
         let mut id = None;
 
         for group in groups {
-            let mut propset = BTreeMap::<String, String>::new();
-            for tok in group.split(',') {
-                if tok.len() == 0 {
-                    continue;
-                }
-
-                // Allow key-only properties.
-                let mut kv = tok.splitn(2, '=').collect::<Vec<&str>>();
-                while kv.len() < 2 {
-                    kv.push("");
-                }
-
-                match kv[0] {
-                    "id" => id = Some(kv[1]),
-                    key => {
-                        propset.insert(key.into(), kv[1].into());
-                    }
-                }
+            let mut propset = Self::parse_propset(group);
+            if let Some(v) = propset.remove("id") {
+                id = Some(v);
             }
             props.push(propset);
         }
@@ -149,7 +154,7 @@ impl Args {
             props.push(Default::default());
         }
 
-        Ok(JobSpec::new(kind, id, props))
+        Ok(JobSpec::new(kind, id.as_deref(), props))
     }
 
     fn parse_job_specs(subm: &clap::ArgMatches) -> Result<Vec<JobSpec>> {
@@ -201,6 +206,25 @@ impl Args {
             updated = true;
         }
 
+        // Only in run mode.
+        if let Some(v) = subm.value_of("iocost-qos") {
+            self.iocost_qos_ovr = if v.len() > 0 {
+                let mut ovr = IoCostQoSOvr::default();
+                for (k, v) in Self::parse_propset(v).iter() {
+                    ovr.parse(k, v)
+                        .with_context(|| format!("Parsing iocost QoS override \"{}={}\"", k, v))
+                        .unwrap();
+                }
+                ovr
+            } else {
+                Default::default()
+            };
+            updated = true;
+        }
+
+        // Only in study mode.
+        self.study_rep_d = subm.value_of("reports").map(|x| x.to_owned());
+
         match Self::parse_job_specs(subm) {
             Ok(job_specs) => {
                 if job_specs.len() > 0 {
@@ -244,6 +268,13 @@ impl JsonArgs for Args {
             .subcommand(
                 clap::SubCommand::with_name("run")
                     .about("Run benchmarks")
+                    .arg(
+                        clap::Arg::with_name("iocost-qos")
+                            .long("iocost-qos")
+                            .short("q")
+                            .takes_value(true)
+                            .help("iocost QoS overrides"),
+                    )
                     .arg(job_file_arg.clone())
                     .arg(job_spec_arg.clone()),
             )
@@ -252,7 +283,10 @@ impl JsonArgs for Args {
                     .about("Study benchmark results, all benchmarks must be complete")
                     .arg(
                         clap::Arg::with_name("reports")
+                            .long("reports")
+                            .short("r")
                             .required(true)
+                            .takes_value(true)
                             .help("Study reports in the specified directory"),
                     )
                     .arg(job_file_arg.clone())
@@ -378,10 +412,7 @@ impl JsonArgs for Args {
 
         updated |= match matches.subcommand() {
             ("run", Some(subm)) => self.process_subcommand(Mode::Run, subm),
-            ("study", Some(subm)) => {
-                self.study_rep_d = Some(subm.value_of("reports").unwrap().to_owned());
-                self.process_subcommand(Mode::Run, subm)
-            }
+            ("study", Some(subm)) => self.process_subcommand(Mode::Run, subm),
             ("format", Some(subm)) => self.process_subcommand(Mode::Format, subm),
             ("summary", Some(subm)) => self.process_subcommand(Mode::Summary, subm),
             ("pack", Some(_)) => {
