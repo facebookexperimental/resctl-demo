@@ -335,6 +335,10 @@ fn main() {
         panic!();
     });
 
+    if args_file.data.test {
+        warn!("Test mode enabled, results will be bogus");
+    }
+
     systemd::set_systemd_timeout(args_file.data.systemd_timeout);
 
     Program {

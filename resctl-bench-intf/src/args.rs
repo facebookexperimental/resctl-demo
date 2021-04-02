@@ -21,7 +21,6 @@ lazy_static::lazy_static! {
              --systemd-timeout=[SECS] 'Systemd timeout (default: {dfl_systemd_timeout})'
              --hashd-size=[SIZE]      'Override hashd memory footprint'
              --hashd-cpu-load=[keep|fake|real] 'Override hashd fake cpu load mode'
-         -s, --study=[DIR]            'Study reports in the specified directory, all benches must be complete'
          -a, --args=[FILE]            'Load base command line arguments from FILE'
          -c, --iocost-from-sys        'Use iocost parameters from io.cost.{{model,qos}} instead of bench.json'
              --keep-reports           'Don't delete expired report files'
@@ -55,12 +54,13 @@ pub struct Args {
     pub hashd_fake_cpu_load: Option<bool>,
     pub mem_profile: Option<u32>,
     pub mem_avail: usize,
-    pub study_rep_d: Option<String>,
     pub mode: Mode,
     pub job_specs: Vec<JobSpec>,
 
     #[serde(skip)]
     pub result: String,
+    #[serde(skip)]
+    pub study_rep_d: Option<String>,
     #[serde(skip)]
     pub iocost_from_sys: bool,
     #[serde(skip)]
@@ -248,6 +248,17 @@ impl JsonArgs for Args {
                     .arg(job_spec_arg.clone()),
             )
             .subcommand(
+                clap::SubCommand::with_name("study")
+                    .about("Study benchmark results, all benchmarks must be complete")
+                    .arg(
+                        clap::Arg::with_name("reports")
+                            .required(true)
+                            .help("Study reports in the specified directory"),
+                    )
+                    .arg(job_file_arg.clone())
+                    .arg(job_spec_arg.clone()),
+            )
+            .subcommand(
                 clap::SubCommand::with_name("format")
                     .about("Format benchmark results")
                     .arg(job_file_arg.clone())
@@ -357,14 +368,6 @@ impl JsonArgs for Args {
             };
             updated = true;
         }
-        if let Some(v) = matches.value_of("study") {
-            self.study_rep_d = if v.len() > 0 {
-                Some(v.to_owned())
-            } else {
-                None
-            };
-            updated = true;
-        }
 
         self.result = matches.value_of("RESULTFILE").unwrap().into();
         self.iocost_from_sys = matches.is_present("iocost-from-sys");
@@ -375,6 +378,10 @@ impl JsonArgs for Args {
 
         updated |= match matches.subcommand() {
             ("run", Some(subm)) => self.process_subcommand(Mode::Run, subm),
+            ("study", Some(subm)) => {
+                self.study_rep_d = Some(subm.value_of("reports").unwrap().to_owned());
+                self.process_subcommand(Mode::Run, subm)
+            }
             ("format", Some(subm)) => self.process_subcommand(Mode::Format, subm),
             ("summary", Some(subm)) => self.process_subcommand(Mode::Summary, subm),
             ("pack", Some(_)) => {

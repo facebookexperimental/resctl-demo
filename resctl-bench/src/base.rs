@@ -186,8 +186,11 @@ impl<'a> Base<'a> {
     }
 
     pub fn initialize(&self) -> Result<()> {
-        self.save_bench_knobs(&self.bench_knobs_path)
-            .with_context(|| format!("Saving {:?}", &self.bench_knobs_path))
+        if self.bench_knobs_path.len() > 0 {
+            self.save_bench_knobs(&self.bench_knobs_path)
+                .with_context(|| format!("Saving {:?}", &self.bench_knobs_path))?;
+        }
+        Ok(())
     }
 
     pub fn finish(&mut self, commit: bool) -> Result<()> {
