@@ -257,11 +257,16 @@ impl<'a> Base<'a> {
             Some(super::progress::BenchProgress::new().monitor_systemd_unit(HASHD_BENCH_SVC_NAME)),
         )?;
 
-        let mem_avail = rctx.access_agent_files(|af| Self::hashd_mem_usage_rep(&af.report.data));
+        let mut mem_avail =
+            rctx.access_agent_files(|af| Self::hashd_mem_usage_rep(&af.report.data));
 
         rctx.stop_hashd_bench()?;
         drop(rctx);
 
+        if self.args.test {
+            mem_avail =
+                mem_avail.max(Self::mem_share(self.args.mem_profile.unwrap_or(16)).unwrap());
+        }
         self.mem.avail = mem_avail;
         Ok(())
     }

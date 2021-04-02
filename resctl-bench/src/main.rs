@@ -11,6 +11,7 @@ use resctl_bench_intf::{Args, Mode};
 
 mod base;
 mod bench;
+mod iocost;
 mod job;
 mod progress;
 mod run;

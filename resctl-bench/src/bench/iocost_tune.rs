@@ -1,7 +1,5 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
-use super::iocost_qos::{
-    IoCostQoSOvr, IoCostQoSRecord, IoCostQoSRecordRun, IoCostQoSResult, IoCostQoSResultRun,
-};
+use super::iocost_qos::{IoCostQoSRecord, IoCostQoSRecordRun, IoCostQoSResult, IoCostQoSResultRun};
 use super::protection::MemHog;
 use super::*;
 use statrs::distribution::{Normal, Univariate};
@@ -890,7 +888,8 @@ impl Job for IoCostTuneJob {
                 .zip(qres.runs.iter().filter_map(|x| x.as_ref()))
             {
                 let vrate = match qrecr.ovr {
-                    Some(IoCostQoSOvr {
+                    IoCostQoSOvr {
+                        off: false,
                         rpct: None,
                         rlat: None,
                         wpct: None,
@@ -899,7 +898,7 @@ impl Job for IoCostTuneJob {
                         max: Some(max),
                         skip: _,
                         min_adj: _,
-                    }) if min == max => min,
+                    } if min == max => min,
                     _ => continue,
                 };
                 if let Some(val) = sel.select(qrecr, qresr, &isol_prot_pct) {

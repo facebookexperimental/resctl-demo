@@ -20,53 +20,6 @@ const DFL_RETRIES: u32 = 1;
 // Don't go below 1% of the specified model when applying vrate-intvs.
 const VRATE_INTVS_MIN: f64 = 1.0;
 
-// The absolute minimum performance level this bench will probe. It's
-// roughly 75% of what a modern 7200rpm hard disk can do. With default 16G
-// profile, going lower than this makes hashd too slow to recover from
-// reclaim hits. seqiops are artificially lowered to avoid limiting
-// throttling of older SSDs which have similar seqiops as hard drives.
-const ABS_MIN_PERF: IoCostModelParams = IoCostModelParams {
-    rbps: 125 << 20,
-    rseqiops: 280,
-    rrandiops: 280,
-    wbps: 125 << 20,
-    wseqiops: 280,
-    wrandiops: 280,
-};
-
-#[derive(Serialize, Deserialize, Debug, Default, Clone, PartialEq)]
-pub struct IoCostQoSOvr {
-    pub rpct: Option<f64>,
-    pub rlat: Option<u64>,
-    pub wpct: Option<f64>,
-    pub wlat: Option<u64>,
-    pub min: Option<f64>,
-    pub max: Option<f64>,
-
-    #[serde(skip)]
-    pub skip: bool,
-    #[serde(skip)]
-    pub min_adj: bool,
-}
-
-impl IoCostQoSOvr {
-    /// See IoCostQoSParams::sanitize().
-    fn sanitize(&mut self) {
-        if let Some(rpct) = self.rpct.as_mut() {
-            *rpct = format!("{:.2}", rpct).parse::<f64>().unwrap();
-        }
-        if let Some(wpct) = self.wpct.as_mut() {
-            *wpct = format!("{:.2}", wpct).parse::<f64>().unwrap();
-        }
-        if let Some(min) = self.min.as_mut() {
-            *min = format!("{:.2}", min).parse::<f64>().unwrap();
-        }
-        if let Some(max) = self.max.as_mut() {
-            *max = format!("{:.2}", max).parse::<f64>().unwrap();
-        }
-    }
-}
-
 struct IoCostQoSJob {
     stor_base_loops: u32,
     stor_loops: u32,
@@ -79,7 +32,7 @@ struct IoCostQoSJob {
     allow_fail: bool,
     stor_job: StorageJob,
     prot_job: ProtectionJob,
-    runs: Vec<Option<IoCostQoSOvr>>,
+    runs: Vec<IoCostQoSOvr>,
 }
 
 pub struct IoCostQoSBench {}
@@ -100,7 +53,7 @@ impl Bench for IoCostQoSBench {
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct IoCostQoSRecordRun {
     pub period: (u64, u64),
-    pub ovr: Option<IoCostQoSOvr>,
+    pub ovr: IoCostQoSOvr,
     pub qos: Option<IoCostQoSParams>,
     pub stor: StorageRecord,
     pub prot: ProtectionRecord,
@@ -163,7 +116,10 @@ impl IoCostQoSJob {
         let mut mem_profile = 0;
         let mut retries = DFL_RETRIES;
         let mut allow_fail = false;
-        let mut runs = vec![None];
+        let mut runs = vec![IoCostQoSOvr {
+            off: true,
+            ..Default::default()
+        }];
         let mut dither = false;
         let mut dither_dist = None;
         let mut ign_min_perf = false;
@@ -201,17 +157,11 @@ impl IoCostQoSJob {
         for props in spec.props[1..].iter() {
             let mut ovr = IoCostQoSOvr::default();
             for (k, v) in props.iter() {
-                match k.as_str() {
-                    "rpct" => ovr.rpct = Some(v.parse::<f64>()?),
-                    "rlat" => ovr.rlat = Some(v.parse::<u64>()?),
-                    "wpct" => ovr.wpct = Some(v.parse::<f64>()?),
-                    "wlat" => ovr.wlat = Some(v.parse::<u64>()?),
-                    "min" => ovr.min = Some(v.parse::<f64>()?),
-                    "max" => ovr.max = Some(v.parse::<f64>()?),
-                    k => bail!("unknown property key {:?}", k),
+                if !ovr.parse(k, v)? {
+                    bail!("unknown property key {:?}", k);
                 }
             }
-            runs.push(Some(ovr));
+            runs.push(ovr);
         }
 
         prot_spec.props[1].insert("isol-pct".to_owned(), isol_pct.clone());
@@ -269,7 +219,7 @@ impl IoCostQoSJob {
                     ..Default::default()
                 };
                 ovr.sanitize();
-                runs.push(Some(ovr));
+                runs.push(ovr);
                 vrate -= click;
             }
         }
@@ -315,85 +265,8 @@ impl IoCostQoSJob {
         true
     }
 
-    fn calc_abs_min_vrate(model: &IoCostModelParams) -> f64 {
-        format!(
-            "{:.2}",
-            (ABS_MIN_PERF.rbps as f64 / model.rbps as f64)
-                .max(ABS_MIN_PERF.rseqiops as f64 / model.rseqiops as f64)
-                .max(ABS_MIN_PERF.rrandiops as f64 / model.rrandiops as f64)
-                .max(ABS_MIN_PERF.wbps as f64 / model.wbps as f64)
-                .max(ABS_MIN_PERF.wseqiops as f64 / model.wseqiops as f64)
-                .max(ABS_MIN_PERF.wrandiops as f64 / model.wrandiops as f64)
-                * 100.0
-        )
-        .parse::<f64>()
-        .unwrap()
-    }
-
-    fn apply_qos_ovr(ovr: Option<&IoCostQoSOvr>, qos: &IoCostQoSParams) -> IoCostQoSParams {
-        let mut qos = qos.clone();
-        if ovr.is_none() {
-            return qos;
-        }
-        let ovr = ovr.unwrap();
-
-        if let Some(v) = ovr.rpct {
-            qos.rpct = v;
-        }
-        if let Some(v) = ovr.rlat {
-            qos.rlat = v;
-        }
-        if let Some(v) = ovr.wpct {
-            qos.wpct = v;
-        }
-        if let Some(v) = ovr.wlat {
-            qos.wlat = v;
-        }
-        if let Some(v) = ovr.min {
-            qos.min = v;
-        }
-        if let Some(v) = ovr.max {
-            qos.max = v;
-        }
-        qos.sanitize();
-        qos
-    }
-
-    fn format_qos_ovr(ovr: Option<&IoCostQoSOvr>, qos: &IoCostQoSParams) -> String {
-        if ovr.is_none() {
-            return "iocost=off".into();
-        }
-        let qos = Self::apply_qos_ovr(ovr, qos);
-
-        let fmt_f64 = |name: &str, ov: Option<f64>, qf: f64| -> String {
-            if ov.is_some() {
-                format!("[{}={:.2}]", name, ov.unwrap())
-            } else {
-                format!("{}={:.2}", name, qf)
-            }
-        };
-        let fmt_u64 = |name: &str, ov: Option<u64>, qf: u64| -> String {
-            if ov.is_some() {
-                format!("[{}={}]", name, ov.unwrap())
-            } else {
-                format!("{}={}", name, qf)
-            }
-        };
-
-        let ovr = ovr.unwrap();
-        format!(
-            "{} {} {} {} {} {}",
-            fmt_f64("rpct", ovr.rpct, qos.rpct),
-            fmt_u64("rlat", ovr.rlat, qos.rlat),
-            fmt_f64("wpct", ovr.wpct, qos.wpct),
-            fmt_u64("wlat", ovr.wlat, qos.wlat),
-            fmt_f64("min", ovr.min, qos.min),
-            fmt_f64("max", ovr.max, qos.max),
-        )
-    }
-
     fn find_matching_rec_run<'a>(
-        ovr: Option<&IoCostQoSOvr>,
+        ovr: &IoCostQoSOvr,
         prev_rec: &'a IoCostQoSRecord,
     ) -> Option<&'a IoCostQoSRecordRun> {
         for recr in prev_rec
@@ -402,35 +275,11 @@ impl IoCostQoSJob {
             .filter_map(|x| x.as_ref())
             .chain(prev_rec.inc_runs.iter())
         {
-            if ovr == recr.ovr.as_ref() {
+            if *ovr == recr.ovr {
                 return Some(recr);
             }
         }
         None
-    }
-
-    fn apply_ovr(rctx: &mut RunCtx, ovr: &Option<&IoCostQoSOvr>) {
-        // Set up init function to configure qos after agent startup.
-        let ovr_copy = ovr.cloned();
-        rctx.add_agent_init_fn(move |rctx| {
-            rctx.access_agent_files(|af| {
-                let bench = &mut af.bench.data;
-                let slices = &mut af.slices.data;
-                let rep = &af.report.data;
-                match ovr_copy.as_ref() {
-                    Some(ovr) => {
-                        slices.disable_seqs.io = 0;
-                        bench.iocost.qos = Self::apply_qos_ovr(Some(ovr), &bench.iocost.qos);
-                        af.bench.save().unwrap();
-                        af.slices.save().unwrap();
-                    }
-                    None => {
-                        slices.disable_seqs.io = rep.seq;
-                        af.slices.save().unwrap();
-                    }
-                }
-            });
-        });
     }
 
     fn set_prot_size_range(
@@ -451,7 +300,7 @@ impl IoCostQoSJob {
         rctx: &mut RunCtx,
         sjob: &mut StorageJob,
         pjob: &mut ProtectionJob,
-        ovr: Option<&IoCostQoSOvr>,
+        qos_cfg: &IoCostQoSCfg,
         nr_stor_retries: u32,
     ) -> Result<IoCostQoSRecordRun> {
         let started_at = unix_now();
@@ -460,7 +309,7 @@ impl IoCostQoSJob {
         let mut tries = 0;
         let rec_json = loop {
             tries += 1;
-            Self::apply_ovr(rctx, &ovr);
+            qos_cfg.apply(rctx);
             let r = sjob.clone().run(rctx);
             rctx.stop_agent();
             match r {
@@ -499,7 +348,7 @@ impl IoCostQoSJob {
         // run of the storage bench. Update it with the current mean size.
         rctx.set_hashd_mem_size(stor_res.mem_size)?;
 
-        Self::apply_ovr(rctx, &ovr);
+        qos_cfg.apply(rctx);
         Self::set_prot_size_range(pjob, &stor_rec, &stor_res);
 
         let out = pjob.run(rctx);
@@ -515,14 +364,15 @@ impl IoCostQoSJob {
             }
         };
 
-        let qos = match ovr.as_ref() {
-            Some(_) => Some(rctx.access_agent_files(|af| af.bench.data.iocost.qos.clone())),
-            None => None,
+        let qos = if qos_cfg.ovr.off {
+            None
+        } else {
+            Some(rctx.access_agent_files(|af| af.bench.data.iocost.qos.clone()))
         };
 
         Ok(IoCostQoSRecordRun {
             period: (started_at, unix_now()),
-            ovr: ovr.cloned(),
+            ovr: qos_cfg.ovr.clone(),
             qos,
             stor: stor_rec,
             prot: prot_rec,
@@ -624,20 +474,9 @@ impl Job for IoCostQoSJob {
 
         // Mark the ones with too low a max rate to run.
         if !self.ign_min_perf {
-            let abs_min_vrate = Self::calc_abs_min_vrate(&bench_knobs.iocost.model);
+            let abs_min_vrate = iocost_min_vrate(&bench_knobs.iocost.model);
             for ovr in self.runs.iter_mut() {
-                if let Some(ovr) = ovr.as_mut() {
-                    if let Some(max) = ovr.max.as_mut() {
-                        if *max < abs_min_vrate {
-                            ovr.skip = true;
-                        } else if let Some(min) = ovr.min.as_mut() {
-                            if *min < abs_min_vrate {
-                                *min = abs_min_vrate;
-                                ovr.min_adj = true;
-                            }
-                        }
-                    }
-                }
+                ovr.skip_or_adj(abs_min_vrate);
             }
         }
 
@@ -645,19 +484,17 @@ impl Job for IoCostQoSJob {
         // without waiting for the benches to run.
         let mut nr_to_run = 0;
         for (i, ovr) in self.runs.iter().enumerate() {
-            let qos = &bench_knobs.iocost.qos;
+            let qos_cfg = IoCostQoSCfg::new(&bench_knobs.iocost.qos, ovr);
             let mut skip = false;
             let mut extra_state = " ";
-            if let Some(ovr) = ovr.as_ref() {
-                if ovr.skip {
-                    skip = true;
-                    extra_state = "s";
-                } else if ovr.min_adj {
-                    extra_state = "a";
-                }
+            if ovr.skip {
+                skip = true;
+                extra_state = "s";
+            } else if ovr.min_adj {
+                extra_state = "a";
             }
 
-            let new = if !skip && Self::find_matching_rec_run(ovr.as_ref(), &prev_rec).is_none() {
+            let new = if !skip && Self::find_matching_rec_run(&ovr, &prev_rec).is_none() {
                 nr_to_run += 1;
                 true
             } else {
@@ -669,7 +506,7 @@ impl Job for IoCostQoSJob {
                 i,
                 if new { "+" } else { "-" },
                 extra_state,
-                Self::format_qos_ovr(ovr.as_ref(), qos),
+                qos_cfg.format(),
             );
         }
 
@@ -700,11 +537,11 @@ impl Job for IoCostQoSJob {
 
         let mut runs = vec![];
         for (i, ovr) in self.runs.iter().enumerate() {
-            let qos = &bench_knobs.iocost.qos;
-            if let Some(recr) = Self::find_matching_rec_run(ovr.as_ref(), &prev_rec) {
+            let qos_cfg = IoCostQoSCfg::new(&bench_knobs.iocost.qos, ovr);
+            if let Some(recr) = Self::find_matching_rec_run(&ovr, &prev_rec) {
                 runs.push(Some(recr.clone()));
                 continue;
-            } else if ovr.is_some() && ovr.as_ref().unwrap().skip {
+            } else if ovr.skip {
                 runs.push(None);
                 continue;
             }
@@ -713,11 +550,7 @@ impl Job for IoCostQoSJob {
                 "iocost-qos[{:02}]: Running storage benchmark with QoS parameters:",
                 i
             );
-            info!(
-                "iocost-qos[{:02}]: {}",
-                i,
-                Self::format_qos_ovr(ovr.as_ref(), qos)
-            );
+            info!("iocost-qos[{:02}]: {}", i, qos_cfg.format());
 
             loop {
                 let mut sjob = self.stor_job.clone();
@@ -728,18 +561,18 @@ impl Job for IoCostQoSJob {
                 };
                 let mut pjob = self.prot_job.clone();
 
-                match Self::run_one(rctx, &mut sjob, &mut pjob, ovr.as_ref(), self.retries) {
+                match Self::run_one(rctx, &mut sjob, &mut pjob, &qos_cfg, self.retries) {
                     Ok(recr) => {
                         last_mem_profile = Some(recr.stor.mem.profile);
 
                         // Sanity check QoS params.
                         if recr.qos.is_some() {
-                            let target_qos = Self::apply_qos_ovr(ovr.as_ref(), qos);
-                            if recr.qos.as_ref().unwrap() != &target_qos {
+                            let target_qos = qos_cfg.calc();
+                            if recr.qos != target_qos {
                                 bail!(
                                     "iocost-qos: result qos ({}) != target qos ({})",
                                     &recr.qos.as_ref().unwrap(),
-                                    &target_qos
+                                    target_qos.as_ref().unwrap(),
                                 );
                             }
                         }
@@ -827,12 +660,13 @@ impl Job for IoCostQoSJob {
                     continue;
                 }
                 let (recr, resr) = (recr.as_ref().unwrap(), resr.as_ref().unwrap());
+                let qos_cfg = IoCostQoSCfg::new(&rec.base_qos, &recr.ovr);
 
                 writeln!(
                     out,
                     "\n\n{}\nQoS: {}\n",
                     &double_underline(&format!("RUN {:02}", i)),
-                    Self::format_qos_ovr(recr.ovr.as_ref(), &rec.base_qos)
+                    qos_cfg.format()
                 )
                 .unwrap();
                 writeln!(out, "{}", underline(&format!("RUN {:02} - Storage", i))).unwrap();
@@ -915,14 +749,9 @@ impl Job for IoCostQoSJob {
         }
 
         for (i, ovr) in self.runs.iter().enumerate() {
-            write!(
-                out,
-                "[{:02}] QoS: {}",
-                i,
-                Self::format_qos_ovr(ovr.as_ref(), &rec.base_qos)
-            )
-            .unwrap();
-            if ovr.is_none() {
+            let qos_cfg = IoCostQoSCfg::new(&rec.base_qos, ovr);
+            write!(out, "[{:02}] QoS: {}", i, qos_cfg.format()).unwrap();
+            if ovr.off {
                 writeln!(out, " mem_profile={}", base_stor_rec.mem.profile).unwrap();
             } else {
                 writeln!(out, "").unwrap();
