@@ -1,5 +1,5 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
-use anyhow::Result;
+use anyhow::{Context, Result};
 use log::{debug, error, info, warn};
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
@@ -186,6 +186,23 @@ impl RunnerData {
         re_bench || re_cmd || re_slice
     }
 
+    fn apply_swappiness(&self, swappiness: Option<u32>) -> Result<()> {
+        let cur = read_swappiness()?;
+        let target = swappiness
+            .unwrap_or(self.cfg.sr_swappiness.unwrap())
+            .min(200);
+        if cur != target {
+            if target >= 60 {
+                info!("cmd: Updating swappiness {} -> {}", cur, target);
+            } else {
+                warn!("cmd: Updating swappiness {} -> {} (< 60)", cur, target);
+            }
+            write_one_line(SWAPPINESS_PATH, &format!("{}", target))
+                .context("Updating swappiness")?;
+        }
+        Ok(())
+    }
+
     fn apply_workloads(&mut self) -> Result<()> {
         let cmd = &self.sobjs.cmd_file.data;
         let bench = &self.sobjs.bench_file.data;
@@ -213,6 +230,8 @@ impl RunnerData {
                 &self.cfg.cmd_ack_path, &e
             );
         }
+
+        self.apply_swappiness(cmd.swappiness)?;
 
         match self.state {
             Idle => {

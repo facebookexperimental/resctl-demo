@@ -101,6 +101,16 @@ pub fn nr_cpus() -> usize {
     }
 }
 
+pub const SWAPPINESS_PATH: &str = "/proc/sys/vm/swappiness";
+
+pub fn read_swappiness() -> Result<u32> {
+    Ok(read_one_line(SWAPPINESS_PATH)
+        .context("Reading swappiness")?
+        .trim()
+        .parse::<u32>()
+        .context("Parsing swappiness")?)
+}
+
 pub fn override_system_configuration(
     total_memory: Option<usize>,
     total_swap: Option<usize>,

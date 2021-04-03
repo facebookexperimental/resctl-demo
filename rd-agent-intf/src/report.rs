@@ -52,6 +52,7 @@ const REPORT_DOC: &str = "\
 //  sideloads{}.svc.state: Sideload systemd service state
 //  iocost.model: iocost model parameters currently in effect
 //  iocost.qos: iocost QoS parameters currently in effect
+//  swappiness: vm.swappiness
 //  iolat.{read|write|discard|flush}.p*: IO latency distributions
 //  iolat_cum.{read|write|discard|flush}.p*: Cumulative IO latency distributions
 //
@@ -470,6 +471,7 @@ pub struct Report {
     pub iolat: IoLatReport,
     pub iolat_cum: IoLatReport,
     pub iocost: IoCostReport,
+    pub swappiness: u32,
 }
 
 impl Default for Report {
@@ -490,6 +492,7 @@ impl Default for Report {
             iolat: Default::default(),
             iolat_cum: Default::default(),
             iocost: Default::default(),
+            swappiness: 60,
         }
     }
 }

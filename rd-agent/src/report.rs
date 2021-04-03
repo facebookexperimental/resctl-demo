@@ -700,6 +700,7 @@ impl ReportWorker {
             iolat: self.iolat.clone(),
             iolat_cum: self.iolat_cum.clone(),
             iocost: IoCostReport::read(self.iocost_devnr)?,
+            swappiness: read_swappiness()?,
         })
     }
 

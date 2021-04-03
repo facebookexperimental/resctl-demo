@@ -22,6 +22,7 @@ lazy_static::lazy_static! {
              --hashd-size=[SIZE]      'Override hashd memory footprint'
              --hashd-cpu-load=[keep|fake|real] 'Override hashd fake cpu load mode'
              --iocost-qos=[OVRS]      'iocost QoS overrides'
+             --swappiness=[OVR]       'swappiness override [0, 200]'
          -a, --args=[FILE]            'Load base command line arguments from FILE'
              --iocost-from-sys        'Use iocost parameters from io.cost.{{model,qos}} instead of bench.json'
              --keep-reports           'Don't delete expired report files'
@@ -57,6 +58,7 @@ pub struct Args {
     pub mem_avail: usize,
     pub mode: Mode,
     pub iocost_qos_ovr: IoCostQoSOvr,
+    pub swappiness_ovr: Option<u32>,
     pub job_specs: Vec<JobSpec>,
 
     #[serde(skip)]
@@ -84,6 +86,7 @@ impl Default for Args {
             result: "".into(),
             mode: Mode::Run,
             iocost_qos_ovr: Default::default(),
+            swappiness_ovr: None,
             job_specs: Default::default(),
             study_rep_d: None,
             rep_retention: 7 * 24 * 3600,
@@ -378,6 +381,17 @@ impl JsonArgs for Args {
                 Default::default()
             };
             updated = true;
+        }
+        if let Some(v) = matches.value_of("swappiness") {
+            self.swappiness_ovr = if v.len() > 0 {
+                let v = v.parse::<u32>().expect("Parsing swappiness");
+                if v > 200 {
+                    panic!("Swappiness {} out of range", v);
+                }
+                Some(v)
+            } else {
+                None
+            };
         }
         if let Some(v) = matches.value_of("mem-profile") {
             self.mem_profile = match v {

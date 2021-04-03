@@ -599,6 +599,9 @@ impl<'a, 'b> RunCtx<'a, 'b> {
             })?;
         }
 
+        // Congure swappiness.
+        self.access_agent_files(|af| af.cmd.data.swappiness = self.args.swappiness_ovr);
+
         // Run init functions.
         if self.agent_init_fns.len() > 0 {
             let mut init_fns: Vec<Box<dyn FnMut(&mut RunCtx)>> = vec![];

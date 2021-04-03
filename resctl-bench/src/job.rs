@@ -42,6 +42,7 @@ pub struct SysInfo {
     pub sysreqs_report: Option<SysReqsReport>,
     pub iocost: rd_agent_intf::IoCostReport,
     pub mem: MemInfo,
+    pub swappiness: u32,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -208,6 +209,7 @@ impl JobCtx {
                 data.sysinfo.sysreqs_missed = rctx.missed_sysreqs();
                 if let Some(rep) = rctx.report_sample() {
                     data.sysinfo.iocost = rep.iocost.clone();
+                    data.sysinfo.swappiness = rep.swappiness;
                 }
                 data.sysinfo.mem = rctx.mem_info().clone();
             } else if rctx.sysinfo_forward.is_some() {
@@ -273,10 +275,11 @@ impl JobCtx {
             let rep = data.sysinfo.sysreqs_report.as_ref().unwrap();
             writeln!(
                 buf,
-                "System info: nr_cpus={} memory={} swap={}",
+                "System info: nr_cpus={} memory={} swap={} swappiness={}",
                 rep.nr_cpus,
                 format_size(rep.total_memory),
-                format_size(rep.total_swap)
+                format_size(rep.total_swap),
+                si.swappiness
             )
             .unwrap();
             if si.mem.profile > 0 {
