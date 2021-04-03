@@ -100,7 +100,7 @@ impl<'a> Base<'a> {
 
         if args.iocost_qos_ovr != Default::default() {
             let qos_cfg = IoCostQoSCfg::new(&bench.iocost.qos, &args.iocost_qos_ovr);
-            info!("iocost QoS overrides: {}", qos_cfg.format());
+            info!("base: iocost QoS overrides: {}", qos_cfg.format());
             bench.iocost.qos = qos_cfg.calc().unwrap();
         }
 
@@ -228,7 +228,7 @@ impl<'a> Base<'a> {
     }
 
     pub fn estimate_available_memory(&mut self) -> Result<()> {
-        info!("Measuring available memory...");
+        info!("base: Measuring available memory...");
 
         let mut rctx = RunCtx::new(self.args, self, Default::default());
         rctx.skip_mem_profile()
@@ -282,7 +282,7 @@ impl<'a> Base<'a> {
     fn mem_share(mem_profile: u32) -> Result<usize> {
         match mem_profile {
             v if v == 0 || (v & (v - 1)) != 0 => Err(anyhow!(
-                "mem-profile: invalid profile {}, must be positive power of two",
+                "base: Invalid mem-profile {}, must be positive power of two",
                 mem_profile
             )),
             v if v <= 4 => Ok(((v as usize) << 30) / 2),
@@ -308,7 +308,7 @@ impl<'a> Base<'a> {
 
     pub fn update_mem_profile(&mut self) -> Result<()> {
         if self.args.mem_profile.is_none() {
-            info!("mem-profile: Requested by benchmark but disabled on command line");
+            info!("base: mem-profile requested by benchmark but disabled on command line");
             self.mem = MemInfo {
                 avail: total_memory(),
                 profile: 0,
@@ -323,7 +323,7 @@ impl<'a> Base<'a> {
             let ask = self.args.mem_profile.unwrap();
             if ask != resctl_bench_intf::Args::DFL_MEM_PROFILE {
                 warn!(
-                    "mem-profile: Non-standard profile {} requested, \
+                    "base: Non-standard mem-profile {} requested, \
                      the result won't be directly comparable",
                     ask
                 );
@@ -335,14 +335,14 @@ impl<'a> Base<'a> {
 
         if self.mem.share > self.mem.avail {
             bail!(
-                "mem-profile: Available memory {} too small for profile {}, use lower mem-profile",
+                "base: Available memory {} too small for mem-profile {}, use lower mem-profile",
                 format_size(self.mem.avail),
                 self.mem.profile
             );
         }
 
         info!(
-            "mem-profile: {}G (mem_avail {}, mem_share {}, mem_target {})",
+            "base: mem-profile {}G (mem_avail {}, mem_share {}, mem_target {})",
             self.mem.profile,
             format_size(self.mem.avail),
             format_size(self.mem.share),
