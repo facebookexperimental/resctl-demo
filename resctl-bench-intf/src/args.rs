@@ -21,8 +21,9 @@ lazy_static::lazy_static! {
              --systemd-timeout=[SECS] 'Systemd timeout (default: {dfl_systemd_timeout})'
              --hashd-size=[SIZE]      'Override hashd memory footprint'
              --hashd-cpu-load=[keep|fake|real] 'Override hashd fake cpu load mode'
+             --iocost-qos=[OVRS]      'iocost QoS overrides'
          -a, --args=[FILE]            'Load base command line arguments from FILE'
-         -c, --iocost-from-sys        'Use iocost parameters from io.cost.{{model,qos}} instead of bench.json'
+             --iocost-from-sys        'Use iocost parameters from io.cost.{{model,qos}} instead of bench.json'
              --keep-reports           'Don't delete expired report files'
              --clear-reports          'Remove existing report files'
              --test                   'Test mode for development'
@@ -206,22 +207,6 @@ impl Args {
             updated = true;
         }
 
-        // Only in run mode.
-        if let Some(v) = subm.value_of("iocost-qos") {
-            self.iocost_qos_ovr = if v.len() > 0 {
-                let mut ovr = IoCostQoSOvr::default();
-                for (k, v) in Self::parse_propset(v).iter() {
-                    ovr.parse(k, v)
-                        .with_context(|| format!("Parsing iocost QoS override \"{}={}\"", k, v))
-                        .unwrap();
-                }
-                ovr
-            } else {
-                Default::default()
-            };
-            updated = true;
-        }
-
         // Only in study mode.
         self.study_rep_d = subm.value_of("reports").map(|x| x.to_owned());
 
@@ -268,13 +253,6 @@ impl JsonArgs for Args {
             .subcommand(
                 clap::SubCommand::with_name("run")
                     .about("Run benchmarks")
-                    .arg(
-                        clap::Arg::with_name("iocost-qos")
-                            .long("iocost-qos")
-                            .short("q")
-                            .takes_value(true)
-                            .help("iocost QoS overrides"),
-                    )
                     .arg(job_file_arg.clone())
                     .arg(job_spec_arg.clone()),
             )
@@ -384,6 +362,20 @@ impl JsonArgs for Args {
                 "fake" => Some(true),
                 "real" => Some(false),
                 v => panic!("Invalid --hashd-cpu-load value {:?}", v),
+            };
+            updated = true;
+        }
+        if let Some(v) = matches.value_of("iocost-qos") {
+            self.iocost_qos_ovr = if v.len() > 0 {
+                let mut ovr = IoCostQoSOvr::default();
+                for (k, v) in Self::parse_propset(v).iter() {
+                    ovr.parse(k, v)
+                        .with_context(|| format!("Parsing iocost QoS override \"{}={}\"", k, v))
+                        .unwrap();
+                }
+                ovr
+            } else {
+                Default::default()
             };
             updated = true;
         }
