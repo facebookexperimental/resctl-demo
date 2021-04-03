@@ -473,7 +473,10 @@ impl Balloon {
 
         svc.set_slice(Slice::Sys.name())
             .add_prop("MemorySwapMax".into(), systemd::Prop::U64(0))
-            .add_prop("Slice".into(), systemd::Prop::String("balloon.slice".into()));
+            .add_prop(
+                "Slice".into(),
+                systemd::Prop::String("balloon.slice".into()),
+            );
         svc.start()?;
 
         self.size = size;

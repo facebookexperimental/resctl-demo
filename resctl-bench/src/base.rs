@@ -353,7 +353,7 @@ impl<'a> Base<'a> {
     }
 
     pub fn workload_mem_low(&self) -> usize {
-        self.mem.share - rd_agent_intf::SliceConfig::dfl_mem_margin(self.mem.share, false) as usize
+        (self.mem.share as f64 * (1.0 - self.args.mem_margin).max(0.0)) as usize
     }
 
     // hashd benches run with mem_target.

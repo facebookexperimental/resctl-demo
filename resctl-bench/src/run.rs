@@ -588,6 +588,11 @@ impl<'a, 'b> RunCtx<'a, 'b> {
         if !self.skip_mem_profile {
             let work_mem_low = self.base.workload_mem_low();
             let ballon_ratio = self.base.balloon_size() as f64 / total_memory() as f64;
+            info!(
+                "base: workload_mem_low={} ballon_size={}",
+                format_size(work_mem_low),
+                format_size(self.base.balloon_size())
+            );
 
             self.access_agent_files(|af| {
                 af.slices.data[rd_agent_intf::Slice::Work].mem_low =

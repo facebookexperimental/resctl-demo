@@ -10,30 +10,35 @@ use super::{IoCostQoSOvr, JobSpec};
 use rd_agent_intf;
 
 lazy_static::lazy_static! {
-    static ref TOP_ARGS_STR: String = format!(
-        "<RESULTFILE>                 'Record the bench results into the specified json file'
-         -d, --dir=[TOPDIR]           'Top-level dir for operation and scratch files (default: {dfl_dir})'
-         -D, --dev=[DEVICE]           'Scratch device override (e.g. nvme0n1)'
-         -l, --linux=[PATH]           'Path to linux.tar, downloaded automatically if not specified'
-         -R, --rep-retention=[SECS]   '1s report retention in seconds (default: {dfl_rep_ret:.1}h)'
-         -M, --mem-profile=[PROF|off] 'Memory profile in power-of-two gigabytes, \"off\" to disable (default: {dfl_mem_prof})'
-         -m, --mem-avail=[SIZE]       'Amount of memory available for resctl-bench'
-             --systemd-timeout=[SECS] 'Systemd timeout (default: {dfl_systemd_timeout})'
-             --hashd-size=[SIZE]      'Override hashd memory footprint'
-             --hashd-cpu-load=[keep|fake|real] 'Override hashd fake cpu load mode'
-             --iocost-qos=[OVRS]      'iocost QoS overrides'
-             --swappiness=[OVR]       'swappiness override [0, 200]'
-         -a, --args=[FILE]            'Load base command line arguments from FILE'
-             --iocost-from-sys        'Use iocost parameters from io.cost.{{model,qos}} instead of bench.json'
-             --keep-reports           'Don't delete expired report files'
-             --clear-reports          'Remove existing report files'
-             --test                   'Test mode for development'
-         -v...                        'Sets the level of verbosity'",
-        dfl_dir = Args::default().dir,
-        dfl_rep_ret = Args::default().rep_retention,
-        dfl_mem_prof = Args::default().mem_profile.unwrap(),
-        dfl_systemd_timeout = format_duration(Args::default().systemd_timeout),
-    );
+    static ref TOP_ARGS_STR: String = {
+        let dfl_args = Args::default();
+        format!(
+            "<RESULTFILE>                 'Record the bench results into the specified json file'
+             -d, --dir=[TOPDIR]           'Top-level dir for operation and scratch files (default: {dfl_dir})'
+             -D, --dev=[DEVICE]           'Scratch device override (e.g. nvme0n1)'
+             -l, --linux=[PATH]           'Path to linux.tar, downloaded automatically if not specified'
+             -R, --rep-retention=[SECS]   '1s report retention in seconds (default: {dfl_rep_ret:.1}h)'
+             -M, --mem-profile=[PROF|off] 'Memory profile in power-of-two gigabytes, \"off\" to disable (default: {dfl_mem_prof})'
+             -m, --mem-avail=[SIZE]       'Amount of memory available for resctl-bench'
+                 --mem-margin=[PCT]       'Memory margin for system.slice (default: {dfl_mem_margin}%)'
+                 --systemd-timeout=[SECS] 'Systemd timeout (default: {dfl_systemd_timeout})'
+                 --hashd-size=[SIZE]      'Override hashd memory footprint'
+                 --hashd-cpu-load=[keep|fake|real] 'Override hashd fake cpu load mode'
+                 --iocost-qos=[OVRS]      'iocost QoS overrides'
+                 --swappiness=[OVR]       'swappiness override [0, 200]'
+             -a, --args=[FILE]            'Load base command line arguments from FILE'
+                 --iocost-from-sys        'Use iocost parameters from io.cost.{{model,qos}} instead of bench.json'
+                 --keep-reports           'Don't delete expired report files'
+                 --clear-reports          'Remove existing report files'
+                 --test                   'Test mode for development'
+             -v...                        'Sets the level of verbosity'",
+            dfl_dir = dfl_args.dir,
+            dfl_rep_ret = dfl_args.rep_retention,
+            dfl_mem_prof = dfl_args.mem_profile.unwrap(),
+            dfl_mem_margin = format_pct(dfl_args.mem_margin),
+            dfl_systemd_timeout = format_duration(dfl_args.systemd_timeout),
+        )
+    };
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -56,6 +61,7 @@ pub struct Args {
     pub hashd_fake_cpu_load: Option<bool>,
     pub mem_profile: Option<u32>,
     pub mem_avail: usize,
+    pub mem_margin: f64,
     pub mode: Mode,
     pub iocost_qos_ovr: IoCostQoSOvr,
     pub swappiness_ovr: Option<u32>,
@@ -95,6 +101,7 @@ impl Default for Args {
             hashd_fake_cpu_load: None,
             mem_profile: Some(Self::DFL_MEM_PROFILE),
             mem_avail: 0,
+            mem_margin: rd_agent_intf::SliceConfig::DFL_MEM_MARGIN,
             iocost_from_sys: false,
             keep_reports: false,
             clear_reports: false,
@@ -405,6 +412,14 @@ impl JsonArgs for Args {
                 parse_size(v).unwrap() as usize
             } else {
                 0
+            };
+            updated = true;
+        }
+        if let Some(v) = matches.value_of("mem-margin") {
+            self.mem_margin = if v.len() > 0 {
+                parse_frac(v).unwrap()
+            } else {
+                dfl.mem_margin
             };
             updated = true;
         }

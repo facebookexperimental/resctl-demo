@@ -108,9 +108,10 @@ impl Default for SliceConfig {
 impl SliceConfig {
     pub const DFL_SYS_CPU_RATIO: f64 = 0.1;
     pub const DFL_SYS_IO_RATIO: f64 = 0.1;
+    pub const DFL_MEM_MARGIN: f64 = 0.25;
 
     pub fn dfl_mem_margin(total: usize, fb_prod: bool) -> u64 {
-        let margin = total as u64 / 4;
+        let margin = (total as f64 * Self::DFL_MEM_MARGIN) as u64;
         if fb_prod {
             (margin + 2 << 30).min(total as u64 / 2)
         } else {
