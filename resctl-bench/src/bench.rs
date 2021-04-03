@@ -10,10 +10,12 @@ use std::fmt::Write;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use super::base::MemInfo;
+use super::iocost::{iocost_min_vrate, IoCostQoSCfg, IoCostQoSOvr};
 use super::job::{Job, JobData};
 use super::parse_json_value_or_dump;
 use super::progress::BenchProgress;
-use super::run::{RunCtx, RunCtxErr, WorkloadMon};
+use super::run::{RunCtx, WorkloadMon};
 use super::study::*;
 use rd_agent_intf::{AgentFiles, Slice, SysReq, ROOT_SLICE};
 use resctl_bench_intf::{JobProps, JobSpec};
@@ -22,8 +24,13 @@ use util::*;
 
 // Helpers shared by bench implementations.
 lazy_static::lazy_static! {
+    pub static ref MIN_SYSREQS: BTreeSet<SysReq> =
+        vec![
+            SysReq::Dependencies
+        ].into_iter().collect();
     pub static ref HASHD_SYSREQS: BTreeSet<SysReq> =
         vec![
+            SysReq::Dependencies,
             SysReq::AnonBalance,
             SysReq::SwapOnScratch,
             SysReq::Swap,
@@ -32,38 +39,46 @@ lazy_static::lazy_static! {
     pub static ref ALL_SYSREQS: BTreeSet<SysReq> = rd_agent_intf::ALL_SYSREQS_SET.clone();
 }
 
-struct HashdFakeCpuBench {
-    size: u64,
-    balloon_size: usize,
-    preload_size: usize,
-    log_bps: u64,
-    log_size: u64,
-    hash_size: usize,
-    chunk_pages: usize,
-    rps_max: u32,
-    file_frac: f64,
+pub struct HashdFakeCpuBench {
+    pub size: u64,
+    pub log_bps: Option<u64>,
+    pub hash_size: usize,
+    pub chunk_pages: usize,
+    pub rps_max: u32,
+    pub grain_factor: f64,
 }
 
 impl HashdFakeCpuBench {
-    fn start(&self, rctx: &RunCtx) {
+    pub fn base(rctx: &RunCtx) -> Self {
+        let dfl_args = rd_hashd_intf::Args::with_mem_size(rctx.mem_info().share);
+        let dfl_params = rd_hashd_intf::Params::default();
+
+        Self {
+            size: dfl_args.size,
+            log_bps: None,
+            hash_size: dfl_params.file_size_mean,
+            chunk_pages: dfl_params.chunk_pages,
+            rps_max: RunCtx::BENCH_FAKE_CPU_RPS_MAX,
+            grain_factor: 1.0,
+        }
+    }
+
+    pub fn start(&self, rctx: &mut RunCtx) -> Result<()> {
         rctx.start_hashd_bench(
-            self.balloon_size,
             self.log_bps,
             // We should specify all the total_memory() dependent values in
             // rd_hashd_intf::Args so that the behavior stays the same for
             // the same mem_profile.
             vec![
                 format!("--size={}", self.size),
-                format!("--bench-preload-cache={}", self.preload_size),
-                format!("--log-size={}", self.log_size),
                 "--bench-fake-cpu-load".into(),
                 format!("--bench-hash-size={}", self.hash_size),
                 format!("--bench-chunk-pages={}", self.chunk_pages),
                 format!("--bench-rps-max={}", self.rps_max),
-                format!("--bench-file-frac={}", self.file_frac),
-                format!("--file-max={}", self.file_frac),
+                format!("--bench-grain={}", self.grain_factor),
             ],
-        );
+        )
+        .context("Starting fake-cpu-load hashd bench")
     }
 }
 

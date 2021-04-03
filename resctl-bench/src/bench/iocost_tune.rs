@@ -1,6 +1,6 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
-use super::iocost_qos::{IoCostQoSOvr, IoCostQoSResult};
-use super::storage::StorageResult;
+use super::iocost_qos::{IoCostQoSRecord, IoCostQoSRecordRun, IoCostQoSResult, IoCostQoSResultRun};
+use super::protection::MemHog;
 use super::*;
 use statrs::distribution::{Normal, Univariate};
 use std::cmp::{Ordering, PartialOrd};
@@ -16,21 +16,53 @@ const DFL_VRATE_MAX: f64 = 100.0;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum DataSel {
-    MOF,                 // Memory offloading factor
-    Lat(String, String), // Latency
+    MOF,                  // Memory offloading Factor
+    AMOF,                 // Adjusted Memory Offloading Factor
+    IsolProt,             // Isolation Factor Percentile used by protection bench
+    IsolPct(String),      // Isolation Factor Percentiles
+    Isol,                 // Isolation Factor Mean
+    LatImp,               // Request Latency impact
+    WorkCsv,              // Work conservation
+    Missing,              // Report missing
+    RLat(String, String), // IO Read latency
+    WLat(String, String), // IO Write latency
 }
 
 impl DataSel {
     fn parse(sel: &str) -> Result<DataSel> {
-        if sel == "mof" {
-            return Ok(Self::MOF);
+        match sel.to_lowercase().as_str() {
+            "mof" => return Ok(Self::MOF),
+            "amof" => return Ok(Self::AMOF),
+            "isol-prot" => return Ok(Self::IsolProt),
+            "isol" => return Ok(Self::Isol),
+            "lat-imp" => return Ok(Self::LatImp),
+            "work-csv" => return Ok(Self::WorkCsv),
+            "missing" => return Ok(Self::Missing),
+            _ => {}
         }
 
-        if !sel.starts_with("p") {
+        if sel.starts_with("isol-") {
+            let pct = &sel[5..];
+            if pct == "max" {
+                return Ok(Self::IsolPct("100".to_owned()));
+            }
+            for hog_pct in MemHog::PCTS.iter() {
+                if pct == *hog_pct {
+                    return Ok(Self::IsolPct(pct.to_owned()));
+                }
+            }
+            bail!("Invalid isol pct {}, supported: {:?}", pct, &MemHog::PCTS);
+        }
+
+        let rw = if sel.starts_with("rlat-") {
+            READ
+        } else if sel.starts_with("wlat-") {
+            WRITE
+        } else {
             bail!("unknown data selector {:?}", sel);
-        }
+        };
 
-        let pcts: Vec<&str> = sel[1..].split("-").collect();
+        let pcts: Vec<&str> = sel[5..].split("-").collect();
         if pcts.len() == 0 || pcts.len() > 2 {
             bail!("unknown data selector {:?}", sel);
         }
@@ -83,20 +115,72 @@ impl DataSel {
             );
         }
 
-        Ok(Self::Lat(
-            lat_pct.unwrap().to_owned(),
-            time_pct.unwrap().to_owned(),
-        ))
+        Ok(if rw == READ {
+            Self::RLat(lat_pct.unwrap().to_owned(), time_pct.unwrap().to_owned())
+        } else {
+            Self::WLat(lat_pct.unwrap().to_owned(), time_pct.unwrap().to_owned())
+        })
     }
 
-    fn select(&self, storage: &StorageResult) -> f64 {
+    fn select(
+        &self,
+        recr: &IoCostQoSRecordRun,
+        resr: &IoCostQoSResultRun,
+        isol_prot_pct: &str,
+    ) -> Option<f64> {
+        let stor_res = &resr.stor;
+        let hog_res = if recr.prot.scenarios.len() > 0 {
+            resr.prot.scenarios[0]
+                .as_mem_hog_tune()
+                .unwrap()
+                .final_run
+                .as_ref()
+        } else {
+            None
+        };
         match self {
-            Self::MOF => storage.mem_offload_factor,
-            Self::Lat(lat_pct, time_pct) => storage.iolat_pcts.as_ref()[READ][lat_pct][time_pct],
+            Self::MOF => Some(stor_res.mem_offload_factor),
+            // Missing hog indicates failed prot bench. Report 0 for
+            // isolation and skip other prot results.
+            Self::AMOF => resr.adjusted_mem_offload_factor,
+            Self::IsolProt => hog_res.map(|x| {
+                *x.isol
+                    .get(isol_prot_pct)
+                    .context("Finding isol_pct_prot")
+                    .unwrap()
+            }),
+            Self::IsolPct(pct) => hog_res.map(|x| {
+                *x.isol
+                    .get(pct)
+                    .with_context(|| format!("Finding isol_pcts[{:?}]", pct))
+                    .unwrap()
+            }),
+            Self::Isol => Some(hog_res.map(|x| x.isol["mean"]).unwrap_or(0.0)),
+            Self::LatImp => hog_res.map(|x| x.lat_imp["mean"]),
+            Self::WorkCsv => hog_res.map(|x| x.work_csv),
+            Self::Missing => Some(Studies::reports_missing(resr.nr_reports)),
+            Self::RLat(lat_pct, time_pct) => Some(
+                *stor_res.iolat.as_ref()[READ]
+                    .get(lat_pct)
+                    .with_context(|| format!("Finding rlat[{:?}]", lat_pct))
+                    .unwrap()
+                    .get(time_pct)
+                    .with_context(|| format!("Finding rlat[{:?}][{:?}]", lat_pct, time_pct))
+                    .unwrap(),
+            ),
+            Self::WLat(lat_pct, time_pct) => Some(
+                *stor_res.iolat.as_ref()[WRITE]
+                    .get(lat_pct)
+                    .with_context(|| format!("Finding wlat[{:?}]", lat_pct))
+                    .unwrap()
+                    .get(time_pct)
+                    .with_context(|| format!("Finding wlat[{:?}][{:?}]", lat_pct, time_pct))
+                    .unwrap(),
+            ),
         }
     }
 
-    fn cmp_lat_sel(a: &str, b: &str) -> Ordering {
+    fn cmp_pct_sel(a: &str, b: &str) -> Ordering {
         match (a, b) {
             (a, b) if a == b => Ordering::Equal,
             ("mean", _) => Ordering::Less,
@@ -108,20 +192,86 @@ impl DataSel {
             }
         }
     }
+
+    fn pos<'a>(&'a self) -> (u32, Option<(&'a str, &'a str)>) {
+        match self {
+            Self::MOF => (0, None),
+            Self::AMOF => (1, None),
+            Self::IsolProt => (2, Some(("NONE", "NONE"))),
+            Self::IsolPct(pct) => (3, Some((pct, "NONE"))),
+            Self::Isol => (4, None),
+            Self::LatImp => (5, None),
+            Self::WorkCsv => (6, None),
+            Self::Missing => (7, None),
+            Self::RLat(lat, time) => (8, Some((lat, time))),
+            Self::WLat(lat, time) => (9, Some((lat, time))),
+        }
+    }
+
+    fn same_group(&self, other: &Self) -> bool {
+        let (pos_a, pcts_a) = self.pos();
+        let (pos_b, pcts_b) = other.pos();
+        if pcts_a.is_none() && pcts_b.is_none() {
+            true
+        } else if pos_a != pos_b {
+            false
+        } else {
+            let (_, pct1_a) = pcts_a.unwrap();
+            let (_, pct1_b) = pcts_b.unwrap();
+            pct1_a == pct1_b
+        }
+    }
+
+    fn group(sels: Vec<Self>) -> Vec<Vec<Self>> {
+        let mut groups: Vec<Vec<Self>> = vec![];
+        let mut cur: Vec<Self> = vec![];
+        for sel in sels.into_iter() {
+            if cur.is_empty() || cur.last().unwrap().same_group(&sel) {
+                cur.push(sel);
+            } else {
+                groups.push(cur);
+                cur = vec![sel];
+            }
+        }
+        if !cur.is_empty() {
+            groups.push(cur);
+        }
+        groups
+    }
+
+    fn align_and_merge_groups(groups: Vec<Vec<Self>>, align: usize) -> Vec<Vec<Self>> {
+        let mut merged: Vec<Vec<Self>> = vec![];
+        for mut group in groups.into_iter() {
+            match merged.last_mut() {
+                Some(last) => {
+                    let space = align - (last.len() % align);
+                    if space < align && space >= group.len() {
+                        last.append(&mut group);
+                    } else {
+                        merged.push(group);
+                    }
+                }
+                None => merged.push(group),
+            }
+        }
+        merged
+    }
 }
 
 impl Ord for DataSel {
     fn cmp(&self, other: &Self) -> Ordering {
-        match (self, other) {
-            (Self::MOF, Self::MOF) => Ordering::Equal,
-            (Self::MOF, _) => Ordering::Less,
-            (_, Self::MOF) => Ordering::Greater,
-            (Self::Lat(alat, atime), Self::Lat(blat, btime)) => {
-                match Self::cmp_lat_sel(atime, btime) {
-                    Ordering::Equal => Self::cmp_lat_sel(alat, blat),
-                    ord => ord,
-                }
+        let (pos_a, pcts_a) = self.pos();
+        let (pos_b, pcts_b) = other.pos();
+
+        if pos_a == pos_b && pcts_a.is_some() {
+            let (pct0_a, pct1_a) = pcts_a.unwrap();
+            let (pct0_b, pct1_b) = pcts_b.unwrap();
+            match Self::cmp_pct_sel(pct1_a, pct1_b) {
+                Ordering::Equal => Self::cmp_pct_sel(pct0_a, pct0_b),
+                ord => ord,
             }
+        } else {
+            pos_a.cmp(&pos_b)
         }
     }
 }
@@ -135,8 +285,16 @@ impl PartialOrd for DataSel {
 impl std::fmt::Display for DataSel {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::MOF => write!(f, "mof"),
-            Self::Lat(lat_pct, time_pct) => write!(f, "p{}-{}", lat_pct, time_pct),
+            Self::MOF => write!(f, "MOF"),
+            Self::AMOF => write!(f, "aMOF"),
+            Self::IsolProt => write!(f, "isol-prot"),
+            Self::IsolPct(pct) => write!(f, "isol-{}", pct),
+            Self::Isol => write!(f, "isol"),
+            Self::LatImp => write!(f, "lat-imp"),
+            Self::WorkCsv => write!(f, "work-csv"),
+            Self::Missing => write!(f, "missing"),
+            Self::RLat(lat_pct, time_pct) => write!(f, "rlat-{}-{}", lat_pct, time_pct),
+            Self::WLat(lat_pct, time_pct) => write!(f, "wlat-{}-{}", lat_pct, time_pct),
         }
     }
 }
@@ -164,7 +322,10 @@ impl<'de> serde::de::Deserialize<'de> for DataSel {
             type Value = DataSel;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-                formatter.write_str("`mof` or `pLAT-TIME`")
+                formatter.write_str(
+                    "`mof`, `amof`, `isol-prot`, `isol-PCT`, `isol`, `lat-imp`, `work-csv`, \
+                     `missing`, `rlat-LAT-TIME` or `wlat-LAT-TIME`",
+                )
             }
 
             fn visit_str<E>(self, value: &str) -> Result<DataSel, E>
@@ -197,7 +358,7 @@ impl std::cmp::Ord for Target {
 
 impl Target {
     fn parse(target: &str, is_dur: bool) -> Result<Target> {
-        if target == "infl" || target == "inflection" {
+        if target == "infl" {
             Ok(Self::Inflection)
         } else {
             let thr = match is_dur {
@@ -223,7 +384,7 @@ impl QoSTarget {
     fn parse(k: &str, v: &str) -> Result<QoSTarget> {
         let sel = DataSel::parse(k)?;
         let is_dur = match sel {
-            DataSel::Lat(_, _) => true,
+            DataSel::RLat(_, _) | DataSel::WLat(_, _) => true,
             _ => false,
         };
         Ok(Self {
@@ -241,6 +402,7 @@ struct QoSRule {
 
 #[derive(Debug)]
 struct IoCostTuneJob {
+    qos_data: Option<JobData>,
     mem_profile: u32,
     gran: f64,
     vrate_min: f64,
@@ -252,6 +414,7 @@ struct IoCostTuneJob {
 impl Default for IoCostTuneJob {
     fn default() -> Self {
         Self {
+            qos_data: None,
             mem_profile: 0,
             gran: DFL_GRAN,
             vrate_min: DFL_VRATE_MIN,
@@ -269,10 +432,35 @@ impl Bench for IoCostTuneBench {
         BenchDesc::new("iocost-tune")
             .takes_run_propsets()
             .takes_format_props()
+            .incremental()
     }
 
     fn parse(&self, spec: &JobSpec, _prev_data: Option<&JobData>) -> Result<Box<dyn Job>> {
         let mut job = IoCostTuneJob::default();
+
+        job.sels = [
+            DataSel::MOF,
+            DataSel::AMOF,
+            DataSel::IsolPct("01".to_owned()),
+            DataSel::LatImp,
+            DataSel::WorkCsv,
+            DataSel::Missing,
+            DataSel::RLat("50".to_owned(), "mean".to_owned()),
+            DataSel::RLat("99".to_owned(), "mean".to_owned()),
+            DataSel::RLat("50".to_owned(), "99".to_owned()),
+            DataSel::RLat("99".to_owned(), "99".to_owned()),
+            DataSel::RLat("50".to_owned(), "100".to_owned()),
+            DataSel::RLat("100".to_owned(), "100".to_owned()),
+            DataSel::WLat("50".to_owned(), "mean".to_owned()),
+            DataSel::WLat("99".to_owned(), "mean".to_owned()),
+            DataSel::WLat("50".to_owned(), "99".to_owned()),
+            DataSel::WLat("99".to_owned(), "99".to_owned()),
+            DataSel::WLat("50".to_owned(), "100".to_owned()),
+            DataSel::WLat("100".to_owned(), "100".to_owned()),
+        ]
+        .iter()
+        .cloned()
+        .collect();
 
         for (k, v) in spec.props[0].iter() {
             match k.as_str() {
@@ -283,7 +471,11 @@ impl Bench for IoCostTuneBench {
                 k => {
                     let sel = DataSel::parse(k)?;
                     if v.len() > 0 {
-                        bail!("first parameter group can't have targets");
+                        bail!(
+                            "Plot data selector {:?} can't have value but has {:?}",
+                            k,
+                            v
+                        );
                     }
                     job.sels.insert(sel);
                 }
@@ -294,8 +486,8 @@ impl Bench for IoCostTuneBench {
             bail!("`gran`, `vrate_min` and/or `vrate_max` invalid");
         }
 
-        let mut prop_groups = spec.props[1..].to_owned();
-        if job.sels.len() == 0 && prop_groups.len() == 0 {
+        let prop_groups = spec.props[1..].to_owned();
+        /*if job.sels.len() == 0 && prop_groups.len() == 0 {
             let mut push_props = |props: &[(&str, &str)]| {
                 prop_groups.push(
                     props
@@ -306,10 +498,10 @@ impl Bench for IoCostTuneBench {
             };
 
             push_props(&[("name", "default"), ("mof", "infl")]);
-            push_props(&[("name", "p99-10m"), ("mof", "infl"), ("p99", "10m")]);
-            push_props(&[("name", "p99-5m"), ("mof", "infl"), ("p99", "5m")]);
-            push_props(&[("name", "p99-1m"), ("mof", "infl"), ("p99", "1m")]);
-        }
+            push_props(&[("name", "rlat-99-10m"), ("mof", "infl"), ("rlat-99", "10m")]);
+            push_props(&[("name", "rlat-99-5m"), ("mof", "infl"), ("rlat-99", "5m")]);
+            push_props(&[("name", "rlat-99-1m"), ("mof", "infl"), ("rlat-99", "1m")]);
+        }*/
 
         for props in prop_groups.iter() {
             let mut rule = QoSRule::default();
@@ -333,54 +525,54 @@ impl Bench for IoCostTuneBench {
     }
 }
 
-// (vrate, MOF or LAT)
+// (vrate, val)
 type DataPoint = (f64, f64);
 
 //
-//   MOF or LAT
-//       ^
-//       |
-// dhigh +.................------
-//       |                /.
-//       |              /  .
-//       |      slope /    .
-//       |          /      .
-//  dlow +--------/        .
-//       |        .        .
-//       +--------+--------+------> vrate
-//              vlow     vhigh
+//       val
+//        ^
+//        |
+// dright +.................------
+//        |                /.
+//        |              /  .
+//        |      slope /    .
+//        |          /      .
+//  dleft +--------/        .
+//        |        .        .
+//        +--------+--------+------> vrate
+//              vleft    vright
 //
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 struct DataLines {
-    low: DataPoint,
-    high: DataPoint,
+    left: DataPoint,
+    right: DataPoint,
 }
 
 impl DataLines {
     fn slope(&self) -> f64 {
-        (self.high.1 - self.low.1) / (self.high.0 - self.low.0)
+        (self.right.1 - self.left.1) / (self.right.0 - self.left.0)
     }
 
     fn eval(&self, vrate: f64) -> f64 {
-        if vrate < self.low.0 {
-            self.low.1
-        } else if vrate > self.high.0 {
-            self.high.1
+        if vrate < self.left.0 {
+            self.left.1
+        } else if vrate > self.right.0 {
+            self.right.1
         } else {
-            self.low.1 + self.slope() * (vrate - self.low.0)
+            self.left.1 + self.slope() * (vrate - self.left.0)
         }
     }
 
     fn solve(&self, target: &Target, (vmin, vmax): (f64, f64)) -> f64 {
         match target {
-            Target::Inflection => self.high.1,
+            Target::Inflection => self.right.1,
             Target::Threshold(thr) => {
-                if *thr >= self.high.1 {
+                if *thr >= self.right.1 {
                     vmax
-                } else if *thr <= self.low.1 {
-                    self.low.0
+                } else if *thr <= self.left.1 {
+                    self.left.0
                 } else {
-                    self.low.0 + ((*thr - self.low.1) / self.slope())
+                    self.left.0 + ((*thr - self.left.1) / self.slope())
                 }
             }
         }
@@ -417,8 +609,8 @@ impl DataSeries {
         let (slope, y_intcp) = linreg::linear_regression_of(&points).unwrap();
         let vmax = Self::vmax(points);
         DataLines {
-            low: (0.0, y_intcp),
-            high: (vmax, slope * vmax + y_intcp),
+            left: (0.0, y_intcp),
+            right: (vmax, slope * vmax + y_intcp),
         }
     }
 
@@ -444,57 +636,57 @@ impl DataSeries {
         top / bot
     }
 
-    fn fit_slope_with_vlow(points: &[DataPoint], vlow: f64) -> Option<DataLines> {
-        let (left, right) = Self::split_at(points, vlow);
+    fn fit_slope_with_vleft(points: &[DataPoint], vleft: f64) -> Option<DataLines> {
+        let (left, right) = Self::split_at(points, vleft);
         if left.len() < 3 || right.len() < 3 {
             return None;
         }
 
-        let low = (vlow, Self::calc_height(left));
-        let slope = Self::calc_slope(right, &low);
+        let left = (vleft, Self::calc_height(left));
+        let slope = Self::calc_slope(right, &left);
         if slope == 0.0 {
             return None;
         }
 
         let vmax = Self::vmax(points);
         Some(DataLines {
-            low,
-            high: (vmax, low.1 + slope * (vmax - low.0)),
+            left,
+            right: (vmax, left.1 + slope * (vmax - left.0)),
         })
     }
 
-    fn fit_slope_with_vhigh(points: &[DataPoint], vhigh: f64) -> Option<DataLines> {
-        let (left, right) = Self::split_at(points, vhigh);
+    fn fit_slope_with_vright(points: &[DataPoint], vright: f64) -> Option<DataLines> {
+        let (left, right) = Self::split_at(points, vright);
         if left.len() < 3 || right.len() < 3 {
             return None;
         }
 
-        let high = (vhigh, Self::calc_height(right));
-        let slope = Self::calc_slope(left, &high);
+        let right = (vright, Self::calc_height(right));
+        let slope = Self::calc_slope(left, &right);
         if slope == 0.0 {
             return None;
         }
 
         Some(DataLines {
-            low: (0.0, high.1 - slope * high.0),
-            high,
+            left: (0.0, right.1 - slope * right.0),
+            right,
         })
     }
 
-    fn fit_slope_with_vlow_and_vhigh(
+    fn fit_slope_with_vleft_and_vright(
         points: &[DataPoint],
-        vlow: f64,
-        vhigh: f64,
+        vleft: f64,
+        vright: f64,
     ) -> Option<DataLines> {
-        let (left, center) = Self::split_at(points, vlow);
-        let (center, right) = Self::split_at(center, vhigh);
+        let (left, center) = Self::split_at(points, vleft);
+        let (center, right) = Self::split_at(center, vright);
         if left.len() < 3 || center.len() < 3 || right.len() < 3 {
             return None;
         }
 
         Some(DataLines {
-            low: (vlow, Self::calc_height(left)),
-            high: (vhigh, Self::calc_height(right)),
+            left: (vleft, Self::calc_height(left)),
+            right: (vright, Self::calc_height(right)),
         })
     }
 
@@ -510,6 +702,10 @@ impl DataSeries {
     }
 
     fn fit_lines(&mut self, gran: f64) {
+        if self.points.len() == 0 {
+            return;
+        }
+
         let start = self.points.iter().next().unwrap().0;
         let end = self.points.iter().last().unwrap().0;
         let intvs = ((end - start) / gran).ceil() as u32 + 1;
@@ -533,16 +729,18 @@ impl DataSeries {
         // Try one flat line and one slope.
         for i in 0..intvs {
             let infl = start + i as f64 * gran;
-            try_and_pick(&|| Self::fit_slope_with_vlow(&self.points, infl));
-            try_and_pick(&|| Self::fit_slope_with_vhigh(&self.points, infl));
+            try_and_pick(&|| Self::fit_slope_with_vleft(&self.points, infl));
+            try_and_pick(&|| Self::fit_slope_with_vright(&self.points, infl));
         }
 
         // Try two flat lines connected with a slope.
         for i in 0..intvs - 1 {
-            let vlow = start + i as f64 * gran;
+            let vleft = start + i as f64 * gran;
             for j in i..intvs {
-                let vhigh = start + j as f64 * gran;
-                try_and_pick(&|| Self::fit_slope_with_vlow_and_vhigh(&self.points, vlow, vhigh));
+                let vright = start + j as f64 * gran;
+                try_and_pick(&|| {
+                    Self::fit_slope_with_vleft_and_vright(&self.points, vleft, vright)
+                });
             }
         }
 
@@ -555,6 +753,10 @@ impl DataSeries {
     }
 
     fn filter_outliers(&mut self) {
+        if self.points.len() < 2 {
+            return;
+        }
+
         let mut points = vec![];
         points.append(&mut self.points);
 
@@ -567,21 +769,23 @@ impl DataSeries {
         let mean = statistical::mean(&errors);
         let stdev = statistical::standard_deviation(&errors, None);
 
-        let dist = Normal::new(mean, stdev).unwrap();
-
-        for (point, error) in points.into_iter().zip(errors.iter()) {
-            // Apply Chauvenet's criterion on the error of each data point
-            // to detect and reject outliers.
-            if (1.0 - dist.cdf(*error)) * nr_points >= 0.5 {
-                self.points.push(point);
-            } else {
-                self.outliers.push(point);
+        if let Ok(dist) = Normal::new(mean, stdev) {
+            for (point, error) in points.into_iter().zip(errors.iter()) {
+                // Apply Chauvenet's criterion on the error of each data point
+                // to detect and reject outliers.
+                if (1.0 - dist.cdf(*error)) * nr_points >= 0.5 {
+                    self.points.push(point);
+                } else {
+                    self.outliers.push(point);
+                }
             }
-        }
 
-        // self.points start sorted but outliers may go out of order if this
-        // function is called more than once. Sort just in case.
-        self.outliers.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            // self.points start sorted but outliers may go out of order if this
+            // function is called more than once. Sort just in case.
+            self.outliers.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        } else {
+            self.points = points;
+        }
     }
 }
 
@@ -598,6 +802,7 @@ pub struct IoCostTuneResult {
     base_model: IoCostModelParams,
     base_qos: IoCostQoSParams,
     mem_profile: u32,
+    isol_prot_pct: String,
     data: BTreeMap<DataSel, DataSeries>,
     results: Vec<QoSResult>,
 }
@@ -607,8 +812,8 @@ impl Job for IoCostTuneJob {
         Default::default()
     }
 
-    fn run(&mut self, rctx: &mut RunCtx) -> Result<serde_json::Value> {
-        let qos_data = match rctx.find_done_job_data("iocost-qos") {
+    fn pre_run(&mut self, rctx: &mut RunCtx) -> Result<()> {
+        self.qos_data = Some(match rctx.find_done_job_data("iocost-qos") {
             Some(v) => v,
             None => {
                 let mut spec = format!(
@@ -623,33 +828,68 @@ impl Job for IoCostTuneJob {
 
                 rctx.run_nested_job_spec(&resctl_bench_intf::Args::parse_job_spec(&spec).unwrap())
                     .context("Failed to run iocost-qos")?;
-                rctx.find_done_job_data("iocost-qos").unwrap()
+                rctx.find_done_job_data("iocost-qos")
+                    .ok_or(anyhow!("Failed to find iocost-qos result after nested run"))?
             }
-        };
+        });
+        Ok(())
+    }
 
-        let src: IoCostQoSResult = serde_json::from_value(qos_data.result)
-            .map_err(|e| anyhow!("failed to parse iocost-qos result ({})", &e))?;
-        let mut data = BTreeMap::<DataSel, DataSeries>::default();
+    fn run(&mut self, _rctx: &mut RunCtx) -> Result<serde_json::Value> {
+        let qos_data = self.qos_data.as_ref().unwrap();
+        let qrec: IoCostQoSRecord = qos_data
+            .parse_record()
+            .context("Parsing iocost-qos record")?;
 
         if self.mem_profile == 0 {
-            self.mem_profile = src.mem_profile;
-        } else if self.mem_profile != src.mem_profile {
+            self.mem_profile = qrec.mem_profile;
+        } else if self.mem_profile != qrec.mem_profile {
             bail!(
                 "mem-profile ({}) != iocost-qos's ({})",
                 self.mem_profile,
-                src.mem_profile
+                qrec.mem_profile
             );
         }
 
-        if src.results.len() == 0 {
+        if qrec.runs.len() == 0 {
             bail!("no entry in iocost-qos result");
         }
 
+        // We don't have any record of our own to keep. Return a dummy
+        // value.
+        Ok(serde_json::to_value(true)?)
+    }
+
+    fn study(&self, _rctx: &mut RunCtx, _rec_json: serde_json::Value) -> Result<serde_json::Value> {
+        let qos_data = self.qos_data.as_ref().unwrap();
+        let qrec: IoCostQoSRecord = qos_data
+            .parse_record()
+            .context("Parsing iocost-qos record")?;
+        let qres: IoCostQoSResult = qos_data
+            .parse_result()
+            .context("Parsing iocost-qos result")?;
+        let mut data = BTreeMap::<DataSel, DataSeries>::default();
+
+        let isol_prot_pct = match qrec.runs.iter().next() {
+            Some(Some(recr)) if recr.prot.scenarios.len() > 0 => recr.prot.scenarios[0]
+                .as_mem_hog_tune()
+                .unwrap()
+                .isol_pct
+                .clone(),
+            _ => "10".to_owned(),
+        };
+
         for sel in self.sels.iter() {
             let mut series = DataSeries::default();
-            for run in src.results.iter().filter_map(|x| x.as_ref()) {
-                let vrate = match run.ovr {
-                    Some(IoCostQoSOvr {
+            for (qrecr, qresr) in qrec
+                .runs
+                .iter()
+                .filter_map(|x| x.as_ref())
+                .zip(qres.runs.iter().filter_map(|x| x.as_ref()))
+            {
+                let vrate = match qrecr.ovr {
+                    IoCostQoSOvr {
+                        off: false,
                         rpct: None,
                         rlat: None,
                         wpct: None,
@@ -657,11 +897,13 @@ impl Job for IoCostTuneJob {
                         min: Some(min),
                         max: Some(max),
                         skip: _,
-                    }) if min == max => min,
+                        min_adj: _,
+                    } if min == max => min,
                     _ => continue,
                 };
-                let val = sel.select(&run.storage);
-                series.points.push((vrate, val));
+                if let Some(val) = sel.select(qrecr, qresr, &isol_prot_pct) {
+                    series.points.push((vrate, val));
+                }
             }
             series.points.sort_by(|a, b| a.partial_cmp(b).unwrap());
             series.fit_lines(self.gran);
@@ -670,8 +912,8 @@ impl Job for IoCostTuneJob {
             data.insert(sel.clone(), series);
         }
 
-        let base_model = src.base_model.clone();
-        let base_qos = src.base_qos.clone();
+        let base_model = qrec.base_model.clone();
+        let base_qos = qrec.base_qos.clone();
 
         let mut results = Vec::<QoSResult>::new();
         for rule in self.rules.iter().cloned() {
@@ -707,6 +949,7 @@ impl Job for IoCostTuneJob {
             base_model,
             base_qos,
             mem_profile: self.mem_profile,
+            isol_prot_pct,
             data,
             results,
         })?)
@@ -731,17 +974,90 @@ impl Job for IoCostTuneJob {
             }
         }
 
-        let result = serde_json::from_value::<IoCostTuneResult>(data.result.clone()).unwrap();
+        let res: IoCostTuneResult = data.parse_result()?;
 
         write!(
             out,
-            "Graphs (circle: data points, cross: fitted line)\n\
-             ================================================\n\n"
+            "{}\n",
+            &double_underline("Graphs (square: fitted line, circle: data points, cross: rejected)")
         )
         .unwrap();
 
         let mut grapher = graph::Grapher::new(out, graph_prefix.as_deref());
-        grapher.plot(data, &result)?;
+        grapher.plot(data, &res)?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::DataSel;
+
+    #[test]
+    fn test_bench_iocost_tune_datasel_sort_and_group() {
+        let sels = vec![
+            DataSel::RLat("99".to_owned(), "90".to_owned()),
+            DataSel::RLat("90".to_owned(), "99".to_owned()),
+            DataSel::MOF,
+            DataSel::WorkCsv,
+            DataSel::RLat("90".to_owned(), "90".to_owned()),
+            DataSel::WLat("90".to_owned(), "90".to_owned()),
+            DataSel::RLat("99".to_owned(), "99".to_owned()),
+            DataSel::Missing,
+            DataSel::LatImp,
+            DataSel::Isol,
+            DataSel::WLat("99".to_owned(), "90".to_owned()),
+            DataSel::WLat("99".to_owned(), "99".to_owned()),
+        ];
+
+        let grouped = DataSel::sort_and_group(sels);
+        assert_eq!(
+            grouped,
+            vec![
+                vec![
+                    DataSel::MOF,
+                    DataSel::Isol,
+                    DataSel::LatImp,
+                    DataSel::WorkCsv,
+                    DataSel::Missing,
+                ],
+                vec![
+                    DataSel::RLat("90".to_owned(), "90".to_owned()),
+                    DataSel::RLat("99".to_owned(), "90".to_owned()),
+                ],
+                vec![
+                    DataSel::RLat("90".to_owned(), "99".to_owned()),
+                    DataSel::RLat("99".to_owned(), "99".to_owned()),
+                ],
+                vec![
+                    DataSel::WLat("90".to_owned(), "90".to_owned()),
+                    DataSel::WLat("99".to_owned(), "90".to_owned()),
+                ],
+                vec![DataSel::WLat("99".to_owned(), "99".to_owned()),],
+            ]
+        );
+
+        let merged = DataSel::align_and_merge_groups(grouped, 6);
+        assert_eq!(
+            merged,
+            vec![
+                vec![
+                    DataSel::MOF,
+                    DataSel::Isol,
+                    DataSel::LatImp,
+                    DataSel::WorkCsv,
+                    DataSel::Missing,
+                ],
+                vec![
+                    DataSel::RLat("90".to_owned(), "90".to_owned()),
+                    DataSel::RLat("99".to_owned(), "90".to_owned()),
+                    DataSel::RLat("90".to_owned(), "99".to_owned()),
+                    DataSel::RLat("99".to_owned(), "99".to_owned()),
+                    DataSel::WLat("90".to_owned(), "90".to_owned()),
+                    DataSel::WLat("99".to_owned(), "90".to_owned()),
+                ],
+                vec![DataSel::WLat("99".to_owned(), "99".to_owned()),],
+            ]
+        );
     }
 }

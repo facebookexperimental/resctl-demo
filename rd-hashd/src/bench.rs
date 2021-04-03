@@ -88,8 +88,8 @@ pub struct Cfg {
     mem_sat_test: MemIoSatCfg,
 }
 
-impl Default for Cfg {
-    fn default() -> Self {
+impl Cfg {
+    pub fn new(grain_factor: f64) -> Self {
         let mem_sat = MemIoSatCfg {
             name: "Memory".into(),
             pos_prefix: "size".into(),
@@ -106,10 +106,12 @@ impl Default for Cfg {
                 _ => None,
             })),
 
-            bisect_done: Rc::new(Box::new(|_params, left, right| right - left < 0.05)),
+            bisect_done: Rc::new(Box::new(move |_params, left, right| {
+                right - left < 0.05 * grain_factor
+            })),
 
-            next_refine_pos: Rc::new(Box::new(|params, pos| {
-                let step = params.mem_frac * 0.05;
+            next_refine_pos: Rc::new(Box::new(move |params, pos| {
+                let step = params.mem_frac * 0.05 * grain_factor;
                 let min = (params.mem_frac / 2.0).max(0.001);
                 match pos {
                     None => Some(params.mem_frac),
@@ -525,7 +527,9 @@ impl Drop for TestHasher {
     fn drop(&mut self) {
         drop(self.term_tx.take());
         debug!("TestHasher::drop: joining updater");
-        self.updater_jh.take().unwrap().join().unwrap();
+        if let Err(e) = self.updater_jh.take().unwrap().join() {
+            error!("TestHasher::drop: Failed to join the updater ({:?})", &e);
+        }
         debug!("TestHasher::drop: done");
     }
 }
@@ -1101,7 +1105,7 @@ impl Bench {
     pub fn run(&mut self) {
         let args = self.args_file.data.clone();
         let max_size = args.size;
-        let cfg = Cfg::default();
+        let cfg = Cfg::new(args.bench_grain);
         let dfl_params = Params::default();
 
         // Run benchmarks.

@@ -1,9 +1,9 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
-#![allow(dead_code)]
 use anyhow::{bail, Result};
-use log::error;
 use num_traits::cast::AsPrimitive;
 use quantiles::ckms::CKMS;
+use serde::{Deserialize, Serialize};
+use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::fmt::Write;
 use util::*;
@@ -11,24 +11,69 @@ use util::*;
 use super::run::RunCtx;
 use rd_agent_intf::{IoLatReport, Report};
 
+pub const DFL_PCTS: [&'static str; 15] = [
+    "00", "01", "05", "10", "16", "25", "50", "75", "84", "90", "95", "99", "100", "mean", "stdev",
+];
+
+pub struct SelArg<'a> {
+    pub rep: &'a Report,
+    pub dur: f64,
+    pub cnt: usize,
+}
+
 pub trait Study {
-    fn study(&mut self, rep: &Report) -> Result<()>;
+    fn study(&mut self, ctx: &SelArg) -> Result<()>;
     fn as_study_mut(&mut self) -> &mut dyn Study;
 }
 
 //
 // Sel helpers.
 //
-pub fn sel_factory_iolat(io_type: &str, pct: &str) -> impl Fn(&Report) -> Option<f64> + Clone {
+pub fn sel_factory_iolat(io_type: &str, pct: &str) -> impl FnMut(&SelArg) -> Vec<f64> {
     let io_type = io_type.to_string();
     let pct = pct.to_string();
-    move |rep: &Report| {
-        if rep.iolat.map[&io_type]["100"] > 0.0 {
-            Some(rep.iolat.map[&io_type][&pct])
+    move |arg: &SelArg| {
+        if arg.rep.iolat.map[&io_type]["100"] > 0.0 {
+            vec![arg.rep.iolat.map[&io_type][&pct]]
         } else {
-            None
+            vec![]
         }
     }
+}
+
+pub fn sel_delta_calc<'a, T, U, F, G>(
+    mut sel_val: F,
+    mut calc_delta: G,
+    last: &'a std::cell::RefCell<Option<T>>,
+) -> impl FnMut(&SelArg) -> Vec<U> + 'a
+where
+    T: Clone,
+    U: AsPrimitive<f64>,
+    F: FnMut(&SelArg) -> T + 'a,
+    G: FnMut(&SelArg, T, T) -> U + 'a,
+{
+    move |arg: &SelArg| {
+        let cur = sel_val(arg);
+        match last.replace(Some(cur.clone())) {
+            Some(last) => [calc_delta(arg, cur, last)].repeat(arg.cnt),
+            None => vec![],
+        }
+    }
+}
+
+pub fn sel_delta<'a, T, F>(
+    sel_val: F,
+    last: &'a std::cell::RefCell<Option<T>>,
+) -> impl FnMut(&SelArg) -> Vec<f64> + 'a
+where
+    T: AsPrimitive<f64>,
+    F: FnMut(&SelArg) -> T + 'a,
+{
+    sel_delta_calc(
+        sel_val,
+        |arg, cur, last| ((cur.as_() - last.as_()) / arg.dur).max(0.0),
+        last,
+    )
 }
 
 //
@@ -37,7 +82,7 @@ pub fn sel_factory_iolat(io_type: &str, pct: &str) -> impl Fn(&Report) -> Option
 pub struct StudyMean<T, F>
 where
     T: AsPrimitive<f64>,
-    F: Fn(&Report) -> Option<T>,
+    F: FnMut(&SelArg) -> Vec<T>,
 {
     sel: F,
     data: Vec<f64>,
@@ -46,23 +91,28 @@ where
 impl<T, F> StudyMean<T, F>
 where
     T: AsPrimitive<f64>,
-    F: Fn(&Report) -> Option<T>,
+    F: FnMut(&SelArg) -> Vec<T>,
 {
     pub fn new(sel: F) -> Self {
         Self { sel, data: vec![] }
+    }
+
+    fn study_data(&mut self, data: &[T]) -> Result<()> {
+        for v in data {
+            self.data.push(v.as_());
+        }
+        Ok(())
     }
 }
 
 impl<T, F> Study for StudyMean<T, F>
 where
     T: AsPrimitive<f64>,
-    F: Fn(&Report) -> Option<T>,
+    F: FnMut(&SelArg) -> Vec<T>,
 {
-    fn study(&mut self, rep: &Report) -> Result<()> {
-        if let Some(v) = (self.sel)(rep) {
-            self.data.push(v.as_());
-        }
-        Ok(())
+    fn study(&mut self, arg: &SelArg) -> Result<()> {
+        let data = (self.sel)(arg);
+        self.study_data(&data)
     }
 
     fn as_study_mut(&mut self) -> &mut dyn Study {
@@ -77,7 +127,7 @@ pub trait StudyMeanTrait: Study {
 impl<T, F> StudyMeanTrait for StudyMean<T, F>
 where
     T: AsPrimitive<f64>,
-    F: Fn(&Report) -> Option<T>,
+    F: FnMut(&SelArg) -> Vec<T>,
 {
     fn result(&self) -> (f64, f64, f64, f64) {
         let mean = statistical::mean(&self.data);
@@ -99,97 +149,47 @@ where
 //
 // Calculate percentiles.
 //
-pub struct StudyPcts<T, F>
+pub struct StudyMeanPcts<T, F>
 where
     T: AsPrimitive<f64>,
-    F: Fn(&Report) -> Option<T>,
+    F: FnMut(&SelArg) -> Vec<T>,
 {
     sel: F,
     ckms: CKMS<f64>,
+    data: Vec<f64>,
 }
 
-impl<T, F> StudyPcts<T, F>
+impl<T, F> StudyMeanPcts<T, F>
 where
     T: AsPrimitive<f64>,
-    F: Fn(&Report) -> Option<T>,
+    F: FnMut(&SelArg) -> Vec<T>,
 {
     pub fn new(sel: F, error: Option<f64>) -> Self {
         const CKMS_DFL_ERROR: f64 = 0.001;
         Self {
             sel,
             ckms: CKMS::<f64>::new(error.unwrap_or(CKMS_DFL_ERROR)),
+            data: vec![],
         }
     }
-}
 
-impl<T, F> Study for StudyPcts<T, F>
-where
-    T: AsPrimitive<f64>,
-    F: Fn(&Report) -> Option<T>,
-{
-    fn study(&mut self, rep: &Report) -> Result<()> {
-        if let Some(v) = (self.sel)(rep) {
+    fn study_data(&mut self, data: &[T]) -> Result<()> {
+        for v in data {
             self.ckms.insert(v.as_());
+            self.data.push(v.as_());
         }
         Ok(())
-    }
-
-    fn as_study_mut(&mut self) -> &mut dyn Study {
-        self
-    }
-}
-
-pub trait StudyPctsTrait: Study {
-    fn result(&self, pcts: &[&str]) -> BTreeMap<String, f64>;
-}
-
-impl<T, F> StudyPctsTrait for StudyPcts<T, F>
-where
-    T: AsPrimitive<f64>,
-    F: Fn(&Report) -> Option<T>,
-{
-    fn result(&self, pcts: &[&str]) -> BTreeMap<String, f64> {
-        pcts.iter()
-            .map(|pct| {
-                let pctf = pct.parse::<f64>().unwrap() / 100.0;
-                (pct.to_string(), self.ckms.query(pctf).map(|x| x.1).unwrap())
-            })
-            .collect()
-    }
-}
-
-//
-// Calculate mean and percentiles.
-//
-pub struct StudyMeanPcts<T, F>
-where
-    T: AsPrimitive<f64>,
-    F: Fn(&Report) -> Option<T>,
-{
-    study_mean: StudyMean<T, F>,
-    study_pcts: StudyPcts<T, F>,
-}
-
-impl<T, F> StudyMeanPcts<T, F>
-where
-    T: AsPrimitive<f64>,
-    F: Fn(&Report) -> Option<T> + Clone,
-{
-    pub fn new(sel: F, error: Option<f64>) -> Self {
-        Self {
-            study_pcts: StudyPcts::<T, F>::new(sel.clone(), error),
-            study_mean: StudyMean::<T, F>::new(sel),
-        }
     }
 }
 
 impl<T, F> Study for StudyMeanPcts<T, F>
 where
     T: AsPrimitive<f64>,
-    F: Fn(&Report) -> Option<T> + Clone,
+    F: FnMut(&SelArg) -> Vec<T>,
 {
-    fn study(&mut self, rep: &Report) -> Result<()> {
-        self.study_mean.study(rep).and(self.study_pcts.study(rep))
+    fn study(&mut self, arg: &SelArg) -> Result<()> {
+        let data = (self.sel)(arg);
+        self.study_data(&data)
     }
 
     fn as_study_mut(&mut self) -> &mut dyn Study {
@@ -198,31 +198,48 @@ where
 }
 
 pub trait StudyMeanPctsTrait: Study {
-    fn result(&self, pcts: &[&str]) -> (f64, f64, BTreeMap<String, f64>);
+    fn result(&self, pcts: Option<&[&str]>) -> BTreeMap<String, f64>;
 }
 
 impl<T, F> StudyMeanPctsTrait for StudyMeanPcts<T, F>
 where
     T: AsPrimitive<f64>,
-    F: Fn(&Report) -> Option<T> + Clone,
+    F: FnMut(&SelArg) -> Vec<T>,
 {
-    fn result(&self, pcts: &[&str]) -> (f64, f64, BTreeMap<String, f64>) {
-        let (mean, stdev, _, _) = self.study_mean.result();
-        let pcts = self.study_pcts.result(pcts);
-        (mean, stdev, pcts)
+    fn result(&self, pcts: Option<&[&str]>) -> BTreeMap<String, f64> {
+        let pcts = pcts.unwrap_or(&DFL_PCTS);
+        pcts.iter()
+            .map(|pct| {
+                let val = match *pct {
+                    "mean" => statistical::mean(&self.data),
+                    "stdev" => {
+                        if self.data.len() <= 1 {
+                            0.0
+                        } else {
+                            statistical::standard_deviation(&self.data, None)
+                        }
+                    }
+                    pct => {
+                        let pctf = pct.parse::<f64>().unwrap() / 100.0;
+                        self.ckms.query(pctf).map(|x| x.1).unwrap_or(0.0)
+                    }
+                };
+                (pct.to_string(), val)
+            })
+            .collect()
     }
 }
 
 pub struct StudyMutFn<F>
 where
-    F: FnMut(&Report),
+    F: FnMut(&SelArg),
 {
     func: F,
 }
 
 impl<F> StudyMutFn<F>
 where
-    F: FnMut(&Report),
+    F: FnMut(&SelArg),
 {
     pub fn new(func: F) -> Self {
         Self { func }
@@ -231,10 +248,10 @@ where
 
 impl<F> Study for StudyMutFn<F>
 where
-    F: FnMut(&Report),
+    F: FnMut(&SelArg),
 {
-    fn study(&mut self, rep: &Report) -> Result<()> {
-        (self.func)(rep);
+    fn study(&mut self, arg: &SelArg) -> Result<()> {
+        (self.func)(arg);
         Ok(())
     }
 
@@ -246,15 +263,38 @@ where
 //
 // Helpers.
 //
+#[derive(Default)]
+struct StudyIoLatCum {
+    at: u64,
+    rep: Option<IoLatReport>,
+}
+
+impl Study for StudyIoLatCum {
+    fn study(&mut self, arg: &SelArg) -> Result<()> {
+        let ts = arg.rep.timestamp.timestamp() as u64;
+        if self.at < ts {
+            self.at = ts;
+            self.rep.replace(arg.rep.iolat_cum.clone());
+        }
+        Ok(())
+    }
+
+    fn as_study_mut(&mut self) -> &mut dyn Study {
+        self
+    }
+}
+
 pub struct StudyIoLatPcts {
     io_type: String,
     studies: Vec<Box<dyn StudyMeanPctsTrait>>,
+    cum_study: StudyIoLatCum,
 }
 
 impl StudyIoLatPcts {
     pub const LAT_PCTS: &'static [&'static str] = &IoLatReport::PCTS;
-    pub const TIME_PCTS: [&'static str; 14] = [
+    pub const TIME_PCTS: [&'static str; 16] = [
         "00", "01", "05", "10", "16", "25", "50", "75", "84", "90", "95", "99", "99.9", "100",
+        "mean", "stdev",
     ];
     pub const TIME_FORMAT_PCTS: [&'static str; 9] =
         ["00", "16", "50", "84", "90", "95", "99", "99.9", "100"];
@@ -270,37 +310,35 @@ impl StudyIoLatPcts {
                         as Box<dyn StudyMeanPctsTrait>
                 })
                 .collect(),
+            cum_study: Default::default(),
         }
     }
 
     pub fn studies(&mut self) -> Vec<&mut dyn Study> {
-        self.studies
+        let mut studies: Vec<&mut dyn Study> = self
+            .studies
             .iter_mut()
             .map(|study| study.as_study_mut())
-            .collect()
+            .collect();
+        studies.push(self.cum_study.as_study_mut());
+        studies
     }
 
-    pub fn result(
-        &self,
-        rctx: &RunCtx,
-        time_pcts: Option<&[&str]>,
-    ) -> BTreeMap<String, BTreeMap<String, f64>> {
+    pub fn result(&self, time_pcts: Option<&[&str]>) -> BTreeMap<String, BTreeMap<String, f64>> {
         let mut result = BTreeMap::<String, BTreeMap<String, f64>>::new();
         for (lat_pct, study) in Self::LAT_PCTS.iter().zip(self.studies.iter()) {
-            let (mean, stdev, mut pcts) = study.result(&time_pcts.unwrap_or(&Self::TIME_PCTS));
-            pcts.insert("mean".to_string(), mean);
-            pcts.insert("stdev".to_string(), stdev);
+            let pcts = study.result(Some(&time_pcts.unwrap_or(&Self::TIME_PCTS)));
             result.insert(lat_pct.to_string(), pcts);
         }
 
-        rctx.access_agent_files(|af| {
+        if let Some(cum_rep) = self.cum_study.rep.as_ref() {
             for lat_pct in Self::LAT_PCTS.iter() {
-                result.get_mut(*lat_pct).unwrap().insert(
-                    "cum".to_string(),
-                    af.report.data.iolat_cum.map[&self.io_type][*lat_pct],
-                );
+                result
+                    .get_mut(*lat_pct)
+                    .unwrap()
+                    .insert("cum".to_string(), cum_rep.map[&self.io_type][*lat_pct]);
             }
-        });
+        }
         result
     }
 
@@ -422,37 +460,45 @@ impl<'a> Studies<'a> {
         self
     }
 
-    pub fn run_fallible(&mut self, run: &RunCtx, period: (u64, u64)) -> Result<(u64, u64)> {
+    pub fn run(&mut self, run: &RunCtx, period: (u64, u64)) -> Result<(u64, u64)> {
         let mut nr_reps = 0;
         let mut nr_missed = 0;
 
+        let mut last_at_ms = None;
+        let mut cnt = 0;
         for (rep, _) in run.report_iter(period) {
+            cnt += 1;
             match rep {
                 Ok(rep) => {
-                    nr_reps += 1;
+                    let this_at_ms = rep.timestamp.timestamp_millis();
+                    let dur = match last_at_ms {
+                        Some(last) => (this_at_ms - last) as f64 / 1000.0,
+                        None => 1.0,
+                    };
+                    assert!(dur > 0.0);
+                    last_at_ms = Some(this_at_ms);
+
+                    let arg = SelArg {
+                        rep: &rep,
+                        dur,
+                        cnt,
+                    };
                     for study in self.studies.iter_mut() {
-                        study.study(&rep)?;
+                        study.study(&arg)?;
                     }
+
+                    nr_reps += 1;
+                    cnt = 0;
                 }
                 Err(_) => nr_missed += 1,
             }
         }
 
         if nr_reps == 0 {
-            bail!("no report available between {} and {}", period.0, period.1);
+            bail!("No report found in {}", format_period(period));
         }
 
         Ok((nr_reps, nr_missed))
-    }
-
-    pub fn run(&mut self, run: &RunCtx, period: (u64, u64)) -> (u64, u64) {
-        match self.run_fallible(run, period) {
-            Ok(v) => v,
-            Err(e) => {
-                error!("Failed to study the reports ({})", &e);
-                panic!();
-            }
-        }
     }
 
     pub fn reports_missing(nr_reports: (u64, u64)) -> f64 {
@@ -460,6 +506,264 @@ impl<'a> Studies<'a> {
             nr_reports.1 as f64 / (nr_reports.0 + nr_reports.1) as f64
         } else {
             0.0
+        }
+    }
+}
+
+//
+// Pcts print helpers
+//
+pub fn print_pcts_header<'a>(out: &mut Box<dyn Write + 'a>, name: &str, pcts: Option<&[&str]>) {
+    let pcts = pcts.unwrap_or(&DFL_PCTS);
+    writeln!(
+        out,
+        "{:<9}  {}",
+        name,
+        pcts.iter()
+            .map(|x| format!("{:>4}", format_percentile(*x)))
+            .collect::<Vec<String>>()
+            .join(" ")
+    )
+    .unwrap();
+}
+
+pub fn print_pcts_line<'a, F>(
+    out: &mut Box<dyn Write + 'a>,
+    field_name: &str,
+    data: &BTreeMap<String, f64>,
+    fmt: F,
+    pcts: Option<&[&str]>,
+) where
+    F: Fn(f64) -> String,
+{
+    let pcts = pcts.unwrap_or(&DFL_PCTS);
+    write!(out, "{:<9}  ", field_name).unwrap();
+
+    if pcts
+        .iter()
+        .filter(|pct| data[**pct] != 0.0)
+        .next()
+        .is_some()
+    {
+        for pct in pcts.iter() {
+            write!(out, "{:>4} ", fmt(data[*pct])).unwrap();
+        }
+    } else {
+        for _ in pcts.iter() {
+            write!(out, "{:>4} ", "-").unwrap();
+        }
+    }
+    writeln!(out, "").unwrap();
+}
+
+//
+// Resource stat
+//
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ResourceStat {
+    pub cpu_util: BTreeMap<String, f64>,
+    pub cpu_sys: BTreeMap<String, f64>,
+    pub mem_bytes: BTreeMap<String, f64>,
+    pub io_util: BTreeMap<String, f64>,
+    pub io_bps: (BTreeMap<String, f64>, BTreeMap<String, f64>),
+    pub psi_cpu: BTreeMap<String, f64>,
+    pub psi_mem: (BTreeMap<String, f64>, BTreeMap<String, f64>),
+    pub psi_io: (BTreeMap<String, f64>, BTreeMap<String, f64>),
+}
+
+impl ResourceStat {
+    pub fn format<'a>(&self, out: &mut Box<dyn Write + 'a>, name: &str, pcts: Option<&[&str]>) {
+        print_pcts_header(out, name, pcts);
+        print_pcts_line(out, "cpu%", &self.cpu_util, format_pct, pcts);
+        print_pcts_line(out, "sys%", &self.cpu_sys, format_pct, pcts);
+        print_pcts_line(out, "mem", &self.mem_bytes, format_size_short, pcts);
+        print_pcts_line(out, "io%", &self.io_util, format_pct, pcts);
+        print_pcts_line(out, "rbps", &self.io_bps.0, format_size_short, pcts);
+        print_pcts_line(out, "wbps", &self.io_bps.1, format_size_short, pcts);
+        print_pcts_line(out, "cpu-some%", &self.psi_cpu, format_pct, pcts);
+        print_pcts_line(out, "mem-some%", &self.psi_mem.0, format_pct, pcts);
+        print_pcts_line(out, "mem-full%", &self.psi_mem.1, format_pct, pcts);
+        print_pcts_line(out, "io-some%", &self.psi_io.0, format_pct, pcts);
+        print_pcts_line(out, "io-full%", &self.psi_io.1, format_pct, pcts);
+    }
+}
+
+#[derive(Default)]
+pub struct ResourceStatStudyCtx {
+    cpu_usage: RefCell<Option<(f64, f64)>>,
+    cpu_usage_sys: RefCell<Option<(f64, f64)>>,
+    io_usage: RefCell<Option<f64>>,
+    io_bps: (RefCell<Option<u64>>, RefCell<Option<u64>>),
+    cpu_stall: RefCell<Option<f64>>,
+    mem_stalls: (RefCell<Option<f64>>, RefCell<Option<f64>>),
+    io_stalls: (RefCell<Option<f64>>, RefCell<Option<f64>>),
+}
+
+impl ResourceStatStudyCtx {
+    pub fn reset(&self) {
+        self.cpu_usage.replace(None);
+        self.cpu_usage_sys.replace(None);
+        self.io_usage.replace(None);
+        self.io_bps.0.replace(None);
+        self.io_bps.1.replace(None);
+        self.cpu_stall.replace(None);
+        self.mem_stalls.0.replace(None);
+        self.mem_stalls.1.replace(None);
+        self.io_stalls.0.replace(None);
+        self.io_stalls.1.replace(None);
+    }
+}
+
+pub struct ResourceStatStudy<'a> {
+    cpu_util_study: Box<dyn StudyMeanPctsTrait + 'a>,
+    cpu_sys_study: Box<dyn StudyMeanPctsTrait + 'a>,
+    mem_bytes_study: Box<dyn StudyMeanPctsTrait + 'a>,
+    io_util_study: Box<dyn StudyMeanPctsTrait + 'a>,
+    io_bps_studies: (
+        Box<dyn StudyMeanPctsTrait + 'a>,
+        Box<dyn StudyMeanPctsTrait + 'a>,
+    ),
+    psi_cpu_study: Box<dyn StudyMeanPctsTrait + 'a>,
+    psi_mem_studies: (
+        Box<dyn StudyMeanPctsTrait + 'a>,
+        Box<dyn StudyMeanPctsTrait + 'a>,
+    ),
+    psi_io_studies: (
+        Box<dyn StudyMeanPctsTrait + 'a>,
+        Box<dyn StudyMeanPctsTrait + 'a>,
+    ),
+}
+
+impl<'a> ResourceStatStudy<'a> {
+    fn calc_cpu_util(_arg: &SelArg, cur: (f64, f64), last: (f64, f64)) -> f64 {
+        let base = cur.1 - last.1;
+        if base > 0.0 {
+            ((cur.0 - last.0) / base).max(0.0)
+        } else {
+            0.0
+        }
+    }
+
+    pub fn new(name: &'static str, ctx: &'a ResourceStatStudyCtx) -> Self {
+        Self {
+            cpu_util_study: Box::new(StudyMeanPcts::new(
+                sel_delta_calc(
+                    move |arg| {
+                        (
+                            arg.rep.usages[name].cpu_usage,
+                            arg.rep.usages[name].cpu_usage_base,
+                        )
+                    },
+                    Self::calc_cpu_util,
+                    &ctx.cpu_usage,
+                ),
+                None,
+            )),
+            cpu_sys_study: Box::new(StudyMeanPcts::new(
+                sel_delta_calc(
+                    move |arg| {
+                        (
+                            arg.rep.usages[name].cpu_usage_sys,
+                            arg.rep.usages[name].cpu_usage_base,
+                        )
+                    },
+                    Self::calc_cpu_util,
+                    &ctx.cpu_usage_sys,
+                ),
+                None,
+            )),
+            mem_bytes_study: Box::new(StudyMeanPcts::new(
+                move |arg| [arg.rep.usages[name].mem_bytes].repeat(arg.cnt),
+                None,
+            )),
+            io_util_study: Box::new(StudyMeanPcts::new(
+                sel_delta(move |arg| arg.rep.usages[name].io_usage, &ctx.io_usage),
+                None,
+            )),
+            io_bps_studies: (
+                Box::new(StudyMeanPcts::new(
+                    sel_delta(move |arg| arg.rep.usages[name].io_rbytes, &ctx.io_bps.0),
+                    None,
+                )),
+                Box::new(StudyMeanPcts::new(
+                    sel_delta(move |arg| arg.rep.usages[name].io_wbytes, &ctx.io_bps.1),
+                    None,
+                )),
+            ),
+            psi_cpu_study: Box::new(StudyMeanPcts::new(
+                sel_delta(move |arg| arg.rep.usages[name].cpu_stalls.0, &ctx.cpu_stall),
+                None,
+            )),
+            psi_mem_studies: (
+                Box::new(StudyMeanPcts::new(
+                    sel_delta(
+                        move |arg| arg.rep.usages[name].mem_stalls.0,
+                        &ctx.mem_stalls.0,
+                    ),
+                    None,
+                )),
+                Box::new(StudyMeanPcts::new(
+                    sel_delta(
+                        move |arg| arg.rep.usages[name].mem_stalls.1,
+                        &ctx.mem_stalls.1,
+                    ),
+                    None,
+                )),
+            ),
+            psi_io_studies: (
+                Box::new(StudyMeanPcts::new(
+                    sel_delta(
+                        move |arg| arg.rep.usages[name].io_stalls.0,
+                        &ctx.io_stalls.0,
+                    ),
+                    None,
+                )),
+                Box::new(StudyMeanPcts::new(
+                    sel_delta(
+                        move |arg| arg.rep.usages[name].io_stalls.1,
+                        &ctx.io_stalls.1,
+                    ),
+                    None,
+                )),
+            ),
+        }
+    }
+
+    pub fn studies(&mut self) -> Vec<&mut dyn Study> {
+        vec![
+            self.cpu_util_study.as_study_mut(),
+            self.cpu_sys_study.as_study_mut(),
+            self.mem_bytes_study.as_study_mut(),
+            self.io_util_study.as_study_mut(),
+            self.io_bps_studies.0.as_study_mut(),
+            self.io_bps_studies.1.as_study_mut(),
+            self.psi_cpu_study.as_study_mut(),
+            self.psi_mem_studies.0.as_study_mut(),
+            self.psi_mem_studies.1.as_study_mut(),
+            self.psi_io_studies.0.as_study_mut(),
+            self.psi_io_studies.1.as_study_mut(),
+        ]
+    }
+
+    pub fn result(&self, pcts: Option<&[&str]>) -> ResourceStat {
+        ResourceStat {
+            cpu_util: self.cpu_util_study.result(pcts),
+            cpu_sys: self.cpu_sys_study.result(pcts),
+            mem_bytes: self.mem_bytes_study.result(pcts),
+            io_util: self.io_util_study.result(pcts),
+            io_bps: (
+                self.io_bps_studies.0.result(pcts),
+                self.io_bps_studies.1.result(pcts),
+            ),
+            psi_cpu: self.psi_cpu_study.result(pcts),
+            psi_mem: (
+                self.psi_mem_studies.0.result(pcts),
+                self.psi_mem_studies.1.result(pcts),
+            ),
+            psi_io: (
+                self.psi_io_studies.0.result(pcts),
+                self.psi_io_studies.1.result(pcts),
+            ),
         }
     }
 }

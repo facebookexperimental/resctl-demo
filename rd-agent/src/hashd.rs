@@ -217,6 +217,10 @@ impl Hashd {
             rps: hashd_r.hasher.rps,
             lat_pct: self.lat_target_pct,
             lat: hashd_r.hasher.lat,
+            nr_in_flight: hashd_r.hasher.nr_in_flight,
+            nr_done: hashd_r.hasher.nr_done,
+            nr_workers: hashd_r.hasher.nr_workers,
+            nr_idle_workers: hashd_r.hasher.nr_idle_workers,
             mem_probe_size: hashd_r.mem_probe_size,
             mem_probe_at: hashd_r.mem_probe_at,
         })

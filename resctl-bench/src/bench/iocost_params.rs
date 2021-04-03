@@ -19,13 +19,15 @@ impl Bench for IoCostParamsBench {
 
 impl Job for IoCostParamsJob {
     fn sysreqs(&self) -> BTreeSet<SysReq> {
-        Default::default()
+        MIN_SYSREQS.clone()
     }
 
     fn run(&mut self, rctx: &mut RunCtx) -> Result<serde_json::Value> {
-        rctx.set_commit_bench().start_agent();
+        rctx.skip_mem_profile()
+            .set_commit_bench()
+            .start_agent(vec![])?;
         info!("iocost-params: Estimating iocost parameters");
-        rctx.start_iocost_bench();
+        rctx.start_iocost_bench()?;
         rctx.wait_cond(
             |af, progress| {
                 let cmd = &af.cmd.data;
@@ -56,7 +58,7 @@ impl Job for IoCostParamsJob {
         _full: bool,
         _props: &JobProps,
     ) -> Result<()> {
-        let result = serde_json::from_value::<IoCostKnobs>(data.result.clone()).unwrap();
+        let result: IoCostKnobs = data.parse_record()?;
         let model = &result.model;
         let qos = &result.qos;
 

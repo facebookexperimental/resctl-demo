@@ -101,6 +101,16 @@ pub fn nr_cpus() -> usize {
     }
 }
 
+pub const SWAPPINESS_PATH: &str = "/proc/sys/vm/swappiness";
+
+pub fn read_swappiness() -> Result<u32> {
+    Ok(read_one_line(SWAPPINESS_PATH)
+        .context("Reading swappiness")?
+        .trim()
+        .parse::<u32>()
+        .context("Parsing swappiness")?)
+}
+
 pub fn override_system_configuration(
     total_memory: Option<usize>,
     total_swap: Option<usize>,
@@ -203,18 +213,22 @@ pub fn double_underline(content: &str) -> String {
     custom_underline(content, "=")
 }
 
-fn format_size_internal<T>(size: T, zero: &str) -> String
+fn format_size_internal<T>(size: T, zero: &str, short: bool) -> String
 where
     T: num::ToPrimitive,
 {
     let format_size_helper = |size: u64, shift: u32, suffix: &str| -> Option<String> {
         let unit: u64 = 1 << shift;
 
-        if size < unit {
+        if size == 0 {
             Some(zero.to_string())
-        } else if size < (99.94999 * unit as f64) as u64 {
-            Some(format!("{:.1}{}", size as f64 / unit as f64, suffix))
-        } else if size < 1024 * unit {
+        } else if (size as f64) < if short { 9.94999 } else { 99.94999 } * unit as f64 {
+            Some(format!(
+                "{:.1}{}",
+                (size as f64 / unit as f64).max(0.1),
+                suffix
+            ))
+        } else if (size as f64) < if short { 999.4999 } else { 1024.0 } * unit as f64 {
             Some(format!("{:.0}{}", size as f64 / unit as f64, suffix))
         } else {
             None
@@ -236,22 +250,33 @@ pub fn format_size<T>(size: T) -> String
 where
     T: num::ToPrimitive,
 {
-    format_size_internal(size, "0")
+    format_size_internal(size, "0", false)
 }
 
 pub fn format_size_dashed<T>(size: T) -> String
 where
     T: num::ToPrimitive,
 {
-    format_size_internal(size, "-")
+    format_size_internal(size, "-", false)
+}
+
+pub fn format_size_short<T>(size: T) -> String
+where
+    T: num::ToPrimitive,
+{
+    format_size_internal(size, "0", true)
 }
 
 fn format_duration_internal(dur: f64, zero: &str) -> String {
     let format_nsecs_helper = |nsecs: u64, unit: u64, max: u64, suffix: &str| -> Option<String> {
-        if nsecs < unit {
+        if nsecs == 0 {
             Some(zero.to_string())
-        } else if nsecs < (99.94999 * unit as f64) as u64 {
-            Some(format!("{:.1}{}", nsecs as f64 / unit as f64, suffix))
+        } else if (nsecs as f64) < 99.94999 * unit as f64 {
+            Some(format!(
+                "{:.1}{}",
+                (nsecs as f64 / unit as f64).max(0.1),
+                suffix
+            ))
         } else if nsecs < max * unit {
             Some(format!("{:.0}{}", nsecs as f64 / unit as f64, suffix))
         } else {
@@ -281,14 +306,19 @@ pub fn format_duration_dashed(dur: f64) -> String {
 }
 
 fn format_pct_internal(ratio: f64, zero: &str) -> String {
-    if ratio == 0.0 {
+    let pct = ratio * TO_PCT;
+    if pct < 0.0 {
+        "NEG".into()
+    } else if pct == 0.0 {
         zero.to_string()
-    } else if ratio > 0.99 && ratio <= 9.99 {
-        format!("{:3.0}", ratio * 100.0)
-    } else if ratio > 9.99 {
-        "INF".into()
+    } else if pct < 99.95 {
+        format!("{:.01}", pct)
+    } else if pct < 9999.5 {
+        format!("{:.0}", pct)
+    } else if pct / 1000.0 < 99.5 {
+        format!("{:.0}k", pct / 1000.0)
     } else {
-        format!("{:.01}", ratio * 100.0)
+        "INF".into()
     }
 }
 
@@ -494,6 +524,16 @@ pub fn format_unix_time(time: u64) -> String {
     DateTime::<Local>::from(UNIX_EPOCH + Duration::from_secs(time))
         .format("%x %T")
         .to_string()
+}
+
+pub fn format_period(per: (u64, u64)) -> String {
+    format!(
+        "{} - {} ({}-{})",
+        format_unix_time(per.0),
+        format_unix_time(per.1),
+        per.0,
+        per.1
+    )
 }
 
 pub fn init_logging(verbosity: u32) {

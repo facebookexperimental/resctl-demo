@@ -52,6 +52,7 @@ const REPORT_DOC: &str = "\
 //  sideloads{}.svc.state: Sideload systemd service state
 //  iocost.model: iocost model parameters currently in effect
 //  iocost.qos: iocost QoS parameters currently in effect
+//  swappiness: vm.swappiness
 //  iolat.{read|write|discard|flush}.p*: IO latency distributions
 //  iolat_cum.{read|write|discard|flush}.p*: Cumulative IO latency distributions
 //
@@ -136,6 +137,10 @@ pub struct HashdReport {
     pub rps: f64,
     pub lat_pct: f64,
     pub lat: rd_hashd_intf::Latencies,
+    pub nr_in_flight: u32,
+    pub nr_done: u64,
+    pub nr_workers: usize,
+    pub nr_idle_workers: usize,
     pub mem_probe_size: usize,
     pub mem_probe_at: DateTime<Local>,
 }
@@ -149,6 +154,10 @@ impl Default for HashdReport {
             rps: 0.0,
             lat_pct: 0.0,
             lat: Default::default(),
+            nr_in_flight: 0,
+            nr_done: 0,
+            nr_workers: 0,
+            nr_idle_workers: 0,
             mem_probe_size: 0,
             mem_probe_at: DateTime::from(UNIX_EPOCH),
         }
@@ -161,6 +170,10 @@ impl ops::AddAssign<&HashdReport> for HashdReport {
         self.rps += rhs.rps;
         self.lat_pct += rhs.lat_pct;
         self.lat += &rhs.lat;
+        self.nr_in_flight += rhs.nr_in_flight;
+        self.nr_done += rhs.nr_done;
+        self.nr_workers += rhs.nr_workers;
+        self.nr_idle_workers += rhs.nr_idle_workers;
     }
 }
 
@@ -171,6 +184,10 @@ impl<T: Into<f64>> ops::DivAssign<T> for HashdReport {
         self.rps /= div;
         self.lat_pct /= div;
         self.lat /= div;
+        self.nr_in_flight = ((self.nr_in_flight as f64) / div).round() as u32;
+        self.nr_done = ((self.nr_done as f64) / div).round() as u64;
+        self.nr_workers = ((self.nr_workers as f64) / div).round() as usize;
+        self.nr_idle_workers = ((self.nr_idle_workers as f64) / div).round() as usize;
     }
 }
 
@@ -188,7 +205,11 @@ pub struct SideloadReport {
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct UsageReport {
+    pub cpu_util: f64,
+    pub cpu_sys: f64,
     pub cpu_usage: f64,
+    pub cpu_usage_sys: f64,
+    pub cpu_usage_base: f64,
     pub mem_bytes: u64,
     pub swap_bytes: u64,
     pub swap_free: u64,
@@ -196,7 +217,11 @@ pub struct UsageReport {
     pub io_wbytes: u64,
     pub io_rbps: u64,
     pub io_wbps: u64,
+    pub io_usage: f64,
     pub io_util: f64,
+    pub cpu_stalls: (f64, f64),
+    pub mem_stalls: (f64, f64),
+    pub io_stalls: (f64, f64),
     pub cpu_pressures: (f64, f64),
     pub mem_pressures: (f64, f64),
     pub io_pressures: (f64, f64),
@@ -204,7 +229,10 @@ pub struct UsageReport {
 
 impl ops::AddAssign<&UsageReport> for UsageReport {
     fn add_assign(&mut self, rhs: &UsageReport) {
+        self.cpu_util += rhs.cpu_util;
+        self.cpu_sys += rhs.cpu_sys;
         self.cpu_usage += rhs.cpu_usage;
+        self.cpu_usage_sys += rhs.cpu_usage_sys;
         self.mem_bytes += rhs.mem_bytes;
         self.swap_bytes += rhs.swap_bytes;
         self.swap_free += rhs.swap_free;
@@ -212,7 +240,14 @@ impl ops::AddAssign<&UsageReport> for UsageReport {
         self.io_wbytes += rhs.io_wbytes;
         self.io_rbps += rhs.io_rbps;
         self.io_wbps += rhs.io_wbps;
+        self.io_usage += rhs.io_usage;
         self.io_util += rhs.io_util;
+        self.cpu_stalls.0 += rhs.cpu_stalls.0;
+        self.cpu_stalls.1 += rhs.cpu_stalls.1;
+        self.mem_stalls.0 += rhs.mem_stalls.0;
+        self.mem_stalls.1 += rhs.mem_stalls.1;
+        self.io_stalls.0 += rhs.io_stalls.0;
+        self.io_stalls.1 += rhs.io_stalls.1;
         self.cpu_pressures.0 += rhs.cpu_pressures.0;
         self.cpu_pressures.1 += rhs.cpu_pressures.1;
         self.mem_pressures.0 += rhs.mem_pressures.0;
@@ -225,15 +260,26 @@ impl ops::AddAssign<&UsageReport> for UsageReport {
 impl<T: Into<f64>> ops::DivAssign<T> for UsageReport {
     fn div_assign(&mut self, rhs: T) {
         let div = rhs.into();
+        let div_u64 = |v: &mut u64| *v = (*v as f64 / div).round() as u64;
+        self.cpu_util /= div;
+        self.cpu_sys /= div;
         self.cpu_usage /= div;
-        self.mem_bytes = (self.mem_bytes as f64 / div).round() as u64;
-        self.swap_bytes = (self.swap_bytes as f64 / div).round() as u64;
-        self.swap_free = (self.swap_free as f64 / div).round() as u64;
-        self.io_rbytes = (self.io_rbytes as f64 / div).round() as u64;
-        self.io_wbytes = (self.io_wbytes as f64 / div).round() as u64;
-        self.io_rbps = (self.io_rbps as f64 / div).round() as u64;
-        self.io_wbps = (self.io_wbps as f64 / div).round() as u64;
+        self.cpu_usage_sys /= div;
+        div_u64(&mut self.mem_bytes);
+        div_u64(&mut self.swap_bytes);
+        div_u64(&mut self.swap_free);
+        div_u64(&mut self.io_rbytes);
+        div_u64(&mut self.io_wbytes);
+        div_u64(&mut self.io_rbps);
+        div_u64(&mut self.io_wbps);
+        self.io_usage /= div;
         self.io_util /= div;
+        self.cpu_stalls.0 /= div;
+        self.cpu_stalls.1 /= div;
+        self.mem_stalls.0 /= div;
+        self.mem_stalls.1 /= div;
+        self.io_stalls.0 /= div;
+        self.io_stalls.1 /= div;
         self.cpu_pressures.0 /= div;
         self.cpu_pressures.1 /= div;
         self.mem_pressures.0 /= div;
@@ -285,7 +331,7 @@ impl Default for IoLatReport {
     }
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct IoCostModelReport {
     pub ctrl: String,
     pub model: String,
@@ -326,7 +372,7 @@ impl IoCostModelReport {
     }
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct IoCostQoSReport {
     pub enable: u32,
     pub ctrl: String,
@@ -367,7 +413,7 @@ impl Default for IoCostQoSReport {
     }
 }
 
-#[derive(Clone, Default, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct IoCostReport {
     pub vrate: f64,
     pub model: IoCostModelReport,
@@ -425,6 +471,7 @@ pub struct Report {
     pub iolat: IoLatReport,
     pub iolat_cum: IoLatReport,
     pub iocost: IoCostReport,
+    pub swappiness: u32,
 }
 
 impl Default for Report {
@@ -445,6 +492,7 @@ impl Default for Report {
             iolat: Default::default(),
             iolat_cum: Default::default(),
             iocost: Default::default(),
+            swappiness: 60,
         }
     }
 }
@@ -457,32 +505,72 @@ impl JsonSave for Report {
     }
 }
 
-pub struct ReportIter {
+pub struct ReportPathIter {
     dir: String,
-    cur: u64,
-    end: u64,
+    front: u64,
+    back: u64,
+}
+
+impl ReportPathIter {
+    pub fn new(dir: &str, period: (u64, u64)) -> Self {
+        Self {
+            dir: dir.into(),
+            front: period.0,
+            back: period.1,
+        }
+    }
+}
+
+impl Iterator for ReportPathIter {
+    type Item = (std::path::PathBuf, u64);
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.front >= self.back {
+            return None;
+        }
+        let front = self.front;
+        self.front += 1;
+
+        Some((format!("{}/{}.json", &self.dir, front).into(), front))
+    }
+}
+
+impl DoubleEndedIterator for ReportPathIter {
+    fn next_back(&mut self) -> Option<Self::Item> {
+        if self.front >= self.back {
+            return None;
+        }
+        let back = self.back;
+        self.back -= 1;
+
+        Some((format!("{}/{}.json", &self.dir, back).into(), back))
+    }
+}
+
+pub struct ReportIter {
+    piter: ReportPathIter,
 }
 
 impl ReportIter {
     pub fn new(dir: &str, period: (u64, u64)) -> Self {
         Self {
-            dir: dir.into(),
-            cur: period.0,
-            end: period.1,
+            piter: ReportPathIter::new(dir, period),
         }
     }
 }
 
 impl Iterator for ReportIter {
     type Item = (Result<Report>, u64);
-    fn next(&mut self) -> Option<(Result<Report>, u64)> {
-        if self.cur == self.end {
-            return None;
-        }
-        let cur = self.cur;
-        self.cur += 1;
+    fn next(&mut self) -> Option<Self::Item> {
+        self.piter
+            .next()
+            .map(|(path, at)| (Report::load(&path), at))
+    }
+}
 
-        let path = format!("{}/{}.json", &self.dir, cur);
-        Some((Report::load(&path), cur))
+impl DoubleEndedIterator for ReportIter {
+    fn next_back(&mut self) -> Option<Self::Item> {
+        self.piter
+            .next_back()
+            .map(|(path, at)| (Report::load(&path), at))
     }
 }

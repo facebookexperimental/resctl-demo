@@ -330,7 +330,8 @@ fn exec_one_cmd(siv: &mut Cursive, cmd: &RdCmd) {
 
                 cs.sys_cpu_ratio = SliceConfig::DFL_SYS_CPU_RATIO;
                 cs.sys_io_ratio = SliceConfig::DFL_SYS_IO_RATIO;
-                cs.mem_margin = SliceConfig::dfl_mem_margin() as f64 / total_memory() as f64;
+                cs.mem_margin = SliceConfig::dfl_mem_margin(total_memory(), *IS_FB_PROD) as f64
+                    / total_memory() as f64;
                 cs.balloon_ratio = dfl_cmd.balloon_ratio;
                 cs.cpu_headroom = dfl_cmd.sideloader.cpu_headroom;
             };

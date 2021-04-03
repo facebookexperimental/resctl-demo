@@ -5,7 +5,6 @@ use rd_agent_intf::{HASHD_BENCH_SVC_NAME, ROOT_SLICE};
 
 struct HashdParamsJob {
     passive: bool,
-    balloon_size: usize,
     log_bps: u64,
     fake_cpu_load: bool,
     hash_size: Option<usize>,
@@ -18,7 +17,6 @@ impl Default for HashdParamsJob {
         let dfl_cmd = rd_agent_intf::Cmd::default();
         Self {
             passive: false,
-            balloon_size: dfl_cmd.bench_hashd_balloon_size,
             log_bps: dfl_cmd.hashd[0].log_bps,
             fake_cpu_load: false,
             hash_size: None,
@@ -41,7 +39,6 @@ impl Bench for HashdParamsBench {
         for (k, v) in spec.props[0].iter() {
             match k.as_str() {
                 "passive" => job.passive = v.len() == 0 || v.parse::<bool>()?,
-                "balloon" => job.balloon_size = v.parse::<usize>()?,
                 "log-bps" => job.log_bps = v.parse::<u64>()?,
                 "fake-cpu-load" => job.fake_cpu_load = v.len() == 0 || v.parse::<bool>()?,
                 "hash-size" => job.hash_size = Some(v.parse::<usize>()?),
@@ -64,25 +61,20 @@ impl Job for HashdParamsJob {
         if self.passive {
             rctx.set_passive_keep_crit_mem_prot();
         }
-        rctx.set_commit_bench().start_agent();
+        rctx.set_commit_bench().start_agent(vec![])?;
 
         info!("hashd-params: Estimating rd-hashd parameters");
 
         if self.fake_cpu_load {
-            let dfl_args = rd_hashd_intf::Args::with_mem_size(total_memory());
-            let dfl_params = rd_hashd_intf::Params::default();
+            let base = HashdFakeCpuBench::base(rctx);
             HashdFakeCpuBench {
-                size: dfl_args.size,
-                balloon_size: self.balloon_size,
-                preload_size: dfl_args.bench_preload_cache_size(),
-                log_bps: self.log_bps,
-                log_size: dfl_args.log_size,
-                hash_size: self.hash_size.unwrap_or(dfl_params.file_size_mean),
-                chunk_pages: self.chunk_pages.unwrap_or(dfl_params.chunk_pages),
-                rps_max: self.rps_max.unwrap_or(RunCtx::BENCH_FAKE_CPU_RPS_MAX),
-                file_frac: dfl_params.file_frac,
+                log_bps: Some(self.log_bps),
+                hash_size: self.hash_size.unwrap_or(base.hash_size),
+                chunk_pages: self.chunk_pages.unwrap_or(base.chunk_pages),
+                rps_max: self.rps_max.unwrap_or(base.rps_max),
+                ..base
             }
-            .start(rctx);
+            .start(rctx)?;
         } else {
             let mut extra_args = vec![];
             if let Some(v) = self.hash_size {
@@ -94,7 +86,7 @@ impl Job for HashdParamsJob {
             if let Some(v) = self.rps_max {
                 extra_args.push(format!("--bench-rps-max={}", v));
             }
-            rctx.start_hashd_bench(self.balloon_size, self.log_bps, extra_args);
+            rctx.start_hashd_bench(Some(self.log_bps), extra_args)?;
         }
         rctx.wait_cond(
             |af, progress| {
@@ -131,15 +123,9 @@ impl Job for HashdParamsJob {
         _full: bool,
         _props: &JobProps,
     ) -> Result<()> {
-        let result = serde_json::from_value::<HashdKnobs>(data.result.clone()).unwrap();
+        let result: HashdKnobs = data.parse_record()?;
 
-        writeln!(
-            out,
-            "Params: balloon_size={} log_bps={}",
-            format_size(self.balloon_size),
-            format_size(self.log_bps)
-        )
-        .unwrap();
+        writeln!(out, "Params: log_bps={}", format_size(self.log_bps)).unwrap();
 
         writeln!(
             out,

@@ -37,6 +37,7 @@ lazy_static::lazy_static! {
          -D, --dev=[NAME]       'Override storage device autodetection (e.g. sda, nvme0n1)'
          -r, --rep-retention=[SECS]      '1s report retention in seconds (default: {dfl_rep_ret:.1}h)'
          -R, --rep-1min-retention=[SECS] '1m report retention in seconds (default: {dfl_rep_1m_ret:.1}h)'
+             --systemd-timeout=[SECS] 'Systemd timeout (default: {dfl_systemd_timeout})'
          -a, --args=[FILE]      'Load base command line arguments from FILE'
              --no-iolat         'Disable bpf-based io latency stat monitoring'
              --force            'Ignore startup check results and proceed'
@@ -52,6 +53,7 @@ lazy_static::lazy_static! {
         dfl_dir = Args::default().dir,
         dfl_rep_ret = Args::default().rep_retention as f64 / 3600.0,
         dfl_rep_1m_ret = Args::default().rep_1min_retention as f64 / 3600.0,
+        dfl_systemd_timeout = format_duration(Args::default().systemd_timeout),
     );
 
     static ref BANDIT_MEM_HOG_USAGE: String = format!(
@@ -100,6 +102,7 @@ pub struct Args {
     pub dev: Option<String>,
     pub rep_retention: u64,
     pub rep_1min_retention: u64,
+    pub systemd_timeout: f64,
 
     #[serde(skip)]
     pub no_iolat: bool,
@@ -137,6 +140,7 @@ impl Default for Args {
             dev: None,
             rep_retention: 3600,
             rep_1min_retention: 24 * 3600,
+            systemd_timeout: systemd::SYSTEMD_DFL_TIMEOUT,
             no_iolat: false,
             force: false,
             force_running: false,
@@ -266,6 +270,15 @@ impl JsonArgs for Args {
                 v.parse::<u64>().unwrap().max(0)
             } else {
                 dfl.rep_1min_retention
+            };
+            updated_base = true;
+        }
+
+        if let Some(v) = matches.value_of("systemd-timeout") {
+            self.systemd_timeout = if v.len() > 0 {
+                parse_duration(v).unwrap().max(1.0)
+            } else {
+                dfl.systemd_timeout
             };
             updated_base = true;
         }

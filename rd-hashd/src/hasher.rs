@@ -500,7 +500,7 @@ impl DispatchThread {
     fn params_updated(&mut self) {
         self.fake_cpu_load_time_per_byte = match self.params.fake_cpu_load {
             true => {
-                let time_per_byte = Bench::calc_time_per_byte(&Cfg::default().cpu, &self.params);
+                let time_per_byte = Bench::calc_time_per_byte(&Cfg::new(1.0).cpu, &self.params);
                 if time_per_byte != self.fake_cpu_load_time_per_byte {
                     warn!(
                         "Faking CPU load ({:.3}ns per byte)",

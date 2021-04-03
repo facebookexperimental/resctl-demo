@@ -1,7 +1,7 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
-use anyhow::{bail, Result};
+use anyhow::{anyhow, bail, Context, Error, Result};
 use chrono::{DateTime, Local};
-use log::warn;
+use log::{debug, warn};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 use std::fmt::Write;
@@ -12,13 +12,20 @@ use std::sync::Arc;
 use std::time::{Duration, UNIX_EPOCH};
 use util::*;
 
+use super::base::MemInfo;
 use super::run::RunCtx;
 use rd_agent_intf::{SysReq, SysReqsReport};
 use resctl_bench_intf::{JobProps, JobSpec, Mode};
 
 pub trait Job {
     fn sysreqs(&self) -> BTreeSet<SysReq>;
+    fn pre_run(&mut self, _rctx: &mut RunCtx) -> Result<()> {
+        Ok(())
+    }
     fn run(&mut self, rctx: &mut RunCtx) -> Result<serde_json::Value>;
+    fn study(&self, _rctx: &mut RunCtx, _rec_json: serde_json::Value) -> Result<serde_json::Value> {
+        Ok(serde_json::Value::Bool(true))
+    }
     fn format<'a>(
         &self,
         out: Box<dyn Write + 'a>,
@@ -28,36 +35,55 @@ pub trait Job {
     ) -> Result<()>;
 }
 
-#[derive(Serialize, Deserialize, Clone, Default)]
-pub struct SysReqs {
-    pub required: BTreeSet<SysReq>,
-    pub missed: BTreeSet<SysReq>,
-    pub report: Option<SysReqsReport>,
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+pub struct SysInfo {
+    pub sysreqs: BTreeSet<SysReq>,
+    pub sysreqs_missed: BTreeSet<SysReq>,
+    pub sysreqs_report: Option<SysReqsReport>,
     pub iocost: rd_agent_intf::IoCostReport,
+    pub mem: MemInfo,
+    pub swappiness: u32,
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct JobData {
     pub spec: JobSpec,
-    pub started_at: u64,
-    pub ended_at: u64,
-    pub sysreqs: SysReqs,
-    pub result: serde_json::Value,
+    pub period: (u64, u64),
+    pub sysinfo: SysInfo,
+    pub record: Option<serde_json::Value>,
+    pub result: Option<serde_json::Value>,
 }
 
+// This part gets stored in the result file.
 impl JobData {
     fn new(spec: &JobSpec) -> Self {
         Self {
             spec: spec.clone(),
-            started_at: 0,
-            ended_at: 0,
-            sysreqs: Default::default(),
-            result: serde_json::Value::Null,
+            period: (0, 0),
+            sysinfo: Default::default(),
+            record: None,
+            result: None,
         }
     }
 
-    pub fn result_valid(&self) -> bool {
-        self.result != serde_json::Value::Null
+    pub fn parse_record<T>(&self) -> Result<T>
+    where
+        T: serde::de::DeserializeOwned,
+    {
+        match self.record.as_ref() {
+            Some(rec) => serde_json::from_value::<T>(rec.clone()).map_err(Error::new),
+            None => bail!("Job record not found"),
+        }
+    }
+
+    pub fn parse_result<T>(&self) -> Result<T>
+    where
+        T: serde::de::DeserializeOwned,
+    {
+        match self.result.as_ref() {
+            Some(res) => serde_json::from_value::<T>(res.clone()).map_err(Error::new),
+            None => bail!("Job result not found"),
+        }
     }
 }
 
@@ -75,9 +101,9 @@ pub struct JobCtx {
     #[serde(skip)]
     pub uid: u64,
     #[serde(skip)]
-    pub prev_uid: Option<u64>,
+    pub used: bool,
     #[serde(skip)]
-    pub prev_used: bool,
+    pub update_seq: u64,
 }
 
 impl std::fmt::Debug for JobCtx {
@@ -101,9 +127,9 @@ impl JobCtx {
             bench: None,
             job: None,
             incremental: false,
-            uid: Self::new_uid(),
-            prev_uid: None,
-            prev_used: false,
+            uid: 0,
+            used: false,
+            update_seq: std::u64::MAX,
         }
     }
 
@@ -120,7 +146,7 @@ impl JobCtx {
         self.incremental = desc.incremental;
 
         let prev_data = match prev_data {
-            None => match self.data.result_valid() {
+            None => match self.data.result.is_some() {
                 true => Some(&self.data),
                 false => None,
             },
@@ -138,9 +164,9 @@ impl JobCtx {
             bench: None,
             job: None,
             incremental: self.incremental,
-            uid: Self::new_uid(),
-            prev_uid: None,
-            prev_used: false,
+            uid: self.uid,
+            used: false,
+            update_seq: std::u64::MAX,
         }
     }
 
@@ -150,52 +176,82 @@ impl JobCtx {
     }
 
     pub fn run(&mut self, rctx: &mut RunCtx) -> Result<()> {
-        rctx.prev_uid.push(self.prev_uid.unwrap());
+        self.job
+            .as_mut()
+            .unwrap()
+            .pre_run(rctx)
+            .context("Executing pre-run")?;
+
         let pdata = rctx.prev_job_data();
-        if pdata.is_some() && !self.incremental {
-            self.data = pdata.unwrap();
-            assert!(rctx.prev_uid.pop().unwrap() == self.prev_uid.unwrap());
-            return Ok(());
-        }
 
-        let job = self.job.as_mut().unwrap();
-        let data = &mut self.data;
-        data.sysreqs.required = job.sysreqs();
-        rctx.add_sysreqs(data.sysreqs.required.clone());
-
-        data.started_at = unix_now();
-        let result = job.run(rctx)?;
-        data.ended_at = unix_now();
-
-        if rctx.sysreqs_report().is_some() {
-            data.sysreqs.report = Some((*rctx.sysreqs_report().unwrap()).clone());
-            data.sysreqs.missed = rctx.missed_sysreqs();
-            if let Some(rep) = rctx.report_sample() {
-                data.sysreqs.iocost = rep.iocost.clone();
-            }
-        } else if rctx.sysreqs_forward.is_some() {
-            data.sysreqs = rctx.sysreqs_forward.take().unwrap();
-        } else if pdata.is_some() {
-            data.sysreqs = rctx
-                .jobs
-                .lock()
-                .unwrap()
-                .prev
-                .by_uid(self.prev_uid.unwrap())
-                .unwrap()
-                .data
-                .sysreqs
-                .clone();
+        if rctx.study_mode() || (pdata.is_some() && !self.incremental) {
+            self.data = pdata.ok_or(anyhow!(
+                "--study specified but {} isn't complete",
+                &self.data.spec
+            ))?;
         } else {
-            warn!(
-                "job: No sysreqs available for {:?} after completion",
-                &data.spec
-            );
+            let job = self.job.as_mut().unwrap();
+            let data = &mut self.data;
+            data.sysinfo.sysreqs = job.sysreqs();
+            rctx.add_sysreqs(data.sysinfo.sysreqs.clone());
+
+            data.period.0 = unix_now();
+            if self.incremental {
+                if let Some(pdata) = pdata.as_ref() {
+                    data.period.0 = pdata.period.0.min(data.period.0);
+                }
+            }
+            let record = job.run(rctx)?;
+            data.period.1 = unix_now();
+
+            if rctx.sysreqs_report().is_some() {
+                data.sysinfo.sysreqs_report = Some((*rctx.sysreqs_report().unwrap()).clone());
+                data.sysinfo.sysreqs_missed = rctx.missed_sysreqs();
+                if let Some(rep) = rctx.report_sample() {
+                    data.sysinfo.iocost = rep.iocost.clone();
+                    data.sysinfo.swappiness = rep.swappiness;
+                }
+                data.sysinfo.mem = rctx.mem_info().clone();
+            } else if rctx.sysinfo_forward.is_some() {
+                data.sysinfo = rctx.sysinfo_forward.take().unwrap();
+            } else if pdata.is_some() {
+                data.sysinfo = rctx
+                    .jobs
+                    .lock()
+                    .unwrap()
+                    .by_uid(self.uid)
+                    .unwrap()
+                    .data
+                    .sysinfo
+                    .clone();
+            } else {
+                warn!(
+                    "job: No sysreqs available for {:?} after completion",
+                    &data.spec
+                );
+            }
+
+            data.record = Some(record);
         }
-        data.result = result;
+
+        let res = match self
+            .job
+            .as_ref()
+            .unwrap()
+            .study(rctx, self.data.record.as_ref().unwrap().clone())
+        {
+            Ok(result) => {
+                self.data.result = Some(result);
+                Ok(())
+            }
+            Err(e) => Err(e),
+        };
+
+        // We still wanna save what came out of the run phase even if the
+        // study phase failed.
         rctx.update_incremental_jctx(&self);
-        assert!(rctx.prev_uid.pop().unwrap() == self.prev_uid.unwrap());
-        Ok(())
+
+        res
     }
 
     pub fn format(&self, mode: Mode, props: &JobProps) -> Result<String> {
@@ -208,23 +264,36 @@ impl JobCtx {
         writeln!(
             buf,
             "{} - {}\n",
-            DateTime::<Local>::from(UNIX_EPOCH + Duration::from_secs(data.started_at))
+            DateTime::<Local>::from(UNIX_EPOCH + Duration::from_secs(data.period.0))
                 .format("%Y-%m-%d %T"),
-            DateTime::<Local>::from(UNIX_EPOCH + Duration::from_secs(data.ended_at)).format("%T")
+            DateTime::<Local>::from(UNIX_EPOCH + Duration::from_secs(data.period.1)).format("%T")
         )
         .unwrap();
 
-        let sr = &data.sysreqs;
-        if sr.report.is_some() {
-            let rep = data.sysreqs.report.as_ref().unwrap();
+        let si = &data.sysinfo;
+        if si.sysreqs_report.is_some() {
+            let rep = data.sysinfo.sysreqs_report.as_ref().unwrap();
             writeln!(
                 buf,
-                "System info: nr_cpus={} memory={} swap={}\n",
+                "System info: nr_cpus={} memory={} swap={} swappiness={}",
                 rep.nr_cpus,
                 format_size(rep.total_memory),
-                format_size(rep.total_swap)
+                format_size(rep.total_swap),
+                si.swappiness
             )
             .unwrap();
+            if si.mem.profile > 0 {
+                writeln!(
+                    buf,
+                    "             mem_profile={} (avail={} share={} target={})",
+                    si.mem.profile,
+                    format_size(si.mem.avail),
+                    format_size(si.mem.share),
+                    format_size(si.mem.target)
+                )
+                .unwrap();
+            }
+            writeln!(buf, "").unwrap();
 
             writeln!(
                 buf,
@@ -241,22 +310,22 @@ impl JobCtx {
                 buf,
                 "         iosched={} wbt={} iocost={} other={}",
                 &rep.scr_dev_iosched,
-                match sr.missed.contains(&SysReq::NoWbt) {
+                match si.sysreqs_missed.contains(&SysReq::NoWbt) {
                     true => "on",
                     false => "off",
                 },
-                match sr.iocost.qos.enable > 0 {
+                match si.iocost.qos.enable > 0 {
                     true => "on",
                     false => "off",
                 },
-                match sr.missed.contains(&SysReq::NoOtherIoControllers) {
+                match si.sysreqs_missed.contains(&SysReq::NoOtherIoControllers) {
                     true => "on",
                     false => "off",
                 },
             )
             .unwrap();
 
-            let iocost = &data.sysreqs.iocost;
+            let iocost = &data.sysinfo.iocost;
             if iocost.qos.enable > 0 {
                 let model = &iocost.model;
                 let qos = &iocost.qos;
@@ -286,14 +355,14 @@ impl JobCtx {
             }
             writeln!(buf, "").unwrap();
 
-            if data.sysreqs.missed.len() > 0 {
+            if data.sysinfo.sysreqs_missed.len() > 0 {
                 writeln!(
                     buf,
                     "Missed requirements: {}\n",
                     &self
                         .data
-                        .sysreqs
-                        .missed
+                        .sysinfo
+                        .sysreqs_missed
                         .iter()
                         .map(|x| format!("{:?}", x))
                         .collect::<Vec<String>>()
@@ -313,7 +382,7 @@ impl JobCtx {
 
     pub fn print(&self, mode: Mode, props: &JobProps) -> Result<()> {
         // Format only the completed jobs.
-        if self.data.result_valid() {
+        if self.data.result.is_some() {
             println!("{}\n\n{}", "=".repeat(90), &self.format(mode, props)?);
         }
         Ok(())
@@ -344,12 +413,16 @@ impl JobCtxs {
         None
     }
 
-    pub fn find_matching_unused_jctx_mut<'a>(
+    pub fn sort_by_update_seq(&mut self) {
+        self.vec.sort_by(|a, b| a.update_seq.cmp(&b.update_seq));
+    }
+
+    pub fn find_matching_unused_prev_mut<'a>(
         &'a mut self,
         spec: &JobSpec,
     ) -> Option<&'a mut JobCtx> {
         for jctx in self.vec.iter_mut() {
-            if !jctx.prev_used
+            if !jctx.used
                 && jctx.data.spec.kind == spec.kind
                 && jctx.data.spec.id == spec.id
                 && jctx.are_results_compatible(spec)
@@ -358,6 +431,30 @@ impl JobCtxs {
             }
         }
         None
+    }
+
+    pub fn parse_job_spec_and_link(&mut self, spec: &JobSpec) -> Result<JobCtx> {
+        let mut new = JobCtx::new(spec);
+        let prev = self.find_matching_unused_prev_mut(spec);
+
+        new.parse_job_spec(prev.as_ref().map_or(None, |p| Some(&p.data)))?;
+
+        match prev {
+            Some(prev) => {
+                debug!("{} has a matching entry in the result file", &new.data.spec);
+                prev.used = true;
+                new.uid = prev.uid;
+            }
+            None => {
+                new.uid = JobCtx::new_uid();
+                debug!("{} is new, uid={}", &new.data.spec, new.uid);
+                let mut prev = new.weak_clone();
+                prev.used = true;
+                new.uid = prev.uid;
+                self.vec.push(prev);
+            }
+        }
+        Ok(new)
     }
 
     fn find_matching_jctx_idx(&self, spec: &JobSpec) -> Option<usize> {
@@ -384,8 +481,9 @@ impl JobCtxs {
         let mut vec: Vec<JobCtx> = serde_json::from_str(&buf)?;
         for jctx in vec.iter_mut() {
             jctx.uid = JobCtx::new_uid();
+            jctx.update_seq = std::u64::MAX;
             if let Err(e) = jctx.parse_job_spec(None) {
-                bail!("failed to parse {} ({})", &jctx.data.spec, &e);
+                bail!("Failed to parse {} ({:#})", &jctx.data.spec, &e);
             }
         }
 
@@ -408,10 +506,7 @@ impl JobCtxs {
     pub fn format_ids(&self) -> String {
         let mut buf = String::new();
         for jctx in self.vec.iter() {
-            match jctx.prev_uid {
-                Some(puid) => write!(buf, "{}->{} ", jctx.uid, puid).unwrap(),
-                None => write!(buf, "{} ", jctx.uid).unwrap(),
-            }
+            write!(buf, "{} ", jctx.uid).unwrap();
         }
         buf.pop();
         buf

@@ -1,21 +1,23 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
-use anyhow::{anyhow, bail, Context, Error, Result};
+use anyhow::{bail, Context, Error, Result};
 use log::{debug, error, info, warn};
 use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::{exit, Command};
 use std::sync::{Arc, Mutex};
 use util::*;
 
-use resctl_bench_intf::{Args, JobSpec, Mode};
+use resctl_bench_intf::{Args, Mode};
 
+mod base;
 mod bench;
+mod iocost;
 mod job;
 mod progress;
 mod run;
 mod study;
 
-use job::{JobCtx, JobCtxs};
+use job::JobCtxs;
 use run::RunCtx;
 
 lazy_static::lazy_static! {
@@ -47,44 +49,18 @@ where
     }
 }
 
-#[derive(Default)]
-pub struct Jobs {
-    done: JobCtxs,
-    prev: JobCtxs,
-}
-
-impl Jobs {
-    pub fn parse_job_spec_and_link(&mut self, spec: &JobSpec) -> Result<JobCtx> {
-        let mut new = JobCtx::new(spec);
-        let prev = match self.prev.find_matching_unused_jctx_mut(spec) {
-            Some(prev) => {
-                debug!("{} has a matching entry in the result file", &new.data.spec);
-                prev.prev_used = true;
-                new.prev_uid = Some(prev.uid);
-                Some(prev)
-            }
-            None => None,
-        };
-
-        new.parse_job_spec(prev.as_ref().map_or(None, |p| Some(&p.data)))?;
-
-        if prev.is_none() {
-            let clone = new.weak_clone();
-            new.prev_uid = Some(clone.uid);
-            self.prev.vec.push(clone);
-        }
-        Ok(new)
-    }
-}
-
 struct Program {
     args_file: JsonConfigFile<Args>,
     args_updated: bool,
-    jobs: Arc<Mutex<Jobs>>,
+    jobs: Arc<Mutex<JobCtxs>>,
 }
 
 impl Program {
-    fn rd_agent_base_args(dir: &str, dev: Option<&str>) -> Result<Vec<String>> {
+    fn rd_agent_base_args(
+        dir: &str,
+        systemd_timeout: f64,
+        dev: Option<&str>,
+    ) -> Result<Vec<String>> {
         let mut args = vec![
             "--dir".into(),
             dir.into(),
@@ -92,6 +68,8 @@ impl Program {
             Args::RB_BENCH_FILENAME.into(),
             "--force".into(),
             "--force-running".into(),
+            "--systemd-timeout".into(),
+            format!("{}", systemd_timeout),
         ];
         if dev.is_some() {
             args.push("--dev".into());
@@ -109,6 +87,7 @@ impl Program {
         let mut cmd = Command::new(&*AGENT_BIN);
         cmd.args(&Program::rd_agent_base_args(
             &args.dir,
+            args.systemd_timeout,
             args.dev.as_deref(),
         )?)
         .args(&["--linux-tar", "__SKIP__"])
@@ -127,82 +106,6 @@ impl Program {
         Ok(())
     }
 
-    fn prep_base_bench(
-        &self,
-        scr_devname: &str,
-        iocost_sys_save: &IoCostSysSave,
-    ) -> Result<rd_agent_intf::BenchKnobs> {
-        let args = &self.args_file.data;
-
-        let (dev_model, dev_fwrev, dev_size) =
-            devname_to_model_fwrev_size(&scr_devname).map_err(|e| {
-                anyhow!(
-                    "failed to resolve model/fwrev/size for {:?} ({})",
-                    &scr_devname,
-                    &e
-                )
-            })?;
-
-        let demo_bench_path = args.demo_bench_path();
-
-        let mut bench = match rd_agent_intf::BenchKnobs::load(&demo_bench_path) {
-            Ok(v) => v,
-            Err(e) => {
-                match e.downcast_ref::<std::io::Error>() {
-                    Some(e) if e.raw_os_error() == Some(libc::ENOENT) => (),
-                    _ => warn!(
-                        "Failed to load {:?} ({}), remove the file",
-                        &demo_bench_path, &e
-                    ),
-                }
-                Default::default()
-            }
-        };
-
-        if bench.iocost_dev_model.len() > 0 && bench.iocost_dev_model != dev_model {
-            bail!(
-                "benchfile device model {:?} doesn't match detected {:?}",
-                &bench.iocost_dev_model,
-                &dev_model
-            );
-        }
-        if bench.iocost_dev_fwrev.len() > 0 && bench.iocost_dev_fwrev != dev_fwrev {
-            bail!(
-                "benchfile device firmware revision {:?} doesn't match detected {:?}",
-                &bench.iocost_dev_fwrev,
-                &dev_fwrev
-            );
-        }
-        if bench.iocost_dev_size > 0 && bench.iocost_dev_size != dev_size {
-            bail!(
-                "benchfile device size {} doesn't match detected {}",
-                bench.iocost_dev_size,
-                dev_size
-            );
-        }
-
-        bench.iocost_dev_model = dev_model;
-        bench.iocost_dev_fwrev = dev_fwrev;
-        bench.iocost_dev_size = dev_size;
-
-        if args.iocost_from_sys {
-            if !iocost_sys_save.enable {
-                bail!(
-                    "--iocost-from-sys specified but iocost is disabled for {:?}",
-                    &scr_devname
-                );
-            }
-            bench.iocost_seq = 1;
-            bench.iocost.model = iocost_sys_save.model.clone();
-            bench.iocost.qos = iocost_sys_save.qos.clone();
-            info!("Using iocost parameters from \"/sys/fs/cgroup/io.cost.model,qos\"");
-        } else {
-            info!("Using iocost parameters from {:?}", &demo_bench_path);
-        }
-
-        Ok(bench)
-    }
-
     fn commit_args(&self) {
         // Everything parsed okay. Update the args file.
         if self.args_updated {
@@ -214,35 +117,10 @@ impl Program {
     }
 
     fn do_run(&mut self) {
-        // Use alternate bench file to avoid clobbering resctl-demo bench
-        // results w/ e.g. fake_cpu_load ones.
-        let scr_devname = match self.args_file.data.dev.as_ref() {
-            Some(dev) => dev.clone(),
-            None => {
-                let mut scr_path = PathBuf::from(&self.args_file.data.dir);
-                scr_path.push("scratch");
-                while !scr_path.exists() {
-                    if !scr_path.pop() {
-                        panic!("failed to find existing ancestor dir for scratch path");
-                    }
-                }
-                path_to_devname(&scr_path.as_os_str().to_str().unwrap())
-                    .expect("failed to resolve device for scratch path")
-                    .into_string()
-                    .unwrap()
-            }
-        };
-        let scr_devnr = devname_to_devnr(&scr_devname)
-            .expect("failed to resolve device number for scratch device");
-        let iocost_sys_save =
-            IoCostSysSave::read_from_sys(scr_devnr).expect("failed to read iocost.model,qos");
-
-        let mut base_bench = match self.prep_base_bench(&scr_devname, &iocost_sys_save) {
-            Ok(v) => v,
-            Err(e) => {
-                error!("Failed to prepare bench files ({})", &e);
-                panic!();
-            }
+        let mut base = if self.args_file.data.study_rep_d.is_none() {
+            base::Base::new(&self.args_file.data)
+        } else {
+            base::Base::dummy(&self.args_file.data)
         };
 
         // Collect the pending jobs.
@@ -271,24 +149,18 @@ impl Program {
         debug!(
             "job_ids: pending={} prev={}",
             &pending.format_ids(),
-            jobs.prev.format_ids()
+            jobs.format_ids()
         );
 
         // Run the benches and print out the results.
         drop(jobs);
         for jctx in pending.vec.into_iter() {
-            let mut rctx = RunCtx::new(&args, &mut base_bench, self.jobs.clone());
+            let mut rctx = RunCtx::new(&args, &mut base, self.jobs.clone());
             let name = format!("{}", &jctx.data.spec);
             if let Err(e) = rctx.run_jctx(jctx) {
-                error!("{}: {}", &name, &e);
+                error!("{}: {:?}", &name, &e);
                 panic!();
             }
-        }
-
-        // Write the result file.
-        let jobs = self.jobs.lock().unwrap();
-        if jobs.done.vec.len() > 0 {
-            jobs.done.save_results(&args.result);
         }
     }
 
@@ -297,7 +169,7 @@ impl Program {
         let empty_props = vec![Default::default()];
         let mut to_format = vec![];
         let mut jctxs = JobCtxs::default();
-        std::mem::swap(&mut jctxs, &mut self.jobs.lock().unwrap().prev);
+        std::mem::swap(&mut jctxs, &mut self.jobs.lock().unwrap());
 
         if specs.len() == 0 {
             to_format = jctxs.vec.into_iter().map(|x| (x, &empty_props)).collect();
@@ -332,12 +204,96 @@ impl Program {
 
         for (jctx, props) in to_format.iter() {
             if let Err(e) = jctx.print(mode, props) {
-                error!("Failed to format {}: {}", &jctx.data.spec, &e);
+                error!("Failed to format {}: {:#}", &jctx.data.spec, &e);
                 panic!();
             }
         }
 
         self.commit_args();
+    }
+
+    fn do_pack(&mut self) -> Result<()> {
+        let args = &self.args_file.data;
+        let res_path = Path::new(&args.result);
+        let stem = res_path.file_stem().unwrap().to_string_lossy().to_string();
+        let fname = res_path.file_name().unwrap().to_string_lossy().to_string();
+
+        let mut collected = vec![];
+        for job in self.jobs.lock().unwrap().vec.iter() {
+            let per = job.data.period;
+            if per.0 < per.1 {
+                collected.push(per);
+            }
+        }
+
+        collected.sort();
+        let mut pers = vec![];
+        let mut cur = (0, 0);
+        for per in collected.into_iter() {
+            if cur.0 == cur.1 {
+                cur = per;
+            } else if cur.1 < per.0 {
+                pers.push(cur);
+                cur = per;
+            } else {
+                cur.1 = cur.1.max(per.1);
+            }
+        }
+        if cur.0 < cur.1 {
+            pers.push(cur);
+        }
+
+        let tarball = format!("{}.tar.gz", &stem);
+        let repdir = format!("{}-report.d", &stem);
+        info!(
+            "Creating {:?} containing the following report periods",
+            &tarball
+        );
+        for (i, per) in pers.iter().enumerate() {
+            info!("[{:02}] {}", i, format_period(*per));
+        }
+
+        let f = std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(&tarball)
+            .with_context(|| format!("Opening {:?}", &tarball))?;
+        let mut tgz =
+            tar::Builder::new(libflate::gzip::Encoder::new(f).context("Creating gzip encore")?);
+        let mut base = base::Base::dummy(args);
+
+        let rctx = RunCtx::new(&args, &mut base, self.jobs.clone());
+
+        debug!("Packing {:?} as {:?}", &args.result, &fname);
+        tgz.append_path_with_name(&args.result, &fname)
+            .with_context(|| format!("Packing {:?}", &args.result))?;
+
+        let mut nr_packed = 0;
+        let mut nr_skipped = 0;
+        for per in pers.iter() {
+            for (path, _at) in rctx.report_path_iter(*per) {
+                if !path.exists() {
+                    nr_skipped += 1;
+                    continue;
+                }
+                nr_packed += 1;
+                let target_path = format!(
+                    "{}/{}",
+                    &repdir,
+                    path.file_name().unwrap().to_str().unwrap()
+                );
+                debug!("Packing {:?} as {:?}", &path, &target_path);
+                tgz.append_path_with_name(&path, &target_path)
+                    .with_context(|| format!("Packing {:?}", path))?;
+            }
+        }
+
+        info!("Packed {}/{} reports", nr_packed, nr_packed + nr_skipped);
+
+        let gz = tgz.into_inner().context("Finishing up archive")?;
+        gz.finish().into_result().context("Finishing up gzip")?;
+        Ok(())
     }
 
     fn main(mut self) {
@@ -346,14 +302,14 @@ impl Program {
         // Load existing result file into job_ctxs.
         if Path::new(&args.result).exists() {
             let mut jobs = self.jobs.lock().unwrap();
-            jobs.prev = match JobCtxs::load_results(&args.result) {
+            *jobs = match JobCtxs::load_results(&args.result) {
                 Ok(jctxs) => {
                     debug!("Loaded {} entries from result file", jctxs.vec.len());
                     jctxs
                 }
                 Err(e) => {
                     error!(
-                        "Failed to load existing result file {:?} ({})",
+                        "Failed to load existing result file {:?} ({:#})",
                         &args.result, &e
                     );
                     panic!();
@@ -365,6 +321,7 @@ impl Program {
             Mode::Run => self.do_run(),
             Mode::Format => self.do_format(Mode::Format),
             Mode::Summary => self.do_format(Mode::Summary),
+            Mode::Pack => self.do_pack().unwrap(),
         }
     }
 }
@@ -378,10 +335,16 @@ fn main() {
         panic!();
     });
 
+    if args_file.data.test {
+        warn!("Test mode enabled, results will be bogus");
+    }
+
+    systemd::set_systemd_timeout(args_file.data.systemd_timeout);
+
     Program {
         args_file,
         args_updated,
-        jobs: Arc::new(Mutex::new(Jobs::default())),
+        jobs: Arc::new(Mutex::new(JobCtxs::default())),
     }
     .main();
 }

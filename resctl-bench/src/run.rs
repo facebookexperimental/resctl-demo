@@ -2,30 +2,34 @@
 #![allow(dead_code)]
 use anyhow::{anyhow, bail, Context, Result};
 use log::{debug, error, info, warn};
-use std::collections::{BTreeSet, VecDeque};
+use std::collections::{BTreeSet, HashSet, VecDeque};
 use std::fmt::Write;
 use std::process::Command;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::{spawn, JoinHandle};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use thiserror::Error;
 use util::*;
 
+use super::base::{Base, MemInfo};
 use super::progress::BenchProgress;
-use super::{Jobs, Program, AGENT_BIN};
-use crate::job::{JobCtx, JobData, SysReqs};
+use super::{Program, AGENT_BIN};
+use crate::job::{JobCtx, JobCtxs, JobData, SysInfo};
 use rd_agent_intf::{
-    AgentFiles, ReportIter, RunnerState, Slice, SvcStateReport, SysReq, AGENT_SVC_NAME,
-    HASHD_A_SVC_NAME, HASHD_BENCH_SVC_NAME, HASHD_B_SVC_NAME, IOCOST_BENCH_SVC_NAME,
-    SIDELOAD_SVC_PREFIX, SYSLOAD_SVC_PREFIX,
+    AgentFiles, ReportIter, ReportPathIter, RunnerState, Slice, SvcStateReport, SysReq,
+    AGENT_SVC_NAME, HASHD_A_SVC_NAME, HASHD_BENCH_SVC_NAME, HASHD_B_SVC_NAME,
+    IOCOST_BENCH_SVC_NAME, SIDELOAD_SVC_PREFIX, SYSLOAD_SVC_PREFIX,
 };
 use resctl_bench_intf::{JobSpec, Mode};
 
 const MINDER_AGENT_TIMEOUT: Duration = Duration::from_secs(120);
-const CMD_TIMEOUT: Duration = Duration::from_secs(30);
+const CMD_TIMEOUT: Duration = Duration::from_secs(120);
 const REP_RECORD_CADENCE: u64 = 10;
 const REP_RECORD_RETENTION: usize = 3;
-const HASHD_SLOPER_SLOTS: usize = 10;
+const HASHD_SLOPER_SLOTS: usize = 15;
+
+static AGENT_WAS_ACTIVE: AtomicBool = AtomicBool::new(false);
 
 #[derive(Error, Debug)]
 pub enum RunCtxErr {
@@ -46,13 +50,12 @@ pub enum MinderState {
 fn run_nested_job_spec_int(
     spec: &JobSpec,
     args: &resctl_bench_intf::Args,
-    base_bench: &mut rd_agent_intf::BenchKnobs,
-    jobs: Arc<Mutex<Jobs>>,
-) -> Result<bool> {
-    let mut rctx = RunCtx::new(args, base_bench, jobs);
+    base: &mut Base,
+    jobs: Arc<Mutex<JobCtxs>>,
+) -> Result<()> {
+    let mut rctx = RunCtx::new(args, base, jobs);
     let jctx = rctx.jobs.lock().unwrap().parse_job_spec_and_link(spec)?;
-    rctx.run_jctx(jctx)?;
-    Ok(rctx.commit_bench)
+    rctx.run_jctx(jctx)
 }
 
 struct Sloper {
@@ -118,6 +121,7 @@ impl Sloper {
 
 struct RunCtxInner {
     dir: String,
+    systemd_timeout: f64,
     dev: Option<String>,
     linux_tar: Option<String>,
     verbosity: u32,
@@ -145,6 +149,7 @@ impl RunCtxInner {
         let mut args = vec![AGENT_BIN.clone()];
         args.append(&mut Program::rd_agent_base_args(
             &self.dir,
+            self.systemd_timeout,
             self.dev.as_deref(),
         )?);
         args.push("--reset".into());
@@ -186,10 +191,10 @@ impl RunCtxInner {
 
     fn start_agent(&mut self, extra_args: Vec<String>) -> Result<()> {
         if prog_exiting() {
-            bail!("exiting");
+            bail!("Program exiting");
         }
         if self.agent_svc.is_some() {
-            bail!("already running");
+            bail!("Already running");
         }
 
         // Prepare testfiles synchronously for better progress report.
@@ -205,7 +210,7 @@ impl RunCtxInner {
                 .arg("--prepare")
                 .status()?;
             if !status.success() {
-                bail!("failed to prepare testfiles ({})", &status);
+                bail!("Failed to prepare testfiles ({})", &status);
             }
         }
 
@@ -233,31 +238,33 @@ impl RunCtxInner {
     }
 }
 
-pub struct RunCtx<'a> {
+pub struct RunCtx<'a, 'b> {
     inner: Arc<Mutex<RunCtxInner>>,
-    agent_init_fns: Vec<Box<dyn FnOnce(&mut RunCtx)>>,
-    base_bench: &'a mut rd_agent_intf::BenchKnobs,
-    bench: rd_agent_intf::BenchKnobs,
-    bench_path: String,
-    demo_bench_path: String,
-    pub jobs: Arc<Mutex<Jobs>>,
-    pub prev_uid: Vec<u64>,
-    pub sysreqs_forward: Option<SysReqs>,
+    agent_init_fns: Vec<Box<dyn FnMut(&mut RunCtx)>>,
+    base: &'a mut Base<'b>,
+    pub jobs: Arc<Mutex<JobCtxs>>,
+    pub uid: u64,
+    run_started_at: u64,
+    pub sysinfo_forward: Option<SysInfo>,
     result_path: &'a str,
     pub test: bool,
+    skip_mem_profile: bool,
     pub commit_bench: bool,
     args: &'a resctl_bench_intf::Args,
+    extra_args: Vec<String>,
+    svcs: HashSet<String>,
 }
 
-impl<'a> RunCtx<'a> {
+impl<'a, 'b> RunCtx<'a, 'b> {
     pub fn new(
         args: &'a resctl_bench_intf::Args,
-        base_bench: &'a mut rd_agent_intf::BenchKnobs,
-        jobs: Arc<Mutex<Jobs>>,
+        base: &'a mut Base<'b>,
+        jobs: Arc<Mutex<JobCtxs>>,
     ) -> Self {
         Self {
             inner: Arc::new(Mutex::new(RunCtxInner {
                 dir: args.dir.clone(),
+                systemd_timeout: args.systemd_timeout,
                 dev: args.dev.clone(),
                 linux_tar: args.linux_tar.clone(),
                 verbosity: args.verbosity,
@@ -276,18 +283,19 @@ impl<'a> RunCtx<'a> {
                 reports: VecDeque::new(),
                 report_sample: None,
             })),
-            bench: base_bench.clone(),
-            base_bench: base_bench,
-            bench_path: args.bench_path(),
-            demo_bench_path: args.demo_bench_path(),
+            base,
             agent_init_fns: vec![],
             jobs,
-            prev_uid: vec![],
-            sysreqs_forward: None,
+            uid: 0,
+            run_started_at: 0,
+            sysinfo_forward: None,
             result_path: &args.result,
             test: args.test,
+            skip_mem_profile: false,
             commit_bench: false,
             args,
+            extra_args: vec![],
+            svcs: Default::default(),
         }
     }
 
@@ -302,20 +310,10 @@ impl<'a> RunCtx<'a> {
 
     pub fn add_agent_init_fn<F>(&mut self, init_fn: F) -> &mut Self
     where
-        F: FnOnce(&mut RunCtx) + 'static,
+        F: FnMut(&mut RunCtx) + 'static,
     {
         self.agent_init_fns.push(Box::new(init_fn));
         self
-    }
-
-    pub fn set_balloon_size(&mut self, size: usize) -> &mut Self {
-        let ballon_ratio = size as f64 / total_memory() as f64;
-        self.add_agent_init_fn(move |rctx| {
-            rctx.access_agent_files(|af| {
-                af.cmd.data.balloon_ratio = ballon_ratio;
-                af.cmd.save().unwrap();
-            });
-        })
     }
 
     pub fn set_need_linux_tar(&mut self) -> &mut Self {
@@ -343,26 +341,57 @@ impl<'a> RunCtx<'a> {
         self
     }
 
+    pub fn skip_mem_profile(&mut self) -> &mut Self {
+        self.skip_mem_profile = true;
+        self
+    }
+
     pub fn set_commit_bench(&mut self) -> &mut Self {
         self.commit_bench = true;
         self
     }
 
+    pub fn clear(&mut self) -> &mut Self {
+        let mut inner = self.inner.lock().unwrap();
+        inner.need_linux_tar = false;
+        inner.prep_testfiles = false;
+        inner.bypass = false;
+        inner.passive_all = false;
+        inner.passive_keep_crit_mem_prot = false;
+        drop(inner);
+
+        self.agent_init_fns.clear();
+        self.commit_bench = false;
+        self.extra_args.clear();
+        self
+    }
+
+    pub fn study_mode(&self) -> bool {
+        self.args.study_rep_d.is_some()
+    }
+
     pub fn update_incremental_jctx(&mut self, jctx: &JobCtx) {
+        static UPDATE_SEQ: AtomicU64 = AtomicU64::new(1);
+
         let mut jobs = self.jobs.lock().unwrap();
-        jobs.prev.by_uid_mut(jctx.prev_uid.unwrap()).unwrap().data = jctx.data.clone();
-        jobs.prev.save_results(self.result_path);
+        let prev = jobs.by_uid_mut(jctx.uid).unwrap();
+        prev.update_seq = UPDATE_SEQ.fetch_add(1, Ordering::Relaxed);
+        prev.data = jctx.data.clone();
+        if !self.study_mode() {
+            jobs.sort_by_update_seq();
+        }
+        jobs.save_results(self.result_path);
     }
 
-    pub fn update_incremental_result(&mut self, result: serde_json::Value) {
-        let prev_uid = *self.prev_uid.iter().last().unwrap();
+    pub fn update_incremental_record(&mut self, record: serde_json::Value) {
         let mut jobs = self.jobs.lock().unwrap();
-        jobs.prev.by_uid_mut(prev_uid).unwrap().data.result = result;
-        jobs.prev.save_results(self.result_path);
-    }
-
-    pub fn bench(&self) -> &rd_agent_intf::BenchKnobs {
-        &self.bench
+        let mut prev = jobs.by_uid_mut(self.uid).unwrap();
+        if prev.data.period.0 == 0 {
+            prev.data.period.0 = self.run_started_at;
+        }
+        prev.data.period.1 = prev.data.period.1.max(unix_now());
+        prev.data.record = Some(record);
+        jobs.save_results(self.result_path);
     }
 
     fn minder(inner: Arc<Mutex<RunCtxInner>>) {
@@ -475,11 +504,47 @@ impl<'a> RunCtx<'a> {
         )
     }
 
-    pub fn start_agent_fallible(&mut self, extra_args: Vec<String>) -> Result<()> {
+    fn stop_svc(name: &str) {
+        debug!("Making sure {:?} is stopped", name);
+        for i in 0..15 {
+            if let Ok(mut svc) = systemd::Unit::new_sys(name.to_owned()) {
+                if svc.state == systemd::UnitState::Running {
+                    if i < 5 {
+                        debug!("rd-agent hasn't stopped {:?} yet, waiting...", name);
+                    } else {
+                        info!("rd-agent hasn't stopped {:?} yet, stopping...", name);
+                        match svc.stop() {
+                            Ok(_) => return,
+                            Err(e) => error!("Failed to stop {:?} ({:#})", name, &e),
+                        }
+                    }
+                } else {
+                    return;
+                }
+            } else {
+                return;
+            }
+            if !prog_exiting() {
+                std::thread::sleep(Duration::from_secs(1));
+            }
+        }
+        panic!("Failed to stop {:?}", name);
+    }
+
+    pub fn start_agent(&mut self, extra_args: Vec<String>) -> Result<()> {
+        if self.study_mode() {
+            bail!("Can't run unfinished benchmarks when --study is specified");
+        }
+
+        if !self.skip_mem_profile {
+            self.init_mem_profile()?;
+        }
+
         let mut ctx = self.inner.lock().unwrap();
         ctx.minder_state = MinderState::Ok;
 
-        ctx.start_agent(extra_args)?;
+        ctx.start_agent(extra_args.clone())
+            .context("Starting rd_agent")?;
 
         // Start minder and wait for the agent to become Running.
         let inner = self.inner.clone();
@@ -493,11 +558,11 @@ impl<'a> RunCtx<'a> {
                 let rep = &af.report.data;
                 rep.timestamp.timestamp() > started_at && rep.state == RunnerState::Running
             },
-            Some(Duration::from_secs(30)),
+            Some(CMD_TIMEOUT),
             None,
         ) {
             self.stop_agent();
-            return Err(e.context("rd-agent failed to report back after startup"));
+            return Err(e.context("Waiting for rd-agent to report back after start-up"));
         }
 
         let mut ctx = self.inner.lock().unwrap();
@@ -519,33 +584,55 @@ impl<'a> RunCtx<'a> {
 
         drop(ctx);
 
+        // Configure memory profile.
+        if !self.skip_mem_profile {
+            let work_mem_low = self.base.workload_mem_low();
+            let ballon_ratio = self.base.balloon_size() as f64 / total_memory() as f64;
+            info!(
+                "base: workload_mem_low={} ballon_size={}",
+                format_size(work_mem_low),
+                format_size(self.base.balloon_size())
+            );
+
+            self.access_agent_files(|af| {
+                af.slices.data[rd_agent_intf::Slice::Work].mem_low =
+                    rd_agent_intf::MemoryKnob::Bytes(work_mem_low as u64);
+                af.slices.save()?;
+
+                af.cmd.data.balloon_ratio = ballon_ratio;
+                af.cmd.save()
+            })?;
+        }
+
+        // Congure swappiness.
+        self.access_agent_files(|af| af.cmd.data.swappiness = self.args.swappiness_ovr);
+
         // Run init functions.
         if self.agent_init_fns.len() > 0 {
-            let mut init_fns: Vec<Box<dyn FnOnce(&mut RunCtx)>> = vec![];
+            let mut init_fns: Vec<Box<dyn FnMut(&mut RunCtx)>> = vec![];
             init_fns.append(&mut self.agent_init_fns);
-            for init_fn in init_fns.into_iter() {
+
+            for init_fn in init_fns.iter_mut() {
                 init_fn(self);
             }
+
+            self.agent_init_fns.append(&mut init_fns);
+
             if let Err(e) = self.cmd_barrier() {
                 self.stop_agent();
-                return Err(e.context("rd-agent failed after running init functions"));
+                return Err(e.context("Waiting for rd-agent to ack after running init functions"));
             }
         }
 
         // Start recording reports.
         self.inner.lock().unwrap().record_rep(true);
 
+        self.extra_args = extra_args;
+        AGENT_WAS_ACTIVE.store(true, Ordering::Relaxed);
         Ok(())
     }
 
-    pub fn start_agent(&mut self) {
-        if let Err(e) = self.start_agent_fallible(vec![]) {
-            error!("Failed to start rd-agent ({:#})", &e);
-            panic!();
-        }
-    }
-
-    pub fn stop_agent(&self) {
+    fn stop_agent_no_clear(&mut self) {
         let agent_svc = self.inner.lock().unwrap().agent_svc.take();
         if let Some(svc) = agent_svc {
             drop(svc);
@@ -557,6 +644,21 @@ impl<'a> RunCtx<'a> {
         if let Some(jh) = minder_jh {
             jh.join().unwrap();
         }
+
+        for svc in self.svcs.iter() {
+            Self::stop_svc(svc);
+        }
+    }
+
+    pub fn stop_agent(&mut self) {
+        self.stop_agent_no_clear();
+        self.clear();
+    }
+
+    pub fn restart_agent(&mut self) -> Result<()> {
+        self.stop_agent_no_clear();
+        self.start_agent(self.extra_args.clone())
+            .context("Restarting agent...")
     }
 
     pub fn wait_cond<F>(
@@ -588,7 +690,7 @@ impl<'a> RunCtx<'a> {
             }
 
             if ctx.minder_state != MinderState::Ok {
-                bail!("agent error ({:?})", ctx.minder_state);
+                bail!("Agent error ({:?})", ctx.minder_state);
             }
             drop(ctx);
 
@@ -597,7 +699,7 @@ impl<'a> RunCtx<'a> {
                 _ => return Err(RunCtxErr::WaitCondTimeout { timeout }.into()),
             };
             if wait_prog_state(dur) == ProgState::Exiting {
-                bail!("exiting");
+                bail!("Program exiting");
             }
         }
     }
@@ -611,8 +713,9 @@ impl<'a> RunCtx<'a> {
         func(af)
     }
 
-    pub fn start_iocost_bench(&self) {
+    pub fn start_iocost_bench(&mut self) -> Result<()> {
         debug!("Starting iocost benchmark ({})", &IOCOST_BENCH_SVC_NAME);
+        self.svcs.insert(IOCOST_BENCH_SVC_NAME.to_owned());
 
         let mut next_seq = 0;
         self.access_agent_files(|af| {
@@ -629,10 +732,10 @@ impl<'a> RunCtx<'a> {
             Some(CMD_TIMEOUT),
             None,
         )
-        .expect("failed to start iocost benchmark");
+        .context("Waiting for iocost bench to start")
     }
 
-    pub fn stop_iocost_bench(&self) {
+    pub fn stop_iocost_bench(&self) -> Result<()> {
         debug!("Stopping iocost benchmark ({})", &IOCOST_BENCH_SVC_NAME);
 
         self.access_agent_files(|af| {
@@ -646,13 +749,21 @@ impl<'a> RunCtx<'a> {
             Some(CMD_TIMEOUT),
             None,
         )
-        .expect("failed to stop iocost benchmark");
+        .context("Waiting for iocost bench to stop")?;
+
+        Self::stop_svc(&IOCOST_BENCH_SVC_NAME);
+        Ok(())
     }
 
     pub const BENCH_FAKE_CPU_RPS_MAX: u32 = 2000;
 
-    pub fn start_hashd_bench(&self, ballon_size: usize, log_bps: u64, mut extra_args: Vec<String>) {
+    pub fn start_hashd_bench(
+        &mut self,
+        log_bps: Option<u64>,
+        mut extra_args: Vec<String>,
+    ) -> Result<()> {
         debug!("Starting hashd benchmark ({})", &HASHD_BENCH_SVC_NAME);
+        self.svcs.insert(HASHD_BENCH_SVC_NAME.to_owned());
 
         // Some benches monitor the memory usage of rd-hashd-bench.service.
         // On consecutive runs, some memory charges can shift to
@@ -664,12 +775,13 @@ impl<'a> RunCtx<'a> {
             extra_args.push("--bench-test".into());
         }
 
+        let dfl_params = rd_hashd_intf::Params::default();
         let mut next_seq = 0;
         self.access_agent_files(|af| {
             next_seq = af.bench.data.hashd_seq + 1;
             af.cmd.data = Default::default();
-            af.cmd.data.hashd[0].log_bps = log_bps;
-            af.cmd.data.bench_hashd_balloon_size = ballon_size;
+            af.cmd.data.hashd[0].log_bps = log_bps.unwrap_or(dfl_params.log_bps);
+            af.cmd.data.bench_hashd_balloon_size = self.base.balloon_size_hashd_bench();
             af.cmd.data.bench_hashd_args = extra_args;
             af.cmd.data.bench_hashd_seq = next_seq;
             af.cmd.save().unwrap();
@@ -683,10 +795,10 @@ impl<'a> RunCtx<'a> {
             Some(CMD_TIMEOUT),
             None,
         )
-        .expect("failed to start hashd benchmark");
+        .context("Waiting for hashd bench to start")
     }
 
-    pub fn stop_hashd_bench(&self) {
+    pub fn stop_hashd_bench(&self) -> Result<()> {
         debug!("Stopping hashd benchmark ({})", &HASHD_BENCH_SVC_NAME);
 
         self.access_agent_files(|af| {
@@ -700,11 +812,15 @@ impl<'a> RunCtx<'a> {
             Some(CMD_TIMEOUT),
             None,
         )
-        .expect("failed to stop hashd benchmark");
+        .context("Waiting for hashd bench to stop")?;
+
+        Self::stop_svc(&HASHD_BENCH_SVC_NAME);
+        Ok(())
     }
 
-    pub fn start_hashd(&self, load: f64) {
+    pub fn start_hashd(&mut self, load: f64) -> Result<()> {
         debug!("Starting hashd ({})", &HASHD_A_SVC_NAME);
+        self.svcs.insert(HASHD_A_SVC_NAME.to_owned());
 
         self.access_agent_files(|af| {
             af.cmd.data.cmd_seq += 1;
@@ -712,13 +828,13 @@ impl<'a> RunCtx<'a> {
             af.cmd.data.hashd[0].rps_target_ratio = load;
             af.cmd.save().unwrap();
         });
-        self.cmd_barrier().unwrap();
+        self.cmd_barrier().context("Waiting for hashd start ack")?;
         self.wait_cond(
             |af, _| af.report.data.hashd[0].svc.state == SvcStateReport::Running,
             Some(CMD_TIMEOUT),
             None,
         )
-        .expect("failed to start hashd");
+        .context("Waiting for hashd to start")
     }
 
     pub fn stabilize_hashd_with_params(
@@ -745,7 +861,7 @@ impl<'a> RunCtx<'a> {
                 last_at = ts;
 
                 if rep.hashd[0].svc.state != SvcStateReport::Running {
-                    err = Some(anyhow!("hashd not running ({:?})", rep.hashd[0].svc.state));
+                    err = Some(anyhow!("rd-hashd not running ({:?})", rep.hashd[0].svc.state));
                     return true;
                 }
 
@@ -830,7 +946,7 @@ impl<'a> RunCtx<'a> {
         }
     }
 
-    pub fn stop_hashd(&self) {
+    pub fn stop_hashd(&self) -> Result<()> {
         debug!("Stopping hashd ({})", HASHD_A_SVC_NAME);
 
         self.access_agent_files(|af| {
@@ -838,17 +954,21 @@ impl<'a> RunCtx<'a> {
             af.cmd.data.hashd[0].active = false;
             af.cmd.save().unwrap();
         });
-        self.cmd_barrier().unwrap();
+        self.cmd_barrier().context("Waiting for hashd stop ack")?;
         self.wait_cond(
             |af, _| af.report.data.hashd[0].svc.state != SvcStateReport::Running,
             Some(CMD_TIMEOUT),
             None,
         )
-        .expect("failed to start hashd");
+        .context("Waiting for hashd to stop")?;
+
+        Self::stop_svc(&HASHD_A_SVC_NAME);
+        Ok(())
     }
 
-    pub fn start_sysload(&self, name: &str, kind: &str) -> Result<()> {
+    pub fn start_sysload(&mut self, name: &str, kind: &str) -> Result<()> {
         debug!("Starting sysload {}:{}", name, kind);
+        self.svcs.insert(rd_agent_intf::sysload_svc_name(name));
 
         self.access_agent_files(|af| {
             af.cmd.data.cmd_seq += 1;
@@ -858,7 +978,8 @@ impl<'a> RunCtx<'a> {
                 .insert(name.to_owned(), kind.to_owned());
             af.cmd.save().unwrap();
         });
-        self.cmd_barrier().unwrap();
+        self.cmd_barrier()
+            .context("Waiting for sysload start ack")?;
         let mut state = SvcStateReport::Other;
         self.wait_cond(
             |af, _| match af.report.data.sysloads.get(name) {
@@ -871,12 +992,12 @@ impl<'a> RunCtx<'a> {
             Some(CMD_TIMEOUT),
             None,
         )
-        .expect("failed to start sysload");
+        .context("Waiting for sysload to start")?;
 
         if state != SvcStateReport::Running {
             self.stop_sysload(name);
             bail!(
-                "failed to start sysload {}:{}, state={:?}",
+                "Failed to start sysload {}:{}, state={:?}",
                 name,
                 kind,
                 state
@@ -893,77 +1014,73 @@ impl<'a> RunCtx<'a> {
             af.cmd.data.sysloads.remove(&name.to_owned());
             af.cmd.save().unwrap();
         });
+
+        Self::stop_svc(&rd_agent_intf::sysload_svc_name(name));
     }
 
     pub fn prev_job_data(&self) -> Option<JobData> {
         let jobs = self.jobs.lock().unwrap();
-        let prev_uid = *self.prev_uid.iter().last().unwrap();
-        let prev = jobs.prev.by_uid(prev_uid).unwrap();
-        match prev.data.result_valid() {
+        let prev = jobs.by_uid(self.uid).unwrap();
+        match prev.data.record.is_some() {
             true => Some(prev.data.clone()),
             false => None,
         }
     }
 
     pub fn find_done_job_data(&mut self, kind: &str) -> Option<JobData> {
+        assert!(self.uid != 0);
         let jobs = self.jobs.lock().unwrap();
-        for jctx in jobs.done.vec.iter().rev() {
+        let mut iter = jobs.vec.iter().rev();
+
+        // While walking back, skip till the current one.
+        loop {
+            match iter.next() {
+                Some(jctx) if jctx.uid == self.uid => break,
+                Some(_) => {}
+                None => return None,
+            }
+        }
+
+        // Find the nearest matching.
+        while let Some(jctx) = iter.next() {
             if jctx.data.spec.kind == kind {
-                if self.sysreqs_forward.is_none() {
-                    self.sysreqs_forward = Some(jctx.data.sysreqs.clone());
+                if self.sysinfo_forward.is_none() {
+                    self.sysinfo_forward = Some(jctx.data.sysinfo.clone());
                 }
-                return Some(jctx.data.clone());
+                if jctx.update_seq != std::u64::MAX {
+                    return Some(jctx.data.clone());
+                } else {
+                    return None;
+                };
             }
         }
         None
     }
 
-    fn save_bench(&self, path: &str) -> Result<()> {
-        self.bench.save(path).with_context(|| {
-            format!(
-                "failed to commit bench result to {:?}",
-                self.demo_bench_path
-            )
-        })
-    }
-
-    pub fn load_bench(&mut self) -> Result<()> {
-        self.bench = rd_agent_intf::BenchKnobs::load(&self.bench_path)
-            .with_context(|| format!("Failed to load {:?}", &self.bench_path))?;
-        Ok(())
-    }
-
-    pub fn update_bench_from_mem_size(&mut self, mem_size: usize) -> Result<()> {
-        let hb = &mut self.bench.hashd;
-        let old_mem_frac = hb.mem_frac;
-        hb.mem_frac = mem_size as f64 / hb.mem_size as f64;
-        let result = self.save_bench(&self.bench_path);
-        if result.is_err() {
-            self.bench.hashd.mem_frac = old_mem_frac;
-        }
-        result.with_context(|| format!("failed to update {:?}", &self.bench_path))
-    }
-
     pub fn run_jctx(&mut self, mut jctx: JobCtx) -> Result<()> {
         // Always start with a fresh bench file.
-        self.bench
-            .save(&self.bench_path)
-            .with_context(|| format!("failed to set up {:?}", &self.bench_path))?;
+        self.base.initialize()?;
 
-        if let Err(e) = jctx.run(self) {
-            bail!("Failed to run ({:#})", &e);
-        }
+        assert_eq!(self.uid, 0);
+        assert_ne!(jctx.uid, 0);
+        self.run_started_at = unix_now();
+        self.uid = jctx.uid;
 
-        if self.commit_bench {
-            self.load_bench()?;
-            *self.base_bench = self.bench.clone();
-            self.save_bench(&self.demo_bench_path)?;
-        }
+        let res = jctx
+            .run(self)
+            .with_context(|| format!("Failed to run {}", &jctx.data.spec));
+
+        // We wanna save whatever came out of the run phase even if the
+        // study phase failed.
+        assert_eq!(self.uid, jctx.uid);
+        self.uid = 0;
+
+        res?;
+
+        self.base.finish(self.commit_bench)?;
 
         jctx.print(Mode::Summary, &vec![Default::default()])
             .unwrap();
-        self.jobs.lock().unwrap().done.vec.push(jctx);
-
         Ok(())
     }
 
@@ -971,38 +1088,69 @@ impl<'a> RunCtx<'a> {
         if self.inner.lock().unwrap().agent_svc.is_some() {
             bail!("can't nest bench execution while rd-agent is already running for outer bench");
         }
-        match run_nested_job_spec_int(spec, self.args, &mut self.bench, self.jobs.clone()) {
-            Ok(true) => {
-                // Nested job finished successfully and updated self.bench
-                // and the demo bench file. Propagate it to our base_bench
-                // too. The demo bench file update and propagation might
-                // need to become finer grained in the future.
-                *self.base_bench = self.bench.clone();
-                Ok(())
-            }
-            Ok(false) => Ok(()),
-            Err(e) => Err(e),
-        }
+        run_nested_job_spec_int(spec, self.args, &mut self.base, self.jobs.clone())
     }
 
     pub fn maybe_run_nested_iocost_params(&mut self) -> Result<()> {
-        if self.bench().iocost_seq > 0 {
+        if self.base.bench_knobs.iocost_seq > 0 {
             return Ok(());
         }
         info!(
             "iocost-qos: iocost parameters missing and !--iocost-from-sys, running iocost-params"
         );
         self.run_nested_job_spec(&resctl_bench_intf::Args::parse_job_spec("iocost-params").unwrap())
-            .context("Failed to run iocost-params")
+            .context("Running iocost-params")
     }
 
     pub fn maybe_run_nested_hashd_params(&mut self) -> Result<()> {
-        if self.bench().hashd_seq > 0 {
+        if self.base.bench_knobs.hashd_seq > 0 {
             return Ok(());
         }
         info!("iocost-qos: hashd parameters missing, running hashd-params");
         self.run_nested_job_spec(&resctl_bench_intf::Args::parse_job_spec("hashd-params").unwrap())
-            .context("Failed to run hashd-params")
+            .context("Running hashd-params")
+    }
+
+    pub fn bench_knobs(&'a self) -> &'a rd_agent_intf::BenchKnobs {
+        &self.base.bench_knobs
+    }
+
+    pub fn load_bench_knobs(&mut self) -> Result<()> {
+        self.base.load_bench_knobs()
+    }
+
+    pub fn set_hashd_mem_size(&mut self, size: usize) -> Result<()> {
+        self.base.set_hashd_mem_size(size)
+    }
+
+    pub fn init_mem_profile(&mut self) -> Result<()> {
+        // Mem avail estimation creates its own rctx. Make sure that
+        // rd-agent isn't running for this instance.
+        if self.args.mem_profile.is_some() && self.base.mem.avail == 0 {
+            let was_running = self.inner.lock().unwrap().agent_svc.is_some();
+            self.stop_agent_no_clear();
+            self.base.estimate_available_memory()?;
+            if was_running {
+                self.restart_agent()?;
+            }
+        }
+
+        self.base.update_mem_profile()
+    }
+
+    pub fn reset_mem_avail(&mut self) -> Result<()> {
+        self.base.mem.avail = 0;
+        self.init_mem_profile()
+    }
+
+    // Sometimes, benchmarks themselves can discover mem_avail.
+    pub fn update_mem_avail(&mut self, size: usize) -> Result<()> {
+        self.base.mem.avail = size;
+        self.init_mem_profile()
+    }
+
+    pub fn mem_info(&'a self) -> &'a MemInfo {
+        &self.base.mem
     }
 
     pub fn sysreqs_report(&self) -> Option<Arc<rd_agent_intf::SysReqsReport>> {
@@ -1022,13 +1170,49 @@ impl<'a> RunCtx<'a> {
         ctx.report_sample.clone()
     }
 
+    fn report_path(&self) -> String {
+        match AGENT_WAS_ACTIVE.load(Ordering::Relaxed) {
+            true => {
+                let ctx = self.inner.lock().unwrap();
+                ctx.agent_files.index.data.report_d.clone()
+            }
+            false => match self.args.study_rep_d.as_ref() {
+                Some(v) => v.clone(),
+                None => format!("{}/report.d", &self.args.dir),
+            },
+        }
+    }
+
+    pub fn report_path_iter(&self, period: (u64, u64)) -> ReportPathIter {
+        ReportPathIter::new(&self.report_path(), period)
+    }
+
     pub fn report_iter(&self, period: (u64, u64)) -> ReportIter {
+        ReportIter::new(&self.report_path(), period)
+    }
+
+    pub fn first_report(&self, period: (u64, u64)) -> Option<(rd_agent_intf::Report, u64)> {
         let ctx = self.inner.lock().unwrap();
-        ReportIter::new(&ctx.agent_files.index.data.report_d, period)
+        for (rep, at) in ReportIter::new(&ctx.agent_files.index.data.report_d, period) {
+            if rep.is_ok() {
+                return Some((rep.unwrap(), at));
+            }
+        }
+        return None;
+    }
+
+    pub fn last_report(&self, period: (u64, u64)) -> Option<(rd_agent_intf::Report, u64)> {
+        let ctx = self.inner.lock().unwrap();
+        for (rep, at) in ReportIter::new(&ctx.agent_files.index.data.report_d, period).rev() {
+            if rep.is_ok() {
+                return Some((rep.unwrap(), at));
+            }
+        }
+        return None;
     }
 }
 
-impl Drop for RunCtx<'_> {
+impl Drop for RunCtx<'_, '_> {
     fn drop(&mut self) {
         self.stop_agent();
     }
@@ -1114,7 +1298,14 @@ impl WorkloadMon {
                 if (self.hashd[0] && rep.hashd[0].svc.state != SvcStateReport::Running)
                     || (self.hashd[1] && rep.hashd[1].svc.state != SvcStateReport::Running)
                 {
-                    result = Err(anyhow!("hashd failed while waiting"));
+                    let mut states = String::new();
+                    if self.hashd[0] {
+                        write!(states, ", hashd-A {:?}", rep.hashd[0].svc.state).unwrap();
+                    }
+                    if self.hashd[1] {
+                        write!(states, ", hashd-B {:?}", rep.hashd[1].svc.state).unwrap();
+                    }
+                    result = Err(anyhow!("hashd failed while waiting{}", &states));
                     return true;
                 }
 

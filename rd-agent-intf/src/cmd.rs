@@ -87,7 +87,7 @@ impl Default for HashdCmd {
         Self {
             active: false,
             lat_target_pct: rd_hashd_intf::Params::default().lat_target_pct,
-            lat_target: 100.0 * MSEC,
+            lat_target: rd_hashd_intf::Params::default().lat_target,
             rps_target_ratio: 0.5,
             mem_ratio: None,
             file_addr_stdev: None,
@@ -112,12 +112,13 @@ pub struct Cmd {
     pub hashd: [HashdCmd; 2],
     pub sysloads: BTreeMap<String, String>,
     pub sideloads: BTreeMap<String, String>,
+    pub swappiness: Option<u32>,
     pub balloon_ratio: f64,
 }
 
 impl Cmd {
     pub fn bench_hashd_memory_slack(mem_share: usize) -> usize {
-        (mem_share / 8).min(512 << 20)
+        (mem_share / 8).min(1 << 30)
     }
 }
 
@@ -133,6 +134,7 @@ impl Default for Cmd {
             hashd: Default::default(),
             sysloads: BTreeMap::new(),
             sideloads: BTreeMap::new(),
+            swappiness: None,
             balloon_ratio: 0.0,
         }
     }

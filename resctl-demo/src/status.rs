@@ -242,7 +242,7 @@ impl UpdateWorker {
                     "load:{:>5}%  lat:{:4.0}ms  cpu:{:>5}%  mem:{:>6}  io:{:>6}",
                     format_pct_dashed(rep.load),
                     rep.lat.ctl * 1000.0,
-                    &format_pct_dashed(usage.cpu_usage),
+                    &format_pct_dashed(usage.cpu_util),
                     &format_size_dashed(usage.mem_bytes),
                     &format_size_dashed(usage.io_rbps + usage.io_wbps),
                 ));
@@ -429,7 +429,7 @@ fn usage_top_row() -> LinearLayout {
 fn format_row_data(usage: &UsageReport) -> String {
     format!(
         "{:>6} {:>6} {:>6} {:>6} {:>6} {:>6} {:>6} {:>6}",
-        &format_pct_dashed(usage.cpu_usage),
+        &format_pct_dashed(usage.cpu_util),
         &format_size_dashed(usage.mem_bytes),
         &format_size_dashed(usage.swap_bytes),
         &format_size_dashed(usage.io_rbps),

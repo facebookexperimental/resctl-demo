@@ -108,11 +108,12 @@ impl Default for SliceConfig {
 impl SliceConfig {
     pub const DFL_SYS_CPU_RATIO: f64 = 0.1;
     pub const DFL_SYS_IO_RATIO: f64 = 0.1;
+    pub const DFL_MEM_MARGIN: f64 = 0.25;
 
-    pub fn dfl_mem_margin() -> u64 {
-        let margin = total_memory() as u64 / 4;
-        if *IS_FB_PROD {
-            (margin + 2 << 30).min(total_memory() as u64 / 2)
+    pub fn dfl_mem_margin(total: usize, fb_prod: bool) -> u64 {
+        let margin = (total as f64 * Self::DFL_MEM_MARGIN) as u64;
+        if fb_prod {
+            (margin + 2 << 30).min(total as u64 / 2)
         } else {
             margin
         }
@@ -146,7 +147,9 @@ impl SliceConfig {
             },
             Slice::Work => Self {
                 io_weight: 500,
-                mem_low: MemoryKnob::Bytes(total_memory() as u64 - Self::dfl_mem_margin()),
+                mem_low: MemoryKnob::Bytes(
+                    total_memory() as u64 - Self::dfl_mem_margin(total_memory(), *IS_FB_PROD),
+                ),
                 ..Default::default()
             },
             Slice::Side => Self {

@@ -33,8 +33,6 @@ use rd_agent_intf::{
 };
 use report::clear_old_report_files;
 
-const SWAPPINESS_PATH: &str = "/proc/sys/vm/swappiness";
-
 pub static INSTANCE_SEQ: AtomicU64 = AtomicU64::new(0);
 
 pub fn instance_seq() -> u64 {
@@ -816,15 +814,16 @@ impl Config {
             self.sr_failed.insert(SysReq::Swap);
         }
 
-        if let Ok(line) = read_one_line(SWAPPINESS_PATH) {
-            let swappiness = line.trim().parse::<u32>()?;
+        if let Ok(swappiness) = read_swappiness() {
+            if self.enforce.all {
+                self.sr_swappiness = Some(swappiness);
+            }
             if swappiness < 60 {
                 if self.enforce.all {
                     info!(
                         "cfg: Swappiness {} is smaller than default 60, updating to 60",
                         swappiness
                     );
-                    self.sr_swappiness = Some(swappiness);
                     if let Err(e) = write_one_line(SWAPPINESS_PATH, "60") {
                         warn!("cfg: Failed to update swappiness ({})", &e);
                         self.sr_failed.insert(SysReq::Swap);
@@ -1154,6 +1153,8 @@ fn main() {
         bandit::bandit_main(bandit);
         return;
     }
+
+    systemd::set_systemd_timeout(args_file.data.systemd_timeout);
 
     let mut cfg = Config::new(&args_file);
 

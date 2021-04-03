@@ -506,7 +506,7 @@ fn plot_spec_factory(id: PlotId) -> PlotSpec {
     }
     fn cpu_spec(slice: &'static str) -> PlotSpec {
         PlotSpec {
-            sel: Box::new(move |rep: &Report| rep.usages.get(slice).unwrap().cpu_usage * 100.0),
+            sel: Box::new(move |rep: &Report| rep.usages.get(slice).unwrap().cpu_util * 100.0),
             aggr: PlotDataAggr::AVG,
             title: Box::new(move || format!("{}-cpu", slice.trim_end_matches(".slice"))),
             min: Box::new(|| 0.0),

@@ -1,30 +1,44 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
-use anyhow::{bail, Result};
+use anyhow::{bail, Context, Result};
 use log::error;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::process::exit;
 use util::*;
 
-use super::JobSpec;
+use super::{IoCostQoSOvr, JobSpec};
 use rd_agent_intf;
 
 lazy_static::lazy_static! {
-    static ref TOP_ARGS_STR: String = format!(
-        "<RESULTFILE>           'Record the bench results into the specified json file'
-         -d, --dir=[TOPDIR]     'Top-level dir for operation and scratch files (default: {dfl_dir})'
-         -D, --dev=[DEVICE]     'Scratch device override (e.g. nvme0n1)'
-         -l, --linux=[PATH]     'Path to linux.tar, downloaded automatically if not specified'
-         -R, --rep-retention=[SECS] '1s report retention in seconds (default: {dfl_rep_ret:.1}h)'
-         -a, --args=[FILE]      'Load base command line arguments from FILE'
-         -c, --iocost-from-sys  'Use iocost parameters from io.cost.{{model,qos}} instead of bench.json'
-             --keep-reports     'Don't delete expired report files'
-             --clear-reports    'Remove existing report files'
-             --test             'Test mode for development'
-         -v...                  'Sets the level of verbosity'",
-        dfl_dir = Args::default().dir,
-        dfl_rep_ret = Args::default().rep_retention,
-    );
+    static ref TOP_ARGS_STR: String = {
+        let dfl_args = Args::default();
+        format!(
+            "<RESULTFILE>                 'Record the bench results into the specified json file'
+             -d, --dir=[TOPDIR]           'Top-level dir for operation and scratch files (default: {dfl_dir})'
+             -D, --dev=[DEVICE]           'Scratch device override (e.g. nvme0n1)'
+             -l, --linux=[PATH]           'Path to linux.tar, downloaded automatically if not specified'
+             -R, --rep-retention=[SECS]   '1s report retention in seconds (default: {dfl_rep_ret:.1}h)'
+             -M, --mem-profile=[PROF|off] 'Memory profile in power-of-two gigabytes, \"off\" to disable (default: {dfl_mem_prof})'
+             -m, --mem-avail=[SIZE]       'Amount of memory available for resctl-bench'
+                 --mem-margin=[PCT]       'Memory margin for system.slice (default: {dfl_mem_margin}%)'
+                 --systemd-timeout=[SECS] 'Systemd timeout (default: {dfl_systemd_timeout})'
+                 --hashd-size=[SIZE]      'Override hashd memory footprint'
+                 --hashd-cpu-load=[keep|fake|real] 'Override hashd fake cpu load mode'
+                 --iocost-qos=[OVRS]      'iocost QoS overrides'
+                 --swappiness=[OVR]       'swappiness override [0, 200]'
+             -a, --args=[FILE]            'Load base command line arguments from FILE'
+                 --iocost-from-sys        'Use iocost parameters from io.cost.{{model,qos}} instead of bench.json'
+                 --keep-reports           'Don't delete expired report files'
+                 --clear-reports          'Remove existing report files'
+                 --test                   'Test mode for development'
+             -v...                        'Sets the level of verbosity'",
+            dfl_dir = dfl_args.dir,
+            dfl_rep_ret = dfl_args.rep_retention,
+            dfl_mem_prof = dfl_args.mem_profile.unwrap(),
+            dfl_mem_margin = format_pct(dfl_args.mem_margin),
+            dfl_systemd_timeout = format_duration(dfl_args.systemd_timeout),
+        )
+    };
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -32,6 +46,7 @@ pub enum Mode {
     Run,
     Format,
     Summary,
+    Pack,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -41,11 +56,21 @@ pub struct Args {
     pub dev: Option<String>,
     pub linux_tar: Option<String>,
     pub rep_retention: u64,
+    pub systemd_timeout: f64,
+    pub hashd_size: Option<usize>,
+    pub hashd_fake_cpu_load: Option<bool>,
+    pub mem_profile: Option<u32>,
+    pub mem_avail: usize,
+    pub mem_margin: f64,
     pub mode: Mode,
+    pub iocost_qos_ovr: IoCostQoSOvr,
+    pub swappiness_ovr: Option<u32>,
     pub job_specs: Vec<JobSpec>,
 
     #[serde(skip)]
     pub result: String,
+    #[serde(skip)]
+    pub study_rep_d: Option<String>,
     #[serde(skip)]
     pub iocost_from_sys: bool,
     #[serde(skip)]
@@ -66,8 +91,17 @@ impl Default for Args {
             linux_tar: None,
             result: "".into(),
             mode: Mode::Run,
+            iocost_qos_ovr: Default::default(),
+            swappiness_ovr: None,
             job_specs: Default::default(),
-            rep_retention: 24 * 3600,
+            study_rep_d: None,
+            rep_retention: 7 * 24 * 3600,
+            systemd_timeout: 120.0,
+            hashd_size: None,
+            hashd_fake_cpu_load: None,
+            mem_profile: Some(Self::DFL_MEM_PROFILE),
+            mem_avail: 0,
+            mem_margin: rd_agent_intf::SliceConfig::DFL_MEM_MARGIN,
             iocost_from_sys: false,
             keep_reports: false,
             clear_reports: false,
@@ -79,13 +113,32 @@ impl Default for Args {
 
 impl Args {
     pub const RB_BENCH_FILENAME: &'static str = "rb-bench.json";
+    pub const DFL_MEM_PROFILE: u32 = 16;
 
-    pub fn demo_bench_path(&self) -> String {
+    pub fn demo_bench_knobs_path(&self) -> String {
         self.dir.clone() + "/" + rd_agent_intf::BENCH_FILENAME
     }
 
-    pub fn bench_path(&self) -> String {
+    pub fn bench_knobs_path(&self) -> String {
         self.dir.clone() + "/" + Self::RB_BENCH_FILENAME
+    }
+
+    pub fn parse_propset(input: &str) -> BTreeMap<String, String> {
+        let mut propset = BTreeMap::<String, String>::new();
+        for tok in input.split(',') {
+            if tok.len() == 0 {
+                continue;
+            }
+
+            // Allow key-only properties.
+            let mut kv = tok.splitn(2, '=').collect::<Vec<&str>>();
+            while kv.len() < 2 {
+                kv.push("");
+            }
+
+            propset.insert(kv[0].into(), kv[1].into());
+        }
+        propset
     }
 
     pub fn parse_job_spec(spec: &str) -> Result<JobSpec> {
@@ -100,24 +153,9 @@ impl Args {
         let mut id = None;
 
         for group in groups {
-            let mut propset = BTreeMap::<String, String>::new();
-            for tok in group.split(',') {
-                if tok.len() == 0 {
-                    continue;
-                }
-
-                // Allow key-only properties.
-                let mut kv = tok.splitn(2, '=').collect::<Vec<&str>>();
-                while kv.len() < 2 {
-                    kv.push("");
-                }
-
-                match kv[0] {
-                    "id" => id = Some(kv[1]),
-                    key => {
-                        propset.insert(key.into(), kv[1].into());
-                    }
-                }
+            let mut propset = Self::parse_propset(group);
+            if let Some(v) = propset.remove("id") {
+                id = Some(v);
             }
             props.push(propset);
         }
@@ -127,7 +165,7 @@ impl Args {
             props.push(Default::default());
         }
 
-        Ok(JobSpec::new(kind, id, props))
+        Ok(JobSpec::new(kind, id.as_deref(), props))
     }
 
     fn parse_job_specs(subm: &clap::ArgMatches) -> Result<Vec<JobSpec>> {
@@ -179,6 +217,9 @@ impl Args {
             updated = true;
         }
 
+        // Only in study mode.
+        self.study_rep_d = subm.value_of("reports").map(|x| x.to_owned());
+
         match Self::parse_job_specs(subm) {
             Ok(job_specs) => {
                 if job_specs.len() > 0 {
@@ -201,48 +242,49 @@ impl JsonSave for Args {}
 
 impl JsonArgs for Args {
     fn match_cmdline() -> clap::ArgMatches<'static> {
+        let job_file_arg = clap::Arg::with_name("file")
+            .long("file")
+            .short("f")
+            .multiple(true)
+            .takes_value(true)
+            .number_of_values(1)
+            .help("Benchmark job file");
+        let job_spec_arg = clap::Arg::with_name("spec")
+            .multiple(true)
+            .help("Benchmark job spec - \"BENCH_TYPE[:KEY=VAL...]\"");
+
         clap::App::new("resctl-bench")
             .version(clap::crate_version!())
             .author(clap::crate_authors!("\n"))
-            .about("Facebook Resoruce Control Benchmarks")
+            .about("Facebook Resource Control Benchmarks")
             .setting(clap::AppSettings::UnifiedHelpMessage)
             .setting(clap::AppSettings::DeriveDisplayOrder)
             .args_from_usage(&TOP_ARGS_STR)
             .subcommand(
                 clap::SubCommand::with_name("run")
                     .about("Run benchmarks")
+                    .arg(job_file_arg.clone())
+                    .arg(job_spec_arg.clone()),
+            )
+            .subcommand(
+                clap::SubCommand::with_name("study")
+                    .about("Study benchmark results, all benchmarks must be complete")
                     .arg(
-                        clap::Arg::with_name("file")
-                            .long("file")
-                            .short("f")
-                            .multiple(true)
+                        clap::Arg::with_name("reports")
+                            .long("reports")
+                            .short("r")
+                            .required(true)
                             .takes_value(true)
-                            .number_of_values(1)
-                            .help("Benchmark job file"),
+                            .help("Study reports in the specified directory"),
                     )
-                    .arg(
-                        clap::Arg::with_name("spec")
-                            .multiple(true)
-                            .help("Benchmark job spec - \"BENCH_TYPE[:KEY=VAL...]\""),
-                    ),
+                    .arg(job_file_arg.clone())
+                    .arg(job_spec_arg.clone()),
             )
             .subcommand(
                 clap::SubCommand::with_name("format")
                     .about("Format benchmark results")
-                    .arg(
-                        clap::Arg::with_name("file")
-                            .long("file")
-                            .short("f")
-                            .multiple(true)
-                            .takes_value(true)
-                            .number_of_values(1)
-                            .help("Benchmark format file"),
-                    )
-                    .arg(
-                        clap::Arg::with_name("spec")
-                            .multiple(true)
-                            .help("Results to format - \"BENCY_TYPE[:KEY=VAL...]\""),
-                    ),
+                    .arg(job_file_arg.clone())
+                    .arg(job_spec_arg.clone()),
             )
             .subcommand(
                 clap::SubCommand::with_name("summary")
@@ -262,6 +304,9 @@ impl JsonArgs for Args {
                             .help("Results to format - \"BENCY_TYPE[:KEY=VAL...]\""),
                     ),
             )
+            .subcommand(clap::SubCommand::with_name("pack").about(
+                "Create a tarball containing the result file and the associated report files",
+            ))
             .get_matches()
     }
 
@@ -305,6 +350,79 @@ impl JsonArgs for Args {
             };
             updated = true;
         }
+        if let Some(v) = matches.value_of("systemd-timeout") {
+            self.systemd_timeout = if v.len() > 0 {
+                parse_duration(v).unwrap().max(1.0)
+            } else {
+                dfl.systemd_timeout
+            };
+            updated = true;
+        }
+        if let Some(v) = matches.value_of("hashd-size") {
+            self.hashd_size = if v.len() > 0 {
+                Some((parse_size(v).unwrap() as usize).max(*PAGE_SIZE))
+            } else {
+                None
+            };
+            updated = true;
+        }
+        if let Some(v) = matches.value_of("hashd-cpu-load") {
+            self.hashd_fake_cpu_load = match v {
+                "keep" | "" => None,
+                "fake" => Some(true),
+                "real" => Some(false),
+                v => panic!("Invalid --hashd-cpu-load value {:?}", v),
+            };
+            updated = true;
+        }
+        if let Some(v) = matches.value_of("iocost-qos") {
+            self.iocost_qos_ovr = if v.len() > 0 {
+                let mut ovr = IoCostQoSOvr::default();
+                for (k, v) in Self::parse_propset(v).iter() {
+                    ovr.parse(k, v)
+                        .with_context(|| format!("Parsing iocost QoS override \"{}={}\"", k, v))
+                        .unwrap();
+                }
+                ovr
+            } else {
+                Default::default()
+            };
+            updated = true;
+        }
+        if let Some(v) = matches.value_of("swappiness") {
+            self.swappiness_ovr = if v.len() > 0 {
+                let v = v.parse::<u32>().expect("Parsing swappiness");
+                if v > 200 {
+                    panic!("Swappiness {} out of range", v);
+                }
+                Some(v)
+            } else {
+                None
+            };
+        }
+        if let Some(v) = matches.value_of("mem-profile") {
+            self.mem_profile = match v {
+                "off" => None,
+                v => Some(v.parse::<u32>().expect("Invalid mem-profile")),
+            };
+            updated = true;
+        }
+        if let Some(v) = matches.value_of("mem-avail") {
+            self.mem_avail = if v.len() > 0 {
+                parse_size(v).unwrap() as usize
+            } else {
+                0
+            };
+            updated = true;
+        }
+        if let Some(v) = matches.value_of("mem-margin") {
+            self.mem_margin = if v.len() > 0 {
+                parse_frac(v).unwrap()
+            } else {
+                dfl.mem_margin
+            };
+            updated = true;
+        }
 
         self.result = matches.value_of("RESULTFILE").unwrap().into();
         self.iocost_from_sys = matches.is_present("iocost-from-sys");
@@ -315,8 +433,13 @@ impl JsonArgs for Args {
 
         updated |= match matches.subcommand() {
             ("run", Some(subm)) => self.process_subcommand(Mode::Run, subm),
+            ("study", Some(subm)) => self.process_subcommand(Mode::Run, subm),
             ("format", Some(subm)) => self.process_subcommand(Mode::Format, subm),
             ("summary", Some(subm)) => self.process_subcommand(Mode::Summary, subm),
+            ("pack", Some(_)) => {
+                self.mode = Mode::Pack;
+                false
+            }
             _ => false,
         };
 
