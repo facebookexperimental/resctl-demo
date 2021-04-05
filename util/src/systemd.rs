@@ -2,9 +2,8 @@
 use anyhow::{bail, Result};
 use log::{debug, info, trace, warn};
 use rustbus::{
-    client_conn,
     message_builder::{self, MarshalledMessage},
-    params, signature, standard_messages, Conn, MessageType, RpcConn,
+    params, signature, standard_messages, DuplexConn, MessageType, RpcConn,
 };
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -24,7 +23,7 @@ std::thread_local!(pub static USR_SD_BUS: RefCell<SystemdDbus> =
 
 // The following and the explicit error wrappings can be removed once
 // rustbus error implements std::error::Error.
-type RbResult<T> = Result<T, rustbus::client_conn::Error>;
+type RbResult<T> = Result<T, rustbus::connection::Error>;
 
 lazy_static::lazy_static! {
     static ref SYSTEMD_TIMEOUT_MS: AtomicU64 =
@@ -39,8 +38,8 @@ fn systemd_timeout() -> Duration {
     Duration::from_millis(SYSTEMD_TIMEOUT_MS.load(Ordering::Relaxed))
 }
 
-fn systemd_conn_timeout() -> client_conn::Timeout {
-    client_conn::Timeout::Duration(systemd_timeout())
+fn systemd_conn_timeout() -> rustbus::connection::Timeout {
+    rustbus::connection::Timeout::Duration(systemd_timeout())
 }
 
 fn wrap_rustbus_result<T>(r: RbResult<T>) -> Result<T> {
@@ -174,8 +173,8 @@ pub struct SystemdDbus {
 impl SystemdDbus {
     fn new_int(user: bool) -> RbResult<SystemdDbus> {
         let mut rpc_conn = RpcConn::new(match user {
-            false => Conn::connect_to_bus(rustbus::get_system_bus_path()?, true)?,
-            true => Conn::connect_to_bus(rustbus::get_session_bus_path()?, true)?,
+            false => DuplexConn::connect_to_bus(rustbus::get_system_bus_path()?, true)?,
+            true => DuplexConn::connect_to_bus(rustbus::get_session_bus_path()?, true)?,
         });
 
         rpc_conn.set_filter(Box::new(|msg| match msg.typ {
@@ -197,7 +196,7 @@ impl SystemdDbus {
         &mut self,
         msg: &mut MarshalledMessage,
     ) -> RbResult<MarshalledMessage> {
-        let msg_serial = self.rpc_conn.send_message(msg, systemd_conn_timeout())?;
+        let msg_serial = self.rpc_conn.send_message(msg)?.write_all().unwrap();
         self.rpc_conn
             .wait_response(msg_serial, systemd_conn_timeout())
     }

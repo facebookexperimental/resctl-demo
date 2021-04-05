@@ -25,7 +25,6 @@ nix = "^0.20"
 procfs = "^0.9"
 proc-mounts = "^0.2"
 regex = "^1.4"
-rustbus = "^0.9"
 scan_fmt = "^0.2"
 serde = { version = "^1.0", features = ["derive"] }
 serde_json = "^1.0"
