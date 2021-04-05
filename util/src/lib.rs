@@ -551,7 +551,13 @@ pub fn init_logging(verbosity: u32) {
             .set_target_level(sl::LevelFilter::Off)
             .set_thread_level(sl::LevelFilter::Off);
         if !console::user_attended_stderr()
-            || sl::TermLogger::init(sl_level, lcfg.build(), sl::TerminalMode::Stderr).is_err()
+            || sl::TermLogger::init(
+                sl_level,
+                lcfg.build(),
+                sl::TerminalMode::Stderr,
+                sl::ColorChoice::Auto,
+            )
+            .is_err()
         {
             sl::SimpleLogger::init(sl_level, lcfg.build()).unwrap();
         }

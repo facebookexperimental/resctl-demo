@@ -202,7 +202,7 @@ impl IoCostQoSJob {
                 }
                 if dither_dist.is_none() {
                     dither_dist = Some(
-                        rand::thread_rng().gen_range(-click / 2.0, click / 2.0) + dither_shift,
+                        rand::thread_rng().gen_range(-click / 2.0..click / 2.0) + dither_shift,
                     );
                 }
                 vrate_min += dither_dist.as_ref().unwrap();
