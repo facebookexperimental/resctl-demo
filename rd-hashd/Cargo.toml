@@ -10,7 +10,7 @@ rd-hashd-intf = { path = "../rd-hashd-intf" }
 
 anyhow = "^1.0"
 chrono = { version = "^0.4", features = ["serde"] }
-console = "^0.13"
+console = "^0.14"
 crossbeam = "^0.8"
 env_logger = "^0.8"
 glob = "^0.3"
@@ -18,11 +18,11 @@ indicatif = "^0.15"
 libc = "^0.2"
 linreg = "^0.2"
 log = "^0.4"
-num = "^0.3"
+num = "^0.4"
 pid = "^3.0"
 quantiles = "^0.7"
-rand = { version = "^0.7", features = ["small_rng"] }
-rand_distr = "^0.3"
+rand = { version = "^0.8", features = ["small_rng"] }
+rand_distr = "^0.4"
 scan_fmt = "^0.2"
 sha1 = "^0.6"
 util = { path = "../util" }

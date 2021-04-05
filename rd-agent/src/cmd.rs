@@ -187,6 +187,9 @@ impl RunnerData {
     }
 
     fn apply_swappiness(&self, swappiness: Option<u32>) -> Result<()> {
+        if !self.cfg.enforce.all {
+            return Ok(());
+        }
         let cur = read_swappiness()?;
         let target = swappiness
             .unwrap_or(self.cfg.sr_swappiness.unwrap())
