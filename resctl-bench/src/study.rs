@@ -197,8 +197,10 @@ where
     }
 }
 
+pub type PctsMap = BTreeMap<String, f64>;
+
 pub trait StudyMeanPctsTrait: Study {
-    fn result(&self, pcts: Option<&[&str]>) -> BTreeMap<String, f64>;
+    fn result(&self, pcts: Option<&[&str]>) -> PctsMap;
 }
 
 impl<T, F> StudyMeanPctsTrait for StudyMeanPcts<T, F>
@@ -206,7 +208,7 @@ where
     T: AsPrimitive<f64>,
     F: FnMut(&SelArg) -> Vec<T>,
 {
-    fn result(&self, pcts: Option<&[&str]>) -> BTreeMap<String, f64> {
+    fn result(&self, pcts: Option<&[&str]>) -> PctsMap {
         let pcts = pcts.unwrap_or(&DFL_PCTS);
         pcts.iter()
             .map(|pct| {
@@ -290,6 +292,8 @@ pub struct StudyIoLatPcts {
     cum_study: StudyIoLatCum,
 }
 
+pub type TimePctsMap = BTreeMap<String, PctsMap>;
+
 impl StudyIoLatPcts {
     pub const LAT_PCTS: &'static [&'static str] = &IoLatReport::PCTS;
     pub const TIME_PCTS: [&'static str; 16] = [
@@ -324,8 +328,8 @@ impl StudyIoLatPcts {
         studies
     }
 
-    pub fn result(&self, time_pcts: Option<&[&str]>) -> BTreeMap<String, BTreeMap<String, f64>> {
-        let mut result = BTreeMap::<String, BTreeMap<String, f64>>::new();
+    pub fn result(&self, time_pcts: Option<&[&str]>) -> TimePctsMap {
+        let mut result = TimePctsMap::new();
         for (lat_pct, study) in Self::LAT_PCTS.iter().zip(self.studies.iter()) {
             let pcts = study.result(Some(&time_pcts.unwrap_or(&Self::TIME_PCTS)));
             result.insert(lat_pct.to_string(), pcts);
@@ -344,7 +348,7 @@ impl StudyIoLatPcts {
 
     pub fn format_table<'a>(
         out: &mut Box<dyn Write + 'a>,
-        result: &BTreeMap<String, BTreeMap<String, f64>>,
+        result: &TimePctsMap,
         time_pcts: Option<&[&str]>,
         title: &str,
     ) {
@@ -382,7 +386,7 @@ impl StudyIoLatPcts {
 
     pub fn format_summary<'a>(
         out: &mut Box<dyn Write + 'a>,
-        result: &BTreeMap<String, BTreeMap<String, f64>>,
+        result: &TimePctsMap,
         lat_pcts: Option<&[&str]>,
     ) {
         let mut first = true;
@@ -403,7 +407,7 @@ impl StudyIoLatPcts {
 
     pub fn format_rw_tables<'a>(
         out: &mut Box<dyn Write + 'a>,
-        result: &[BTreeMap<String, BTreeMap<String, f64>>],
+        result: &[TimePctsMap],
         lat_pcts: Option<&[&str]>,
     ) {
         writeln!(out, "IO Latency Distribution:\n").unwrap();
@@ -414,7 +418,7 @@ impl StudyIoLatPcts {
 
     pub fn format_rw_summary<'a>(
         out: &mut Box<dyn Write + 'a>,
-        result: &[BTreeMap<String, BTreeMap<String, f64>>],
+        result: &[TimePctsMap],
         lat_pcts: Option<&[&str]>,
     ) {
         write!(out, "IO Latency: R ").unwrap();
@@ -426,7 +430,7 @@ impl StudyIoLatPcts {
 
     pub fn format_rw<'a>(
         out: &mut Box<dyn Write + 'a>,
-        result: &[BTreeMap<String, BTreeMap<String, f64>>],
+        result: &[TimePctsMap],
         full: bool,
         lat_pcts: Option<&[&str]>,
     ) {
@@ -530,7 +534,7 @@ pub fn print_pcts_header<'a>(out: &mut Box<dyn Write + 'a>, name: &str, pcts: Op
 pub fn print_pcts_line<'a, F>(
     out: &mut Box<dyn Write + 'a>,
     field_name: &str,
-    data: &BTreeMap<String, f64>,
+    data: &PctsMap,
     fmt: F,
     pcts: Option<&[&str]>,
 ) where
@@ -561,14 +565,14 @@ pub fn print_pcts_line<'a, F>(
 //
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ResourceStat {
-    pub cpu_util: BTreeMap<String, f64>,
-    pub cpu_sys: BTreeMap<String, f64>,
-    pub mem_bytes: BTreeMap<String, f64>,
-    pub io_util: BTreeMap<String, f64>,
-    pub io_bps: (BTreeMap<String, f64>, BTreeMap<String, f64>),
-    pub psi_cpu: BTreeMap<String, f64>,
-    pub psi_mem: (BTreeMap<String, f64>, BTreeMap<String, f64>),
-    pub psi_io: (BTreeMap<String, f64>, BTreeMap<String, f64>),
+    pub cpu_util: PctsMap,
+    pub cpu_sys: PctsMap,
+    pub mem_bytes: PctsMap,
+    pub io_util: PctsMap,
+    pub io_bps: (PctsMap, PctsMap),
+    pub psi_cpu: PctsMap,
+    pub psi_mem: (PctsMap, PctsMap),
+    pub psi_io: (PctsMap, PctsMap),
 }
 
 impl ResourceStat {
