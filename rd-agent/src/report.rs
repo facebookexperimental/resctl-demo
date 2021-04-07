@@ -22,8 +22,8 @@ use util::*;
 use super::cmd::Runner;
 use super::Config;
 use rd_agent_intf::{
-    BenchHashdReport, BenchIoCostReport, HashdReport, IoCostReport, IoLatReport, Report,
-    ResCtlReport, Slice, UsageReport, ROOT_SLICE,
+    report::StatMap, BenchHashdReport, BenchIoCostReport, HashdReport, IoCostReport, IoLatReport,
+    Report, ResCtlReport, Slice, UsageReport, ROOT_SLICE,
 };
 
 #[derive(Debug, Default)]
@@ -39,6 +39,8 @@ struct Usage {
     cpu_stalls: (f64, f64),
     mem_stalls: (f64, f64),
     io_stalls: (f64, f64),
+    mem_stat: StatMap,
+    io_stat: StatMap,
 }
 
 fn read_stalls(path: &str) -> Result<(f64, f64)> {
@@ -62,6 +64,11 @@ fn read_stalls(path: &str) -> Result<(f64, f64)> {
     }
 
     Ok((some.unwrap_or(0.0), full.unwrap_or(0.0)))
+}
+
+fn read_stat_file(path: &str) -> Result<StatMap> {
+    let map = read_cgroup_flat_keyed_file(path)?;
+    Ok(map.iter().map(|(k, v)| (k.clone(), *v as f64)).collect())
 }
 
 fn read_system_usage(devnr: (u32, u32)) -> Result<(Usage, f64)> {
@@ -97,12 +104,26 @@ fn read_system_usage(devnr: (u32, u32)) -> Result<(Usage, f64)> {
         }
     }
 
+    let mem_stat_path = "/sys/fs/cgroup/memory.stat";
+    let mem_stat = match read_stat_file(&mem_stat_path) {
+        Ok(v) => v,
+        Err(e) => {
+            warn!("report: Failed to read {} ({:?})", &mem_stat_path, &e);
+            Default::default()
+        }
+    };
+
     let mut io_usage = 0;
-    if let Ok(is) = read_cgroup_nested_keyed_file("/sys/fs/cgroup/io.stat") {
-        if let Some(stat) = is.get(&format!("{}:{}", devnr.0, devnr.1)) {
-            if let Some(val) = stat.get("cost.usage") {
+    let mut io_stat = Default::default();
+    if let Ok(mut is) = read_cgroup_nested_keyed_file("/sys/fs/cgroup/io.stat") {
+        if let Some(is) = is.remove(&format!("{}:{}", devnr.0, devnr.1)) {
+            if let Some(val) = is.get("cost.usage") {
                 io_usage = scan_fmt!(&val, "{}", u64).unwrap_or(0);
             }
+            io_stat = is
+                .into_iter()
+                .map(|(k, v)| (k, v.parse::<f64>().unwrap_or(0.0)))
+                .collect();
         }
     }
 
@@ -116,6 +137,8 @@ fn read_system_usage(devnr: (u32, u32)) -> Result<(Usage, f64)> {
             io_rbytes,
             io_wbytes,
             io_usage,
+            mem_stat,
+            io_stat,
             cpu_stalls: read_stalls("/proc/pressure/cpu")?,
             mem_stalls: read_stalls("/proc/pressure/memory")?,
             io_stalls: read_stalls("/proc/pressure/io")?,
@@ -183,17 +206,30 @@ fn read_cgroup_usage(cgrp: &str, devnr: (u32, u32)) -> Usage {
         usage.swap_free = v;
     }
 
-    if let Ok(is) = read_cgroup_nested_keyed_file(&(cgrp.to_string() + "/io.stat")) {
-        if let Some(stat) = is.get(&format!("{}:{}", devnr.0, devnr.1)) {
-            if let Some(val) = stat.get("rbytes") {
+    let mem_stat_path = cgrp.to_string() + "/memory.stat";
+    usage.mem_stat = match read_stat_file(&mem_stat_path) {
+        Ok(v) => v,
+        Err(e) => {
+            warn!("report: Failed to read {} ({:?})", &mem_stat_path, &e);
+            Default::default()
+        }
+    };
+
+    if let Ok(mut is) = read_cgroup_nested_keyed_file(&(cgrp.to_string() + "/io.stat")) {
+        if let Some(is) = is.remove(&format!("{}:{}", devnr.0, devnr.1)) {
+            if let Some(val) = is.get("rbytes") {
                 usage.io_rbytes = scan_fmt!(&val, "{}", u64).unwrap_or(0);
             }
-            if let Some(val) = stat.get("wbytes") {
+            if let Some(val) = is.get("wbytes") {
                 usage.io_wbytes = scan_fmt!(&val, "{}", u64).unwrap_or(0);
             }
-            if let Some(val) = stat.get("cost.usage") {
+            if let Some(val) = is.get("cost.usage") {
                 usage.io_usage = scan_fmt!(&val, "{}", u64).unwrap_or(0);
             }
+            usage.io_stat = is
+                .into_iter()
+                .map(|(k, v)| (k, v.parse::<f64>().unwrap_or(0.0)))
+                .collect();
         }
     }
 
@@ -346,6 +382,9 @@ struct ReportFile {
     next_at: u64,
     usage_tracker: UsageTracker,
     hashd_acc: [HashdReport; 2],
+    mem_stat_acc: BTreeMap<String, StatMap>,
+    io_stat_acc: BTreeMap<String, StatMap>,
+    vmstat_acc: StatMap,
     iolat_acc: IoLatReport,
     iocost_acc: IoCostReport,
     nr_samples: u32,
@@ -402,6 +441,9 @@ impl ReportFile {
             next_at: ((now / intv) + 1) * intv,
             usage_tracker: UsageTracker::new(devnr, runner),
             hashd_acc: Default::default(),
+            mem_stat_acc: Default::default(),
+            io_stat_acc: Default::default(),
+            vmstat_acc: Default::default(),
             iolat_acc: Default::default(),
             iocost_acc: Default::default(),
             nr_samples: 0,
@@ -413,10 +455,47 @@ impl ReportFile {
         rf
     }
 
+    fn acc_stat_map(lhs: &mut StatMap, rhs: &StatMap) {
+        for (rhs_k, rhs_v) in rhs.iter() {
+            match lhs.get_mut(rhs_k) {
+                Some(lhs_v) => *lhs_v += rhs_v,
+                None => {
+                    lhs.insert(rhs_k.to_owned(), *rhs_v);
+                }
+            }
+        }
+    }
+
+    fn acc_slice_stat_map(lhs: &mut BTreeMap<String, StatMap>, rhs: &BTreeMap<String, StatMap>) {
+        for (rhs_slice, rhs_map) in rhs.iter() {
+            match lhs.get_mut(rhs_slice) {
+                Some(lhs_map) => Self::acc_stat_map(lhs_map, rhs_map),
+                None => {
+                    lhs.insert(rhs_slice.to_owned(), rhs_map.clone());
+                }
+            }
+        }
+    }
+
+    fn div_stat_map(lhs: &mut StatMap, div: f64) {
+        for (_, v) in lhs.iter_mut() {
+            *v /= div;
+        }
+    }
+
+    fn div_slice_stat_map(lhs: &mut BTreeMap<String, StatMap>, div: f64) {
+        for (_, map) in lhs.iter_mut() {
+            Self::div_stat_map(map, div);
+        }
+    }
+
     fn tick(&mut self, base_report: &Report, now: u64) {
         for i in 0..2 {
             self.hashd_acc[i] += &base_report.hashd[i];
         }
+        Self::acc_slice_stat_map(&mut self.mem_stat_acc, &base_report.mem_stat);
+        Self::acc_slice_stat_map(&mut self.io_stat_acc, &base_report.io_stat);
+        Self::acc_stat_map(&mut self.vmstat_acc, &base_report.vmstat);
         self.iolat_acc.accumulate(&base_report.iolat);
         self.iocost_acc += &base_report.iocost;
         self.nr_samples += 1;
@@ -445,6 +524,18 @@ impl ReportFile {
         }
         self.hashd_acc = Default::default();
 
+        Self::div_slice_stat_map(&mut self.mem_stat_acc, self.nr_samples as f64);
+        Self::div_slice_stat_map(&mut self.io_stat_acc, self.nr_samples as f64);
+        Self::div_stat_map(&mut self.vmstat_acc, self.nr_samples as f64);
+
+        std::mem::swap(&mut report.mem_stat, &mut self.mem_stat_acc);
+        std::mem::swap(&mut report.io_stat, &mut self.io_stat_acc);
+        std::mem::swap(&mut report.vmstat, &mut self.vmstat_acc);
+
+        self.mem_stat_acc.clear();
+        self.io_stat_acc.clear();
+        self.vmstat_acc.clear();
+
         report.iolat = self.iolat_acc.clone();
         self.iolat_acc = Default::default();
 
@@ -461,6 +552,22 @@ impl ReportFile {
                 return;
             }
         };
+
+        for slice in &[ROOT_SLICE, Slice::Work.name(), Slice::Sys.name()] {
+            if let Some(usage) = self.usage_tracker.usages.get(&slice.to_string()) {
+                report
+                    .mem_stat
+                    .insert(slice.to_string(), usage.mem_stat.clone());
+                report
+                    .io_stat
+                    .insert(slice.to_string(), usage.io_stat.clone());
+            }
+        }
+
+        match read_stat_file("/proc/vmstat") {
+            Ok(map) => report.vmstat = map,
+            Err(e) => warn!("report: Failed to read vmstat ({:?})", &e),
+        }
 
         // write out to the unix timestamped file
         if let Err(e) = report_file.commit() {
@@ -696,11 +803,11 @@ impl ReportWorker {
             hashd,
             sysloads: runner.side_runner.report_sysloads()?,
             sideloads: runner.side_runner.report_sideloads()?,
-            usages: BTreeMap::new(),
             iolat: self.iolat.clone(),
             iolat_cum: self.iolat_cum.clone(),
             iocost: IoCostReport::read(self.iocost_devnr)?,
             swappiness: read_swappiness()?,
+            ..Default::default()
         })
     }
 
