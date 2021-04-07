@@ -354,9 +354,9 @@ impl MemHog {
             }
         });
 
-        let root_rstat_study_ctx = ResourceStatStudyCtx::default();
-        let work_rstat_study_ctx = ResourceStatStudyCtx::default();
-        let sys_rstat_study_ctx = ResourceStatStudyCtx::default();
+        let root_rstat_study_ctx = ResourceStatStudyCtx::new();
+        let work_rstat_study_ctx = ResourceStatStudyCtx::new();
+        let sys_rstat_study_ctx = ResourceStatStudyCtx::new();
         let mut root_rstat_study = ResourceStatStudy::new(ROOT_SLICE, &root_rstat_study_ctx);
         let mut work_rstat_study =
             ResourceStatStudy::new(Slice::Work.name(), &work_rstat_study_ctx);
@@ -563,9 +563,9 @@ impl MemHog {
             None,
         );
 
-        let work_rstat_study_ctx = ResourceStatStudyCtx::default();
-        let sys_rstat_study_ctx = ResourceStatStudyCtx::default();
-        let root_rstat_study_ctx = ResourceStatStudyCtx::default();
+        let work_rstat_study_ctx = ResourceStatStudyCtx::new();
+        let sys_rstat_study_ctx = ResourceStatStudyCtx::new();
+        let root_rstat_study_ctx = ResourceStatStudyCtx::new();
         let mut root_rstat_study =
             ResourceStatStudy::new(rd_agent_intf::ROOT_SLICE, &root_rstat_study_ctx);
         let mut work_rstat_study =

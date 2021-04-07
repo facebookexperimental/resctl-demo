@@ -435,7 +435,7 @@ impl Job for StorageJob {
         let rec: StorageRecord = parse_json_value_or_dump(rec_json)?;
 
         // Study and record the results.
-        let all_rstat_study_ctx = ResourceStatStudyCtx::default();
+        let all_rstat_study_ctx = ResourceStatStudyCtx::new();
         let mut all_rstat_study = ResourceStatStudy::new(ROOT_SLICE, &all_rstat_study_ctx);
         let mut study_read_lat_pcts = StudyIoLatPcts::new("read", None);
         let mut study_write_lat_pcts = StudyIoLatPcts::new("write", None);
@@ -447,7 +447,7 @@ impl Job for StorageJob {
 
         let nr_reports = studies.run(rctx, rec.period)?;
 
-        let final_rstat_study_ctx = ResourceStatStudyCtx::default();
+        let final_rstat_study_ctx = ResourceStatStudyCtx::new();
         let mut final_rstat_study = ResourceStatStudy::new(ROOT_SLICE, &final_rstat_study_ctx);
         let mut studies = Studies::new().add_multiple(&mut final_rstat_study.studies());
 

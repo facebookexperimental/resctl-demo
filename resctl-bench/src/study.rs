@@ -2,6 +2,7 @@
 use anyhow::{bail, Result};
 use num_traits::cast::AsPrimitive;
 use quantiles::ckms::CKMS;
+use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::fmt::Write;
 use util::*;
@@ -39,7 +40,7 @@ pub trait Study {
 pub fn sel_delta_calc<'a, T, U, F, G>(
     mut sel_val: F,
     mut calc_delta: G,
-    last: &'a std::cell::RefCell<Option<T>>,
+    last: &'a RefCell<Option<T>>,
 ) -> impl FnMut(&SelArg) -> Vec<U> + 'a
 where
     T: Clone,
@@ -58,7 +59,7 @@ where
 
 pub fn sel_delta<'a, T, F>(
     sel_val: F,
-    last: &'a std::cell::RefCell<Option<T>>,
+    last: &'a RefCell<Option<T>>,
 ) -> impl FnMut(&SelArg) -> Vec<f64> + 'a
 where
     T: AsPrimitive<f64>,
