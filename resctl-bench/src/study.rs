@@ -2,18 +2,25 @@
 use anyhow::{bail, Result};
 use num_traits::cast::AsPrimitive;
 use quantiles::ckms::CKMS;
-use serde::{Deserialize, Serialize};
-use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::fmt::Write;
 use util::*;
 
 use super::run::RunCtx;
-use rd_agent_intf::{IoLatReport, Report};
+use rd_agent_intf::Report;
+
+mod iolat;
+mod rstat;
+
+pub use iolat::StudyIoLatPcts;
+pub use rstat::{ResourceStat, ResourceStatStudy, ResourceStatStudyCtx};
 
 pub const DFL_PCTS: [&'static str; 15] = [
     "00", "01", "05", "10", "16", "25", "50", "75", "84", "90", "95", "99", "100", "mean", "stdev",
 ];
+
+pub type PctsMap = BTreeMap<String, f64>;
+pub type TimePctsMap = BTreeMap<String, PctsMap>;
 
 pub struct SelArg<'a> {
     pub rep: &'a Report,
@@ -29,18 +36,6 @@ pub trait Study {
 //
 // Sel helpers.
 //
-pub fn sel_factory_iolat(io_type: &str, pct: &str) -> impl FnMut(&SelArg) -> Vec<f64> {
-    let io_type = io_type.to_string();
-    let pct = pct.to_string();
-    move |arg: &SelArg| {
-        if arg.rep.iolat.map[&io_type]["100"] > 0.0 {
-            vec![arg.rep.iolat.map[&io_type][&pct]]
-        } else {
-            vec![]
-        }
-    }
-}
-
 pub fn sel_delta_calc<'a, T, U, F, G>(
     mut sel_val: F,
     mut calc_delta: G,
@@ -197,8 +192,6 @@ where
     }
 }
 
-pub type PctsMap = BTreeMap<String, f64>;
-
 pub trait StudyMeanPctsTrait: Study {
     fn result(&self, pcts: Option<&[&str]>) -> PctsMap;
 }
@@ -259,186 +252,6 @@ where
 
     fn as_study_mut(&mut self) -> &mut dyn Study {
         self
-    }
-}
-
-//
-// Helpers.
-//
-#[derive(Default)]
-struct StudyIoLatCum {
-    at: u64,
-    rep: Option<IoLatReport>,
-}
-
-impl Study for StudyIoLatCum {
-    fn study(&mut self, arg: &SelArg) -> Result<()> {
-        let ts = arg.rep.timestamp.timestamp() as u64;
-        if self.at < ts {
-            self.at = ts;
-            self.rep.replace(arg.rep.iolat_cum.clone());
-        }
-        Ok(())
-    }
-
-    fn as_study_mut(&mut self) -> &mut dyn Study {
-        self
-    }
-}
-
-pub struct StudyIoLatPcts {
-    io_type: String,
-    studies: Vec<Box<dyn StudyMeanPctsTrait>>,
-    cum_study: StudyIoLatCum,
-}
-
-pub type TimePctsMap = BTreeMap<String, PctsMap>;
-
-impl StudyIoLatPcts {
-    pub const LAT_PCTS: &'static [&'static str] = &IoLatReport::PCTS;
-    pub const TIME_PCTS: [&'static str; 16] = [
-        "00", "01", "05", "10", "16", "25", "50", "75", "84", "90", "95", "99", "99.9", "100",
-        "mean", "stdev",
-    ];
-    pub const TIME_FORMAT_PCTS: [&'static str; 9] =
-        ["00", "16", "50", "84", "90", "95", "99", "99.9", "100"];
-    pub const LAT_SUMMARY_PCTS: [&'static str; 4] = ["50", "90", "99", "100"];
-
-    pub fn new(io_type: &str, error: Option<f64>) -> Self {
-        Self {
-            io_type: io_type.to_string(),
-            studies: Self::LAT_PCTS
-                .iter()
-                .map(|pct| {
-                    Box::new(StudyMeanPcts::new(sel_factory_iolat(io_type, pct), error))
-                        as Box<dyn StudyMeanPctsTrait>
-                })
-                .collect(),
-            cum_study: Default::default(),
-        }
-    }
-
-    pub fn studies(&mut self) -> Vec<&mut dyn Study> {
-        let mut studies: Vec<&mut dyn Study> = self
-            .studies
-            .iter_mut()
-            .map(|study| study.as_study_mut())
-            .collect();
-        studies.push(self.cum_study.as_study_mut());
-        studies
-    }
-
-    pub fn result(&self, time_pcts: Option<&[&str]>) -> TimePctsMap {
-        let mut result = TimePctsMap::new();
-        for (lat_pct, study) in Self::LAT_PCTS.iter().zip(self.studies.iter()) {
-            let pcts = study.result(Some(&time_pcts.unwrap_or(&Self::TIME_PCTS)));
-            result.insert(lat_pct.to_string(), pcts);
-        }
-
-        if let Some(cum_rep) = self.cum_study.rep.as_ref() {
-            for lat_pct in Self::LAT_PCTS.iter() {
-                result
-                    .get_mut(*lat_pct)
-                    .unwrap()
-                    .insert("cum".to_string(), cum_rep.map[&self.io_type][*lat_pct]);
-            }
-        }
-        result
-    }
-
-    pub fn format_table<'a>(
-        out: &mut Box<dyn Write + 'a>,
-        result: &TimePctsMap,
-        time_pcts: Option<&[&str]>,
-        title: &str,
-    ) {
-        let time_pcts = time_pcts
-            .unwrap_or(&Self::TIME_FORMAT_PCTS)
-            .iter()
-            .chain(Some("cum").iter())
-            .chain(Some("mean").iter())
-            .chain(Some("stdev").iter());
-        write!(out, "{:6} ", title.chars().take(6).collect::<String>()).unwrap();
-
-        let widths: Vec<usize> = time_pcts
-            .clone()
-            .map(|pct| (pct.len() + 1).max(5))
-            .collect();
-
-        for (pct, width) in time_pcts.clone().zip(widths.iter()) {
-            write!(out, " {:>1$}", &format_percentile(*pct), width).unwrap();
-        }
-
-        for lat_pct in Self::LAT_PCTS.iter() {
-            write!(out, "\n{:<7}", &format_percentile(*lat_pct)).unwrap();
-            for (time_pct, width) in time_pcts.clone().zip(widths.iter()) {
-                write!(
-                    out,
-                    " {:>1$}",
-                    &format_duration(result[*lat_pct][*time_pct]),
-                    width
-                )
-                .unwrap();
-            }
-        }
-        writeln!(out, "").unwrap();
-    }
-
-    pub fn format_summary<'a>(
-        out: &mut Box<dyn Write + 'a>,
-        result: &TimePctsMap,
-        lat_pcts: Option<&[&str]>,
-    ) {
-        let mut first = true;
-        for pct in lat_pcts.unwrap_or(&Self::LAT_SUMMARY_PCTS) {
-            write!(
-                out,
-                "{}{}={}:{}/{}",
-                if first { "" } else { " " },
-                &format_percentile(*pct),
-                format_duration(result[*pct]["mean"]),
-                format_duration(result[*pct]["stdev"]),
-                format_duration(result[*pct]["100"]),
-            )
-            .unwrap();
-            first = false;
-        }
-    }
-
-    pub fn format_rw_tables<'a>(
-        out: &mut Box<dyn Write + 'a>,
-        result: &[TimePctsMap],
-        lat_pcts: Option<&[&str]>,
-    ) {
-        writeln!(out, "IO Latency Distribution:\n").unwrap();
-        Self::format_table(out, &result[READ], lat_pcts, "READ");
-        writeln!(out, "").unwrap();
-        Self::format_table(out, &result[WRITE], lat_pcts, "WRITE");
-    }
-
-    pub fn format_rw_summary<'a>(
-        out: &mut Box<dyn Write + 'a>,
-        result: &[TimePctsMap],
-        lat_pcts: Option<&[&str]>,
-    ) {
-        write!(out, "IO Latency: R ").unwrap();
-        Self::format_summary(out, &result[READ], lat_pcts);
-        write!(out, "\n            W ").unwrap();
-        Self::format_summary(out, &result[WRITE], lat_pcts);
-        writeln!(out, "").unwrap();
-    }
-
-    pub fn format_rw<'a>(
-        out: &mut Box<dyn Write + 'a>,
-        result: &[TimePctsMap],
-        full: bool,
-        lat_pcts: Option<&[&str]>,
-    ) {
-        if full {
-            Self::format_rw_tables(out, result, lat_pcts);
-            writeln!(out, "").unwrap();
-        }
-        Self::format_rw_summary(out, result, lat_pcts);
     }
 }
 
@@ -558,216 +371,4 @@ pub fn print_pcts_line<'a, F>(
         }
     }
     writeln!(out, "").unwrap();
-}
-
-//
-// Resource stat
-//
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct ResourceStat {
-    pub cpu_util: PctsMap,
-    pub cpu_sys: PctsMap,
-    pub mem_bytes: PctsMap,
-    pub io_util: PctsMap,
-    pub io_bps: (PctsMap, PctsMap),
-    pub psi_cpu: PctsMap,
-    pub psi_mem: (PctsMap, PctsMap),
-    pub psi_io: (PctsMap, PctsMap),
-}
-
-impl ResourceStat {
-    pub fn format<'a>(&self, out: &mut Box<dyn Write + 'a>, name: &str, pcts: Option<&[&str]>) {
-        print_pcts_header(out, name, pcts);
-        print_pcts_line(out, "cpu%", &self.cpu_util, format_pct, pcts);
-        print_pcts_line(out, "sys%", &self.cpu_sys, format_pct, pcts);
-        print_pcts_line(out, "mem", &self.mem_bytes, format_size_short, pcts);
-        print_pcts_line(out, "io%", &self.io_util, format_pct, pcts);
-        print_pcts_line(out, "rbps", &self.io_bps.0, format_size_short, pcts);
-        print_pcts_line(out, "wbps", &self.io_bps.1, format_size_short, pcts);
-        print_pcts_line(out, "cpu-some%", &self.psi_cpu, format_pct, pcts);
-        print_pcts_line(out, "mem-some%", &self.psi_mem.0, format_pct, pcts);
-        print_pcts_line(out, "mem-full%", &self.psi_mem.1, format_pct, pcts);
-        print_pcts_line(out, "io-some%", &self.psi_io.0, format_pct, pcts);
-        print_pcts_line(out, "io-full%", &self.psi_io.1, format_pct, pcts);
-    }
-}
-
-#[derive(Default)]
-pub struct ResourceStatStudyCtx {
-    cpu_usage: RefCell<Option<(f64, f64)>>,
-    cpu_usage_sys: RefCell<Option<(f64, f64)>>,
-    io_usage: RefCell<Option<f64>>,
-    io_bps: (RefCell<Option<u64>>, RefCell<Option<u64>>),
-    cpu_stall: RefCell<Option<f64>>,
-    mem_stalls: (RefCell<Option<f64>>, RefCell<Option<f64>>),
-    io_stalls: (RefCell<Option<f64>>, RefCell<Option<f64>>),
-}
-
-impl ResourceStatStudyCtx {
-    pub fn reset(&self) {
-        self.cpu_usage.replace(None);
-        self.cpu_usage_sys.replace(None);
-        self.io_usage.replace(None);
-        self.io_bps.0.replace(None);
-        self.io_bps.1.replace(None);
-        self.cpu_stall.replace(None);
-        self.mem_stalls.0.replace(None);
-        self.mem_stalls.1.replace(None);
-        self.io_stalls.0.replace(None);
-        self.io_stalls.1.replace(None);
-    }
-}
-
-pub struct ResourceStatStudy<'a> {
-    cpu_util_study: Box<dyn StudyMeanPctsTrait + 'a>,
-    cpu_sys_study: Box<dyn StudyMeanPctsTrait + 'a>,
-    mem_bytes_study: Box<dyn StudyMeanPctsTrait + 'a>,
-    io_util_study: Box<dyn StudyMeanPctsTrait + 'a>,
-    io_bps_studies: (
-        Box<dyn StudyMeanPctsTrait + 'a>,
-        Box<dyn StudyMeanPctsTrait + 'a>,
-    ),
-    psi_cpu_study: Box<dyn StudyMeanPctsTrait + 'a>,
-    psi_mem_studies: (
-        Box<dyn StudyMeanPctsTrait + 'a>,
-        Box<dyn StudyMeanPctsTrait + 'a>,
-    ),
-    psi_io_studies: (
-        Box<dyn StudyMeanPctsTrait + 'a>,
-        Box<dyn StudyMeanPctsTrait + 'a>,
-    ),
-}
-
-impl<'a> ResourceStatStudy<'a> {
-    fn calc_cpu_util(_arg: &SelArg, cur: (f64, f64), last: (f64, f64)) -> f64 {
-        let base = cur.1 - last.1;
-        if base > 0.0 {
-            ((cur.0 - last.0) / base).max(0.0)
-        } else {
-            0.0
-        }
-    }
-
-    pub fn new(name: &'static str, ctx: &'a ResourceStatStudyCtx) -> Self {
-        Self {
-            cpu_util_study: Box::new(StudyMeanPcts::new(
-                sel_delta_calc(
-                    move |arg| {
-                        (
-                            arg.rep.usages[name].cpu_usage,
-                            arg.rep.usages[name].cpu_usage_base,
-                        )
-                    },
-                    Self::calc_cpu_util,
-                    &ctx.cpu_usage,
-                ),
-                None,
-            )),
-            cpu_sys_study: Box::new(StudyMeanPcts::new(
-                sel_delta_calc(
-                    move |arg| {
-                        (
-                            arg.rep.usages[name].cpu_usage_sys,
-                            arg.rep.usages[name].cpu_usage_base,
-                        )
-                    },
-                    Self::calc_cpu_util,
-                    &ctx.cpu_usage_sys,
-                ),
-                None,
-            )),
-            mem_bytes_study: Box::new(StudyMeanPcts::new(
-                move |arg| [arg.rep.usages[name].mem_bytes].repeat(arg.cnt),
-                None,
-            )),
-            io_util_study: Box::new(StudyMeanPcts::new(
-                sel_delta(move |arg| arg.rep.usages[name].io_usage, &ctx.io_usage),
-                None,
-            )),
-            io_bps_studies: (
-                Box::new(StudyMeanPcts::new(
-                    sel_delta(move |arg| arg.rep.usages[name].io_rbytes, &ctx.io_bps.0),
-                    None,
-                )),
-                Box::new(StudyMeanPcts::new(
-                    sel_delta(move |arg| arg.rep.usages[name].io_wbytes, &ctx.io_bps.1),
-                    None,
-                )),
-            ),
-            psi_cpu_study: Box::new(StudyMeanPcts::new(
-                sel_delta(move |arg| arg.rep.usages[name].cpu_stalls.0, &ctx.cpu_stall),
-                None,
-            )),
-            psi_mem_studies: (
-                Box::new(StudyMeanPcts::new(
-                    sel_delta(
-                        move |arg| arg.rep.usages[name].mem_stalls.0,
-                        &ctx.mem_stalls.0,
-                    ),
-                    None,
-                )),
-                Box::new(StudyMeanPcts::new(
-                    sel_delta(
-                        move |arg| arg.rep.usages[name].mem_stalls.1,
-                        &ctx.mem_stalls.1,
-                    ),
-                    None,
-                )),
-            ),
-            psi_io_studies: (
-                Box::new(StudyMeanPcts::new(
-                    sel_delta(
-                        move |arg| arg.rep.usages[name].io_stalls.0,
-                        &ctx.io_stalls.0,
-                    ),
-                    None,
-                )),
-                Box::new(StudyMeanPcts::new(
-                    sel_delta(
-                        move |arg| arg.rep.usages[name].io_stalls.1,
-                        &ctx.io_stalls.1,
-                    ),
-                    None,
-                )),
-            ),
-        }
-    }
-
-    pub fn studies(&mut self) -> Vec<&mut dyn Study> {
-        vec![
-            self.cpu_util_study.as_study_mut(),
-            self.cpu_sys_study.as_study_mut(),
-            self.mem_bytes_study.as_study_mut(),
-            self.io_util_study.as_study_mut(),
-            self.io_bps_studies.0.as_study_mut(),
-            self.io_bps_studies.1.as_study_mut(),
-            self.psi_cpu_study.as_study_mut(),
-            self.psi_mem_studies.0.as_study_mut(),
-            self.psi_mem_studies.1.as_study_mut(),
-            self.psi_io_studies.0.as_study_mut(),
-            self.psi_io_studies.1.as_study_mut(),
-        ]
-    }
-
-    pub fn result(&self, pcts: Option<&[&str]>) -> ResourceStat {
-        ResourceStat {
-            cpu_util: self.cpu_util_study.result(pcts),
-            cpu_sys: self.cpu_sys_study.result(pcts),
-            mem_bytes: self.mem_bytes_study.result(pcts),
-            io_util: self.io_util_study.result(pcts),
-            io_bps: (
-                self.io_bps_studies.0.result(pcts),
-                self.io_bps_studies.1.result(pcts),
-            ),
-            psi_cpu: self.psi_cpu_study.result(pcts),
-            psi_mem: (
-                self.psi_mem_studies.0.result(pcts),
-                self.psi_mem_studies.1.result(pcts),
-            ),
-            psi_io: (
-                self.psi_io_studies.0.result(pcts),
-                self.psi_io_studies.1.result(pcts),
-            ),
-        }
-    }
 }
