@@ -118,7 +118,7 @@ impl MemHog {
     const NAME: &'static str = "mem-hog";
     pub const TIMEOUT: f64 = 300.0;
     const MEM_AVG_PERIOD: usize = 5;
-    pub const PCTS: [&'static str; 15] = DFL_PCTS;
+    pub const PCTS: &'static [&'static str] = DFL_PCTS;
 
     fn read_hog_rep(rep: &Report) -> Result<BanditMemHogReport> {
         let hog_rep_path = match rep.sysloads.get(Self::NAME) {

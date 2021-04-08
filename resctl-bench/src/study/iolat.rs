@@ -46,12 +46,11 @@ pub struct StudyIoLatPcts {
 
 impl StudyIoLatPcts {
     pub const LAT_PCTS: &'static [&'static str] = &IoLatReport::PCTS;
-    pub const TIME_PCTS: [&'static str; 16] = [
-        "00", "01", "05", "10", "16", "25", "50", "75", "84", "90", "95", "99", "99.9", "100",
-        "mean", "stdev",
+    pub const TIME_PCTS: &'static [&'static str] = &[
+        "00", "01", "05", "10", "25", "50", "75", "90", "95", "99", "99.9", "100", "mean", "stdev",
     ];
     pub const TIME_FORMAT_PCTS: [&'static str; 9] =
-        ["00", "16", "50", "84", "90", "95", "99", "99.9", "100"];
+        ["00", "25", "50", "75", "90", "95", "99", "99.9", "100"];
     pub const LAT_SUMMARY_PCTS: [&'static str; 4] = ["50", "90", "99", "100"];
 
     pub fn new(io_type: &str, error: Option<f64>) -> Self {

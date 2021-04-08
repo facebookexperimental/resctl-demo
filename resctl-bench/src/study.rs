@@ -16,8 +16,8 @@ mod rstat;
 pub use iolat::StudyIoLatPcts;
 pub use rstat::{ResourceStat, ResourceStatStudy, ResourceStatStudyCtx};
 
-pub const DFL_PCTS: [&'static str; 15] = [
-    "00", "01", "05", "10", "16", "25", "50", "75", "84", "90", "95", "99", "100", "mean", "stdev",
+pub const DFL_PCTS: &[&'static str] = &[
+    "00", "01", "05", "10", "25", "50", "75", "90", "95", "99", "100", "mean", "stdev",
 ];
 
 pub type PctsMap = BTreeMap<String, f64>;
@@ -338,7 +338,7 @@ pub fn print_pcts_header<'a>(out: &mut Box<dyn Write + 'a>, name: &str, pcts: Op
         "{:<9}  {}",
         name,
         pcts.iter()
-            .map(|x| format!("{:>4}", format_percentile(*x)))
+            .map(|x| format!("{:>5}", format_percentile(*x)))
             .collect::<Vec<String>>()
             .join(" ")
     )
@@ -364,11 +364,11 @@ pub fn print_pcts_line<'a, F>(
         .is_some()
     {
         for pct in pcts.iter() {
-            write!(out, "{:>4} ", fmt(data[*pct])).unwrap();
+            write!(out, "{:>5} ", fmt(data[*pct])).unwrap();
         }
     } else {
         for _ in pcts.iter() {
-            write!(out, "{:>4} ", "-").unwrap();
+            write!(out, "{:>5} ", "-").unwrap();
         }
     }
     writeln!(out, "").unwrap();

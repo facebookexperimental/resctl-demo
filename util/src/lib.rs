@@ -213,7 +213,7 @@ pub fn double_underline(content: &str) -> String {
     custom_underline(content, "=")
 }
 
-fn format_size_internal<T>(size: T, zero: &str, short: bool) -> String
+fn format_size_internal<T>(size: T, zero: &str) -> String
 where
     T: num::ToPrimitive,
 {
@@ -222,13 +222,13 @@ where
 
         if size == 0 {
             Some(zero.to_string())
-        } else if (size as f64) < if short { 9.94999 } else { 99.94999 } * unit as f64 {
+        } else if (size as f64 / unit as f64) < 99.95 {
             Some(format!(
                 "{:.1}{}",
                 (size as f64 / unit as f64).max(0.1),
                 suffix
             ))
-        } else if (size as f64) < if short { 999.4999 } else { 1024.0 } * unit as f64 {
+        } else if (size as f64 / unit as f64) < 1024.0 {
             Some(format!("{:.0}{}", size as f64 / unit as f64, suffix))
         } else {
             None
@@ -250,34 +250,27 @@ pub fn format_size<T>(size: T) -> String
 where
     T: num::ToPrimitive,
 {
-    format_size_internal(size, "0", false)
+    format_size_internal(size, "0")
 }
 
 pub fn format_size_dashed<T>(size: T) -> String
 where
     T: num::ToPrimitive,
 {
-    format_size_internal(size, "-", false)
-}
-
-pub fn format_size_short<T>(size: T) -> String
-where
-    T: num::ToPrimitive,
-{
-    format_size_internal(size, "0", true)
+    format_size_internal(size, "-")
 }
 
 fn format_duration_internal(dur: f64, zero: &str) -> String {
     let format_nsecs_helper = |nsecs: u64, unit: u64, max: u64, suffix: &str| -> Option<String> {
         if nsecs == 0 {
             Some(zero.to_string())
-        } else if (nsecs as f64) < 99.94999 * unit as f64 {
+        } else if (nsecs as f64 / unit as f64) < 99.95 {
             Some(format!(
                 "{:.1}{}",
                 (nsecs as f64 / unit as f64).max(0.1),
                 suffix
             ))
-        } else if nsecs < max * unit {
+        } else if (nsecs as f64 / unit as f64) < max as f64 {
             Some(format!("{:.0}{}", nsecs as f64 / unit as f64, suffix))
         } else {
             None
@@ -305,17 +298,21 @@ pub fn format_duration_dashed(dur: f64) -> String {
     format_duration_internal(dur, "-")
 }
 
-fn format_pct_internal(ratio: f64, zero: &str) -> String {
+pub fn format_pct_internal(ratio: f64, zero: &str) -> String {
     let pct = ratio * TO_PCT;
     if pct < 0.0 {
         "NEG".into()
     } else if pct == 0.0 {
         zero.to_string()
-    } else if pct < 99.95 {
+    } else if pct < 99.995 {
+        format!("{:.02}", pct)
+    } else if pct < 999.95 {
         format!("{:.01}", pct)
-    } else if pct < 9999.5 {
+    } else if pct < 99999.5 {
         format!("{:.0}", pct)
-    } else if pct / 1000.0 < 99.5 {
+    } else if pct / 1000.0 < 99.995 {
+        format!("{:.1}k", pct / 1000.0)
+    } else if pct / 1000.0 < 9999.5 {
         format!("{:.0}k", pct / 1000.0)
     } else {
         "INF".into()

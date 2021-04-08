@@ -880,7 +880,7 @@ impl<'a, 'b> RunCtx<'a, 'b> {
                 let (mem_slope, mem_eslope) = mem_slopes.unwrap();
 
                 progress.set_status(&format!(
-                    "load:{:>4}% lat:{:>5} rps-slp/err:{:+6.2}%/{:+6.2}% mem-sz/slp/err:{:>5}/{:+6.2}%/{:+6.2}%",
+                    "load:{:>5}% lat:{:>5} rps-slp/err:{:+6.2}%/{:+6.2}% mem-sz/slp/err:{:>5}/{:+6.2}%/{:+6.2}%",
                     format_pct(load),
                     format_duration(rep.hashd[0].lat.ctl),
                     rps_slope * TO_PCT,
@@ -1389,21 +1389,21 @@ impl WorkloadMon {
         match (mon.hashd[0], mon.hashd[1]) {
             (true, false) => write!(
                 status,
-                "load:{:>4}% lat:{:>5} ",
+                "load:{:>5}% lat:{:>5} ",
                 format_pct(mon.hashd_loads[0]),
                 format_duration(rep.hashd[0].lat.ctl)
             )
             .unwrap(),
             (false, true) => write!(
                 status,
-                "load:{:>4}% lat:{:>5}",
+                "load:{:>5}% lat:{:>5}",
                 format_pct(mon.hashd_loads[1]),
                 format_duration(rep.hashd[1].lat.ctl)
             )
             .unwrap(),
             (true, true) => write!(
                 status,
-                "load:{:>4}%/{:>4}% lat:{:>5}/{:>5}",
+                "load:{:>5}%/{:>5}% lat:{:>5}/{:>5}",
                 format_pct(mon.hashd_loads[0]),
                 format_pct(mon.hashd_loads[1]),
                 format_duration(rep.hashd[0].lat.ctl),

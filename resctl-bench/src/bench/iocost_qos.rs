@@ -86,8 +86,8 @@ pub struct IoCostQoSResult {
 }
 
 impl IoCostQoSJob {
-    const VRATE_PCTS: [&'static str; 11] = [
-        "00", "01", "10", "16", "50", "84", "90", "99", "100", "mean", "stdev",
+    const VRATE_PCTS: &'static [&'static str] = &[
+        "00", "01", "10", "25", "50", "75", "90", "99", "100", "mean", "stdev",
     ];
 
     fn parse(spec: &JobSpec, prev_data: Option<&JobData>) -> Result<Self> {
@@ -690,7 +690,7 @@ impl Job for IoCostQoSJob {
 
                 if recr.qos.is_some() {
                     write!(out, "\nvrate:").unwrap();
-                    for pct in &Self::VRATE_PCTS {
+                    for pct in Self::VRATE_PCTS {
                         write!(
                             out,
                             " p{}={}",

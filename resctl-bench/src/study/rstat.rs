@@ -284,10 +284,10 @@ impl ResourceStat {
         print_pcts_header(out, name, pcts);
         print_pcts_line(out, "cpu%", &self.cpu_util, format_pct, pcts);
         print_pcts_line(out, "sys%", &self.cpu_sys, format_pct, pcts);
-        print_pcts_line(out, "mem", &self.mem_bytes, format_size_short, pcts);
+        print_pcts_line(out, "mem", &self.mem_bytes, format_size, pcts);
         print_pcts_line(out, "io%", &self.io_util, format_pct, pcts);
-        print_pcts_line(out, "rbps", &self.io_bps.0, format_size_short, pcts);
-        print_pcts_line(out, "wbps", &self.io_bps.1, format_size_short, pcts);
+        print_pcts_line(out, "rbps", &self.io_bps.0, format_size, pcts);
+        print_pcts_line(out, "wbps", &self.io_bps.1, format_size, pcts);
         print_pcts_line(out, "cpu-some%", &self.psi_cpu, format_pct, pcts);
         print_pcts_line(out, "mem-some%", &self.psi_mem.0, format_pct, pcts);
         print_pcts_line(out, "mem-full%", &self.psi_mem.1, format_pct, pcts);

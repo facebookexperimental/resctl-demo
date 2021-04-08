@@ -40,7 +40,7 @@ fn ws_status(mon: &WorkloadMon, af: &AgentFiles) -> Result<(bool, String)> {
     };
     write!(
         status,
-        "load:{:>4}% lat:{:>5} swap:{:>4}%",
+        "load:{:>5}% lat:{:>5} swap:{:>5}%",
         format_pct(mon.hashd_loads[0]),
         format_duration(rep.hashd[0].lat.ctl),
         format_pct_dashed(swap_usage)
@@ -51,7 +51,7 @@ fn ws_status(mon: &WorkloadMon, af: &AgentFiles) -> Result<(bool, String)> {
     let sys = &rep.usages[&Slice::Sys.name().to_owned()];
     write!(
         status,
-        " w/s mem:{:>5}/{:>5} swap:{:>5}/{:>5} memp:{:>4}%/{:>4}%",
+        " w/s mem:{:>5}/{:>5} swap:{:>5}/{:>5} memp:{:>5}%/{:>5}%",
         format_size(work.mem_bytes),
         format_size(sys.mem_bytes),
         format_size(work.swap_bytes),
