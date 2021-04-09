@@ -40,6 +40,7 @@ where
         Err(e) => {
             let mut f = std::fs::OpenOptions::new()
                 .write(true)
+                .create(true)
                 .open(DUMP_PATH)
                 .unwrap();
             f.write_all(serde_json::to_string_pretty(&value).unwrap().as_bytes())

@@ -430,8 +430,14 @@ impl MemHog {
         }
 
         // Determine iocost per each byte and map the number of lost bytes
-        // to iocost.
-        let hog_cost_per_byte = hog_io_usage as f64 / hog_bytes as f64;
+        // to iocost. hog_bytes can be zero when the hog is, for example,
+        // prematurely killed by oomd due to existing pressure in
+        // system.slice.
+        let hog_cost_per_byte = if hog_bytes > 0 {
+            hog_io_usage as f64 / hog_bytes as f64
+        } else {
+            0.0
+        };
         let hog_io_loss = hog_lost_bytes as f64 * hog_cost_per_byte;
 
         // If work conservation is 100%, mem-hog would have used all the
@@ -649,7 +655,11 @@ impl MemHog {
         .unwrap();
     }
 
-    pub fn format_result<'a>(out: &mut Box<dyn Write + 'a>, result: &MemHogResult, opts: &FormatOpts) {
+    pub fn format_result<'a>(
+        out: &mut Box<dyn Write + 'a>,
+        result: &MemHogResult,
+        opts: &FormatOpts,
+    ) {
         if opts.full {
             Self::format_info(out, result);
         }
