@@ -41,9 +41,9 @@ fn ws_status(mon: &WorkloadMon, af: &AgentFiles) -> Result<(bool, String)> {
     write!(
         status,
         "load:{:>4}% lat:{:>5} swap:{:>4}%",
-        format_pct(mon.hashd_loads[0]),
+        format4_pct(mon.hashd_loads[0]),
         format_duration(rep.hashd[0].lat.ctl),
-        format_pct_dashed(swap_usage)
+        format4_pct_dashed(swap_usage)
     )
     .unwrap();
 
@@ -56,8 +56,8 @@ fn ws_status(mon: &WorkloadMon, af: &AgentFiles) -> Result<(bool, String)> {
         format_size(sys.mem_bytes),
         format_size(work.swap_bytes),
         format_size(sys.swap_bytes),
-        format_pct(work.mem_pressures.1),
-        format_pct(sys.mem_pressures.1)
+        format4_pct(work.mem_pressures.1),
+        format4_pct(sys.mem_pressures.1)
     )
     .unwrap();
     Ok((false, status))
@@ -284,7 +284,7 @@ impl ProtectionJob {
         mut out: &mut Box<dyn Write + 'a>,
         rec: &ProtectionRecord,
         res: &ProtectionResult,
-        full: bool,
+        opts: &FormatOpts,
         prefix: &str,
     ) {
         let underline_char = match prefix.len() {
@@ -323,11 +323,11 @@ impl ProtectionJob {
                     ScenarioRecord::MemHog(_rec),
                     ScenarioResult::MemHog(res),
                 ) => {
-                    if full {
+                    if opts.full {
                         print_header(&mut out, idx, "Memory Hog");
                         scn.format_params(&mut out);
                         writeln!(out, "").unwrap();
-                        MemHog::format_result(out, res, full);
+                        MemHog::format_result(out, res, opts);
                     }
                 }
                 (
@@ -338,7 +338,7 @@ impl ProtectionJob {
                     print_header(&mut out, idx, "Memory Hog Tuning");
                     scn.format_params(&mut out);
                     writeln!(out, "").unwrap();
-                    scn.format_result(&mut out, rec, res, full);
+                    scn.format_result(&mut out, rec, res, opts);
                 }
                 _ => panic!("Unsupported (scenario, record, result) tuple"),
             }
@@ -351,7 +351,7 @@ impl ProtectionJob {
                 custom_underline(&format!("{}Memory Hog Summary", prefix), underline_char)
             )
             .unwrap();
-            MemHog::format_result(out, hog_result, full);
+            MemHog::format_result(out, hog_result, opts);
         }
     }
 }
@@ -408,12 +408,12 @@ impl Job for ProtectionJob {
         &self,
         mut out: Box<dyn Write + 'a>,
         data: &JobData,
-        full: bool,
+        opts: &FormatOpts,
         _props: &JobProps,
     ) -> Result<()> {
         let rec: ProtectionRecord = data.parse_record()?;
         let res: ProtectionResult = data.parse_result()?;
-        self.format_result(&mut out, &rec, &res, full, "");
+        self.format_result(&mut out, &rec, &res, opts, "");
         Ok(())
     }
 }

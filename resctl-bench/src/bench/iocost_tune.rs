@@ -959,7 +959,7 @@ impl Job for IoCostTuneJob {
         &self,
         mut out: Box<dyn Write + 'a>,
         data: &JobData,
-        _full: bool,
+        _opts: &FormatOpts,
         props: &JobProps,
     ) -> Result<()> {
         let mut graph_prefix = None;

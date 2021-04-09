@@ -296,9 +296,9 @@ pub struct IoLatReport {
 }
 
 impl IoLatReport {
-    pub const PCTS: [&'static str; 16] = [
-        "00", "01", "05", "10", "16", "25", "50", "75", "84", "90", "95", "99", "99.9", "99.99",
-        "99.999", "100",
+    pub const PCTS: &'static [&'static str] = &[
+        "00", "01", "05", "10", "25", "50", "75", "90", "95", "99", "99.9", "99.99", "99.999",
+        "100",
     ];
 }
 
@@ -454,6 +454,8 @@ impl IoCostReport {
     }
 }
 
+pub type StatMap = BTreeMap<String, f64>;
+
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Report {
     pub timestamp: DateTime<Local>,
@@ -468,6 +470,9 @@ pub struct Report {
     pub sysloads: BTreeMap<String, SysloadReport>,
     pub sideloads: BTreeMap<String, SideloadReport>,
     pub usages: BTreeMap<String, UsageReport>,
+    pub mem_stat: BTreeMap<String, StatMap>,
+    pub io_stat: BTreeMap<String, StatMap>,
+    pub vmstat: StatMap,
     pub iolat: IoLatReport,
     pub iolat_cum: IoLatReport,
     pub iocost: IoCostReport,
@@ -489,6 +494,9 @@ impl Default for Report {
             sysloads: Default::default(),
             sideloads: Default::default(),
             usages: Default::default(),
+            mem_stat: Default::default(),
+            io_stat: Default::default(),
+            vmstat: Default::default(),
             iolat: Default::default(),
             iolat_cum: Default::default(),
             iocost: Default::default(),

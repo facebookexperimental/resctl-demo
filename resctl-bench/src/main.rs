@@ -17,7 +17,7 @@ mod progress;
 mod run;
 mod study;
 
-use job::JobCtxs;
+use job::{FormatOpts, JobCtxs};
 use run::RunCtx;
 
 lazy_static::lazy_static! {
@@ -164,7 +164,7 @@ impl Program {
         }
     }
 
-    fn do_format(&mut self, mode: Mode) {
+    fn do_format(&mut self, opts: &FormatOpts) {
         let specs = &self.args_file.data.job_specs;
         let empty_props = vec![Default::default()];
         let mut to_format = vec![];
@@ -203,7 +203,7 @@ impl Program {
         }
 
         for (jctx, props) in to_format.iter() {
-            if let Err(e) = jctx.print(mode, props) {
+            if let Err(e) = jctx.print(opts, props) {
                 error!("Failed to format {}: {:#}", &jctx.data.spec, &e);
                 panic!();
             }
@@ -317,10 +317,14 @@ impl Program {
             }
         }
 
+        let rstat = args.rstat;
         match args.mode {
             Mode::Run => self.do_run(),
-            Mode::Format => self.do_format(Mode::Format),
-            Mode::Summary => self.do_format(Mode::Summary),
+            Mode::Format => self.do_format(&FormatOpts { full: true, rstat }),
+            Mode::Summary => self.do_format(&FormatOpts {
+                full: false,
+                rstat: 0,
+            }),
             Mode::Pack => self.do_pack().unwrap(),
         }
     }

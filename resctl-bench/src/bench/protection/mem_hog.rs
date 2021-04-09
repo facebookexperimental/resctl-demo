@@ -118,7 +118,7 @@ impl MemHog {
     const NAME: &'static str = "mem-hog";
     pub const TIMEOUT: f64 = 300.0;
     const MEM_AVG_PERIOD: usize = 5;
-    pub const PCTS: [&'static str; 15] = DFL_PCTS;
+    pub const PCTS: &'static [&'static str] = DFL_PCTS;
 
     fn read_hog_rep(rep: &Report) -> Result<BanditMemHogReport> {
         let hog_rep_path = match rep.sysloads.get(Self::NAME) {
@@ -354,9 +354,9 @@ impl MemHog {
             }
         });
 
-        let root_rstat_study_ctx = ResourceStatStudyCtx::default();
-        let work_rstat_study_ctx = ResourceStatStudyCtx::default();
-        let sys_rstat_study_ctx = ResourceStatStudyCtx::default();
+        let root_rstat_study_ctx = ResourceStatStudyCtx::new();
+        let work_rstat_study_ctx = ResourceStatStudyCtx::new();
+        let sys_rstat_study_ctx = ResourceStatStudyCtx::new();
         let mut root_rstat_study = ResourceStatStudy::new(ROOT_SLICE, &root_rstat_study_ctx);
         let mut work_rstat_study =
             ResourceStatStudy::new(Slice::Work.name(), &work_rstat_study_ctx);
@@ -563,9 +563,9 @@ impl MemHog {
             None,
         );
 
-        let work_rstat_study_ctx = ResourceStatStudyCtx::default();
-        let sys_rstat_study_ctx = ResourceStatStudyCtx::default();
-        let root_rstat_study_ctx = ResourceStatStudyCtx::default();
+        let work_rstat_study_ctx = ResourceStatStudyCtx::new();
+        let sys_rstat_study_ctx = ResourceStatStudyCtx::new();
+        let root_rstat_study_ctx = ResourceStatStudyCtx::new();
         let mut root_rstat_study =
             ResourceStatStudy::new(rd_agent_intf::ROOT_SLICE, &root_rstat_study_ctx);
         let mut work_rstat_study =
@@ -649,20 +649,20 @@ impl MemHog {
         .unwrap();
     }
 
-    pub fn format_result<'a>(out: &mut Box<dyn Write + 'a>, result: &MemHogResult, full: bool) {
-        if full {
+    pub fn format_result<'a>(out: &mut Box<dyn Write + 'a>, result: &MemHogResult, opts: &FormatOpts) {
+        if opts.full {
             Self::format_info(out, result);
         }
 
-        StudyIoLatPcts::format_rw(out, result.iolat.as_ref(), full, None);
+        StudyIoLatPcts::format_rw(out, result.iolat.as_ref(), opts, None);
 
-        if full {
+        if opts.full {
             writeln!(out, "\nSlice resource stat:\n").unwrap();
-            result.root_rstat.format(out, "ROOT", None);
+            result.root_rstat.format(out, "ROOT", opts);
             writeln!(out, "").unwrap();
-            result.work_rstat.format(out, "WORKLOAD", None);
+            result.work_rstat.format(out, "WORKLOAD", opts);
             writeln!(out, "").unwrap();
-            result.sys_rstat.format(out, "SYSTEM", None);
+            result.sys_rstat.format(out, "SYSTEM", opts);
         }
 
         writeln!(
@@ -671,9 +671,9 @@ impl MemHog {
         )
         .unwrap();
 
-        print_pcts_header(out, "", None);
-        print_pcts_line(out, "isol%", &result.isol, format_pct, None);
-        print_pcts_line(out, "lat-imp%", &result.lat_imp, format_pct, None);
+        print_pcts_header(out, 8, "", None);
+        print_pcts_line(out, 8, "isol%", &result.isol, format_pct, None);
+        print_pcts_line(out, 8, "lat-imp%", &result.lat_imp, format_pct, None);
 
         writeln!(
             out,

@@ -15,13 +15,13 @@ use util::*;
 use super::base::{Base, MemInfo};
 use super::progress::BenchProgress;
 use super::{Program, AGENT_BIN};
-use crate::job::{JobCtx, JobCtxs, JobData, SysInfo};
+use crate::job::{FormatOpts, JobCtx, JobCtxs, JobData, SysInfo};
 use rd_agent_intf::{
     AgentFiles, ReportIter, ReportPathIter, RunnerState, Slice, SvcStateReport, SysReq,
     AGENT_SVC_NAME, HASHD_A_SVC_NAME, HASHD_BENCH_SVC_NAME, HASHD_B_SVC_NAME,
     IOCOST_BENCH_SVC_NAME, SIDELOAD_SVC_PREFIX, SYSLOAD_SVC_PREFIX,
 };
-use resctl_bench_intf::{JobSpec, Mode};
+use resctl_bench_intf::JobSpec;
 
 const MINDER_AGENT_TIMEOUT: Duration = Duration::from_secs(120);
 const CMD_TIMEOUT: Duration = Duration::from_secs(120);
@@ -880,7 +880,7 @@ impl<'a, 'b> RunCtx<'a, 'b> {
                 let (mem_slope, mem_eslope) = mem_slopes.unwrap();
 
                 progress.set_status(&format!(
-                    "load:{:>4}% lat:{:>5} rps-slp/err:{:+6.2}%/{:+6.2}% mem-sz/slp/err:{:>5}/{:+6.2}%/{:+6.2}%",
+                    "load:{:>5}% lat:{:>5} rps-slp/err:{:+6.2}%/{:+6.2}% mem-sz/slp/err:{:>5}/{:+6.2}%/{:+6.2}%",
                     format_pct(load),
                     format_duration(rep.hashd[0].lat.ctl),
                     rps_slope * TO_PCT,
@@ -1079,8 +1079,14 @@ impl<'a, 'b> RunCtx<'a, 'b> {
 
         self.base.finish(self.commit_bench)?;
 
-        jctx.print(Mode::Summary, &vec![Default::default()])
-            .unwrap();
+        jctx.print(
+            &FormatOpts {
+                full: false,
+                rstat: 0,
+            },
+            &vec![Default::default()],
+        )
+        .unwrap();
         Ok(())
     }
 
@@ -1390,22 +1396,22 @@ impl WorkloadMon {
             (true, false) => write!(
                 status,
                 "load:{:>4}% lat:{:>5} ",
-                format_pct(mon.hashd_loads[0]),
+                format4_pct(mon.hashd_loads[0]),
                 format_duration(rep.hashd[0].lat.ctl)
             )
             .unwrap(),
             (false, true) => write!(
                 status,
                 "load:{:>4}% lat:{:>5}",
-                format_pct(mon.hashd_loads[1]),
+                format4_pct(mon.hashd_loads[1]),
                 format_duration(rep.hashd[1].lat.ctl)
             )
             .unwrap(),
             (true, true) => write!(
                 status,
                 "load:{:>4}%/{:>4}% lat:{:>5}/{:>5}",
-                format_pct(mon.hashd_loads[0]),
-                format_pct(mon.hashd_loads[1]),
+                format4_pct(mon.hashd_loads[0]),
+                format4_pct(mon.hashd_loads[1]),
                 format_duration(rep.hashd[0].lat.ctl),
                 format_duration(rep.hashd[1].lat.ctl),
             )
