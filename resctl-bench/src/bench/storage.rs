@@ -270,13 +270,13 @@ impl StorageJob {
         out: &mut Box<dyn Write + 'a>,
         _rec: &StorageRecord,
         res: &StorageResult,
-        full: bool,
+        opts: &FormatOpts,
     ) {
-        if full {
+        if opts.full {
             writeln!(out, "Resource stat:\n").unwrap();
-            res.all_rstat.format(out, "ALL", None);
+            res.all_rstat.format(out, "ALL", opts);
             writeln!(out, "").unwrap();
-            res.final_rstat.format(out, "FINAL", None);
+            res.final_rstat.format(out, "FINAL", opts);
             writeln!(out, "").unwrap();
         }
         writeln!(
@@ -331,16 +331,16 @@ impl StorageJob {
         rec: &StorageRecord,
         res: &StorageResult,
         header: bool,
-        full: bool,
+        opts: &FormatOpts,
     ) {
         if header {
             self.format_header(out, rec, res, true);
             writeln!(out, "").unwrap();
         }
-        StudyIoLatPcts::format_rw(out, &res.iolat, full, None);
+        StudyIoLatPcts::format_rw(out, &res.iolat, opts, None);
 
         writeln!(out, "").unwrap();
-        self.format_rstat(out, rec, res, full);
+        self.format_rstat(out, rec, res, opts);
 
         writeln!(out, "").unwrap();
         self.format_mem_summary(out, rec, res);
@@ -491,12 +491,12 @@ impl Job for StorageJob {
         &self,
         mut out: Box<dyn Write + 'a>,
         data: &JobData,
-        full: bool,
+        opts: &FormatOpts,
         _props: &JobProps,
     ) -> Result<()> {
         let rec: StorageRecord = data.parse_record()?;
         let res: StorageResult = data.parse_result()?;
-        self.format_result(&mut out, &rec, &res, true, full);
+        self.format_result(&mut out, &rec, &res, true, opts);
         Ok(())
     }
 }

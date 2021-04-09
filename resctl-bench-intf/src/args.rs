@@ -81,6 +81,8 @@ pub struct Args {
     pub test: bool,
     #[serde(skip)]
     pub verbosity: u32,
+    #[serde(skip)]
+    pub rstat: u32,
 }
 
 impl Default for Args {
@@ -107,6 +109,7 @@ impl Default for Args {
             clear_reports: false,
             test: false,
             verbosity: 0,
+            rstat: 0,
         }
     }
 }
@@ -220,6 +223,9 @@ impl Args {
         // Only in study mode.
         self.study_rep_d = subm.value_of("reports").map(|x| x.to_owned());
 
+        // Only in format mode.
+        self.rstat = subm.occurrences_of("rstat") as u32;
+
         match Self::parse_job_specs(subm) {
             Ok(job_specs) => {
                 if job_specs.len() > 0 {
@@ -283,6 +289,15 @@ impl JsonArgs for Args {
             .subcommand(
                 clap::SubCommand::with_name("format")
                     .about("Format benchmark results")
+                    .arg(
+                        clap::Arg::with_name("rstat")
+                            .long("rstat")
+                            .short("R")
+                            .multiple(true)
+                            .help(
+                                "Report extra resource stats if available (repeat for even more)",
+                            ),
+                    )
                     .arg(job_file_arg.clone())
                     .arg(job_spec_arg.clone()),
             )

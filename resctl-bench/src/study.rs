@@ -331,22 +331,34 @@ impl<'a> Studies<'a> {
 //
 // Pcts print helpers
 //
-pub fn print_pcts_header<'a>(out: &mut Box<dyn Write + 'a>, name: &str, pcts: Option<&[&str]>) {
+pub fn print_pcts_header<'a>(
+    out: &mut Box<dyn Write + 'a>,
+    max_field_name_len: usize,
+    name: &str,
+    pcts: Option<&[&str]>,
+) {
     let pcts = pcts.unwrap_or(&DFL_PCTS);
+    let name = if name.len() > 0 {
+        format!("[{}]", name)
+    } else {
+        "".to_string()
+    };
     writeln!(
         out,
-        "{:<9}  {}",
-        name,
+        "{:<width$}  {}",
+        &name,
         pcts.iter()
             .map(|x| format!("{:>5}", format_percentile(*x)))
             .collect::<Vec<String>>()
-            .join(" ")
+            .join(" "),
+        width = max_field_name_len.max(10),
     )
     .unwrap();
 }
 
 pub fn print_pcts_line<'a, F>(
     out: &mut Box<dyn Write + 'a>,
+    max_field_name_len: usize,
     field_name: &str,
     data: &PctsMap,
     fmt: F,
@@ -355,7 +367,13 @@ pub fn print_pcts_line<'a, F>(
     F: Fn(f64) -> String,
 {
     let pcts = pcts.unwrap_or(&DFL_PCTS);
-    write!(out, "{:<9}  ", field_name).unwrap();
+    write!(
+        out,
+        "{:<width$}  ",
+        field_name,
+        width = max_field_name_len.max(10)
+    )
+    .unwrap();
 
     if pcts
         .iter()

@@ -120,7 +120,7 @@ impl Job for HashdParamsJob {
         &self,
         mut out: Box<dyn Write + 'a>,
         data: &JobData,
-        _full: bool,
+        _opts: &FormatOpts,
         _props: &JobProps,
     ) -> Result<()> {
         let result: HashdKnobs = data.parse_record()?;

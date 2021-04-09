@@ -55,7 +55,7 @@ impl Job for IoCostParamsJob {
         &self,
         mut out: Box<dyn Write + 'a>,
         data: &JobData,
-        _full: bool,
+        _full: &FormatOpts,
         _props: &JobProps,
     ) -> Result<()> {
         let result: IoCostKnobs = data.parse_record()?;

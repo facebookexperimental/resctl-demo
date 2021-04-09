@@ -2,6 +2,7 @@ use anyhow::Result;
 use std::fmt::Write;
 use util::*;
 
+use super::super::job::FormatOpts;
 use super::{SelArg, Study, StudyMeanPcts, StudyMeanPctsTrait, TimePctsMap};
 use rd_agent_intf::IoLatReport;
 
@@ -180,10 +181,10 @@ impl StudyIoLatPcts {
     pub fn format_rw<'a>(
         out: &mut Box<dyn Write + 'a>,
         result: &[TimePctsMap],
-        full: bool,
+        opts: &FormatOpts,
         lat_pcts: Option<&[&str]>,
     ) {
-        if full {
+        if opts.full {
             Self::format_rw_tables(out, result, lat_pcts);
             writeln!(out, "").unwrap();
         }

@@ -15,7 +15,13 @@ use util::*;
 use super::base::MemInfo;
 use super::run::RunCtx;
 use rd_agent_intf::{SysReq, SysReqsReport};
-use resctl_bench_intf::{JobProps, JobSpec, Mode};
+use resctl_bench_intf::{JobProps, JobSpec};
+
+#[derive(Debug, Clone)]
+pub struct FormatOpts {
+    pub full: bool,
+    pub rstat: u32,
+}
 
 pub trait Job {
     fn sysreqs(&self) -> BTreeSet<SysReq>;
@@ -30,7 +36,7 @@ pub trait Job {
         &self,
         out: Box<dyn Write + 'a>,
         data: &JobData,
-        full: bool,
+        opts: &FormatOpts,
         props: &JobProps,
     ) -> Result<()>;
 }
@@ -254,7 +260,7 @@ impl JobCtx {
         res
     }
 
-    pub fn format(&self, mode: Mode, props: &JobProps) -> Result<String> {
+    pub fn format(&self, opts: &FormatOpts, props: &JobProps) -> Result<String> {
         let mut buf = String::new();
         let data = &self.data;
         write!(buf, "[{} result] ", data.spec.kind).unwrap();
@@ -375,15 +381,15 @@ impl JobCtx {
         self.job
             .as_ref()
             .unwrap()
-            .format(Box::new(&mut buf), data, mode == Mode::Format, props)?;
+            .format(Box::new(&mut buf), data, opts, props)?;
 
         Ok(buf)
     }
 
-    pub fn print(&self, mode: Mode, props: &JobProps) -> Result<()> {
+    pub fn print(&self, opts: &FormatOpts, props: &JobProps) -> Result<()> {
         // Format only the completed jobs.
         if self.data.result.is_some() {
-            println!("{}\n\n{}", "=".repeat(90), &self.format(mode, props)?);
+            println!("{}\n\n{}", "=".repeat(90), &self.format(opts, props)?);
         }
         Ok(())
     }

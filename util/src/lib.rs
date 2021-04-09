@@ -220,9 +220,7 @@ where
     let format_size_helper = |size: u64, shift: u32, suffix: &str| -> Option<String> {
         let unit: u64 = 1 << shift;
 
-        if size == 0 {
-            Some(zero.to_string())
-        } else if (size as f64 / unit as f64) < 99.95 {
+        if (size as f64 / unit as f64) < 99.95 {
             Some(format!(
                 "{:.1}{}",
                 (size as f64 / unit as f64).max(0.1),
@@ -237,13 +235,18 @@ where
 
     let size = size.to_u64().unwrap();
 
-    format_size_helper(size, 0, "B")
-        .or_else(|| format_size_helper(size, 10, "K"))
-        .or_else(|| format_size_helper(size, 20, "M"))
-        .or_else(|| format_size_helper(size, 30, "G"))
-        .or_else(|| format_size_helper(size, 40, "P"))
-        .or_else(|| format_size_helper(size, 50, "E"))
-        .unwrap_or_else(|| "INF".into())
+    if size == 0 {
+        zero.to_string()
+    } else if size < 9999 {
+        format!("{}", size)
+    } else {
+        format_size_helper(size, 10, "K")
+            .or_else(|| format_size_helper(size, 20, "M"))
+            .or_else(|| format_size_helper(size, 30, "G"))
+            .or_else(|| format_size_helper(size, 40, "P"))
+            .or_else(|| format_size_helper(size, 50, "E"))
+            .unwrap_or_else(|| "INF".into())
+    }
 }
 
 pub fn format_size<T>(size: T) -> String
@@ -258,6 +261,56 @@ where
     T: num::ToPrimitive,
 {
     format_size_internal(size, "-")
+}
+
+fn format_count_internal<T>(count: T, zero: &str) -> String
+where
+    T: num::ToPrimitive,
+{
+    let format_count_helper = |count: u64, zeroes: u32, suffix: &str| -> Option<String> {
+        let unit: u64 = 10_u64.pow(zeroes);
+
+        if (count as f64 / unit as f64) < 99.95 {
+            Some(format!(
+                "{:.1}{}",
+                (count as f64 / unit as f64).max(0.1),
+                suffix
+            ))
+        } else if (count as f64 / unit as f64) < 1000.0 {
+            Some(format!("{:.0}{}", count as f64 / unit as f64, suffix))
+        } else {
+            None
+        }
+    };
+
+    let count = count.to_u64().unwrap();
+
+    if count == 0 {
+        zero.to_string()
+    } else if count < 1000 {
+        format!("{}", count)
+    } else {
+        format_count_helper(count, 3, "k")
+            .or_else(|| format_count_helper(count, 6, "m"))
+            .or_else(|| format_count_helper(count, 9, "g"))
+            .or_else(|| format_count_helper(count, 12, "p"))
+            .or_else(|| format_count_helper(count, 15, "e"))
+            .unwrap_or_else(|| "INF".into())
+    }
+}
+
+pub fn format_count<T>(count: T) -> String
+where
+    T: num::ToPrimitive,
+{
+    format_count_internal(count, "0")
+}
+
+pub fn format_count_dashed<T>(count: T) -> String
+where
+    T: num::ToPrimitive,
+{
+    format_count_internal(count, "-")
 }
 
 fn format_duration_internal(dur: f64, zero: &str) -> String {
@@ -298,7 +351,32 @@ pub fn format_duration_dashed(dur: f64) -> String {
     format_duration_internal(dur, "-")
 }
 
-pub fn format_pct_internal(ratio: f64, zero: &str) -> String {
+fn format4_pct_internal(ratio: f64, zero: &str) -> String {
+    let pct = ratio * TO_PCT;
+    if pct < 0.0 {
+        "NEG".into()
+    } else if pct == 0.0 {
+        zero.to_string()
+    } else if pct < 99.95 {
+        format!("{:.01}", pct)
+    } else if pct < 9999.5 {
+        format!("{:.0}", pct)
+    } else if pct / 1000.0 < 99.5 {
+        format!("{:.0}k", pct / 1000.0)
+    } else {
+        "INF".into()
+    }
+}
+
+pub fn format4_pct(ratio: f64) -> String {
+    format4_pct_internal(ratio, "0")
+}
+
+pub fn format4_pct_dashed(ratio: f64) -> String {
+    format4_pct_internal(ratio, "-")
+}
+
+fn format_pct_internal(ratio: f64, zero: &str) -> String {
     let pct = ratio * TO_PCT;
     if pct < 0.0 {
         "NEG".into()

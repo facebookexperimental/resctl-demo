@@ -649,20 +649,20 @@ impl MemHog {
         .unwrap();
     }
 
-    pub fn format_result<'a>(out: &mut Box<dyn Write + 'a>, result: &MemHogResult, full: bool) {
-        if full {
+    pub fn format_result<'a>(out: &mut Box<dyn Write + 'a>, result: &MemHogResult, opts: &FormatOpts) {
+        if opts.full {
             Self::format_info(out, result);
         }
 
-        StudyIoLatPcts::format_rw(out, result.iolat.as_ref(), full, None);
+        StudyIoLatPcts::format_rw(out, result.iolat.as_ref(), opts, None);
 
-        if full {
+        if opts.full {
             writeln!(out, "\nSlice resource stat:\n").unwrap();
-            result.root_rstat.format(out, "ROOT", None);
+            result.root_rstat.format(out, "ROOT", opts);
             writeln!(out, "").unwrap();
-            result.work_rstat.format(out, "WORKLOAD", None);
+            result.work_rstat.format(out, "WORKLOAD", opts);
             writeln!(out, "").unwrap();
-            result.sys_rstat.format(out, "SYSTEM", None);
+            result.sys_rstat.format(out, "SYSTEM", opts);
         }
 
         writeln!(
@@ -671,9 +671,9 @@ impl MemHog {
         )
         .unwrap();
 
-        print_pcts_header(out, "", None);
-        print_pcts_line(out, "isol%", &result.isol, format_pct, None);
-        print_pcts_line(out, "lat-imp%", &result.lat_imp, format_pct, None);
+        print_pcts_header(out, 8, "", None);
+        print_pcts_line(out, 8, "isol%", &result.isol, format_pct, None);
+        print_pcts_line(out, 8, "lat-imp%", &result.lat_imp, format_pct, None);
 
         writeln!(
             out,

@@ -626,7 +626,7 @@ impl Job for IoCostQoSJob {
         &self,
         mut out: Box<dyn Write + 'a>,
         data: &JobData,
-        full: bool,
+        opts: &FormatOpts,
         props: &JobProps,
     ) -> Result<()> {
         let mut sub_full = false;
@@ -654,7 +654,7 @@ impl Job for IoCostQoSJob {
         self.stor_job
             .format_header(&mut out, base_stor_rec, base_stor_res, false);
 
-        if full {
+        if opts.full {
             for (i, (recr, resr)) in rec.runs.iter().zip(res.runs.iter()).enumerate() {
                 if recr.is_none() {
                     continue;
@@ -671,8 +671,16 @@ impl Job for IoCostQoSJob {
                 .unwrap();
                 writeln!(out, "{}", underline(&format!("RUN {:02} - Storage", i))).unwrap();
 
-                self.stor_job
-                    .format_result(&mut out, &recr.stor, &resr.stor, false, sub_full);
+                self.stor_job.format_result(
+                    &mut out,
+                    &recr.stor,
+                    &resr.stor,
+                    false,
+                    &FormatOpts {
+                        full: sub_full,
+                        ..*opts
+                    },
+                );
 
                 let mut pjob = self.prot_job.clone();
                 Self::set_prot_size_range(&mut pjob, &recr.stor, &resr.stor);
@@ -680,13 +688,16 @@ impl Job for IoCostQoSJob {
                     &mut out,
                     &recr.prot,
                     &resr.prot,
-                    sub_full,
+                    &FormatOpts {
+                        full: sub_full,
+                        ..*opts
+                    },
                     &format!("RUN {:02} - Protection ", i),
                 );
 
                 writeln!(out, "\n{}", underline(&format!("RUN {:02} - Result", i))).unwrap();
 
-                StudyIoLatPcts::format_rw(&mut out, &resr.iolat, full, None);
+                StudyIoLatPcts::format_rw(&mut out, &resr.iolat, opts, None);
 
                 if recr.qos.is_some() {
                     write!(out, "\nvrate:").unwrap();

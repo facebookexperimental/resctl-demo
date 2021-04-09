@@ -4,13 +4,15 @@ use std::collections::BTreeMap;
 use std::fmt::Write;
 use util::*;
 
-use rd_agent_intf::{Report, ROOT_SLICE};
+use super::super::job::FormatOpts;
+use rd_agent_intf::{Report, StatMap, ROOT_SLICE};
 
 use super::{
     print_pcts_header, print_pcts_line, sel_delta, sel_delta_calc, PctsMap, SelArg, Study,
     StudyMeanPcts, StudyMeanPctsTrait,
 };
 
+// +: incremental, !: hidden, #: base-10
 const DFL_MEM_STAT_KEYS: &[&'static str] = &[
     "anon",
     "file",
@@ -55,16 +57,16 @@ const DFL_MEM_STAT_KEYS: &[&'static str] = &[
 
 const DFL_IO_STAT_KEYS: &[&'static str] = &[
     "+rbytes",
+    "+#rios",
     "+wbytes",
-    "+rios",
-    "+wios",
+    "+#wios",
     "+dbytes",
-    "+dios",
+    "+#dios",
     "cost.vrate",
-    "+cost.usage",
-    "+cost.wait",
-    "+cost.indebt",
-    "+cost.indelay",
+    "+#cost.usage",
+    "+#cost.wait",
+    "+#cost.indebt",
+    "+#cost.indelay",
 ];
 
 const DFL_VMSTAT_KEYS: &[&'static str] = &[
@@ -159,17 +161,17 @@ const DFL_VMSTAT_KEYS: &[&'static str] = &[
     "+pgscan_file",
     "+pgsteal_anon",
     "+pgsteal_file",
-    "+zone_reclaim_failed",
-    "+pginodesteal",
-    "!+slabs_scanned",
-    "+kswapd_inodesteal",
-    "!+kswapd_low_wmark_hit_quickly",
-    "!+kswapd_high_wmark_hit_quickly",
+    "+#zone_reclaim_failed",
+    "+#pginodesteal",
+    "!+#slabs_scanned",
+    "+#kswapd_inodesteal",
+    "!+#kswapd_low_wmark_hit_quickly",
+    "!+#kswapd_high_wmark_hit_quickly",
     "!+pageoutrun",
     "!+pgrotated",
-    "!+drop_pagecache",
-    "!+drop_slab",
-    "!+oom_kill",
+    "!+#drop_pagecache",
+    "!+#drop_slab",
+    "!+#oom_kill",
     "!+numa_pte_updates",
     "!+numa_huge_pte_updates",
     "!+numa_hint_faults",
@@ -216,9 +218,9 @@ const DFL_VMSTAT_KEYS: &[&'static str] = &[
     "!+thp_zero_page_alloc_failed",
     "!+thp_swpout",
     "!+thp_swpout_fallback",
-    "!+balloon_inflate",
-    "!+balloon_deflate",
-    "!+balloon_migrate",
+    "!+#balloon_inflate",
+    "!+#balloon_deflate",
+    "!+#balloon_migrate",
     "!+swap_ra",
     "!+swap_ra_hit",
     "!nr_unstable",
@@ -229,17 +231,20 @@ struct StatKey {
     key: String,
     inc: bool,
     hidden: bool,
+    base10: bool,
 }
 
 impl StatKey {
     fn parse(input: &str) -> Self {
         let mut inc = false;
         let mut hidden = false;
+        let mut base10 = false;
         let mut start = 0;
         for (i, c) in input.chars().enumerate() {
             match c {
                 '+' => inc = true,
                 '!' => hidden = true,
+                '#' => base10 = true,
                 _ => {
                     start = i;
                     break;
@@ -250,6 +255,7 @@ impl StatKey {
             key: input[start..].to_string(),
             inc,
             hidden,
+            base10,
         }
     }
 }
@@ -274,25 +280,112 @@ pub struct ResourceStat {
     pub psi_mem: (PctsMap, PctsMap),
     pub psi_io: (PctsMap, PctsMap),
 
-    pub mem_stat: Vec<(String, PctsMap)>,
-    pub io_stat: Vec<(String, PctsMap)>,
-    pub vmstat: Vec<(String, PctsMap)>, // Populated only on root
+    pub mem_stat: BTreeMap<String, PctsMap>,
+    pub io_stat: BTreeMap<String, PctsMap>,
+    pub vmstat: BTreeMap<String, PctsMap>, // Populated only on root
 }
 
 impl ResourceStat {
-    pub fn format<'a>(&self, out: &mut Box<dyn Write + 'a>, name: &str, pcts: Option<&[&str]>) {
-        print_pcts_header(out, name, pcts);
-        print_pcts_line(out, "cpu%", &self.cpu_util, format_pct, pcts);
-        print_pcts_line(out, "sys%", &self.cpu_sys, format_pct, pcts);
-        print_pcts_line(out, "mem", &self.mem_bytes, format_size, pcts);
-        print_pcts_line(out, "io%", &self.io_util, format_pct, pcts);
-        print_pcts_line(out, "rbps", &self.io_bps.0, format_size, pcts);
-        print_pcts_line(out, "wbps", &self.io_bps.1, format_size, pcts);
-        print_pcts_line(out, "cpu-some%", &self.psi_cpu, format_pct, pcts);
-        print_pcts_line(out, "mem-some%", &self.psi_mem.0, format_pct, pcts);
-        print_pcts_line(out, "mem-full%", &self.psi_mem.1, format_pct, pcts);
-        print_pcts_line(out, "io-some%", &self.psi_io.0, format_pct, pcts);
-        print_pcts_line(out, "io-full%", &self.psi_io.1, format_pct, pcts);
+    fn key_max_lens(keys: &[StatKey]) -> (usize, usize) {
+        let max = keys
+            .iter()
+            .map(|key| if key.hidden { 0 } else { key.key.len() })
+            .max()
+            .unwrap_or(0);
+        let hidden_max = keys
+            .iter()
+            .map(|key| if key.hidden { key.key.len() } else { 0 })
+            .max()
+            .unwrap_or(0);
+        (max, hidden_max)
+    }
+
+    fn format_rstat<'a>(
+        out: &mut Box<dyn Write + 'a>,
+        field_name_len: usize,
+        name: &str,
+        keys: &[StatKey],
+        rstat: &BTreeMap<String, StatMap>,
+        opts: &FormatOpts,
+    ) {
+        writeln!(out, "").unwrap();
+        print_pcts_header(out, field_name_len, name, None);
+        for key in keys
+            .iter()
+            .filter(|key| if opts.rstat == 1 { !key.hidden } else { true })
+        {
+            print_pcts_line(
+                out,
+                field_name_len,
+                &key.key,
+                rstat.get(&key.key).unwrap(),
+                if key.base10 {
+                    format_count
+                } else {
+                    format_size
+                },
+                None,
+            );
+        }
+    }
+
+    pub fn format<'a>(&self, out: &mut Box<dyn Write + 'a>, name: &str, opts: &FormatOpts) {
+        let (mem_len, mem_hidden_len) = Self::key_max_lens(&*MEM_STAT_KEYS);
+        let (io_len, io_hidden_len) = Self::key_max_lens(&*IO_STAT_KEYS);
+        let (vm_len, vm_hidden_len) = Self::key_max_lens(&*VMSTAT_KEYS);
+
+        let base_len = 10;
+        let rstat_len = mem_len.max(io_len).max(vm_len);
+        let rstat_hidden_len = mem_hidden_len.max(io_hidden_len).max(vm_hidden_len);
+
+        let fn_len = match opts.rstat {
+            0 => base_len,
+            1 => base_len.max(rstat_len),
+            _ => base_len.max(rstat_len).max(rstat_hidden_len),
+        };
+
+        print_pcts_header(out, fn_len, name, None);
+        print_pcts_line(out, fn_len, "cpu%", &self.cpu_util, format_pct, None);
+        print_pcts_line(out, fn_len, "sys%", &self.cpu_sys, format_pct, None);
+        print_pcts_line(out, fn_len, "mem", &self.mem_bytes, format_size, None);
+        print_pcts_line(out, fn_len, "io%", &self.io_util, format_pct, None);
+        print_pcts_line(out, fn_len, "rbps", &self.io_bps.0, format_size, None);
+        print_pcts_line(out, fn_len, "wbps", &self.io_bps.1, format_size, None);
+        print_pcts_line(out, fn_len, "cpu-some%", &self.psi_cpu, format_pct, None);
+        print_pcts_line(out, fn_len, "mem-some%", &self.psi_mem.0, format_pct, None);
+        print_pcts_line(out, fn_len, "mem-full%", &self.psi_mem.1, format_pct, None);
+        print_pcts_line(out, fn_len, "io-some%", &self.psi_io.0, format_pct, None);
+        print_pcts_line(out, fn_len, "io-full%", &self.psi_io.1, format_pct, None);
+
+        if opts.rstat == 0 {
+            return;
+        }
+        Self::format_rstat(
+            out,
+            fn_len,
+            &format!("{} - {}", name, "memory.stat"),
+            &MEM_STAT_KEYS,
+            &self.mem_stat,
+            opts,
+        );
+        Self::format_rstat(
+            out,
+            fn_len,
+            &format!("{} - {}", name, "io.stat"),
+            &IO_STAT_KEYS,
+            &self.io_stat,
+            opts,
+        );
+        if self.vmstat.len() > 0 {
+            Self::format_rstat(
+                out,
+                fn_len,
+                &format!("{} - {}", name, "vmstat"),
+                &VMSTAT_KEYS,
+                &self.vmstat,
+                opts,
+            );
+        }
     }
 }
 

@@ -218,10 +218,10 @@ impl MemHogTune {
         out: &mut Box<dyn Write + 'a>,
         rec: &MemHogTuneRecord,
         res: &MemHogTuneResult,
-        full: bool,
+        opts: &FormatOpts,
     ) {
         match res.final_run.as_ref() {
-            Some(run) => MemHog::format_result(out, run, full),
+            Some(run) => MemHog::format_result(out, run, opts),
             None => writeln!(
                 out,
                 "Result: A successful full mem-hog run was not recorded"
