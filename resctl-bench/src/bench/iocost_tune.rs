@@ -28,7 +28,25 @@ enum DataSel {
     WLat(String, String), // IO Write latency
 }
 
+#[derive(Debug, Clone, Copy)]
+enum DataDir {
+    Any,
+    Inc,
+    Dec,
+}
+
 impl DataSel {
+    fn fit_lines_opts(&self) -> (DataDir, bool) {
+        match self {
+            Self::MOF | Self::AMOF => (DataDir::Inc, false),
+            Self::IsolProt | Self::IsolPct(_) | Self::Isol => (DataDir::Dec, false),
+            Self::LatImp => (DataDir::Inc, false),
+            Self::WorkCsv => (DataDir::Any, false),
+            Self::Missing => (DataDir::Inc, false),
+            Self::RLat(_, _) | Self::WLat(_, _) => (DataDir::Inc, true),
+        }
+    }
+
     fn parse(sel: &str) -> Result<DataSel> {
         match sel.to_lowercase().as_str() {
             "mof" => return Ok(Self::MOF),
@@ -701,7 +719,7 @@ impl DataSeries {
             .sqrt()
     }
 
-    fn fit_lines(&mut self, gran: f64) {
+    fn fit_lines(&mut self, gran: f64, dir: DataDir) {
         if self.points.len() == 0 {
             return;
         }
@@ -712,12 +730,35 @@ impl DataSeries {
         let gran = (end - start) / (intvs - 1) as f64;
         assert!(intvs > 1);
 
-        // Start with simple linear regression.
-        let mut best_lines = Self::fit_line(&self.points);
+        // Start with mean flat line which is acceptable for both dirs.
+        let mean = statistical::mean(
+            &self
+                .points
+                .iter()
+                .map(|(_, val)| *val)
+                .collect::<Vec<f64>>(),
+        );
+        let mut best_lines = DataLines {
+            left: (0.0, mean),
+            right: (Self::vmax(&self.points), mean),
+        };
         let mut best_error = Self::calc_error(self.points.iter(), &best_lines);
 
         let mut try_and_pick = |fit: &(dyn Fn() -> Option<DataLines>)| {
             if let Some(lines) = fit() {
+                match dir {
+                    DataDir::Any => {}
+                    DataDir::Inc => {
+                        if lines.left.1 > lines.right.1 {
+                            return;
+                        }
+                    }
+                    DataDir::Dec => {
+                        if lines.left.1 < lines.right.1 {
+                            return;
+                        }
+                    }
+                }
                 let error = Self::calc_error(self.points.iter(), &lines);
                 if error < best_error {
                     best_lines = lines;
@@ -725,6 +766,9 @@ impl DataSeries {
                 }
             }
         };
+
+        // Try simple linear regression.
+        try_and_pick(&|| Some(Self::fit_line(&self.points)));
 
         // Try one flat line and one slope.
         for i in 0..intvs {
@@ -906,9 +950,14 @@ impl Job for IoCostTuneJob {
                 }
             }
             series.points.sort_by(|a, b| a.partial_cmp(b).unwrap());
-            series.fit_lines(self.gran);
-            series.filter_outliers();
-            series.fit_lines(self.gran);
+
+            let (dir, filter) = sel.fit_lines_opts();
+            series.fit_lines(self.gran, dir);
+            if filter {
+                series.filter_outliers();
+                series.fit_lines(self.gran, dir);
+            }
+
             data.insert(sel.clone(), series);
         }
 
