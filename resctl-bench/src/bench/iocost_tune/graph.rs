@@ -24,14 +24,19 @@ impl<'a> Grapher<'a> {
         mem_profile: u32,
         isol_prot_pct: &str,
         extra_info: Option<&str>,
-    ) -> (ContinuousView, f64, f64) {
-        let (vrate_max, val_max, val_min) = series
-            .points
-            .iter()
-            .chain(series.outliers.iter())
-            .fold((0.0_f64, 0.0_f64, std::f64::MAX), |acc, point| {
-                (acc.0.max(point.0), acc.1.max(point.1), acc.1.min(point.1))
-            });
+    ) -> (ContinuousView, (f64, f64), f64) {
+        let (vrate_min, vrate_max, val_min, val_max) =
+            series.points.iter().chain(series.outliers.iter()).fold(
+                (std::f64::MAX, 0.0_f64, std::f64::MAX, 0.0_f64),
+                |acc, point| {
+                    (
+                        acc.0.min(point.0),
+                        acc.1.max(point.0),
+                        acc.2.min(point.1),
+                        acc.3.max(point.1),
+                    )
+                },
+            );
 
         let (ymin, yscale) = match sel {
             DataSel::MOF => {
@@ -90,7 +95,7 @@ impl<'a> Grapher<'a> {
             .x_label(xlabel)
             .y_label(ylabel);
 
-        (view, vrate_max, yscale)
+        (view, (vrate_min, vrate_max), yscale)
     }
 
     fn plot_one_text(
@@ -101,13 +106,15 @@ impl<'a> Grapher<'a> {
         isol_prot_pct: &str,
     ) -> Result<()> {
         const SIZE: (u32, u32) = (80, 24);
-        let (view, vrate_max, yscale) =
+        let (view, vrate_range, yscale) =
             Self::setup_view(sel, series, mem_profile, isol_prot_pct, None);
 
         let mut lines = vec![];
         for i in 0..SIZE.0 {
-            let vrate = vrate_max / SIZE.0 as f64 * i as f64;
-            lines.push((vrate, series.lines.eval(vrate) * yscale));
+            let vrate = vrate_range.1 / SIZE.0 as f64 * i as f64;
+            if vrate >= vrate_range.0 {
+                lines.push((vrate, series.lines.eval(vrate) * yscale));
+            }
         }
         let view =
             view.add(Plot::new(lines).point_style(PointStyle::new().marker(PointMarker::Square)));
@@ -146,7 +153,7 @@ impl<'a> Grapher<'a> {
         extra_info: &str,
     ) -> Result<()> {
         const SIZE: (u32, u32) = (576, 468);
-        let (view, vrate_max, yscale) =
+        let (view, vrate_range, yscale) =
             Self::setup_view(sel, series, mem_profile, isol_prot_pct, Some(extra_info));
 
         let points = series
@@ -177,10 +184,10 @@ impl<'a> Grapher<'a> {
 
         let lines = &series.lines;
         let segments = vec![
-            (0.0, lines.left.1 * yscale),
+            (vrate_range.0, lines.left.1 * yscale),
             (lines.left.0, lines.left.1 * yscale),
             (lines.right.0, lines.right.1 * yscale),
-            (vrate_max, lines.right.1 * yscale),
+            (vrate_range.1, lines.right.1 * yscale),
         ];
         let view = view.add(Plot::new(segments).line_style(LineStyle::new().colour("#3749e6")));
 
