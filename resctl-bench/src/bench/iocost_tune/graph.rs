@@ -78,7 +78,7 @@ impl<'a> Grapher<'a> {
         if lines.right.0 < vrate_max {
             xlabel += &format!("right-infl={:.1} ", lines.right.0);
         }
-        xlabel += &format!("err={:.3})", series.error * yscale);
+        xlabel += &format!("err={:.1}%)", series.rel_error * 100.0);
 
         let mut ylabel = match sel {
             DataSel::MOF | DataSel::AMOF => format!("{}@{}", sel, mem_profile),

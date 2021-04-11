@@ -605,6 +605,7 @@ struct DataSeries {
     outliers: Vec<DataPoint>,
     lines: DataLines,
     error: f64,
+    rel_error: f64,
 }
 
 impl DataSeries {
@@ -712,11 +713,30 @@ impl DataSeries {
     where
         I: Iterator<Item = &'a DataPoint>,
     {
-        points
-            .fold(0.0, |acc, point| {
-                acc + (point.1 - lines.eval(point.0)).powi(2)
-            })
-            .sqrt()
+        let (err_sum, cnt) = points.fold((0.0, 0), |(err_sum, cnt), point| {
+            (err_sum + (point.1 - lines.eval(point.0)).powi(2), cnt + 1)
+        });
+        err_sum.sqrt() / cnt as f64
+    }
+
+    fn calc_rel_error<'a, I>(points: I, lines: &DataLines) -> f64
+    where
+        I: Iterator<Item = &'a DataPoint>,
+    {
+        let (err_sum, cnt) = points.fold((0.0, 0), |(err_sum, cnt), point| {
+            let lp = lines.eval(point.0);
+            if lp != 0.0 {
+                let err = ((lp - point.1) / lp).abs();
+                (err_sum + err, cnt + 1)
+            } else {
+                (err_sum, cnt)
+            }
+        });
+        if cnt > 0 {
+            err_sum / cnt as f64
+        } else {
+            0.0
+        }
     }
 
     fn fit_lines(&mut self, gran: f64, dir: DataDir) {
@@ -788,11 +808,6 @@ impl DataSeries {
             }
         }
 
-        // We fit the lines excluding the outliers so that the fitted lines
-        // can be used to guess the likely behaviors most of the time but
-        // include the outliers when reporting error so that the users can
-        // gauge the flakiness of the device.
-        self.error = Self::calc_error(self.points.iter().chain(self.outliers.iter()), &best_lines);
         self.lines = best_lines;
     }
 
@@ -957,6 +972,20 @@ impl Job for IoCostTuneJob {
                 series.filter_outliers();
                 series.fit_lines(self.gran, dir);
             }
+
+            // For some data series, we fit the lines excluding the outliers
+            // so that the fitted lines can be used to guess the likely
+            // behaviors most of the time but we want to include the
+            // outliers when reporting error so that the users can gauge the
+            // flakiness of the device.
+            series.error = DataSeries::calc_error(
+                series.points.iter().chain(series.outliers.iter()),
+                &series.lines,
+            );
+            series.rel_error = DataSeries::calc_rel_error(
+                series.points.iter().chain(series.outliers.iter()),
+                &series.lines,
+            );
 
             data.insert(sel.clone(), series);
         }
