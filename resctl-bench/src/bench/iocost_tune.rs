@@ -766,6 +766,9 @@ impl DataSeries {
 
         let mut try_and_pick = |fit: &(dyn Fn() -> Option<DataLines>)| {
             if let Some(lines) = fit() {
+                if lines.left.1 <= 0.0 || lines.right.1 <= 0.0 {
+                    return;
+                }
                 match dir {
                     DataDir::Any => {}
                     DataDir::Inc => {

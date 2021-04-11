@@ -183,12 +183,15 @@ impl<'a> Grapher<'a> {
         );
 
         let lines = &series.lines;
-        let segments = vec![
-            (vrate_range.0, lines.left.1 * yscale),
-            (lines.left.0, lines.left.1 * yscale),
-            (lines.right.0, lines.right.1 * yscale),
-            (vrate_range.1, lines.right.1 * yscale),
-        ];
+        let mut segments = vec![(vrate_range.0, lines.left.1 * yscale)];
+        if lines.left.0 > 0.0 {
+            segments.push((lines.left.0, lines.left.1 * yscale));
+        }
+        if lines.right.0 < vrate_range.1 {
+            segments.push((lines.right.0, lines.right.1 * yscale));
+        }
+        segments.push((vrate_range.1, lines.right.1 * yscale));
+
         let view = view.add(Plot::new(segments).line_style(LineStyle::new().colour("#3749e6")));
 
         let view = view.x_max_ticks(10).y_max_ticks(10);
