@@ -421,7 +421,6 @@ struct QoSRule {
 #[derive(Debug)]
 struct IoCostTuneJob {
     qos_data: Option<JobData>,
-    mem_profile: u32,
     gran: f64,
     vrate_min: f64,
     vrate_max: f64,
@@ -433,7 +432,6 @@ impl Default for IoCostTuneJob {
     fn default() -> Self {
         Self {
             qos_data: None,
-            mem_profile: 0,
             gran: DFL_GRAN,
             vrate_min: DFL_VRATE_MIN,
             vrate_max: DFL_VRATE_MAX,
@@ -482,7 +480,6 @@ impl Bench for IoCostTuneBench {
 
         for (k, v) in spec.props[0].iter() {
             match k.as_str() {
-                "mem-profile" => job.mem_profile = v.parse::<u32>()?,
                 "gran" => job.gran = v.parse::<f64>()?,
                 "vrate-min" => job.vrate_min = v.parse::<f64>()?,
                 "vrate-max" => job.vrate_max = v.parse::<f64>()?,
@@ -878,13 +875,10 @@ impl Job for IoCostTuneJob {
         self.qos_data = Some(match rctx.find_done_job_data("iocost-qos") {
             Some(v) => v,
             None => {
-                let mut spec = format!(
+                let spec = format!(
                     "iocost-qos:dither,vrate-max={},vrate-intvs={}",
                     DFL_IOCOST_QOS_VRATE_MAX, DFL_IOCOST_QOS_VRATE_INTVS,
                 );
-                if self.mem_profile > 0 {
-                    spec += &format!(",mem-profile={}", self.mem_profile);
-                }
                 info!("iocost-tune: iocost-qos run not specified, running the following");
                 info!("iocost-tune: {}", &spec);
 
@@ -902,17 +896,6 @@ impl Job for IoCostTuneJob {
         let qrec: IoCostQoSRecord = qos_data
             .parse_record()
             .context("Parsing iocost-qos record")?;
-
-        if self.mem_profile == 0 {
-            self.mem_profile = qrec.mem_profile;
-        } else if self.mem_profile != qrec.mem_profile {
-            bail!(
-                "mem-profile ({}) != iocost-qos's ({})",
-                self.mem_profile,
-                qrec.mem_profile
-            );
-        }
-
         if qrec.runs.len() == 0 {
             bail!("no entry in iocost-qos result");
         }
@@ -1029,7 +1012,7 @@ impl Job for IoCostTuneJob {
         Ok(serde_json::to_value(IoCostTuneResult {
             base_model,
             base_qos,
-            mem_profile: self.mem_profile,
+            mem_profile: qrec.mem_profile,
             isol_prot_pct,
             data,
             results,

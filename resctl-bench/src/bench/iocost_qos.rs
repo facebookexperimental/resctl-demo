@@ -25,7 +25,6 @@ struct IoCostQoSJob {
     stor_loops: u32,
     isol_pct: String,
     isol_thr: f64,
-    mem_profile: u32,
     dither_dist: Option<f64>,
     ign_min_perf: bool,
     retries: u32,
@@ -113,7 +112,6 @@ impl IoCostQoSJob {
         let mut stor_loops = DFL_STOR_LOOPS;
         let mut isol_pct = DFL_ISOL_PCT.to_owned();
         let mut isol_thr = DFL_ISOL_THR;
-        let mut mem_profile = 0;
         let mut retries = DFL_RETRIES;
         let mut allow_fail = false;
         let mut runs = vec![IoCostQoSOvr {
@@ -133,7 +131,6 @@ impl IoCostQoSJob {
                 "storage-loops" => stor_loops = v.parse::<u32>()?,
                 "isol-pct" => isol_pct = v.to_owned(),
                 "isol-thr" => isol_thr = parse_frac(v)?,
-                "mem-profile" => mem_profile = v.parse::<u32>()?,
                 "retries" => retries = v.parse::<u32>()?,
                 "allow-fail" => allow_fail = v.parse::<bool>()?,
                 "dither" => {
@@ -229,7 +226,6 @@ impl IoCostQoSJob {
             stor_loops,
             isol_pct,
             isol_thr,
-            mem_profile,
             dither_dist,
             ign_min_perf,
             retries,
@@ -240,7 +236,7 @@ impl IoCostQoSJob {
         })
     }
 
-    fn prev_matches(&self, prec: &IoCostQoSRecord, bench: &BenchKnobs) -> bool {
+    fn prev_matches(&self, prec: &IoCostQoSRecord, mem_profile: u32, bench: &BenchKnobs) -> bool {
         // If @pr has't completed and only contains incremental results, its
         // mem_profile isn't initialized yet. Obtain mem_profile from the
         // base storage result instead.
@@ -257,7 +253,7 @@ impl IoCostQoSJob {
             warn!("{} ({})", &msg, "iocost parameter mismatch");
             return false;
         }
-        if self.mem_profile > 0 && self.mem_profile != base_rec.stor.mem.profile {
+        if mem_profile != base_rec.stor.mem.profile {
             warn!("{} ({})", &msg, "mem-profile mismatch");
             return false;
         }
@@ -455,7 +451,10 @@ impl Job for IoCostQoSJob {
         let (prev_matches, mut prev_rec) = match rctx.prev_job_data() {
             Some(pd) => {
                 let prec: IoCostQoSRecord = pd.parse_record()?;
-                (self.prev_matches(&prec, &bench_knobs), prec)
+                (
+                    self.prev_matches(&prec, rctx.mem_info().profile, &bench_knobs),
+                    prec,
+                )
             }
             None => (
                 true,
@@ -467,10 +466,6 @@ impl Job for IoCostQoSJob {
                 },
             ),
         };
-
-        if prev_rec.runs.len() > 0 {
-            self.mem_profile = prev_rec.mem_profile;
-        }
 
         // Mark the ones with too low a max rate to run.
         if !self.ign_min_perf {
@@ -529,12 +524,6 @@ impl Job for IoCostQoSJob {
             info!("iocost-qos: All results are available in the result file, nothing to do");
         }
 
-        // Run the needed benches.
-        let mut last_mem_profile = match self.mem_profile {
-            0 => None,
-            v => Some(v),
-        };
-
         let mut runs = vec![];
         for (i, ovr) in self.runs.iter().enumerate() {
             let qos_cfg = IoCostQoSCfg::new(&bench_knobs.iocost.qos, ovr);
@@ -554,7 +543,6 @@ impl Job for IoCostQoSJob {
 
             loop {
                 let mut sjob = self.stor_job.clone();
-                sjob.mem_profile_ask = last_mem_profile;
                 sjob.loops = match i {
                     0 => self.stor_base_loops,
                     _ => self.stor_loops,
@@ -563,8 +551,6 @@ impl Job for IoCostQoSJob {
 
                 match Self::run_one(rctx, &mut sjob, &mut pjob, &qos_cfg, self.retries) {
                     Ok(recr) => {
-                        last_mem_profile = Some(recr.stor.mem.profile);
-
                         // Sanity check QoS params.
                         if recr.qos.is_some() {
                             let target_qos = qos_cfg.calc();
@@ -600,7 +586,7 @@ impl Job for IoCostQoSJob {
         Ok(serde_json::to_value(&IoCostQoSRecord {
             base_model: bench_knobs.iocost.model,
             base_qos: bench_knobs.iocost.qos,
-            mem_profile: last_mem_profile.unwrap_or(0),
+            mem_profile: rctx.mem_info().profile,
             runs,
             dither_dist: self.dither_dist,
             inc_runs: vec![],
@@ -763,7 +749,7 @@ impl Job for IoCostQoSJob {
             let qos_cfg = IoCostQoSCfg::new(&rec.base_qos, ovr);
             write!(out, "[{:02}] QoS: {}", i, qos_cfg.format()).unwrap();
             if ovr.off {
-                writeln!(out, " mem_profile={}", base_stor_rec.mem.profile).unwrap();
+                writeln!(out, " mem_profile={}", rec.mem_profile).unwrap();
             } else {
                 writeln!(out, "").unwrap();
             }

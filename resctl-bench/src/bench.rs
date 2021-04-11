@@ -12,7 +12,7 @@ use std::time::Duration;
 
 use super::base::MemInfo;
 use super::iocost::{iocost_min_vrate, IoCostQoSCfg, IoCostQoSOvr};
-use super::job::{Job, JobData, FormatOpts};
+use super::job::{FormatOpts, Job, JobData};
 use super::parse_json_value_or_dump;
 use super::progress::BenchProgress;
 use super::run::{RunCtx, WorkloadMon};
