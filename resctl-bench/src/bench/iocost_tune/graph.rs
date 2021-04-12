@@ -25,18 +25,14 @@ impl<'a> Grapher<'a> {
         isol_prot_pct: &str,
         extra_info: Option<&str>,
     ) -> (ContinuousView, (f64, f64), f64) {
-        let (vrate_min, vrate_max, val_min, val_max) =
-            series.points.iter().chain(series.outliers.iter()).fold(
-                (std::f64::MAX, 0.0_f64, std::f64::MAX, 0.0_f64),
-                |acc, point| {
-                    (
-                        acc.0.min(point.0),
-                        acc.1.max(point.0),
-                        acc.2.min(point.1),
-                        acc.3.max(point.1),
-                    )
-                },
-            );
+        let (vrate_min, vrate_max) = series.vrate_range;
+        let (val_min, val_max) = series
+            .points
+            .iter()
+            .chain(series.outliers.iter())
+            .fold((std::f64::MAX, 0.0_f64), |acc, point| {
+                (acc.0.min(point.1), acc.1.max(point.1))
+            });
 
         let (ymin, yscale) = match sel {
             DataSel::MOF => {
@@ -67,18 +63,23 @@ impl<'a> Grapher<'a> {
         let ymax = (val_max * 1.1).max((ymin) + 0.000001);
 
         let lines = &series.lines;
-        let mut xlabel = format!(
-            "vrate (min={:.3} max={:.3} ",
-            lines.left.1.min(lines.right.1) * yscale,
-            lines.left.1.max(lines.right.1) * yscale
-        );
-        if lines.left.0 > 0.0 {
+        let mut xlabel = format!("vrate (");
+        if lines.left.1 == lines.right.1 {
+            xlabel += &format!("mean={:.3} ", lines.left.1 * yscale)
+        } else {
+            xlabel += &format!(
+                "min={:.3} max={:.3} ",
+                lines.left.1.min(lines.right.1) * yscale,
+                lines.left.1.max(lines.right.1) * yscale
+            )
+        }
+        if lines.left.0 > vrate_min {
             xlabel += &format!("left-infl={:.1} ", lines.left.0);
         }
         if lines.right.0 < vrate_max {
             xlabel += &format!("right-infl={:.1} ", lines.right.0);
         }
-        xlabel += &format!("err={:.1}%)", series.rel_error * 100.0);
+        xlabel += &format!("err={:.3})", series.error * yscale);
 
         let mut ylabel = match sel {
             DataSel::MOF | DataSel::AMOF => format!("{}@{}", sel, mem_profile),
@@ -183,14 +184,15 @@ impl<'a> Grapher<'a> {
         );
 
         let lines = &series.lines;
-        let mut segments = vec![(vrate_range.0, lines.left.1 * yscale)];
-        if lines.left.0 > 0.0 {
-            segments.push((lines.left.0, lines.left.1 * yscale));
+        let mut segments = vec![];
+        if vrate_range.0 < lines.left.0 {
+            segments.push((vrate_range.0, lines.left.1 * yscale));
         }
-        if lines.right.0 < vrate_range.1 {
-            segments.push((lines.right.0, lines.right.1 * yscale));
+        segments.push((lines.left.0, lines.left.1 * yscale));
+        segments.push((lines.right.0, lines.right.1 * yscale));
+        if vrate_range.1 > lines.right.0 {
+            segments.push((vrate_range.1, lines.right.1 * yscale));
         }
-        segments.push((vrate_range.1, lines.right.1 * yscale));
 
         let view = view.add(Plot::new(segments).line_style(LineStyle::new().colour("#3749e6")));
 

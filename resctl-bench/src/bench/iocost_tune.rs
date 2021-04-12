@@ -3,6 +3,7 @@ use super::iocost_qos::{IoCostQoSRecord, IoCostQoSRecordRun, IoCostQoSResult, Io
 use super::protection::MemHog;
 use super::*;
 use statrs::distribution::{Normal, Univariate};
+use std::cell::RefCell;
 use std::cmp::{Ordering, PartialOrd};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -599,10 +600,10 @@ impl DataLines {
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 struct DataSeries {
     points: Vec<DataPoint>,
+    vrate_range: (f64, f64),
     outliers: Vec<DataPoint>,
     lines: DataLines,
     error: f64,
-    rel_error: f64,
 }
 
 impl DataSeries {
@@ -617,15 +618,19 @@ impl DataSeries {
         (&points[0..idx], &points[idx..])
     }
 
+    fn vmin(points: &[DataPoint]) -> f64 {
+        points.iter().next().unwrap().0
+    }
+
     fn vmax(points: &[DataPoint]) -> f64 {
         points.iter().last().unwrap().0
     }
 
     fn fit_line(points: &[DataPoint]) -> DataLines {
-        let (slope, y_intcp) = linreg::linear_regression_of(&points).unwrap();
-        let vmax = Self::vmax(points);
+        let (slope, y_intcp): (f64, f64) = linreg::linear_regression_of(points).unwrap();
+        let (vmin, vmax) = (Self::vmin(points), Self::vmax(points));
         DataLines {
-            left: (0.0, y_intcp),
+            left: (vmin, slope * vmin + y_intcp),
             right: (vmax, slope * vmax + y_intcp),
         }
     }
@@ -654,10 +659,6 @@ impl DataSeries {
 
     fn fit_slope_with_vleft(points: &[DataPoint], vleft: f64) -> Option<DataLines> {
         let (left, right) = Self::split_at(points, vleft);
-        if left.len() < 3 || right.len() < 3 {
-            return None;
-        }
-
         let left = (vleft, Self::calc_height(left));
         let slope = Self::calc_slope(right, &left);
         if slope == 0.0 {
@@ -673,18 +674,15 @@ impl DataSeries {
 
     fn fit_slope_with_vright(points: &[DataPoint], vright: f64) -> Option<DataLines> {
         let (left, right) = Self::split_at(points, vright);
-        if left.len() < 3 || right.len() < 3 {
-            return None;
-        }
-
         let right = (vright, Self::calc_height(right));
         let slope = Self::calc_slope(left, &right);
         if slope == 0.0 {
             return None;
         }
 
+        let vmin = Self::vmin(points);
         Some(DataLines {
-            left: (0.0, right.1 - slope * right.0),
+            left: (vmin, right.1 - slope * (right.0 - vmin)),
             right,
         })
     }
@@ -695,10 +693,7 @@ impl DataSeries {
         vright: f64,
     ) -> Option<DataLines> {
         let (left, center) = Self::split_at(points, vleft);
-        let (center, right) = Self::split_at(center, vright);
-        if left.len() < 3 || center.len() < 3 || right.len() < 3 {
-            return None;
-        }
+        let (_, right) = Self::split_at(center, vright);
 
         Some(DataLines {
             left: (vleft, Self::calc_height(left)),
@@ -716,26 +711,6 @@ impl DataSeries {
         err_sum.sqrt() / cnt as f64
     }
 
-    fn calc_rel_error<'a, I>(points: I, lines: &DataLines) -> f64
-    where
-        I: Iterator<Item = &'a DataPoint>,
-    {
-        let (err_sum, cnt) = points.fold((0.0, 0), |(err_sum, cnt), point| {
-            let lp = lines.eval(point.0);
-            if lp != 0.0 {
-                let err = ((lp - point.1) / lp).abs();
-                (err_sum + err, cnt + 1)
-            } else {
-                (err_sum, cnt)
-            }
-        });
-        if cnt > 0 {
-            err_sum / cnt as f64
-        } else {
-            0.0
-        }
-    }
-
     fn fit_lines(&mut self, gran: f64, dir: DataDir) {
         if self.points.len() == 0 {
             return;
@@ -747,6 +722,12 @@ impl DataSeries {
         let gran = (end - start) / (intvs - 1) as f64;
         assert!(intvs > 1);
 
+        // We want to prefer line fittings with fewer components. Discount
+        // error from the previous stage. Also, make sure each line segment
+        // is at least 10% of the vrate range.
+        const ERROR_DISCOUNT: f64 = 0.95;
+        const MIN_SEG_DIST: f64 = 10.0;
+
         // Start with mean flat line which is acceptable for both dirs.
         let mean = statistical::mean(
             &self
@@ -756,52 +737,83 @@ impl DataSeries {
                 .collect::<Vec<f64>>(),
         );
         let mut best_lines = DataLines {
-            left: (0.0, mean),
+            left: (Self::vmin(&self.points), mean),
             right: (Self::vmax(&self.points), mean),
         };
-        let mut best_error = Self::calc_error(self.points.iter(), &best_lines);
+        let best_error =
+            RefCell::new(Self::calc_error(self.points.iter(), &best_lines) * ERROR_DISCOUNT);
 
-        let mut try_and_pick = |fit: &(dyn Fn() -> Option<DataLines>)| {
+        let mut try_and_pick = |fit: &(dyn Fn() -> Option<DataLines>)| -> bool {
             if let Some(lines) = fit() {
                 if lines.left.1 <= 0.0 || lines.right.1 <= 0.0 {
-                    return;
+                    return false;
                 }
                 match dir {
                     DataDir::Any => {}
                     DataDir::Inc => {
                         if lines.left.1 > lines.right.1 {
-                            return;
+                            return false;
                         }
                     }
                     DataDir::Dec => {
                         if lines.left.1 < lines.right.1 {
-                            return;
+                            return false;
                         }
                     }
                 }
                 let error = Self::calc_error(self.points.iter(), &lines);
-                if error < best_error {
+                if error < *best_error.borrow() {
+                    trace!(
+                        "iocost-qos: fit-best: ({:.3}, {:.3}) - ({:.3}, {:.3}) \
+                         start={:.3} end={:.3} MIN_SEG_DIST={:.3}",
+                        lines.left.0,
+                        lines.left.1,
+                        lines.right.0,
+                        lines.right.1,
+                        start,
+                        end,
+                        MIN_SEG_DIST
+                    );
                     best_lines = lines;
-                    best_error = error;
+                    best_error.replace(error);
+                    return true;
                 }
             }
+            false
         };
 
         // Try simple linear regression.
-        try_and_pick(&|| Some(Self::fit_line(&self.points)));
+        if try_and_pick(&|| Some(Self::fit_line(&self.points))) {
+            let be = *best_error.borrow();
+            best_error.replace(be * ERROR_DISCOUNT);
+        }
 
         // Try one flat line and one slope.
+        let mut updated = false;
         for i in 0..intvs {
             let infl = start + i as f64 * gran;
-            try_and_pick(&|| Self::fit_slope_with_vleft(&self.points, infl));
-            try_and_pick(&|| Self::fit_slope_with_vright(&self.points, infl));
+            if infl < start + MIN_SEG_DIST || infl > end - MIN_SEG_DIST {
+                continue;
+            }
+            updated |= try_and_pick(&|| Self::fit_slope_with_vleft(&self.points, infl));
+            updated |= try_and_pick(&|| Self::fit_slope_with_vright(&self.points, infl));
+        }
+        if updated {
+            let be = *best_error.borrow();
+            best_error.replace(be * ERROR_DISCOUNT);
         }
 
         // Try two flat lines connected with a slope.
         for i in 0..intvs - 1 {
             let vleft = start + i as f64 * gran;
+            if vleft < start + MIN_SEG_DIST {
+                continue;
+            }
             for j in i..intvs {
                 let vright = start + j as f64 * gran;
+                if vright - vleft < MIN_SEG_DIST || vright > end - MIN_SEG_DIST {
+                    continue;
+                }
                 try_and_pick(&|| {
                     Self::fit_slope_with_vleft_and_vright(&self.points, vleft, vright)
                 });
@@ -844,6 +856,20 @@ impl DataSeries {
             self.outliers.sort_by(|a, b| a.partial_cmp(b).unwrap());
         } else {
             self.points = points;
+        }
+    }
+
+    fn extend_over_outliers(&mut self) {
+        let (vmin, vmax) = (Self::vmin(&self.points), Self::vmax(&self.points));
+        let slope =
+            (self.lines.right.1 - self.lines.left.1) / (self.lines.right.0 - self.lines.left.0);
+        if self.lines.left.0 == vmin && vmin > self.vrate_range.0 {
+            self.lines.left.1 -= slope * (vmin - self.vrate_range.0);
+            self.lines.left.0 = self.vrate_range.0;
+        }
+        if self.lines.right.0 == vmax && vmax < self.vrate_range.1 {
+            self.lines.right.1 += slope * (self.vrate_range.1 - vmax);
+            self.lines.right.0 = self.vrate_range.1;
         }
     }
 }
@@ -951,12 +977,32 @@ impl Job for IoCostTuneJob {
                 }
             }
             series.points.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            series.vrate_range = (
+                DataSeries::vmin(&series.points),
+                DataSeries::vmax(&series.points),
+            );
 
             let (dir, filter) = sel.fit_lines_opts();
+            trace!(
+                "iocost-tune: fitting {:?} points={} dir={:?} filter={}",
+                &sel,
+                series.points.len(),
+                &dir,
+                &filter
+            );
             series.fit_lines(self.gran, dir);
+
             if filter {
                 series.filter_outliers();
+                trace!(
+                    "iocost-tune: fitting {:?} points={} outliers={} dir={:?}",
+                    &sel,
+                    series.points.len(),
+                    series.outliers.len(),
+                    &dir
+                );
                 series.fit_lines(self.gran, dir);
+                series.extend_over_outliers();
             }
 
             // For some data series, we fit the lines excluding the outliers
@@ -968,12 +1014,12 @@ impl Job for IoCostTuneJob {
                 series.points.iter().chain(series.outliers.iter()),
                 &series.lines,
             );
-            series.rel_error = DataSeries::calc_rel_error(
-                series.points.iter().chain(series.outliers.iter()),
-                &series.lines,
-            );
 
             data.insert(sel.clone(), series);
+
+            if prog_exiting() {
+                bail!("Program exiting");
+            }
         }
 
         let base_model = qrec.base_model.clone();
