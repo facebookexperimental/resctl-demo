@@ -250,11 +250,14 @@ impl IoCostQoSJob {
 
         let msg = "iocost-qos: Existing result doesn't match the current configuration";
         if prec.base_model != bench.iocost.model || prec.base_qos != bench.iocost.qos {
-            warn!("{} ({})", &msg, "iocost parameter mismatch");
+            warn!("{} (iocost parameter mismatch)", &msg);
             return false;
         }
         if mem_profile != base_rec.stor.mem.profile {
-            warn!("{} ({})", &msg, "mem-profile mismatch");
+            warn!(
+                "{} (mem-profile mismatch, {} != {})",
+                &msg, mem_profile, base_rec.stor.mem.profile
+            );
             return false;
         }
 
