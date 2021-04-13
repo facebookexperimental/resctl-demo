@@ -74,6 +74,7 @@ pub struct IoCostQoSResultRun {
     pub prot: ProtectionResult,
     pub adjusted_mem_size: Option<usize>,
     pub adjusted_mem_offload_factor: Option<f64>,
+    pub adjusted_mem_offload_delta: Option<f64>,
     pub vrate: BTreeMap<String, f64>,
     pub iolat: [BTreeMap<String, BTreeMap<String, f64>>; 2],
     pub nr_reports: (u64, u64),
@@ -399,16 +400,23 @@ impl IoCostQoSJob {
 
         // These are trivial to calculate but cumbersome to access. Let's
         // cache the results.
-        let (adjusted_mem_size, adjusted_mem_offload_factor) = if recr.prot.scenarios.len() > 0 {
-            let trec = recr.prot.scenarios[0].as_mem_hog_tune().unwrap();
-            (
-                trec.final_size,
-                trec.final_size
-                    .map(|size| size as f64 / sres.mem_usage as f64),
-            )
-        } else {
-            (None, None)
-        };
+        let (adjusted_mem_size, adjusted_mem_offload_factor, adjusted_mem_offload_delta) =
+            if recr.prot.scenarios.len() > 0 {
+                let trec = recr.prot.scenarios[0].as_mem_hog_tune().unwrap();
+                match trec.final_size {
+                    Some(final_size) => {
+                        let amof = final_size as f64 / sres.mem_usage as f64;
+                        (
+                            Some(final_size),
+                            Some(amof),
+                            Some(sres.mem_offload_factor - amof),
+                        )
+                    }
+                    None => (None, None, None),
+                }
+            } else {
+                (None, None, None)
+            };
 
         // Study the vrate and IO latency distributions across all the runs.
         let mut study_vrate = StudyMeanPcts::new(|arg| vec![arg.rep.iocost.vrate], None);
@@ -431,6 +439,7 @@ impl IoCostQoSJob {
             prot: pres,
             adjusted_mem_size,
             adjusted_mem_offload_factor,
+            adjusted_mem_offload_delta,
             vrate,
             iolat,
             nr_reports,

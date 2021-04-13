@@ -19,6 +19,7 @@ const DFL_VRATE_MAX: f64 = 100.0;
 enum DataSel {
     MOF,                  // Memory offloading Factor
     AMOF,                 // Adjusted Memory Offloading Factor
+    AMOFDelta,            // Adjusted Memory Offloading Factor Delta
     IsolProt,             // Isolation Factor Percentile used by protection bench
     IsolPct(String),      // Isolation Factor Percentiles
     Isol,                 // Isolation Factor Mean
@@ -39,7 +40,7 @@ enum DataDir {
 impl DataSel {
     fn fit_lines_opts(&self) -> (DataDir, bool) {
         match self {
-            Self::MOF | Self::AMOF => (DataDir::Inc, false),
+            Self::MOF | Self::AMOF | Self::AMOFDelta => (DataDir::Inc, false),
             Self::IsolProt | Self::IsolPct(_) | Self::Isol => (DataDir::Dec, false),
             Self::LatImp => (DataDir::Inc, false),
             Self::WorkCsv => (DataDir::Any, false),
@@ -52,6 +53,7 @@ impl DataSel {
         match sel.to_lowercase().as_str() {
             "mof" => return Ok(Self::MOF),
             "amof" => return Ok(Self::AMOF),
+            "amof-delta" => return Ok(Self::AMOFDelta),
             "isol-prot" => return Ok(Self::IsolProt),
             "isol" => return Ok(Self::Isol),
             "lat-imp" => return Ok(Self::LatImp),
@@ -162,6 +164,7 @@ impl DataSel {
             // Missing hog indicates failed prot bench. Report 0 for
             // isolation and skip other prot results.
             Self::AMOF => resr.adjusted_mem_offload_factor,
+            Self::AMOFDelta => resr.adjusted_mem_offload_delta,
             Self::IsolProt => hog_res.map(|x| {
                 *x.isol
                     .get(isol_prot_pct)
@@ -216,14 +219,15 @@ impl DataSel {
         match self {
             Self::MOF => (0, None),
             Self::AMOF => (1, None),
-            Self::IsolProt => (2, Some(("NONE", "NONE"))),
-            Self::IsolPct(pct) => (3, Some((pct, "NONE"))),
-            Self::Isol => (4, None),
-            Self::LatImp => (5, None),
-            Self::WorkCsv => (6, None),
-            Self::Missing => (7, None),
-            Self::RLat(lat, time) => (8, Some((lat, time))),
-            Self::WLat(lat, time) => (9, Some((lat, time))),
+            Self::AMOFDelta => (2, None),
+            Self::IsolProt => (3, Some(("NONE", "NONE"))),
+            Self::IsolPct(pct) => (4, Some((pct, "NONE"))),
+            Self::Isol => (5, None),
+            Self::LatImp => (6, None),
+            Self::WorkCsv => (7, None),
+            Self::Missing => (8, None),
+            Self::RLat(lat, time) => (9, Some((lat, time))),
+            Self::WLat(lat, time) => (10, Some((lat, time))),
         }
     }
 
@@ -306,6 +310,7 @@ impl std::fmt::Display for DataSel {
         match self {
             Self::MOF => write!(f, "MOF"),
             Self::AMOF => write!(f, "aMOF"),
+            Self::AMOFDelta => write!(f, "aMOF-delta"),
             Self::IsolProt => write!(f, "isol-prot"),
             Self::IsolPct(pct) => write!(f, "isol-{}", pct),
             Self::Isol => write!(f, "isol"),
@@ -342,8 +347,8 @@ impl<'de> serde::de::Deserialize<'de> for DataSel {
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
                 formatter.write_str(
-                    "`mof`, `amof`, `isol-prot`, `isol-PCT`, `isol`, `lat-imp`, `work-csv`, \
-                     `missing`, `rlat-LAT-TIME` or `wlat-LAT-TIME`",
+                    "`mof`, `amof`, `amof-delta`, `isol-prot`, `isol-PCT`, `isol`, `lat-imp`, \
+                     `work-csv`, `missing`, `rlat-LAT-TIME` or `wlat-LAT-TIME`",
                 )
             }
 

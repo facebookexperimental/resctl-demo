@@ -51,6 +51,7 @@ impl<'a> Grapher<'a> {
                 };
                 (ymin, 1.0)
             }
+            DataSel::AMOFDelta => (0.0, 1.0),
             DataSel::IsolProt => (0.0, 100.0),
             DataSel::IsolPct(_) => (0.0, 100.0),
             DataSel::Isol => (0.0, 100.0),
@@ -82,7 +83,7 @@ impl<'a> Grapher<'a> {
         xlabel += &format!("err={:.3})", series.error * yscale);
 
         let mut ylabel = match sel {
-            DataSel::MOF | DataSel::AMOF => format!("{}@{}", sel, mem_profile),
+            DataSel::MOF | DataSel::AMOF | DataSel::AMOFDelta => format!("{}@{}", sel, mem_profile),
             DataSel::IsolProt => format!("isol{}", isol_prot_pct),
             sel => format!("{}", sel),
         };
