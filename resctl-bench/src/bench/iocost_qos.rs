@@ -13,8 +13,8 @@ const DFL_VRATE_MAX: f64 = 100.0;
 const DFL_VRATE_INTVS: u32 = 5;
 const DFL_STOR_BASE_LOOPS: u32 = 3;
 const DFL_STOR_LOOPS: u32 = 1;
-const DFL_ISOL_PCT: &'static str = "05";
-const DFL_ISOL_THR: f64 = 0.9;
+const DFL_ISOL_PCT: &'static str = "01";
+const DFL_ISOL_THR: f64 = 0.8;
 const DFL_RETRIES: u32 = 1;
 
 // Don't go below 1% of the specified model when applying vrate-intvs.
