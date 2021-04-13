@@ -366,62 +366,199 @@ impl<'de> serde::de::Deserialize<'de> for DataSel {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Serialize, Deserialize)]
-enum Target {
-    Inflection,
-    Threshold(f64),
+#[derive(Debug, Clone, PartialEq, PartialOrd, Serialize, Deserialize)]
+enum QoSTarget {
+    VrateRange((f64, f64), (Option<String>, Option<String>)),
+    MOFMax,
+    AMOFMax,
+    LatRange(DataSel, (f64, f64)),
 }
 
-impl std::cmp::Eq for Target {}
+impl Default for QoSTarget {
+    fn default() -> Self {
+        Self::VrateRange((75.0, 100.0), (Some("99".into()), Some("99".into())))
+    }
+}
 
-impl std::cmp::Ord for Target {
+impl std::cmp::Eq for QoSTarget {}
+
+impl std::cmp::Ord for QoSTarget {
     fn cmp(&self, other: &Self) -> Ordering {
         self.partial_cmp(other).unwrap()
     }
 }
 
-impl Target {
-    fn parse(target: &str, is_dur: bool) -> Result<Target> {
-        if target == "infl" {
-            Ok(Self::Inflection)
-        } else {
-            let thr = match is_dur {
-                true => parse_duration(target),
-                false => target.parse::<f64>().map_err(anyhow::Error::new),
-            };
-            match thr {
-                Ok(v) if v > 0.0 => Ok(Self::Threshold(v)),
-                Ok(_) => bail!("threshold {:?} outside of accepted range", target),
-                Err(e) => bail!("failed to parse threshold {:?} ({})", target, &e),
+impl QoSTarget {
+    fn parse_frac_range(input: &str) -> Result<(f64, f64)> {
+        let toks: Vec<&str> = input.split("-").collect();
+        if toks.len() != 2 {
+            bail!("Frac range {:?} is not FLOAT-FLOAT", input);
+        }
+        let (left, right) = (toks[0].parse::<f64>()?, toks[1].parse::<f64>()?);
+        if left < 0.0 || left > right || right > 1.0 {
+            bail!("Invalid frac range {}-{}", left, right);
+        }
+        Ok((left, right))
+    }
+
+    fn parse(mut props: BTreeMap<String, String>) -> Result<QoSTarget> {
+        if let Some(v) = props.remove("vrate") {
+            let range = Self::parse_frac_range(&v)?;
+            let mut ref_pcts = (None, None);
+            for (k, v) in props.iter() {
+                match k.as_str() {
+                    "rpct" => ref_pcts.0 = Some(v.to_string()),
+                    "wpct" => ref_pcts.1 = Some(v.to_string()),
+                    k => bail!("Invalid vrate target option {:?}", k),
+                }
             }
+
+            if ref_pcts == (None, None) {
+                if let Self::VrateRange(_, dfl_ref_pcts) = QoSTarget::default() {
+                    ref_pcts = dfl_ref_pcts;
+                }
+            }
+
+            return Ok(Self::VrateRange(range, ref_pcts));
+        }
+
+        if props.len() != 1 {
+            bail!("Each QoS rule should contain one QoS target");
+        }
+
+        let (k, v) = props.into_iter().next().unwrap();
+        let v = v.to_lowercase();
+        let sel = DataSel::parse(&k)?;
+        match &sel {
+            DataSel::MOF | DataSel::AMOF => {
+                if v != "max" {
+                    bail!("Invalid {:?} value {:?}", &sel, &v);
+                }
+                if sel == DataSel::MOF {
+                    Ok(Self::MOFMax)
+                } else {
+                    Ok(Self::AMOFMax)
+                }
+            }
+            DataSel::RLat(_, _) | DataSel::WLat(_, _) => {
+                let (low, high) = match v.as_str() {
+                    "q1" => (0.75, 1.00),
+                    "q2" => (0.50, 0.75),
+                    "q3" => (0.25, 0.50),
+                    "q4" => (0.0, 0.25),
+                    v => Self::parse_frac_range(v)?,
+                };
+                Ok(Self::LatRange(sel.clone(), (low, high)))
+            }
+            _ => bail!("Unsupported QoSTarget selector {:?}", &sel),
         }
     }
-}
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-struct QoSTarget {
-    sel: DataSel,
-    target: Target,
-}
+    fn vrate_rpct_sel(pct: &str) -> DataSel {
+        DataSel::RLat(pct.into(), "mean".into())
+    }
 
-impl QoSTarget {
-    fn parse(k: &str, v: &str) -> Result<QoSTarget> {
-        let sel = DataSel::parse(k)?;
-        let is_dur = match sel {
-            DataSel::RLat(_, _) | DataSel::WLat(_, _) => true,
-            _ => false,
-        };
-        Ok(Self {
-            sel,
-            target: Target::parse(v, is_dur)?,
-        })
+    fn vrate_wpct_sel(pct: &str) -> DataSel {
+        DataSel::WLat(pct.into(), "mean".into())
+    }
+
+    fn sels(&self) -> Vec<DataSel> {
+        match self {
+            Self::VrateRange(_, (rpct, wpct)) => {
+                let mut sels = vec![];
+                if let Some(rpct) = rpct {
+                    sels.push(Self::vrate_rpct_sel(rpct));
+                }
+                if let Some(wpct) = wpct {
+                    sels.push(Self::vrate_wpct_sel(wpct));
+                }
+                sels
+            }
+            Self::MOFMax => vec![DataSel::MOF],
+            Self::AMOFMax => vec![DataSel::AMOF],
+            Self::LatRange(sel, _) => vec![sel.clone()],
+        }
+    }
+
+    fn solve_vrate_ref_lat(
+        vrate: f64,
+        is_write: bool,
+        pct: Option<&str>,
+        data: &BTreeMap<DataSel, DataSeries>,
+    ) -> u64 {
+        0
+    }
+
+    fn find_vrate_at_max(ds: &DataSeries) -> f64 {
+        let left = &ds.lines.left;
+        let right = &ds.lines.right;
+
+        if left.1 < right.1 {
+            right.0
+        } else if left.1 > right.1 {
+            left.0
+        } else {
+            ds.vrate_range.1
+        }
+    }
+
+    fn solve(&self, data: &BTreeMap<DataSel, DataSeries>) -> Option<(IoCostQoSParams, f64)> {
+        match self {
+            Self::VrateRange((vrate_min, vrate_max), (rpct, wpct)) => {
+                let rlat = Self::solve_vrate_ref_lat(*vrate_max, false, rpct.as_deref(), data);
+                let wlat = Self::solve_vrate_ref_lat(*vrate_max, true, wpct.as_deref(), data);
+                Some((
+                    IoCostQoSParams {
+                        rpct: 0.0,
+                        rlat,
+                        wpct: 0.0,
+                        wlat,
+                        min: *vrate_min,
+                        max: *vrate_max,
+                    },
+                    *vrate_max,
+                ))
+            }
+            Self::MOFMax => {
+                let vrate = Self::find_vrate_at_max(&data[&DataSel::MOF]);
+                Some((
+                    IoCostQoSParams {
+                        min: vrate,
+                        max: vrate,
+                        ..Default::default()
+                    },
+                    vrate,
+                ))
+            }
+            Self::AMOFMax => {
+                let vrate = Self::find_vrate_at_max(&data[&DataSel::AMOF]);
+                Some((
+                    IoCostQoSParams {
+                        min: vrate,
+                        max: vrate,
+                        ..Default::default()
+                    },
+                    vrate,
+                ))
+            }
+            Self::LatRange(sel, (lat_rel_min, lat_rel_max)) => {
+                let ds = &data[&sel];
+
+                Some((
+                    IoCostQoSParams {
+                        ..Default::default()
+                    },
+                    0.0,
+                ))
+            }
+        }
     }
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 struct QoSRule {
     name: Option<String>,
-    targets: BTreeSet<QoSTarget>,
+    target: Option<QoSTarget>,
 }
 
 #[derive(Debug)]
@@ -507,8 +644,8 @@ impl Bench for IoCostTuneBench {
             bail!("`gran`, `vrate_min` and/or `vrate_max` invalid");
         }
 
-        let prop_groups = spec.props[1..].to_owned();
-        /*if job.sels.len() == 0 && prop_groups.len() == 0 {
+        let mut prop_groups = spec.props[1..].to_owned();
+        if job.sels.len() == 0 && prop_groups.len() == 0 {
             let mut push_props = |props: &[(&str, &str)]| {
                 prop_groups.push(
                     props
@@ -518,27 +655,28 @@ impl Bench for IoCostTuneBench {
                 )
             };
 
-            push_props(&[("name", "default"), ("mof", "infl")]);
-            push_props(&[("name", "rlat-99-10m"), ("mof", "infl"), ("rlat-99", "10m")]);
-            push_props(&[("name", "rlat-99-5m"), ("mof", "infl"), ("rlat-99", "5m")]);
-            push_props(&[("name", "rlat-99-1m"), ("mof", "infl"), ("rlat-99", "1m")]);
-        }*/
+            push_props(&[("name", "default"), ("mof", "max")]);
+            push_props(&[("name", "protection"), ("amof", "max")]);
+            push_props(&[("name", "rlat-99-q1"), ("rlat-99", "q1")]);
+            push_props(&[("name", "rlat-99-q2"), ("rlat-99", "q2")]);
+            push_props(&[("name", "rlat-99-q3"), ("rlat-99", "q3")]);
+            push_props(&[("name", "rlat-99-q4"), ("rlat-99", "q4")]);
+        }
 
         for props in prop_groups.iter() {
             let mut rule = QoSRule::default();
-            for (k, v) in props.iter() {
-                match k.as_str() {
-                    "name" => rule.name = Some(v.to_owned()),
-                    k => {
-                        let target = QoSTarget::parse(k, v)?;
-                        job.sels.insert(target.sel.clone());
-                        rule.targets.insert(target);
-                    }
-                }
+            let mut props = props.clone();
+
+            if let Some(name) = props.remove("name") {
+                rule.name = Some(name.to_string());
             }
-            if rule.targets.len() == 0 {
-                bail!("each rule must have at least one QoS target");
+
+            let target = QoSTarget::parse(props)?;
+
+            for sel in target.sels().into_iter() {
+                job.sels.insert(sel);
             }
+            rule.target = Some(target);
             job.rules.push(rule);
         }
 
@@ -582,23 +720,6 @@ impl DataLines {
         } else {
             self.left.1 + self.slope() * (vrate - self.left.0)
         }
-    }
-
-    fn solve(&self, target: &Target, (vmin, vmax): (f64, f64)) -> f64 {
-        match target {
-            Target::Inflection => self.right.1,
-            Target::Threshold(thr) => {
-                if *thr >= self.right.1 {
-                    vmax
-                } else if *thr <= self.left.1 {
-                    self.left.0
-                } else {
-                    self.left.0 + ((*thr - self.left.1) / self.slope())
-                }
-            }
-        }
-        .max(vmin)
-        .min(vmax)
     }
 }
 
@@ -1033,16 +1154,16 @@ impl Job for IoCostTuneJob {
         let mut results = Vec::<QoSResult>::new();
         for rule in self.rules.iter().cloned() {
             let mut vrate = std::f64::MAX;
-            for target in rule.targets.iter() {
-                let solution = data[&target.sel]
-                    .lines
-                    .solve(&target.target, (self.vrate_min, self.vrate_max));
-                debug!(
-                    "iocost-tune: target={:?} solution={}",
-                    &target.target, solution
-                );
-                vrate = vrate.min(solution);
-            }
+            //for target in rule.targets.iter() {
+            /*let solution = data[&target.sel]
+                .lines
+                .solve(&target.target, (self.vrate_min, self.vrate_max));
+            debug!(
+                "iocost-tune: target={:?} solution={}",
+                &target.target, solution
+            );
+            vrate = vrate.min(solution);*/
+            //}
 
             let scale_factor = vrate / 100.0;
             let model = base_model.clone() * scale_factor;
