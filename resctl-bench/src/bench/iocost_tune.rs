@@ -388,6 +388,34 @@ impl std::cmp::Ord for QoSTarget {
     }
 }
 
+impl std::fmt::Display for QoSTarget {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::VrateRange((vmin, vmax), (rpct, wpct)) => {
+                write!(f, "vrate={}-{}", vmin, vmax).unwrap();
+                if let Some(rpct) = rpct {
+                    write!(f, ",rpct={}", rpct).unwrap();
+                }
+                if let Some(wpct) = wpct {
+                    write!(f, ",wpct={}", wpct).unwrap();
+                }
+            }
+            Self::MOFMax => write!(f, "mof=max").unwrap(),
+            Self::AMOFMax => write!(f, "amof=max").unwrap(),
+            Self::LatRange(sel, (low, high)) => match sel {
+                DataSel::RLat(lat_pct, _) => {
+                    write!(f, "rlat-{}={}-{}", lat_pct, low, high).unwrap()
+                }
+                DataSel::WLat(lat_pct, _) => {
+                    write!(f, "wlat-{}={}-{}", lat_pct, low, high).unwrap()
+                }
+                _ => panic!(),
+            },
+        }
+        Ok(())
+    }
+}
+
 impl QoSTarget {
     fn parse_frac_range(input: &str) -> Result<(f64, f64)> {
         let toks: Vec<&str> = input.split("-").collect();
@@ -402,6 +430,9 @@ impl QoSTarget {
     }
 
     fn parse(mut props: BTreeMap<String, String>) -> Result<QoSTarget> {
+        if props.len() == 0 {
+            return Ok(Default::default());
+        }
         if let Some(v) = props.remove("vrate") {
             let range = Self::parse_frac_range(&v)?;
             let mut ref_pcts = (None, None);
@@ -440,7 +471,10 @@ impl QoSTarget {
                     Ok(Self::AMOFMax)
                 }
             }
-            DataSel::RLat(_, _) | DataSel::WLat(_, _) => {
+            DataSel::RLat(_, time_pct) | DataSel::WLat(_, time_pct) => {
+                if time_pct != "mean" {
+                    bail!("Latency range target should have \"mean\" for time percentile");
+                }
                 let (low, high) = match v.as_str() {
                     "q1" => (0.75, 1.00),
                     "q2" => (0.50, 0.75),
@@ -480,16 +514,30 @@ impl QoSTarget {
         }
     }
 
-    fn solve_vrate_ref_lat(
+    fn solve_vrate_range(
         vrate: f64,
         is_write: bool,
         pct: Option<&str>,
         data: &BTreeMap<DataSel, DataSeries>,
-    ) -> u64 {
-        0
+    ) -> (f64, u64) {
+        if pct.is_none() {
+            return (0.0, 0);
+        }
+        let pct = pct.unwrap();
+        let sel = match is_write {
+            false => DataSel::RLat(pct.into(), "mean".into()),
+            true => DataSel::WLat(pct.into(), "mean".into()),
+        };
+        let ds = &data[&sel];
+        let dl = &ds.lines;
+
+        (
+            pct.parse::<f64>().unwrap(),
+            (dl.eval(vrate) * 1_000_000.0).round() as u64,
+        )
     }
 
-    fn find_vrate_at_max(ds: &DataSeries) -> f64 {
+    fn solve_vrate_at_max(ds: &DataSeries) -> f64 {
         let left = &ds.lines.left;
         let right = &ds.lines.right;
 
@@ -502,16 +550,31 @@ impl QoSTarget {
         }
     }
 
+    fn solve_lat_range(
+        ds: &DataSeries,
+        (rel_min, rel_max): (f64, f64),
+    ) -> Option<(u64, (f64, f64))> {
+        let dl = &ds.lines;
+        if dl.left.1 == dl.right.1 {
+            return None;
+        }
+        let lat_target = dl.left.1 + (dl.right.1 - dl.left.1) * rel_max;
+        let dist = dl.right.0 - dl.left.0;
+        let vrate_range = (dl.left.0 + dist * rel_min, dl.left.0 + dist * rel_max);
+        Some(((lat_target * 1_000_000.0).round() as u64, vrate_range))
+    }
+
     fn solve(&self, data: &BTreeMap<DataSel, DataSeries>) -> Option<(IoCostQoSParams, f64)> {
         match self {
             Self::VrateRange((vrate_min, vrate_max), (rpct, wpct)) => {
-                let rlat = Self::solve_vrate_ref_lat(*vrate_max, false, rpct.as_deref(), data);
-                let wlat = Self::solve_vrate_ref_lat(*vrate_max, true, wpct.as_deref(), data);
+                let (rpct, rlat) =
+                    Self::solve_vrate_range(*vrate_max, false, rpct.as_deref(), data);
+                let (wpct, wlat) = Self::solve_vrate_range(*vrate_max, true, wpct.as_deref(), data);
                 Some((
                     IoCostQoSParams {
-                        rpct: 0.0,
+                        rpct,
                         rlat,
-                        wpct: 0.0,
+                        wpct,
                         wlat,
                         min: *vrate_min,
                         max: *vrate_max,
@@ -520,7 +583,7 @@ impl QoSTarget {
                 ))
             }
             Self::MOFMax => {
-                let vrate = Self::find_vrate_at_max(&data[&DataSel::MOF]);
+                let vrate = Self::solve_vrate_at_max(&data[&DataSel::MOF]);
                 Some((
                     IoCostQoSParams {
                         min: vrate,
@@ -531,7 +594,7 @@ impl QoSTarget {
                 ))
             }
             Self::AMOFMax => {
-                let vrate = Self::find_vrate_at_max(&data[&DataSel::AMOF]);
+                let vrate = Self::solve_vrate_at_max(&data[&DataSel::AMOF]);
                 Some((
                     IoCostQoSParams {
                         min: vrate,
@@ -541,15 +604,38 @@ impl QoSTarget {
                     vrate,
                 ))
             }
-            Self::LatRange(sel, (lat_rel_min, lat_rel_max)) => {
-                let ds = &data[&sel];
-
-                Some((
-                    IoCostQoSParams {
-                        ..Default::default()
-                    },
-                    0.0,
-                ))
+            Self::LatRange(sel, lat_rel_range) => {
+                if let Some((lat_target, vrate_range)) =
+                    Self::solve_lat_range(&data[&sel], *lat_rel_range)
+                {
+                    Some(match sel {
+                        DataSel::RLat(pct, _) => (
+                            IoCostQoSParams {
+                                rpct: pct.parse::<f64>().unwrap(),
+                                rlat: lat_target,
+                                wpct: 0.0,
+                                wlat: 0,
+                                min: vrate_range.0,
+                                max: vrate_range.1,
+                            },
+                            vrate_range.1,
+                        ),
+                        DataSel::WLat(pct, _) => (
+                            IoCostQoSParams {
+                                rpct: 0.0,
+                                rlat: 0,
+                                wpct: pct.parse::<f64>().unwrap(),
+                                wlat: lat_target,
+                                min: vrate_range.0,
+                                max: vrate_range.1,
+                            },
+                            vrate_range.1,
+                        ),
+                        _ => panic!(),
+                    })
+                } else {
+                    None
+                }
             }
         }
     }
@@ -557,8 +643,8 @@ impl QoSTarget {
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 struct QoSRule {
-    name: Option<String>,
-    target: Option<QoSTarget>,
+    name: String,
+    target: QoSTarget,
 }
 
 #[derive(Debug)]
@@ -596,30 +682,33 @@ impl Bench for IoCostTuneBench {
 
     fn parse(&self, spec: &JobSpec, _prev_data: Option<&JobData>) -> Result<Box<dyn Job>> {
         let mut job = IoCostTuneJob::default();
+        let mut prop_groups = spec.props[1..].to_owned();
 
-        job.sels = [
-            DataSel::MOF,
-            DataSel::AMOF,
-            DataSel::IsolPct("01".to_owned()),
-            DataSel::LatImp,
-            DataSel::WorkCsv,
-            DataSel::Missing,
-            DataSel::RLat("50".to_owned(), "mean".to_owned()),
-            DataSel::RLat("99".to_owned(), "mean".to_owned()),
-            DataSel::RLat("50".to_owned(), "99".to_owned()),
-            DataSel::RLat("99".to_owned(), "99".to_owned()),
-            DataSel::RLat("50".to_owned(), "100".to_owned()),
-            DataSel::RLat("100".to_owned(), "100".to_owned()),
-            DataSel::WLat("50".to_owned(), "mean".to_owned()),
-            DataSel::WLat("99".to_owned(), "mean".to_owned()),
-            DataSel::WLat("50".to_owned(), "99".to_owned()),
-            DataSel::WLat("99".to_owned(), "99".to_owned()),
-            DataSel::WLat("50".to_owned(), "100".to_owned()),
-            DataSel::WLat("100".to_owned(), "100".to_owned()),
-        ]
-        .iter()
-        .cloned()
-        .collect();
+        if prop_groups.len() == 0 {
+            job.sels = [
+                DataSel::MOF,
+                DataSel::AMOF,
+                DataSel::IsolPct("01".to_owned()),
+                DataSel::LatImp,
+                DataSel::WorkCsv,
+                DataSel::Missing,
+                DataSel::RLat("50".to_owned(), "mean".to_owned()),
+                DataSel::RLat("99".to_owned(), "mean".to_owned()),
+                DataSel::RLat("50".to_owned(), "99".to_owned()),
+                DataSel::RLat("99".to_owned(), "99".to_owned()),
+                DataSel::RLat("50".to_owned(), "100".to_owned()),
+                DataSel::RLat("100".to_owned(), "100".to_owned()),
+                DataSel::WLat("50".to_owned(), "mean".to_owned()),
+                DataSel::WLat("99".to_owned(), "mean".to_owned()),
+                DataSel::WLat("50".to_owned(), "99".to_owned()),
+                DataSel::WLat("99".to_owned(), "99".to_owned()),
+                DataSel::WLat("50".to_owned(), "100".to_owned()),
+                DataSel::WLat("100".to_owned(), "100".to_owned()),
+            ]
+            .iter()
+            .cloned()
+            .collect();
+        }
 
         for (k, v) in spec.props[0].iter() {
             match k.as_str() {
@@ -644,8 +733,7 @@ impl Bench for IoCostTuneBench {
             bail!("`gran`, `vrate_min` and/or `vrate_max` invalid");
         }
 
-        let mut prop_groups = spec.props[1..].to_owned();
-        if job.sels.len() == 0 && prop_groups.len() == 0 {
+        if prop_groups.len() == 0 {
             let mut push_props = |props: &[(&str, &str)]| {
                 prop_groups.push(
                     props
@@ -655,7 +743,8 @@ impl Bench for IoCostTuneBench {
                 )
             };
 
-            push_props(&[("name", "default"), ("mof", "max")]);
+            push_props(&[("name", "naive")]);
+            push_props(&[("name", "bandwidth"), ("mof", "max")]);
             push_props(&[("name", "protection"), ("amof", "max")]);
             push_props(&[("name", "rlat-99-q1"), ("rlat-99", "q1")]);
             push_props(&[("name", "rlat-99-q2"), ("rlat-99", "q2")]);
@@ -668,7 +757,9 @@ impl Bench for IoCostTuneBench {
             let mut props = props.clone();
 
             if let Some(name) = props.remove("name") {
-                rule.name = Some(name.to_string());
+                rule.name = name.to_string();
+            } else {
+                bail!("Each rule must have a name");
             }
 
             let target = QoSTarget::parse(props)?;
@@ -676,7 +767,7 @@ impl Bench for IoCostTuneBench {
             for sel in target.sels().into_iter() {
                 job.sels.insert(sel);
             }
-            rule.target = Some(target);
+            rule.target = target;
             job.rules.push(rule);
         }
 
@@ -1001,8 +1092,8 @@ impl DataSeries {
 }
 
 #[derive(Serialize, Deserialize, Clone, Default, Debug)]
-struct QoSResult {
-    rule: QoSRule,
+struct QoSSolution {
+    target: QoSTarget,
     scale_factor: f64,
     model: IoCostModelParams,
     qos: IoCostQoSParams,
@@ -1015,7 +1106,34 @@ pub struct IoCostTuneResult {
     mem_profile: u32,
     isol_prot_pct: String,
     data: BTreeMap<DataSel, DataSeries>,
-    results: Vec<QoSResult>,
+    solutions: BTreeMap<String, QoSSolution>,
+}
+
+impl IoCostTuneJob {
+    fn format_solution<'a>(out: &mut Box<dyn Write + 'a>, name: &str, sol: &QoSSolution) {
+        let model = &sol.model;
+        let qos = &sol.qos;
+        writeln!(out, "{}", name).unwrap();
+        writeln!(out, "  target: {}", &sol.target).unwrap();
+        writeln!(out, "  scale: {}%", format_pct(sol.scale_factor)).unwrap();
+        writeln!(
+            out,
+            "  model: rbps={} rseqiops={} rrandiops={} wbps={} wseqiops={} wrandiops={}",
+            model.rbps,
+            model.rseqiops,
+            model.rrandiops,
+            model.wbps,
+            model.wseqiops,
+            model.wrandiops,
+        )
+        .unwrap();
+        writeln!(
+            out,
+            "  qos: rpct={:.2} rlat={} wpct={:.2} wlat={} min={:.2} max={:.2}",
+            qos.rpct, qos.rlat, qos.wpct, qos.wlat, qos.min, qos.max,
+        )
+        .unwrap();
+    }
 }
 
 impl Job for IoCostTuneJob {
@@ -1151,34 +1269,28 @@ impl Job for IoCostTuneJob {
         let base_model = qrec.base_model.clone();
         let base_qos = qrec.base_qos.clone();
 
-        let mut results = Vec::<QoSResult>::new();
-        for rule in self.rules.iter().cloned() {
-            let mut vrate = std::f64::MAX;
-            //for target in rule.targets.iter() {
-            /*let solution = data[&target.sel]
-                .lines
-                .solve(&target.target, (self.vrate_min, self.vrate_max));
-            debug!(
-                "iocost-tune: target={:?} solution={}",
-                &target.target, solution
-            );
-            vrate = vrate.min(solution);*/
-            //}
+        let mut solutions = BTreeMap::<String, QoSSolution>::new();
+        for rule in self.rules.iter() {
+            if let Some((mut qos, target_vrate)) = rule.target.solve(&data) {
+                debug!(
+                    "iocost-tune: rule={:?} qos={:?} target_vrate={}",
+                    rule, &qos, target_vrate
+                );
+                let scale_factor = target_vrate / 100.0;
+                let model = base_model.clone() * scale_factor;
+                qos.min /= scale_factor;
+                qos.max /= scale_factor;
 
-            let scale_factor = vrate / 100.0;
-            let model = base_model.clone() * scale_factor;
-            let qos = IoCostQoSParams {
-                min: 100.0,
-                max: 100.0,
-                ..base_qos.clone()
-            };
-
-            results.push(QoSResult {
-                rule,
-                scale_factor,
-                model,
-                qos,
-            });
+                solutions.insert(
+                    rule.name.clone(),
+                    QoSSolution {
+                        target: rule.target.clone(),
+                        scale_factor,
+                        model,
+                        qos,
+                    },
+                );
+            }
         }
 
         Ok(serde_json::to_value(IoCostTuneResult {
@@ -1187,7 +1299,7 @@ impl Job for IoCostTuneJob {
             mem_profile: qrec.mem_profile,
             isol_prot_pct,
             data,
-            results,
+            solutions,
         })?)
     }
 
@@ -1219,8 +1331,21 @@ impl Job for IoCostTuneJob {
         )
         .unwrap();
 
-        let mut grapher = graph::Grapher::new(out, graph_prefix.as_deref());
+        let mut grapher = graph::Grapher::new(&mut out, graph_prefix.as_deref());
         grapher.plot(data, &res)?;
+
+        if self.rules.len() > 0 {
+            write!(out, "{}\n", &double_underline("Solutions")).unwrap();
+
+            for rule in self.rules.iter() {
+                match res.solutions.get(&rule.name) {
+                    Some(sol) => Self::format_solution(&mut out, &rule.name, sol),
+                    None => writeln!(out, "{}  No solution", &rule.name).unwrap(),
+                }
+                writeln!(out, "").unwrap();
+            }
+        }
+
         Ok(())
     }
 }

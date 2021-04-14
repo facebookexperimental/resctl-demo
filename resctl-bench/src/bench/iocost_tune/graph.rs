@@ -5,13 +5,13 @@ use plotlib::style::{LineStyle, PointMarker, PointStyle};
 use plotlib::view::ContinuousView;
 use std::process::Command;
 
-pub struct Grapher<'a> {
-    out: Box<dyn Write + 'a>,
+pub struct Grapher<'a, 'b> {
+    out: &'a mut Box<dyn Write + 'b>,
     file_prefix: Option<String>,
 }
 
-impl<'a> Grapher<'a> {
-    pub fn new(out: Box<dyn Write + 'a>, file_prefix: Option<&str>) -> Self {
+impl<'a, 'b> Grapher<'a, 'b> {
+    pub fn new(out: &'a mut Box<dyn Write + 'b>, file_prefix: Option<&str>) -> Self {
         Self {
             out,
             file_prefix: file_prefix.map(|x| x.to_owned()),
