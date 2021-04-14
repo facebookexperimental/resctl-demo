@@ -22,7 +22,7 @@ impl Default for MemHogTune {
             size_range: (0, 0),
             intvs: 10,
             isol_pct: "01".to_owned(),
-            isol_thr: 0.8,
+            isol_thr: 0.9,
             dur: 200.0,
         }
     }
