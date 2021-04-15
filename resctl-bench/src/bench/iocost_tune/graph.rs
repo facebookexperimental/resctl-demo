@@ -22,7 +22,7 @@ impl<'a, 'b> Grapher<'a, 'b> {
         sel: &DataSel,
         series: &DataSeries,
         mem_profile: u32,
-        isol_prot_pct: &str,
+        isol_pct: &str,
         extra_info: Option<&str>,
     ) -> (ContinuousView, (f64, f64), f64) {
         let (vrate_min, vrate_max) = series.vrate_range;
@@ -52,9 +52,9 @@ impl<'a, 'b> Grapher<'a, 'b> {
                 (ymin, 1.0)
             }
             DataSel::AMOFDelta => (0.0, 1.0),
-            DataSel::IsolProt => (0.0, 100.0),
-            DataSel::IsolPct(_) => (0.0, 100.0),
             DataSel::Isol => (0.0, 100.0),
+            DataSel::IsolPct(_) => (0.0, 100.0),
+            DataSel::IsolMean => (0.0, 100.0),
             DataSel::LatImp => (0.0, 100.0),
             DataSel::WorkCsv => (0.0, 100.0),
             DataSel::Missing => (0.0, 100.0),
@@ -84,7 +84,7 @@ impl<'a, 'b> Grapher<'a, 'b> {
 
         let mut ylabel = match sel {
             DataSel::MOF | DataSel::AMOF | DataSel::AMOFDelta => format!("{}@{}", sel, mem_profile),
-            DataSel::IsolProt => format!("isol{}", isol_prot_pct),
+            DataSel::Isol => format!("isol-{}", isol_pct),
             sel => format!("{}", sel),
         };
         if extra_info.is_some() {
@@ -105,11 +105,11 @@ impl<'a, 'b> Grapher<'a, 'b> {
         sel: &DataSel,
         series: &DataSeries,
         mem_profile: u32,
-        isol_prot_pct: &str,
+        isol_pct: &str,
     ) -> Result<()> {
         const SIZE: (u32, u32) = (80, 24);
         let (view, vrate_range, yscale) =
-            Self::setup_view(sel, series, mem_profile, isol_prot_pct, None);
+            Self::setup_view(sel, series, mem_profile, isol_pct, None);
 
         let mut lines = vec![];
         for i in 0..SIZE.0 {
@@ -151,12 +151,12 @@ impl<'a, 'b> Grapher<'a, 'b> {
         sel: &DataSel,
         series: &DataSeries,
         mem_profile: u32,
-        isol_prot_pct: &str,
+        isol_pct: &str,
         extra_info: &str,
     ) -> Result<()> {
         const SIZE: (u32, u32) = (576, 468);
         let (view, vrate_range, yscale) =
-            Self::setup_view(sel, series, mem_profile, isol_prot_pct, Some(extra_info));
+            Self::setup_view(sel, series, mem_profile, isol_pct, Some(extra_info));
 
         let points = series
             .outliers
@@ -241,7 +241,7 @@ impl<'a, 'b> Grapher<'a, 'b> {
 
     pub fn plot(&mut self, data: &JobData, res: &IoCostTuneResult) -> Result<()> {
         for (sel, series) in res.data.iter() {
-            self.plot_one_text(sel, series, res.mem_profile, &res.isol_prot_pct)?;
+            self.plot_one_text(sel, series, res.mem_profile, &res.isol_pct)?;
         }
         if self.file_prefix.is_none() {
             return Ok(());
@@ -253,7 +253,7 @@ impl<'a, 'b> Grapher<'a, 'b> {
                 sel,
                 series,
                 res.mem_profile,
-                &res.isol_prot_pct,
+                &res.isol_pct,
                 &format!("{}", sr.scr_dev_model.trim()),
             ) {
                 bail!(
