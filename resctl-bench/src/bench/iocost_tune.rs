@@ -540,25 +540,46 @@ impl QoSTarget {
         } else if left.1 > right.1 {
             left.0
         } else {
-            ds.vrate_range.1
+            ds.vrate_range.0
         }
     }
 
     fn solve_lat_range(
         ds: &DataSeries,
         (rel_min, rel_max): (f64, f64),
+        (vrate_min, vrate_max): (f64, f64),
     ) -> Option<(u64, (f64, f64))> {
         let dl = &ds.lines;
-        if dl.left.1 == dl.right.1 {
+        let (mut left, mut right) = (dl.left, dl.right);
+
+        // Clamp and see whether there's any slope left.
+        left.0 = left.0.clamp(vrate_min, vrate_max);
+        right.0 = right.0.clamp(vrate_min, vrate_max);
+        left.1 = dl.eval(left.0);
+        right.1 = dl.eval(right.0);
+        if left.1 == right.1 {
             return None;
         }
-        let lat_target = dl.left.1 + (dl.right.1 - dl.left.1) * rel_max;
-        let dist = dl.right.0 - dl.left.0;
-        let vrate_range = (dl.left.0 + dist * rel_min, dl.left.0 + dist * rel_max);
+
+        let dist = right.0 - left.0;
+        let vrate_range = (
+            left.0 + dist * rel_min,
+            if rel_max < 1.0 {
+                left.0 + dist * rel_max
+            } else {
+                vrate_max
+            },
+        );
+        let lat_target = dl.eval(vrate_range.1);
+
         Some(((lat_target * 1_000_000.0).round() as u64, vrate_range))
     }
 
-    fn solve(&self, data: &BTreeMap<DataSel, DataSeries>) -> Option<(IoCostQoSParams, f64)> {
+    fn solve(
+        &self,
+        data: &BTreeMap<DataSel, DataSeries>,
+        (vrate_min, vrate_max): (f64, f64),
+    ) -> Option<(IoCostQoSParams, f64)> {
         match self {
             Self::VrateRange((vrate_min, vrate_max), (rpct, wpct)) => {
                 let (rpct, rlat) = Self::solve_vrate_range(*vrate_max, READ, rpct.as_deref(), data);
@@ -577,7 +598,8 @@ impl QoSTarget {
                 ))
             }
             Self::MOFMax => {
-                let vrate = Self::solve_vrate_at_max(&data[&DataSel::MOF]);
+                let vrate =
+                    Self::solve_vrate_at_max(&data[&DataSel::MOF]).clamp(vrate_min, vrate_max);
                 Some((
                     IoCostQoSParams {
                         min: vrate,
@@ -588,7 +610,8 @@ impl QoSTarget {
                 ))
             }
             Self::AMOFMax => {
-                let vrate = Self::solve_vrate_at_max(&data[&DataSel::AMOF]);
+                let vrate =
+                    Self::solve_vrate_at_max(&data[&DataSel::AMOF]).clamp(vrate_min, vrate_max);
                 Some((
                     IoCostQoSParams {
                         min: vrate,
@@ -600,7 +623,7 @@ impl QoSTarget {
             }
             Self::LatRange(sel, lat_rel_range) => {
                 if let Some((lat_target, vrate_range)) =
-                    Self::solve_lat_range(&data[&sel], *lat_rel_range)
+                    Self::solve_lat_range(&data[&sel], *lat_rel_range, (vrate_min, vrate_max))
                 {
                     Some(match sel {
                         DataSel::RLat(pct, _) => (
@@ -1184,14 +1207,14 @@ impl IoCostTuneJob {
         writeln!(out, "  target: {}", &sol.target).unwrap();
         writeln!(
             out,
-            "  info: scale={}% MOF={:.3}@{} aMOF={:.3} aMOF-delta={:.3} isol-{}={:.3}",
+            "  info: scale={}% MOF={:.3}@{} aMOF={:.3} aMOF-delta={:.3} isol-{}={}%",
             format_pct(sol.scale_factor),
             sol.mem_offload_factor,
             sol.mem_profile,
             sol.adjusted_mem_offload_factor,
             sol.adjusted_mem_offload_delta,
             isol_pct,
-            sol.isol
+            format_pct(sol.isol)
         )
         .unwrap();
 
@@ -1376,7 +1399,9 @@ impl Job for IoCostTuneJob {
 
         let mut solutions = BTreeMap::<String, QoSSolution>::new();
         for rule in self.rules.iter() {
-            if let Some((mut qos, target_vrate)) = rule.target.solve(&data) {
+            if let Some((mut qos, target_vrate)) =
+                rule.target.solve(&data, (self.vrate_min, self.vrate_max))
+            {
                 debug!(
                     "iocost-tune: rule={:?} qos={:?} target_vrate={}",
                     rule, &qos, target_vrate
