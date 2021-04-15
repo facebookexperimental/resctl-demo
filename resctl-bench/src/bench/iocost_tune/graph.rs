@@ -64,7 +64,10 @@ impl<'a, 'b> Grapher<'a, 'b> {
         let ymax = (val_max * 1.1).max((ymin) + 0.000001);
 
         let lines = &series.lines;
-        let mut xlabel = format!("vrate (");
+        let mut xlabel = format!(
+            "vrate {:.1}-{:.1} (",
+            series.vrate_range.0, series.vrate_range.1
+        );
         if lines.left.1 == lines.right.1 {
             xlabel += &format!("mean={:.3} ", lines.left.1 * yscale)
         } else {
@@ -75,10 +78,10 @@ impl<'a, 'b> Grapher<'a, 'b> {
             )
         }
         if lines.left.0 > vrate_min {
-            xlabel += &format!("left-infl={:.1} ", lines.left.0);
+            xlabel += &format!("L-infl={:.1} ", lines.left.0);
         }
         if lines.right.0 < vrate_max {
-            xlabel += &format!("right-infl={:.1} ", lines.right.0);
+            xlabel += &format!("R-infl={:.1} ", lines.right.0);
         }
         xlabel += &format!("err={:.3})", series.error * yscale);
 

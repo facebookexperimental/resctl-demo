@@ -215,11 +215,11 @@ impl DataSel {
     fn pos<'a>(&'a self) -> (u32, Option<(&'a str, &'a str)>) {
         match self {
             Self::MOF => (0, None),
-            Self::Isol => (1, Some(("NONE", "NONE"))),
-            Self::IsolPct(pct) => (2, Some((pct, "NONE"))),
-            Self::IsolMean => (3, None),
-            Self::AMOF => (4, None),
-            Self::AMOFDelta => (5, None),
+            Self::AMOF => (1, None),
+            Self::AMOFDelta => (2, None),
+            Self::Isol => (3, Some(("NONE", "NONE"))),
+            Self::IsolPct(pct) => (4, Some((pct, "NONE"))),
+            Self::IsolMean => (5, None),
             Self::LatImp => (6, None),
             Self::WorkCsv => (7, None),
             Self::Missing => (8, None),
@@ -1448,7 +1448,7 @@ impl Job for IoCostTuneJob {
             for rule in self.rules.iter() {
                 match res.solutions.get(&rule.name) {
                     Some(sol) => Self::format_solution(&mut out, &rule.name, sol, &res.isol_pct),
-                    None => writeln!(out, "{}  No solution", &rule.name).unwrap(),
+                    None => writeln!(out, "{}  NO SOLUTION", &rule.name).unwrap(),
                 }
                 writeln!(out, "").unwrap();
             }
