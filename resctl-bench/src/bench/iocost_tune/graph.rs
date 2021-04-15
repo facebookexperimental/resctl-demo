@@ -32,7 +32,6 @@ impl<'a, 'b> Grapher<'a, 'b> {
         isol_pct: &str,
         extra_info: Option<&str>,
     ) -> (ContinuousView, f64) {
-        let (vrate_min, vrate_max) = vrate_range;
         let (val_min, val_max) = series
             .points
             .iter()
@@ -84,10 +83,10 @@ impl<'a, 'b> Grapher<'a, 'b> {
                 lines.left.1.max(lines.right.1) * yscale
             )
         }
-        if lines.left.0 > vrate_min {
+        if lines.left.0 > series.vrate_range.0 {
             xlabel += &format!("L-infl={:.1} ", lines.left.0);
         }
-        if lines.right.0 < vrate_max {
+        if lines.right.0 < series.vrate_range.1 {
             xlabel += &format!("R-infl={:.1} ", lines.right.0);
         }
         xlabel += &format!("err={:.3})", series.error * yscale);
@@ -102,7 +101,7 @@ impl<'a, 'b> Grapher<'a, 'b> {
         }
 
         let view = ContinuousView::new()
-            .x_range(0.0, (vrate_max * 1.1).max(0.000001))
+            .x_range(0.0, (vrate_range.1 * 1.1).max(0.000001))
             .y_range(ymin * yscale, ymax * yscale)
             .x_label(xlabel)
             .y_label(ylabel);
