@@ -400,8 +400,8 @@ impl std::fmt::Display for QoSTarget {
                     write!(f, ",wpct={}", wpct).unwrap();
                 }
             }
-            Self::MOFMax => write!(f, "mof=max").unwrap(),
-            Self::AMOFMax => write!(f, "amof=max").unwrap(),
+            Self::MOFMax => write!(f, "MOF=max").unwrap(),
+            Self::AMOFMax => write!(f, "aMOF=max").unwrap(),
             Self::LatRange(sel, (low, high)) => match sel {
                 DataSel::RLat(lat_pct, _) => {
                     write!(f, "rlat-{}={}-{}", lat_pct, low, high).unwrap()
@@ -516,7 +516,7 @@ impl QoSTarget {
 
     fn solve_vrate_range(
         vrate: f64,
-        is_write: bool,
+        rw: usize,
         pct: Option<&str>,
         data: &BTreeMap<DataSel, DataSeries>,
     ) -> (f64, u64) {
@@ -524,9 +524,10 @@ impl QoSTarget {
             return (0.0, 0);
         }
         let pct = pct.unwrap();
-        let sel = match is_write {
-            false => DataSel::RLat(pct.into(), "mean".into()),
-            true => DataSel::WLat(pct.into(), "mean".into()),
+        let sel = match rw {
+            READ => DataSel::RLat(pct.into(), "mean".into()),
+            WRITE => DataSel::WLat(pct.into(), "mean".into()),
+            _ => panic!(),
         };
         let ds = &data[&sel];
         let dl = &ds.lines;
@@ -567,9 +568,9 @@ impl QoSTarget {
     fn solve(&self, data: &BTreeMap<DataSel, DataSeries>) -> Option<(IoCostQoSParams, f64)> {
         match self {
             Self::VrateRange((vrate_min, vrate_max), (rpct, wpct)) => {
-                let (rpct, rlat) =
-                    Self::solve_vrate_range(*vrate_max, false, rpct.as_deref(), data);
-                let (wpct, wlat) = Self::solve_vrate_range(*vrate_max, true, wpct.as_deref(), data);
+                let (rpct, rlat) = Self::solve_vrate_range(*vrate_max, READ, rpct.as_deref(), data);
+                let (wpct, wlat) =
+                    Self::solve_vrate_range(*vrate_max, WRITE, wpct.as_deref(), data);
                 Some((
                     IoCostQoSParams {
                         rpct,
@@ -684,31 +685,29 @@ impl Bench for IoCostTuneBench {
         let mut job = IoCostTuneJob::default();
         let mut prop_groups = spec.props[1..].to_owned();
 
-        if prop_groups.len() == 0 {
-            job.sels = [
-                DataSel::MOF,
-                DataSel::AMOF,
-                DataSel::IsolPct("01".to_owned()),
-                DataSel::LatImp,
-                DataSel::WorkCsv,
-                DataSel::Missing,
-                DataSel::RLat("50".to_owned(), "mean".to_owned()),
-                DataSel::RLat("99".to_owned(), "mean".to_owned()),
-                DataSel::RLat("50".to_owned(), "99".to_owned()),
-                DataSel::RLat("99".to_owned(), "99".to_owned()),
-                DataSel::RLat("50".to_owned(), "100".to_owned()),
-                DataSel::RLat("100".to_owned(), "100".to_owned()),
-                DataSel::WLat("50".to_owned(), "mean".to_owned()),
-                DataSel::WLat("99".to_owned(), "mean".to_owned()),
-                DataSel::WLat("50".to_owned(), "99".to_owned()),
-                DataSel::WLat("99".to_owned(), "99".to_owned()),
-                DataSel::WLat("50".to_owned(), "100".to_owned()),
-                DataSel::WLat("100".to_owned(), "100".to_owned()),
-            ]
-            .iter()
-            .cloned()
-            .collect();
-        }
+        job.sels = [
+            DataSel::MOF,
+            DataSel::AMOF,
+            DataSel::AMOFDelta,
+            DataSel::IsolPct("01".to_owned()),
+            DataSel::LatImp,
+            DataSel::WorkCsv,
+            DataSel::RLat("50".to_owned(), "mean".to_owned()),
+            DataSel::RLat("99".to_owned(), "mean".to_owned()),
+            DataSel::RLat("50".to_owned(), "99".to_owned()),
+            DataSel::RLat("99".to_owned(), "99".to_owned()),
+            DataSel::RLat("50".to_owned(), "100".to_owned()),
+            DataSel::RLat("100".to_owned(), "100".to_owned()),
+            DataSel::WLat("50".to_owned(), "mean".to_owned()),
+            DataSel::WLat("99".to_owned(), "mean".to_owned()),
+            DataSel::WLat("50".to_owned(), "99".to_owned()),
+            DataSel::WLat("99".to_owned(), "99".to_owned()),
+            DataSel::WLat("50".to_owned(), "100".to_owned()),
+            DataSel::WLat("100".to_owned(), "100".to_owned()),
+        ]
+        .iter()
+        .cloned()
+        .collect();
 
         for (k, v) in spec.props[0].iter() {
             match k.as_str() {
@@ -1094,9 +1093,81 @@ impl DataSeries {
 #[derive(Serialize, Deserialize, Clone, Default, Debug)]
 struct QoSSolution {
     target: QoSTarget,
-    scale_factor: f64,
     model: IoCostModelParams,
     qos: IoCostQoSParams,
+
+    scale_factor: f64,
+    mem_profile: u32,
+    mem_offload_factor: f64,
+    adjusted_mem_offload_factor: f64,
+    adjusted_mem_offload_delta: f64,
+    isol_01: f64,
+    rlat: TimePctsMap,
+    wlat: TimePctsMap,
+}
+
+impl QoSSolution {
+    const LAT_PCTS: &'static [(&'static str, &'static str)] = &[
+        ("50", "mean"),
+        ("50", "99"),
+        ("50", "100"),
+        ("99", "mean"),
+        ("99", "99"),
+        ("100", "100"),
+    ];
+
+    fn lat_table(
+        rw: usize,
+        target_vrate: f64,
+        data: &BTreeMap<DataSel, DataSeries>,
+    ) -> TimePctsMap {
+        let rw = match rw {
+            READ => "rlat",
+            WRITE => "wlat",
+            _ => panic!(),
+        };
+
+        let mut map = TimePctsMap::new();
+        for (lat_pct, time_pct) in Self::LAT_PCTS {
+            let sel = DataSel::parse(&format!("{}-{}-{}", rw, lat_pct, time_pct)).unwrap();
+            let lat_pct = lat_pct.to_string();
+            let time_pct = time_pct.to_string();
+
+            if map.get(&lat_pct).is_none() {
+                map.insert(lat_pct.clone(), Default::default());
+            }
+            let time_map = map.get_mut(&lat_pct).unwrap();
+            time_map.insert(time_pct, data[&sel].lines.eval(target_vrate));
+        }
+        map
+    }
+
+    fn new(
+        target: &QoSTarget,
+        model: &IoCostModelParams,
+        qos: &IoCostQoSParams,
+        target_vrate: f64,
+        scale_factor: f64,
+        mem_profile: u32,
+        data: &BTreeMap<DataSel, DataSeries>,
+    ) -> Self {
+        Self {
+            target: target.clone(),
+            model: model.clone(),
+            qos: qos.clone(),
+
+            scale_factor,
+            mem_profile,
+            mem_offload_factor: data[&DataSel::MOF].lines.eval(target_vrate),
+            adjusted_mem_offload_factor: data[&DataSel::AMOF].lines.eval(target_vrate),
+            adjusted_mem_offload_delta: data[&DataSel::AMOFDelta].lines.eval(target_vrate),
+            isol_01: data[&DataSel::IsolPct("01".into())]
+                .lines
+                .eval(target_vrate),
+            rlat: Self::lat_table(READ, target_vrate, data),
+            wlat: Self::lat_table(WRITE, target_vrate, data),
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Default, Debug)]
@@ -1115,7 +1186,44 @@ impl IoCostTuneJob {
         let qos = &sol.qos;
         writeln!(out, "{}", name).unwrap();
         writeln!(out, "  target: {}", &sol.target).unwrap();
-        writeln!(out, "  scale: {}%", format_pct(sol.scale_factor)).unwrap();
+        writeln!(
+            out,
+            "  info: scale={}% MOF={:.3}@{} aMOF={:.3} aMOF-delta={:.3} isol-01={:.3}",
+            format_pct(sol.scale_factor),
+            sol.mem_offload_factor,
+            sol.mem_profile,
+            sol.adjusted_mem_offload_factor,
+            sol.adjusted_mem_offload_delta,
+            sol.isol_01
+        )
+        .unwrap();
+
+        write!(out, "  rlat:").unwrap();
+        for (lat_pct, time_pct) in QoSSolution::LAT_PCTS {
+            write!(
+                out,
+                " {}-{}={:>5}",
+                lat_pct,
+                time_pct,
+                format_duration(sol.rlat[&lat_pct.to_string()][&time_pct.to_string()])
+            )
+            .unwrap();
+        }
+        writeln!(out, "").unwrap();
+
+        write!(out, "  wlat:").unwrap();
+        for (lat_pct, time_pct) in QoSSolution::LAT_PCTS {
+            write!(
+                out,
+                " {}-{}={:>5}",
+                lat_pct,
+                time_pct,
+                format_duration(sol.wlat[&lat_pct.to_string()][&time_pct.to_string()])
+            )
+            .unwrap();
+        }
+        writeln!(out, "").unwrap();
+
         writeln!(
             out,
             "  model: rbps={} rseqiops={} rrandiops={} wbps={} wseqiops={} wrandiops={}",
@@ -1283,12 +1391,15 @@ impl Job for IoCostTuneJob {
 
                 solutions.insert(
                     rule.name.clone(),
-                    QoSSolution {
-                        target: rule.target.clone(),
+                    QoSSolution::new(
+                        &rule.target,
+                        &model,
+                        &qos,
+                        target_vrate,
                         scale_factor,
-                        model,
-                        qos,
-                    },
+                        qrec.mem_profile,
+                        &data,
+                    ),
                 );
             }
         }
