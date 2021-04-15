@@ -31,21 +31,23 @@ enum DataSel {
 }
 
 #[derive(Debug, Clone, Copy)]
-enum DataDir {
+enum DataShape {
     Any,
     Inc,
     Dec,
 }
 
 impl DataSel {
-    fn fit_lines_opts(&self) -> (DataDir, bool) {
+    // DataShape, filter_outliers, filter_by_isol
+    fn fit_lines_opts(&self) -> (DataShape, bool, bool) {
         match self {
-            Self::MOF | Self::AMOF | Self::AMOFDelta => (DataDir::Inc, false),
-            Self::Isol | Self::IsolPct(_) | Self::IsolMean => (DataDir::Dec, false),
-            Self::LatImp => (DataDir::Inc, false),
-            Self::WorkCsv => (DataDir::Any, false),
-            Self::Missing => (DataDir::Inc, false),
-            Self::RLat(_, _) | Self::WLat(_, _) => (DataDir::Inc, true),
+            Self::MOF => (DataShape::Inc, false, false),
+            Self::AMOF | Self::AMOFDelta => (DataShape::Inc, false, true),
+            Self::Isol | Self::IsolPct(_) | Self::IsolMean => (DataShape::Dec, false, false),
+            Self::LatImp => (DataShape::Inc, false, false),
+            Self::WorkCsv => (DataShape::Any, false, false),
+            Self::Missing => (DataShape::Inc, false, false),
+            Self::RLat(_, _) | Self::WLat(_, _) => (DataShape::Inc, true, false),
         }
     }
 
@@ -215,9 +217,10 @@ impl DataSel {
     fn pos<'a>(&'a self) -> (u32, Option<(&'a str, &'a str)>) {
         match self {
             Self::MOF => (0, None),
-            Self::AMOF => (1, None),
-            Self::AMOFDelta => (2, None),
-            Self::Isol => (3, Some(("NONE", "NONE"))),
+            // Isol must come before AMOF to allow filtering by isol.
+            Self::Isol => (1, Some(("NONE", "NONE"))),
+            Self::AMOF => (2, None),
+            Self::AMOFDelta => (3, None),
             Self::IsolPct(pct) => (4, Some((pct, "NONE"))),
             Self::IsolMean => (5, None),
             Self::LatImp => (6, None),
@@ -703,9 +706,9 @@ impl Bench for IoCostTuneBench {
 
         job.sels = [
             DataSel::MOF,
-            DataSel::Isol,
             DataSel::AMOF,
             DataSel::AMOFDelta,
+            DataSel::Isol,
             DataSel::LatImp,
             DataSel::WorkCsv,
             DataSel::RLat("50".to_owned(), "mean".to_owned()),
@@ -943,7 +946,7 @@ impl DataSeries {
         err_sum.sqrt() / cnt as f64
     }
 
-    fn fit_lines(&mut self, gran: f64, dir: DataDir) {
+    fn fit_lines(&mut self, gran: f64, dir: DataShape) {
         if self.points.len() == 0 {
             return;
         }
@@ -972,6 +975,7 @@ impl DataSeries {
             left: (Self::vmin(&self.points), mean),
             right: (Self::vmax(&self.points), mean),
         };
+
         let best_error =
             RefCell::new(Self::calc_error(self.points.iter(), &best_lines) * ERROR_DISCOUNT);
 
@@ -981,13 +985,13 @@ impl DataSeries {
                     return false;
                 }
                 match dir {
-                    DataDir::Any => {}
-                    DataDir::Inc => {
+                    DataShape::Any => {}
+                    DataShape::Inc => {
                         if lines.left.1 > lines.right.1 {
                             return false;
                         }
                     }
-                    DataDir::Dec => {
+                    DataShape::Dec => {
                         if lines.left.1 < lines.right.1 {
                             return false;
                         }
@@ -1015,7 +1019,7 @@ impl DataSeries {
         };
 
         // Try simple linear regression.
-        if try_and_pick(&|| Some(Self::fit_line(&self.points))) {
+        if self.points.len() > 3 && try_and_pick(&|| Some(Self::fit_line(&self.points))) {
             let be = *best_error.borrow();
             best_error.replace(be * ERROR_DISCOUNT);
         }
@@ -1055,6 +1059,22 @@ impl DataSeries {
         self.lines = best_lines;
     }
 
+    fn filter_beyond(&mut self, vrate_thr: f64) {
+        let mut points = vec![];
+        points.append(&mut self.points);
+        for point in points.into_iter() {
+            if point.0 <= vrate_thr {
+                self.points.push(point);
+            } else {
+                self.outliers.push(point);
+            }
+        }
+
+        // self.points start sorted but outliers may go out of order if this
+        // function is called more than once. Sort just in case.
+        self.outliers.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    }
+
     fn filter_outliers(&mut self) {
         if self.points.len() < 2 {
             return;
@@ -1091,7 +1111,7 @@ impl DataSeries {
         }
     }
 
-    fn extend_over_outliers(&mut self) {
+    fn fill_vrate_range(&mut self) {
         let (vmin, vmax) = (Self::vmin(&self.points), Self::vmax(&self.points));
         let slope =
             (self.lines.right.1 - self.lines.left.1) / (self.lines.right.0 - self.lines.left.0);
@@ -1313,13 +1333,12 @@ impl Job for IoCostTuneJob {
             .context("Parsing iocost-qos result")?;
         let mut data = BTreeMap::<DataSel, DataSeries>::default();
 
-        let isol_pct = match qrec.runs.iter().next() {
-            Some(Some(recr)) if recr.prot.scenarios.len() > 0 => recr.prot.scenarios[0]
-                .as_mem_hog_tune()
-                .unwrap()
-                .isol_pct
-                .clone(),
-            _ => "01".to_owned(),
+        let (isol_pct, isol_thr) = match qrec.runs.iter().next() {
+            Some(Some(recr)) if recr.prot.scenarios.len() > 0 => {
+                let tune = recr.prot.scenarios[0].as_mem_hog_tune().unwrap();
+                (tune.isol_pct.clone(), tune.isol_thr)
+            }
+            _ => ("01".to_string(), 0.9),
         };
 
         for sel in self.sels.iter() {
@@ -1354,17 +1373,29 @@ impl Job for IoCostTuneJob {
                 DataSeries::vmax(&series.points),
             );
 
-            let (dir, filter) = sel.fit_lines_opts();
+            let (dir, filter_outliers, filter_by_isol) = sel.fit_lines_opts();
             trace!(
-                "iocost-tune: fitting {:?} points={} dir={:?} filter={}",
+                "iocost-tune: fitting {:?} points={} dir={:?} filter_outliers={} filter_by_isol={}",
                 &sel,
                 series.points.len(),
                 &dir,
-                &filter
+                filter_outliers,
+                filter_by_isol
             );
+
+            if filter_by_isol {
+                let dl = &data[&DataSel::Isol].lines;
+                if dl.right.1 < isol_thr {
+                    let slope = (dl.right.1 - dl.left.1) / (dl.right.0 - dl.left.0);
+                    let intcp = dl.right.0 - (dl.right.1 - isol_thr) / slope;
+                    series.filter_beyond(intcp);
+                    series.vrate_range.1 = intcp;
+                }
+            }
+
             series.fit_lines(self.gran, dir);
 
-            if filter {
+            if filter_outliers {
                 series.filter_outliers();
                 trace!(
                     "iocost-tune: fitting {:?} points={} outliers={} dir={:?}",
@@ -1374,8 +1405,8 @@ impl Job for IoCostTuneJob {
                     &dir
                 );
                 series.fit_lines(self.gran, dir);
-                series.extend_over_outliers();
             }
+            series.fill_vrate_range();
 
             // For some data series, we fit the lines excluding the outliers
             // so that the fitted lines can be used to guess the likely
@@ -1464,7 +1495,13 @@ impl Job for IoCostTuneJob {
         )
         .unwrap();
 
-        let mut grapher = graph::Grapher::new(&mut out, graph_prefix.as_deref());
+        let vrate_range = res
+            .data
+            .iter()
+            .fold((std::f64::MAX, 0.0), |acc, (_sel, ds)| {
+                (ds.vrate_range.0.min(acc.0), ds.vrate_range.1.max(acc.1))
+            });
+        let mut grapher = graph::Grapher::new(&mut out, graph_prefix.as_deref(), vrate_range);
         grapher.plot(data, &res)?;
 
         if self.rules.len() > 0 {

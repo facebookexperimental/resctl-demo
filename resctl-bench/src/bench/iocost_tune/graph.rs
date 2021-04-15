@@ -8,24 +8,31 @@ use std::process::Command;
 pub struct Grapher<'a, 'b> {
     out: &'a mut Box<dyn Write + 'b>,
     file_prefix: Option<String>,
+    vrate_range: (f64, f64),
 }
 
 impl<'a, 'b> Grapher<'a, 'b> {
-    pub fn new(out: &'a mut Box<dyn Write + 'b>, file_prefix: Option<&str>) -> Self {
+    pub fn new(
+        out: &'a mut Box<dyn Write + 'b>,
+        file_prefix: Option<&str>,
+        vrate_range: (f64, f64),
+    ) -> Self {
         Self {
             out,
             file_prefix: file_prefix.map(|x| x.to_owned()),
+            vrate_range,
         }
     }
 
     fn setup_view(
+        vrate_range: (f64, f64),
         sel: &DataSel,
         series: &DataSeries,
         mem_profile: u32,
         isol_pct: &str,
         extra_info: Option<&str>,
-    ) -> (ContinuousView, (f64, f64), f64) {
-        let (vrate_min, vrate_max) = series.vrate_range;
+    ) -> (ContinuousView, f64) {
+        let (vrate_min, vrate_max) = vrate_range;
         let (val_min, val_max) = series
             .points
             .iter()
@@ -100,7 +107,7 @@ impl<'a, 'b> Grapher<'a, 'b> {
             .x_label(xlabel)
             .y_label(ylabel);
 
-        (view, (vrate_min, vrate_max), yscale)
+        (view, yscale)
     }
 
     fn plot_one_text(
@@ -111,13 +118,13 @@ impl<'a, 'b> Grapher<'a, 'b> {
         isol_pct: &str,
     ) -> Result<()> {
         const SIZE: (u32, u32) = (80, 24);
-        let (view, vrate_range, yscale) =
-            Self::setup_view(sel, series, mem_profile, isol_pct, None);
+        let (view, yscale) =
+            Self::setup_view(self.vrate_range, sel, series, mem_profile, isol_pct, None);
 
         let mut lines = vec![];
         for i in 0..SIZE.0 {
-            let vrate = vrate_range.1 / SIZE.0 as f64 * i as f64;
-            if vrate >= vrate_range.0 {
+            let vrate = series.vrate_range.1 / SIZE.0 as f64 * i as f64;
+            if vrate >= series.vrate_range.0 {
                 lines.push((vrate, series.lines.eval(vrate) * yscale));
             }
         }
@@ -158,8 +165,14 @@ impl<'a, 'b> Grapher<'a, 'b> {
         extra_info: &str,
     ) -> Result<()> {
         const SIZE: (u32, u32) = (576, 468);
-        let (view, vrate_range, yscale) =
-            Self::setup_view(sel, series, mem_profile, isol_pct, Some(extra_info));
+        let (view, yscale) = Self::setup_view(
+            self.vrate_range,
+            sel,
+            series,
+            mem_profile,
+            isol_pct,
+            Some(extra_info),
+        );
 
         let points = series
             .outliers
@@ -189,13 +202,13 @@ impl<'a, 'b> Grapher<'a, 'b> {
 
         let lines = &series.lines;
         let mut segments = vec![];
-        if vrate_range.0 < lines.left.0 {
-            segments.push((vrate_range.0, lines.left.1 * yscale));
+        if series.vrate_range.0 < lines.left.0 {
+            segments.push((series.vrate_range.0, lines.left.1 * yscale));
         }
         segments.push((lines.left.0, lines.left.1 * yscale));
         segments.push((lines.right.0, lines.right.1 * yscale));
-        if vrate_range.1 > lines.right.0 {
-            segments.push((vrate_range.1, lines.right.1 * yscale));
+        if series.vrate_range.1 > lines.right.0 {
+            segments.push((series.vrate_range.1, lines.right.1 * yscale));
         }
 
         let view = view.add(Plot::new(segments).line_style(LineStyle::new().colour("#3749e6")));
