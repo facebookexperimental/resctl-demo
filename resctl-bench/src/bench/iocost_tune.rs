@@ -367,6 +367,7 @@ enum QoSTarget {
     VrateRange((f64, f64), (Option<String>, Option<String>)),
     MOFMax,
     AMOFMax,
+    Protect,
     LatRange(DataSel, (f64, f64)),
 }
 
@@ -398,6 +399,7 @@ impl std::fmt::Display for QoSTarget {
             }
             Self::MOFMax => write!(f, "MOF=max").unwrap(),
             Self::AMOFMax => write!(f, "aMOF=max").unwrap(),
+            Self::Protect => write!(f, "protect").unwrap(),
             Self::LatRange(sel, (low, high)) => match sel {
                 DataSel::RLat(lat_pct, _) => {
                     write!(f, "rlat-{}={}-{}", lat_pct, low, high).unwrap()
@@ -454,33 +456,39 @@ impl QoSTarget {
         }
 
         let (k, v) = props.into_iter().next().unwrap();
+        let k = k.to_lowercase();
         let v = v.to_lowercase();
-        let sel = DataSel::parse(&k)?;
-        match &sel {
-            DataSel::MOF | DataSel::AMOF => {
-                if v != "max" {
-                    bail!("Invalid {:?} value {:?}", &sel, &v);
-                }
-                if sel == DataSel::MOF {
-                    Ok(Self::MOFMax)
-                } else {
-                    Ok(Self::AMOFMax)
+        match k.as_str() {
+            "protect" => Ok(Self::Protect),
+            k => {
+                let sel = DataSel::parse(k)?;
+                match &sel {
+                    DataSel::MOF | DataSel::AMOF => {
+                        if v != "max" {
+                            bail!("Invalid {:?} value {:?}", &sel, &v);
+                        }
+                        if sel == DataSel::MOF {
+                            Ok(Self::MOFMax)
+                        } else {
+                            Ok(Self::AMOFMax)
+                        }
+                    }
+                    DataSel::RLat(_, time_pct) | DataSel::WLat(_, time_pct) => {
+                        if time_pct != "mean" {
+                            bail!("Latency range target should have \"mean\" for time percentile");
+                        }
+                        let (low, high) = match v.as_str() {
+                            "q1" => (0.75, 1.00),
+                            "q2" => (0.50, 0.75),
+                            "q3" => (0.25, 0.50),
+                            "q4" => (0.0, 0.25),
+                            v => Self::parse_frac_range(v)?,
+                        };
+                        Ok(Self::LatRange(sel.clone(), (low, high)))
+                    }
+                    _ => bail!("Unsupported QoSTarget selector {:?}", &sel),
                 }
             }
-            DataSel::RLat(_, time_pct) | DataSel::WLat(_, time_pct) => {
-                if time_pct != "mean" {
-                    bail!("Latency range target should have \"mean\" for time percentile");
-                }
-                let (low, high) = match v.as_str() {
-                    "q1" => (0.75, 1.00),
-                    "q2" => (0.50, 0.75),
-                    "q3" => (0.25, 0.50),
-                    "q4" => (0.0, 0.25),
-                    v => Self::parse_frac_range(v)?,
-                };
-                Ok(Self::LatRange(sel.clone(), (low, high)))
-            }
-            _ => bail!("Unsupported QoSTarget selector {:?}", &sel),
         }
     }
 
@@ -506,7 +514,32 @@ impl QoSTarget {
             }
             Self::MOFMax => vec![DataSel::MOF],
             Self::AMOFMax => vec![DataSel::AMOF],
+            Self::Protect => vec![DataSel::MOF, DataSel::AMOFDelta],
             Self::LatRange(sel, _) => vec![sel.clone()],
+        }
+    }
+
+    /// Find the minimum vrate with the maximum value.
+    fn find_min_vrate_at_max_val(ds: &DataSeries) -> f64 {
+        let left = &ds.lines.left;
+        let right = &ds.lines.right;
+
+        if left.1 < right.1 {
+            right.0
+        } else {
+            ds.vrate_range.0
+        }
+    }
+
+    /// Find the maximum vrate with the minimum value.
+    fn find_max_vrate_at_min_val(ds: &DataSeries) -> f64 {
+        let left = &ds.lines.left;
+        let right = &ds.lines.right;
+
+        if left.1 < right.1 {
+            left.0
+        } else {
+            ds.vrate_range.1
         }
     }
 
@@ -532,19 +565,6 @@ impl QoSTarget {
             pct.parse::<f64>().unwrap(),
             (dl.eval(vrate) * 1_000_000.0).round() as u64,
         )
-    }
-
-    fn solve_vrate_at_max(ds: &DataSeries) -> f64 {
-        let left = &ds.lines.left;
-        let right = &ds.lines.right;
-
-        if left.1 < right.1 {
-            right.0
-        } else if left.1 > right.1 {
-            left.0
-        } else {
-            ds.vrate_range.0
-        }
     }
 
     fn solve_lat_range(
@@ -601,8 +621,8 @@ impl QoSTarget {
                 ))
             }
             Self::MOFMax => {
-                let vrate =
-                    Self::solve_vrate_at_max(&data[&DataSel::MOF]).clamp(vrate_min, vrate_max);
+                let vrate = Self::find_min_vrate_at_max_val(&data[&DataSel::MOF])
+                    .clamp(vrate_min, vrate_max);
                 Some((
                     IoCostQoSParams {
                         min: vrate,
@@ -613,8 +633,22 @@ impl QoSTarget {
                 ))
             }
             Self::AMOFMax => {
-                let vrate =
-                    Self::solve_vrate_at_max(&data[&DataSel::AMOF]).clamp(vrate_min, vrate_max);
+                let vrate = Self::find_min_vrate_at_max_val(&data[&DataSel::AMOF])
+                    .clamp(vrate_min, vrate_max);
+                Some((
+                    IoCostQoSParams {
+                        min: vrate,
+                        max: vrate,
+                        ..Default::default()
+                    },
+                    vrate,
+                ))
+            }
+            Self::Protect => {
+                let mof_max = Self::find_min_vrate_at_max_val(&data[&DataSel::MOF])
+                    .clamp(vrate_min, vrate_max);
+                let vrate = Self::find_max_vrate_at_min_val(&data[&DataSel::AMOFDelta])
+                    .clamp(vrate_min, mof_max);
                 Some((
                     IoCostQoSParams {
                         min: vrate,
@@ -763,7 +797,7 @@ impl Bench for IoCostTuneBench {
 
             push_props(&[("name", "naive")]);
             push_props(&[("name", "bandwidth"), ("mof", "max")]);
-            push_props(&[("name", "protection"), ("amof", "max")]);
+            push_props(&[("name", "protect"), ("protect", "")]);
             push_props(&[("name", "rlat-99-q1"), ("rlat-99", "q1")]);
             push_props(&[("name", "rlat-99-q2"), ("rlat-99", "q2")]);
             push_props(&[("name", "rlat-99-q3"), ("rlat-99", "q3")]);
