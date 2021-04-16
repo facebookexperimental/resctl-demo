@@ -3,6 +3,7 @@ use anyhow::{bail, Context, Result};
 use log::error;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use std::path::Path;
 use std::process::exit;
 use util::*;
 
@@ -27,7 +28,7 @@ lazy_static::lazy_static! {
                  --iocost-qos=[OVRS]      'iocost QoS overrides'
                  --swappiness=[OVR]       'swappiness override [0, 200]'
              -a, --args=[FILE]            'Load base command line arguments from FILE'
-                 --iocost-from-sys        'Use iocost parameters from io.cost.{{model,qos}} instead of bench.json'
+                 --iocost-from-sys        'Use parameters from io.cost.{{model,qos}} instead of bench.json'
                  --keep-reports           'Don't delete expired report files'
                  --clear-reports          'Remove existing report files'
                  --test                   'Test mode for development'
@@ -44,6 +45,7 @@ lazy_static::lazy_static! {
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub enum Mode {
     Run,
+    Study,
     Format,
     Summary,
     Pack,
@@ -70,7 +72,7 @@ pub struct Args {
     #[serde(skip)]
     pub result: String,
     #[serde(skip)]
-    pub study_rep_d: Option<String>,
+    pub study_rep_d: String,
     #[serde(skip)]
     pub iocost_from_sys: bool,
     #[serde(skip)]
@@ -96,7 +98,7 @@ impl Default for Args {
             iocost_qos_ovr: Default::default(),
             swappiness_ovr: None,
             job_specs: Default::default(),
-            study_rep_d: None,
+            study_rep_d: "".into(),
             rep_retention: 7 * 24 * 3600,
             systemd_timeout: 120.0,
             hashd_size: None,
@@ -220,11 +222,22 @@ impl Args {
             updated = true;
         }
 
-        // Only in study mode.
-        self.study_rep_d = subm.value_of("reports").map(|x| x.to_owned());
-
-        // Only in format mode.
-        self.rstat = subm.occurrences_of("rstat") as u32;
+        match mode {
+            Mode::Study => {
+                self.study_rep_d = match subm.value_of("reports") {
+                    Some(v) => v.to_string(),
+                    None => format!(
+                        "{}-report.d",
+                        Path::new(&self.result)
+                            .file_stem()
+                            .unwrap()
+                            .to_string_lossy()
+                    ),
+                }
+            }
+            Mode::Format => self.rstat = subm.occurrences_of("rstat") as u32,
+            _ => {}
+        }
 
         match Self::parse_job_specs(subm) {
             Ok(job_specs) => {
@@ -279,9 +292,8 @@ impl JsonArgs for Args {
                         clap::Arg::with_name("reports")
                             .long("reports")
                             .short("r")
-                            .required(true)
                             .takes_value(true)
-                            .help("Study reports in the specified directory"),
+                            .help("Study reports in the directory (default: RESULTFILE_BASENAME-report.d/)"),
                     )
                     .arg(job_file_arg.clone())
                     .arg(job_spec_arg.clone()),
@@ -448,7 +460,7 @@ impl JsonArgs for Args {
 
         updated |= match matches.subcommand() {
             ("run", Some(subm)) => self.process_subcommand(Mode::Run, subm),
-            ("study", Some(subm)) => self.process_subcommand(Mode::Run, subm),
+            ("study", Some(subm)) => self.process_subcommand(Mode::Study, subm),
             ("format", Some(subm)) => self.process_subcommand(Mode::Format, subm),
             ("summary", Some(subm)) => self.process_subcommand(Mode::Summary, subm),
             ("pack", Some(_)) => {
