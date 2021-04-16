@@ -59,6 +59,7 @@ pub enum SysReq {
 pub struct SysReqsReport {
     pub satisfied: BTreeSet<SysReq>,
     pub missed: BTreeSet<SysReq>,
+    pub kernel_version: String,
     pub nr_cpus: usize,
     pub total_memory: usize,
     pub total_swap: usize,

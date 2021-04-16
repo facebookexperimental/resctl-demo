@@ -280,9 +280,10 @@ impl JobCtx {
         let si = &data.sysinfo;
         if si.sysreqs_report.is_some() {
             let rep = data.sysinfo.sysreqs_report.as_ref().unwrap();
+            writeln!(buf, "System info: kernel={:?}", &rep.kernel_version).unwrap();
             writeln!(
                 buf,
-                "System info: nr_cpus={} memory={} swap={} swappiness={}",
+                "             nr_cpus={} memory={} swap={} swappiness={}",
                 rep.nr_cpus,
                 format_size(rep.total_memory),
                 format_size(rep.total_swap),
