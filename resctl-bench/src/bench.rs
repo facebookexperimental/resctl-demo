@@ -3,7 +3,7 @@
 // The individual bench implementations under bench/ inherits all uses from
 // this file. Make common stuff available.
 use anyhow::{anyhow, bail, Context, Result};
-use log::{debug, error, info, warn};
+use log::{debug, error, info, trace, warn};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 use std::fmt::Write;
@@ -12,7 +12,7 @@ use std::time::Duration;
 
 use super::base::MemInfo;
 use super::iocost::{iocost_min_vrate, IoCostQoSCfg, IoCostQoSOvr};
-use super::job::{Job, JobData, FormatOpts};
+use super::job::{FormatOpts, Job, JobData};
 use super::parse_json_value_or_dump;
 use super::progress::BenchProgress;
 use super::run::{RunCtx, WorkloadMon};

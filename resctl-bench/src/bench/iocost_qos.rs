@@ -13,7 +13,7 @@ const DFL_VRATE_MAX: f64 = 100.0;
 const DFL_VRATE_INTVS: u32 = 5;
 const DFL_STOR_BASE_LOOPS: u32 = 3;
 const DFL_STOR_LOOPS: u32 = 1;
-const DFL_ISOL_PCT: &'static str = "05";
+const DFL_ISOL_PCT: &'static str = "01";
 const DFL_ISOL_THR: f64 = 0.9;
 const DFL_RETRIES: u32 = 1;
 
@@ -25,7 +25,6 @@ struct IoCostQoSJob {
     stor_loops: u32,
     isol_pct: String,
     isol_thr: f64,
-    mem_profile: u32,
     dither_dist: Option<f64>,
     ign_min_perf: bool,
     retries: u32,
@@ -75,6 +74,7 @@ pub struct IoCostQoSResultRun {
     pub prot: ProtectionResult,
     pub adjusted_mem_size: Option<usize>,
     pub adjusted_mem_offload_factor: Option<f64>,
+    pub adjusted_mem_offload_delta: Option<f64>,
     pub vrate: BTreeMap<String, f64>,
     pub iolat: [BTreeMap<String, BTreeMap<String, f64>>; 2],
     pub nr_reports: (u64, u64),
@@ -113,7 +113,6 @@ impl IoCostQoSJob {
         let mut stor_loops = DFL_STOR_LOOPS;
         let mut isol_pct = DFL_ISOL_PCT.to_owned();
         let mut isol_thr = DFL_ISOL_THR;
-        let mut mem_profile = 0;
         let mut retries = DFL_RETRIES;
         let mut allow_fail = false;
         let mut runs = vec![IoCostQoSOvr {
@@ -133,7 +132,6 @@ impl IoCostQoSJob {
                 "storage-loops" => stor_loops = v.parse::<u32>()?,
                 "isol-pct" => isol_pct = v.to_owned(),
                 "isol-thr" => isol_thr = parse_frac(v)?,
-                "mem-profile" => mem_profile = v.parse::<u32>()?,
                 "retries" => retries = v.parse::<u32>()?,
                 "allow-fail" => allow_fail = v.parse::<bool>()?,
                 "dither" => {
@@ -229,7 +227,6 @@ impl IoCostQoSJob {
             stor_loops,
             isol_pct,
             isol_thr,
-            mem_profile,
             dither_dist,
             ign_min_perf,
             retries,
@@ -240,7 +237,7 @@ impl IoCostQoSJob {
         })
     }
 
-    fn prev_matches(&self, prec: &IoCostQoSRecord, bench: &BenchKnobs) -> bool {
+    fn prev_matches(&self, prec: &IoCostQoSRecord, mem_profile: u32, bench: &BenchKnobs) -> bool {
         // If @pr has't completed and only contains incremental results, its
         // mem_profile isn't initialized yet. Obtain mem_profile from the
         // base storage result instead.
@@ -254,11 +251,14 @@ impl IoCostQoSJob {
 
         let msg = "iocost-qos: Existing result doesn't match the current configuration";
         if prec.base_model != bench.iocost.model || prec.base_qos != bench.iocost.qos {
-            warn!("{} ({})", &msg, "iocost parameter mismatch");
+            warn!("{} (iocost parameter mismatch)", &msg);
             return false;
         }
-        if self.mem_profile > 0 && self.mem_profile != base_rec.stor.mem.profile {
-            warn!("{} ({})", &msg, "mem-profile mismatch");
+        if mem_profile != base_rec.stor.mem.profile {
+            warn!(
+                "{} (mem-profile mismatch, {} != {})",
+                &msg, mem_profile, base_rec.stor.mem.profile
+            );
             return false;
         }
 
@@ -400,16 +400,23 @@ impl IoCostQoSJob {
 
         // These are trivial to calculate but cumbersome to access. Let's
         // cache the results.
-        let (adjusted_mem_size, adjusted_mem_offload_factor) = if recr.prot.scenarios.len() > 0 {
-            let trec = recr.prot.scenarios[0].as_mem_hog_tune().unwrap();
-            (
-                trec.final_size,
-                trec.final_size
-                    .map(|size| size as f64 / sres.mem_usage as f64),
-            )
-        } else {
-            (None, None)
-        };
+        let (adjusted_mem_size, adjusted_mem_offload_factor, adjusted_mem_offload_delta) =
+            if recr.prot.scenarios.len() > 0 {
+                let trec = recr.prot.scenarios[0].as_mem_hog_tune().unwrap();
+                match trec.final_size {
+                    Some(final_size) => {
+                        let amof = final_size as f64 / sres.mem_usage as f64;
+                        (
+                            Some(final_size),
+                            Some(amof),
+                            Some(sres.mem_offload_factor - amof),
+                        )
+                    }
+                    None => (None, None, None),
+                }
+            } else {
+                (None, None, None)
+            };
 
         // Study the vrate and IO latency distributions across all the runs.
         let mut study_vrate = StudyMeanPcts::new(|arg| vec![arg.rep.iocost.vrate], None);
@@ -432,6 +439,7 @@ impl IoCostQoSJob {
             prot: pres,
             adjusted_mem_size,
             adjusted_mem_offload_factor,
+            adjusted_mem_offload_delta,
             vrate,
             iolat,
             nr_reports,
@@ -455,7 +463,10 @@ impl Job for IoCostQoSJob {
         let (prev_matches, mut prev_rec) = match rctx.prev_job_data() {
             Some(pd) => {
                 let prec: IoCostQoSRecord = pd.parse_record()?;
-                (self.prev_matches(&prec, &bench_knobs), prec)
+                (
+                    self.prev_matches(&prec, rctx.mem_info().profile, &bench_knobs),
+                    prec,
+                )
             }
             None => (
                 true,
@@ -467,10 +478,6 @@ impl Job for IoCostQoSJob {
                 },
             ),
         };
-
-        if prev_rec.runs.len() > 0 {
-            self.mem_profile = prev_rec.mem_profile;
-        }
 
         // Mark the ones with too low a max rate to run.
         if !self.ign_min_perf {
@@ -529,12 +536,6 @@ impl Job for IoCostQoSJob {
             info!("iocost-qos: All results are available in the result file, nothing to do");
         }
 
-        // Run the needed benches.
-        let mut last_mem_profile = match self.mem_profile {
-            0 => None,
-            v => Some(v),
-        };
-
         let mut runs = vec![];
         for (i, ovr) in self.runs.iter().enumerate() {
             let qos_cfg = IoCostQoSCfg::new(&bench_knobs.iocost.qos, ovr);
@@ -554,7 +555,6 @@ impl Job for IoCostQoSJob {
 
             loop {
                 let mut sjob = self.stor_job.clone();
-                sjob.mem_profile_ask = last_mem_profile;
                 sjob.loops = match i {
                     0 => self.stor_base_loops,
                     _ => self.stor_loops,
@@ -563,8 +563,6 @@ impl Job for IoCostQoSJob {
 
                 match Self::run_one(rctx, &mut sjob, &mut pjob, &qos_cfg, self.retries) {
                     Ok(recr) => {
-                        last_mem_profile = Some(recr.stor.mem.profile);
-
                         // Sanity check QoS params.
                         if recr.qos.is_some() {
                             let target_qos = qos_cfg.calc();
@@ -600,7 +598,7 @@ impl Job for IoCostQoSJob {
         Ok(serde_json::to_value(&IoCostQoSRecord {
             base_model: bench_knobs.iocost.model,
             base_qos: bench_knobs.iocost.qos,
-            mem_profile: last_mem_profile.unwrap_or(0),
+            mem_profile: rctx.mem_info().profile,
             runs,
             dither_dist: self.dither_dist,
             inc_runs: vec![],
@@ -763,7 +761,7 @@ impl Job for IoCostQoSJob {
             let qos_cfg = IoCostQoSCfg::new(&rec.base_qos, ovr);
             write!(out, "[{:02}] QoS: {}", i, qos_cfg.format()).unwrap();
             if ovr.off {
-                writeln!(out, " mem_profile={}", base_stor_rec.mem.profile).unwrap();
+                writeln!(out, " mem_profile={}", rec.mem_profile).unwrap();
             } else {
                 writeln!(out, "").unwrap();
             }

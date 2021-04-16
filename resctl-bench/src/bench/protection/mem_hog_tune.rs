@@ -21,9 +21,9 @@ impl Default for MemHogTune {
             speed: dfl_hog.speed,
             size_range: (0, 0),
             intvs: 10,
-            isol_pct: "05".to_owned(),
+            isol_pct: "01".to_owned(),
             isol_thr: 0.9,
-            dur: 120.0,
+            dur: 200.0,
         }
     }
 }

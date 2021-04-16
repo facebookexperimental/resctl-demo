@@ -118,10 +118,9 @@ impl Program {
     }
 
     fn do_run(&mut self) {
-        let mut base = if self.args_file.data.study_rep_d.is_none() {
-            base::Base::new(&self.args_file.data)
-        } else {
-            base::Base::dummy(&self.args_file.data)
+        let mut base = match self.args_file.data.mode {
+            Mode::Study => base::Base::dummy(&self.args_file.data),
+            _ => base::Base::new(&self.args_file.data),
         };
 
         // Collect the pending jobs.
@@ -320,7 +319,7 @@ impl Program {
 
         let rstat = args.rstat;
         match args.mode {
-            Mode::Run => self.do_run(),
+            Mode::Run | Mode::Study => self.do_run(),
             Mode::Format => self.do_format(&FormatOpts { full: true, rstat }),
             Mode::Summary => self.do_format(&FormatOpts {
                 full: false,

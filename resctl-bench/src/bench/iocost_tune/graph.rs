@@ -5,32 +5,39 @@ use plotlib::style::{LineStyle, PointMarker, PointStyle};
 use plotlib::view::ContinuousView;
 use std::process::Command;
 
-pub struct Grapher<'a> {
-    out: Box<dyn Write + 'a>,
+pub struct Grapher<'a, 'b> {
+    out: &'a mut Box<dyn Write + 'b>,
     file_prefix: Option<String>,
+    vrate_range: (f64, f64),
 }
 
-impl<'a> Grapher<'a> {
-    pub fn new(out: Box<dyn Write + 'a>, file_prefix: Option<&str>) -> Self {
+impl<'a, 'b> Grapher<'a, 'b> {
+    pub fn new(
+        out: &'a mut Box<dyn Write + 'b>,
+        file_prefix: Option<&str>,
+        vrate_range: (f64, f64),
+    ) -> Self {
         Self {
             out,
             file_prefix: file_prefix.map(|x| x.to_owned()),
+            vrate_range,
         }
     }
 
     fn setup_view(
+        vrate_range: (f64, f64),
         sel: &DataSel,
         series: &DataSeries,
         mem_profile: u32,
-        isol_prot_pct: &str,
+        isol_pct: &str,
         extra_info: Option<&str>,
-    ) -> (ContinuousView, f64, f64) {
-        let (vrate_max, val_max, val_min) = series
+    ) -> (ContinuousView, f64) {
+        let (val_min, val_max) = series
             .points
             .iter()
             .chain(series.outliers.iter())
-            .fold((0.0_f64, 0.0_f64, std::f64::MAX), |acc, point| {
-                (acc.0.max(point.0), acc.1.max(point.1), acc.1.min(point.1))
+            .fold((std::f64::MAX, 0.0_f64), |acc, point| {
+                (acc.0.min(point.y), acc.1.max(point.y))
             });
 
         let (ymin, yscale) = match sel {
@@ -50,9 +57,10 @@ impl<'a> Grapher<'a> {
                 };
                 (ymin, 1.0)
             }
-            DataSel::IsolProt => (0.0, 100.0),
-            DataSel::IsolPct(_) => (0.0, 100.0),
+            DataSel::AMOFDelta => (0.0, 1.0),
             DataSel::Isol => (0.0, 100.0),
+            DataSel::IsolPct(_) => (0.0, 100.0),
+            DataSel::IsolMean => (0.0, 100.0),
             DataSel::LatImp => (0.0, 100.0),
             DataSel::WorkCsv => (0.0, 100.0),
             DataSel::Missing => (0.0, 100.0),
@@ -63,21 +71,29 @@ impl<'a> Grapher<'a> {
 
         let lines = &series.lines;
         let mut xlabel = format!(
-            "vrate (min={:.3} max={:.3} ",
-            lines.left.1.min(lines.right.1) * yscale,
-            lines.left.1.max(lines.right.1) * yscale
+            "vrate {:.1}-{:.1} (",
+            series.lines.range.0, series.lines.range.1
         );
-        if lines.left.0 > 0.0 {
-            xlabel += &format!("left-infl={:.1} ", lines.left.0);
+        if lines.left.y == lines.right.y {
+            xlabel += &format!("mean={:.3} ", lines.left.y * yscale)
+        } else {
+            xlabel += &format!(
+                "min={:.3} max={:.3} ",
+                lines.left.y.min(lines.right.y) * yscale,
+                lines.left.y.max(lines.right.y) * yscale
+            )
         }
-        if lines.right.0 < vrate_max {
-            xlabel += &format!("right-infl={:.1} ", lines.right.0);
+        if lines.left.x > series.lines.range.0 {
+            xlabel += &format!("L-infl={:.1} ", lines.left.x);
+        }
+        if lines.right.x < series.lines.range.1 {
+            xlabel += &format!("R-infl={:.1} ", lines.right.x);
         }
         xlabel += &format!("err={:.3})", series.error * yscale);
 
         let mut ylabel = match sel {
-            DataSel::MOF | DataSel::AMOF => format!("{}@{}", sel, mem_profile),
-            DataSel::IsolProt => format!("isol{}", isol_prot_pct),
+            DataSel::MOF | DataSel::AMOF | DataSel::AMOFDelta => format!("{}@{}", sel, mem_profile),
+            DataSel::Isol => format!("isol-{}", isol_pct),
             sel => format!("{}", sel),
         };
         if extra_info.is_some() {
@@ -85,12 +101,12 @@ impl<'a> Grapher<'a> {
         }
 
         let view = ContinuousView::new()
-            .x_range(0.0, (vrate_max * 1.1).max(0.000001))
+            .x_range(0.0, (vrate_range.1 * 1.1).max(0.000001))
             .y_range(ymin * yscale, ymax * yscale)
             .x_label(xlabel)
             .y_label(ylabel);
 
-        (view, vrate_max, yscale)
+        (view, yscale)
     }
 
     fn plot_one_text(
@@ -98,16 +114,18 @@ impl<'a> Grapher<'a> {
         sel: &DataSel,
         series: &DataSeries,
         mem_profile: u32,
-        isol_prot_pct: &str,
+        isol_pct: &str,
     ) -> Result<()> {
         const SIZE: (u32, u32) = (80, 24);
-        let (view, vrate_max, yscale) =
-            Self::setup_view(sel, series, mem_profile, isol_prot_pct, None);
+        let (view, yscale) =
+            Self::setup_view(self.vrate_range, sel, series, mem_profile, isol_pct, None);
 
         let mut lines = vec![];
         for i in 0..SIZE.0 {
-            let vrate = vrate_max / SIZE.0 as f64 * i as f64;
-            lines.push((vrate, series.lines.eval(vrate) * yscale));
+            let vrate = series.lines.range.1 / SIZE.0 as f64 * i as f64;
+            if vrate >= series.lines.range.0 {
+                lines.push((vrate, series.lines.eval(vrate) * yscale));
+            }
         }
         let view =
             view.add(Plot::new(lines).point_style(PointStyle::new().marker(PointMarker::Square)));
@@ -115,16 +133,12 @@ impl<'a> Grapher<'a> {
         let outliers = series
             .outliers
             .iter()
-            .map(|(vrate, val)| (*vrate, val * yscale))
+            .map(|p| (p.x, p.y * yscale))
             .collect();
         let view =
             view.add(Plot::new(outliers).point_style(PointStyle::new().marker(PointMarker::Cross)));
 
-        let points = series
-            .points
-            .iter()
-            .map(|(vrate, val)| (*vrate, val * yscale))
-            .collect();
+        let points = series.points.iter().map(|p| (p.x, p.y * yscale)).collect();
         let view =
             view.add(Plot::new(points).point_style(PointStyle::new().marker(PointMarker::Circle)));
 
@@ -142,17 +156,23 @@ impl<'a> Grapher<'a> {
         sel: &DataSel,
         series: &DataSeries,
         mem_profile: u32,
-        isol_prot_pct: &str,
+        isol_pct: &str,
         extra_info: &str,
     ) -> Result<()> {
         const SIZE: (u32, u32) = (576, 468);
-        let (view, vrate_max, yscale) =
-            Self::setup_view(sel, series, mem_profile, isol_prot_pct, Some(extra_info));
+        let (view, yscale) = Self::setup_view(
+            self.vrate_range,
+            sel,
+            series,
+            mem_profile,
+            isol_pct,
+            Some(extra_info),
+        );
 
         let points = series
             .outliers
             .iter()
-            .map(|(vrate, val)| (*vrate, val * yscale))
+            .map(|p| (p.x, p.y * yscale))
             .collect();
         let view = view.add(
             Plot::new(points).point_style(
@@ -162,11 +182,7 @@ impl<'a> Grapher<'a> {
             ),
         );
 
-        let points = series
-            .points
-            .iter()
-            .map(|(vrate, val)| (*vrate, val * yscale))
-            .collect();
+        let points = series.points.iter().map(|p| (p.x, p.y * yscale)).collect();
         let view = view.add(
             Plot::new(points).point_style(
                 PointStyle::new()
@@ -176,12 +192,16 @@ impl<'a> Grapher<'a> {
         );
 
         let lines = &series.lines;
-        let segments = vec![
-            (0.0, lines.left.1 * yscale),
-            (lines.left.0, lines.left.1 * yscale),
-            (lines.right.0, lines.right.1 * yscale),
-            (vrate_max, lines.right.1 * yscale),
-        ];
+        let mut segments = vec![];
+        if series.lines.range.0 < lines.left.x {
+            segments.push((series.lines.range.0, lines.left.y * yscale));
+        }
+        segments.push((lines.left.x, lines.left.y * yscale));
+        segments.push((lines.right.x, lines.right.y * yscale));
+        if series.lines.range.1 > lines.right.x {
+            segments.push((series.lines.range.1, lines.right.y * yscale));
+        }
+
         let view = view.add(Plot::new(segments).line_style(LineStyle::new().colour("#3749e6")));
 
         let view = view.x_max_ticks(10).y_max_ticks(10);
@@ -228,7 +248,7 @@ impl<'a> Grapher<'a> {
 
     pub fn plot(&mut self, data: &JobData, res: &IoCostTuneResult) -> Result<()> {
         for (sel, series) in res.data.iter() {
-            self.plot_one_text(sel, series, res.mem_profile, &res.isol_prot_pct)?;
+            self.plot_one_text(sel, series, res.mem_profile, &res.isol_pct)?;
         }
         if self.file_prefix.is_none() {
             return Ok(());
@@ -240,7 +260,7 @@ impl<'a> Grapher<'a> {
                 sel,
                 series,
                 res.mem_profile,
-                &res.isol_prot_pct,
+                &res.isol_pct,
                 &format!("{}", sr.scr_dev_model.trim()),
             ) {
                 bail!(

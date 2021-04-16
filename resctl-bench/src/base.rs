@@ -25,6 +25,7 @@ pub struct Base<'a> {
     pub saved_bench_knobs: BenchKnobs,
     pub bench_knobs: BenchKnobs,
     pub mem: MemInfo,
+    pub mem_initialized: bool,
     args: &'a Args,
 }
 
@@ -159,9 +160,11 @@ impl<'a> Base<'a> {
             saved_bench_knobs: bench_knobs.clone(),
             bench_knobs,
             mem: MemInfo {
+                profile: args.mem_profile.unwrap_or(0),
                 avail: args.mem_avail,
                 ..Default::default()
             },
+            mem_initialized: false,
             args,
         }
     }
@@ -174,6 +177,7 @@ impl<'a> Base<'a> {
             saved_bench_knobs: Default::default(),
             bench_knobs: Default::default(),
             mem: Default::default(),
+            mem_initialized: true,
             args,
         }
     }
@@ -307,30 +311,26 @@ impl<'a> Base<'a> {
     }
 
     pub fn update_mem_profile(&mut self) -> Result<()> {
-        if self.args.mem_profile.is_none() {
+        if self.mem.profile == 0 {
             info!("base: mem-profile requested by benchmark but disabled on command line");
-            self.mem = MemInfo {
-                avail: total_memory(),
-                profile: 0,
-                share: total_memory(),
-                target: Self::mem_target(total_memory()),
-            };
+            self.mem.avail = total_memory();
+            self.mem.share = total_memory();
+            self.mem.target = Self::mem_target(total_memory());
             return Ok(());
         }
         assert!(self.mem.avail > 0);
 
-        if self.mem.profile == 0 {
-            let ask = self.args.mem_profile.unwrap();
-            if ask != resctl_bench_intf::Args::DFL_MEM_PROFILE {
+        if !self.mem_initialized {
+            if self.mem.profile != resctl_bench_intf::Args::DFL_MEM_PROFILE {
                 warn!(
                     "base: Non-standard mem-profile {} requested, \
                      the result won't be directly comparable",
-                    ask
+                    self.mem.profile
                 );
             }
-            self.mem.profile = ask;
-            self.mem.share = Self::mem_share(ask)?;
+            self.mem.share = Self::mem_share(self.mem.profile)?;
             self.mem.target = Self::mem_target(self.mem.share);
+            self.mem_initialized = true;
         }
 
         if self.mem.share > self.mem.avail {

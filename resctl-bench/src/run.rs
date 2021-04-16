@@ -21,7 +21,7 @@ use rd_agent_intf::{
     AGENT_SVC_NAME, HASHD_A_SVC_NAME, HASHD_BENCH_SVC_NAME, HASHD_B_SVC_NAME,
     IOCOST_BENCH_SVC_NAME, SIDELOAD_SVC_PREFIX, SYSLOAD_SVC_PREFIX,
 };
-use resctl_bench_intf::JobSpec;
+use resctl_bench_intf::{JobSpec, Mode};
 
 const MINDER_AGENT_TIMEOUT: Duration = Duration::from_secs(120);
 const CMD_TIMEOUT: Duration = Duration::from_secs(120);
@@ -367,7 +367,7 @@ impl<'a, 'b> RunCtx<'a, 'b> {
     }
 
     pub fn study_mode(&self) -> bool {
-        self.args.study_rep_d.is_some()
+        self.args.mode == Mode::Study
     }
 
     pub fn update_incremental_jctx(&mut self, jctx: &JobCtx) {
@@ -1182,9 +1182,9 @@ impl<'a, 'b> RunCtx<'a, 'b> {
                 let ctx = self.inner.lock().unwrap();
                 ctx.agent_files.index.data.report_d.clone()
             }
-            false => match self.args.study_rep_d.as_ref() {
-                Some(v) => v.clone(),
-                None => format!("{}/report.d", &self.args.dir),
+            false => match self.args.mode {
+                Mode::Study => self.args.study_rep_d.clone(),
+                _ => format!("{}/report.d", &self.args.dir),
             },
         }
     }

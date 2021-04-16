@@ -202,7 +202,11 @@ impl MemHog {
         let first_hog_rep = first_hog_rep?;
         let last_hog_rep =
             rctx.access_agent_files::<_, Result<_>>(|af| Self::read_hog_rep(&af.report.data))?;
-        let last_hog_mem = hog_mem_rec.iter().sum::<usize>() / hog_mem_rec.len();
+        let last_hog_mem = if hog_mem_rec.len() > 0 {
+            hog_mem_rec.iter().sum::<usize>() / hog_mem_rec.len()
+        } else {
+            0
+        };
 
         rctx.stop_sysload("mem-hog");
 

@@ -111,7 +111,7 @@ impl Cfg {
             })),
 
             next_refine_pos: Rc::new(Box::new(move |params, pos| {
-                let step = params.mem_frac * 0.05 * grain_factor;
+                let step = params.mem_frac * 0.025 * grain_factor;
                 let min = (params.mem_frac / 2.0).max(0.001);
                 match pos {
                     None => Some(params.mem_frac),

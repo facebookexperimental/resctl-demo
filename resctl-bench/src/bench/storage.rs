@@ -10,7 +10,6 @@ pub struct StorageJob {
     pub rps_max: u32,
     pub log_bps: u64,
     pub loops: u32,
-    pub mem_profile_ask: Option<u32>,
     pub mem_avail_err_max: f64,
     pub mem_avail_inner_retries: u32,
     pub mem_avail_outer_retries: u32,
@@ -32,7 +31,6 @@ impl Default for StorageJob {
             rps_max: RunCtx::BENCH_FAKE_CPU_RPS_MAX,
             log_bps: dfl_params.log_bps,
             loops: 3,
-            mem_profile_ask: None,
             mem_avail_err_max: 0.1,
             mem_avail_inner_retries: 2,
             mem_avail_outer_retries: 2,
@@ -90,7 +88,6 @@ impl StorageJob {
                 "rps-max" => job.rps_max = v.parse::<u32>()?,
                 "log-bps" => job.log_bps = v.parse::<u64>()?,
                 "loops" => job.loops = v.parse::<u32>()?,
-                "mem-profile" => job.mem_profile_ask = Some(v.parse::<u32>()?),
                 "mem-avail-err-max" => job.mem_avail_err_max = v.parse::<f64>()?,
                 "mem-avail-inner-retries" => job.mem_avail_inner_retries = v.parse::<u32>()?,
                 "mem-avail-outer-retries" => job.mem_avail_outer_retries = v.parse::<u32>()?,
@@ -235,7 +232,7 @@ impl StorageJob {
     pub fn format_header<'a>(
         &self,
         out: &mut Box<dyn Write + 'a>,
-        rec: &StorageRecord,
+        _rec: &StorageRecord,
         _res: &StorageResult,
         include_loops: bool,
     ) {
@@ -253,16 +250,6 @@ impl StorageJob {
         } else {
             writeln!(out, "").unwrap();
         }
-
-        writeln!(
-            out,
-            "        mem_profile={} mem_avail={} mem_share={} mem_target={}",
-            rec.mem.profile,
-            format_size(rec.mem.avail),
-            format_size(rec.mem.share),
-            format_size(rec.mem.target),
-        )
-        .unwrap();
     }
 
     fn format_rstat<'a>(
