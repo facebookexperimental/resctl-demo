@@ -1,5 +1,5 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
-use anyhow::{anyhow, bail, Context, Error, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use chrono::{DateTime, Local};
 use log::{debug, warn};
 use serde::{Deserialize, Serialize};
@@ -13,6 +13,7 @@ use std::time::{Duration, UNIX_EPOCH};
 use util::*;
 
 use super::base::MemInfo;
+use super::parse_json_value_or_dump;
 use super::run::RunCtx;
 use rd_agent_intf::{SysReq, SysReqsReport};
 use resctl_bench_intf::{JobProps, JobSpec};
@@ -77,7 +78,7 @@ impl JobData {
         T: serde::de::DeserializeOwned,
     {
         match self.record.as_ref() {
-            Some(rec) => serde_json::from_value::<T>(rec.clone()).map_err(Error::new),
+            Some(rec) => parse_json_value_or_dump::<T>(rec.clone()),
             None => bail!("Job record not found"),
         }
     }
@@ -87,7 +88,7 @@ impl JobData {
         T: serde::de::DeserializeOwned,
     {
         match self.result.as_ref() {
-            Some(res) => serde_json::from_value::<T>(res.clone()).map_err(Error::new),
+            Some(res) => parse_json_value_or_dump::<T>(res.clone()),
             None => bail!("Job result not found"),
         }
     }

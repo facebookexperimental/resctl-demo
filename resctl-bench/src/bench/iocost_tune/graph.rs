@@ -72,7 +72,7 @@ impl<'a, 'b> Grapher<'a, 'b> {
         let lines = &series.lines;
         let mut xlabel = format!(
             "vrate {:.1}-{:.1} (",
-            series.vrate_range.0, series.vrate_range.1
+            series.lines.range.0, series.lines.range.1
         );
         if lines.left.y == lines.right.y {
             xlabel += &format!("mean={:.3} ", lines.left.y * yscale)
@@ -83,10 +83,10 @@ impl<'a, 'b> Grapher<'a, 'b> {
                 lines.left.y.max(lines.right.y) * yscale
             )
         }
-        if lines.left.x > series.vrate_range.0 {
+        if lines.left.x > series.lines.range.0 {
             xlabel += &format!("L-infl={:.1} ", lines.left.x);
         }
-        if lines.right.x < series.vrate_range.1 {
+        if lines.right.x < series.lines.range.1 {
             xlabel += &format!("R-infl={:.1} ", lines.right.x);
         }
         xlabel += &format!("err={:.3})", series.error * yscale);
@@ -122,8 +122,8 @@ impl<'a, 'b> Grapher<'a, 'b> {
 
         let mut lines = vec![];
         for i in 0..SIZE.0 {
-            let vrate = series.vrate_range.1 / SIZE.0 as f64 * i as f64;
-            if vrate >= series.vrate_range.0 {
+            let vrate = series.lines.range.1 / SIZE.0 as f64 * i as f64;
+            if vrate >= series.lines.range.0 {
                 lines.push((vrate, series.lines.eval(vrate) * yscale));
             }
         }
@@ -138,11 +138,7 @@ impl<'a, 'b> Grapher<'a, 'b> {
         let view =
             view.add(Plot::new(outliers).point_style(PointStyle::new().marker(PointMarker::Cross)));
 
-        let points = series
-            .points
-            .iter()
-            .map(|p| (p.x, p.y * yscale))
-            .collect();
+        let points = series.points.iter().map(|p| (p.x, p.y * yscale)).collect();
         let view =
             view.add(Plot::new(points).point_style(PointStyle::new().marker(PointMarker::Circle)));
 
@@ -186,11 +182,7 @@ impl<'a, 'b> Grapher<'a, 'b> {
             ),
         );
 
-        let points = series
-            .points
-            .iter()
-            .map(|p| (p.x, p.y * yscale))
-            .collect();
+        let points = series.points.iter().map(|p| (p.x, p.y * yscale)).collect();
         let view = view.add(
             Plot::new(points).point_style(
                 PointStyle::new()
@@ -201,13 +193,13 @@ impl<'a, 'b> Grapher<'a, 'b> {
 
         let lines = &series.lines;
         let mut segments = vec![];
-        if series.vrate_range.0 < lines.left.x {
-            segments.push((series.vrate_range.0, lines.left.y * yscale));
+        if series.lines.range.0 < lines.left.x {
+            segments.push((series.lines.range.0, lines.left.y * yscale));
         }
         segments.push((lines.left.x, lines.left.y * yscale));
         segments.push((lines.right.x, lines.right.y * yscale));
-        if series.vrate_range.1 > lines.right.x {
-            segments.push((series.vrate_range.1, lines.right.y * yscale));
+        if series.lines.range.1 > lines.right.x {
+            segments.push((series.lines.range.1, lines.right.y * yscale));
         }
 
         let view = view.add(Plot::new(segments).line_style(LineStyle::new().colour("#3749e6")));
