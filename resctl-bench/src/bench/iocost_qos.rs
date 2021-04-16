@@ -482,6 +482,7 @@ impl Job for IoCostQoSJob {
         // Mark the ones with too low a max rate to run.
         if !self.ign_min_perf {
             let abs_min_vrate = iocost_min_vrate(&bench_knobs.iocost.model);
+            debug!("iocost-qos: abs_min_vrate={:.2}", abs_min_vrate);
             for ovr in self.runs.iter_mut() {
                 ovr.skip_or_adj(abs_min_vrate);
             }
