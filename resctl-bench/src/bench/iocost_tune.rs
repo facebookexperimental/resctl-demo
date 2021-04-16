@@ -524,8 +524,8 @@ impl QoSTarget {
         let left = &ds.lines.left;
         let right = &ds.lines.right;
 
-        if left.1 < right.1 {
-            right.0
+        if left.y < right.y {
+            right.x
         } else {
             ds.vrate_range.0
         }
@@ -536,8 +536,8 @@ impl QoSTarget {
         let left = &ds.lines.left;
         let right = &ds.lines.right;
 
-        if left.1 < right.1 {
-            left.0
+        if left.y < right.y {
+            left.x
         } else {
             ds.vrate_range.1
         }
@@ -576,19 +576,19 @@ impl QoSTarget {
         let (mut left, mut right) = (dl.left, dl.right);
 
         // Clamp and see whether there's any slope left.
-        left.0 = left.0.clamp(vrate_min, vrate_max);
-        right.0 = right.0.clamp(vrate_min, vrate_max);
-        left.1 = dl.eval(left.0);
-        right.1 = dl.eval(right.0);
-        if left.1 == right.1 {
+        left.x = left.x.clamp(vrate_min, vrate_max);
+        right.x = right.x.clamp(vrate_min, vrate_max);
+        left.y = dl.eval(left.x);
+        right.y = dl.eval(right.x);
+        if left.y == right.y {
             return None;
         }
 
-        let dist = right.0 - left.0;
+        let dist = right.x - left.x;
         let vrate_range = (
-            left.0 + dist * rel_min,
+            left.x + dist * rel_min,
             if rel_max < 1.0 {
-                left.0 + dist * rel_max
+                left.x + dist * rel_max
             } else {
                 vrate_max
             },
@@ -828,7 +828,17 @@ impl Bench for IoCostTuneBench {
 }
 
 // (vrate, val)
-type DataPoint = (f64, f64);
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, PartialOrd)]
+struct DataPoint {
+    x: f64,
+    y: f64,
+}
+
+impl DataPoint {
+    fn new(x: f64, y: f64) -> Self {
+        Self { x, y }
+    }
+}
 
 //
 //       val
@@ -852,16 +862,16 @@ struct DataLines {
 
 impl DataLines {
     fn slope(&self) -> f64 {
-        (self.right.1 - self.left.1) / (self.right.0 - self.left.0)
+        (self.right.y - self.left.y) / (self.right.x - self.left.x)
     }
 
     fn eval(&self, vrate: f64) -> f64 {
-        if vrate < self.left.0 {
-            self.left.1
-        } else if vrate > self.right.0 {
-            self.right.1
+        if vrate < self.left.x {
+            self.left.y
+        } else if vrate > self.right.x {
+            self.right.y
         } else {
-            self.left.1 + self.slope() * (vrate - self.left.0)
+            self.left.y + self.slope() * (vrate - self.left.x)
         }
     }
 }
@@ -879,7 +889,7 @@ impl DataSeries {
     fn split_at<'a>(points: &'a [DataPoint], at: f64) -> (&'a [DataPoint], &'a [DataPoint]) {
         let mut idx = 0;
         for (i, point) in points.iter().enumerate() {
-            if point.0 > at {
+            if point.x > at {
                 idx = i;
                 break;
             }
@@ -888,19 +898,25 @@ impl DataSeries {
     }
 
     fn vmin(points: &[DataPoint]) -> f64 {
-        points.iter().next().unwrap().0
+        points.iter().next().unwrap().x
     }
 
     fn vmax(points: &[DataPoint]) -> f64 {
-        points.iter().last().unwrap().0
+        points.iter().last().unwrap().x
     }
 
     fn fit_line(points: &[DataPoint]) -> DataLines {
-        let (slope, y_intcp): (f64, f64) = linreg::linear_regression_of(points).unwrap();
+        let (slope, y_intcp): (f64, f64) = linreg::linear_regression_of(
+            &points
+                .iter()
+                .map(|p| (p.x, p.y))
+                .collect::<Vec<(f64, f64)>>(),
+        )
+        .unwrap();
         let (vmin, vmax) = (Self::vmin(points), Self::vmax(points));
         DataLines {
-            left: (vmin, slope * vmin + y_intcp),
-            right: (vmax, slope * vmax + y_intcp),
+            left: DataPoint::new(vmin, slope * vmin + y_intcp),
+            right: DataPoint::new(vmax, slope * vmax + y_intcp),
         }
     }
 
@@ -909,7 +925,7 @@ impl DataSeries {
     /// derivative is 2*n*y - 2y1 - 2y2 - ...
     /// local maxima at y = (y1+y2+...)/n, basic average
     fn calc_height(points: &[DataPoint]) -> f64 {
-        points.iter().fold(0.0, |acc, point| acc + point.1) / points.len() as f64
+        points.iter().fold(0.0, |acc, point| acc + point.y) / points.len() as f64
     }
 
     /// Find slope m s.t. minimize (m*(x1-X)-(y1-H))^2 ...
@@ -918,17 +934,17 @@ impl DataSeries {
     /// local maxima at m = ((x1-X)*(y1-H) + (x2-X)*(y2-H) + ...)/((x1-X)^2+(x2-X)^2)
     fn calc_slope(points: &[DataPoint], hinge: &DataPoint) -> f64 {
         let top = points.iter().fold(0.0, |acc, point| {
-            acc + (point.0 - hinge.0) * (point.1 - hinge.1)
+            acc + (point.x - hinge.x) * (point.y - hinge.y)
         });
         let bot = points
             .iter()
-            .fold(0.0, |acc, point| acc + (point.0 - hinge.0).powi(2));
+            .fold(0.0, |acc, point| acc + (point.x - hinge.x).powi(2));
         top / bot
     }
 
     fn fit_slope_with_vleft(points: &[DataPoint], vleft: f64) -> Option<DataLines> {
         let (left, right) = Self::split_at(points, vleft);
-        let left = (vleft, Self::calc_height(left));
+        let left = DataPoint::new(vleft, Self::calc_height(left));
         let slope = Self::calc_slope(right, &left);
         if slope == 0.0 {
             return None;
@@ -937,13 +953,13 @@ impl DataSeries {
         let vmax = Self::vmax(points);
         Some(DataLines {
             left,
-            right: (vmax, left.1 + slope * (vmax - left.0)),
+            right: DataPoint::new(vmax, left.y + slope * (vmax - left.x)),
         })
     }
 
     fn fit_slope_with_vright(points: &[DataPoint], vright: f64) -> Option<DataLines> {
         let (left, right) = Self::split_at(points, vright);
-        let right = (vright, Self::calc_height(right));
+        let right = DataPoint::new(vright, Self::calc_height(right));
         let slope = Self::calc_slope(left, &right);
         if slope == 0.0 {
             return None;
@@ -951,7 +967,7 @@ impl DataSeries {
 
         let vmin = Self::vmin(points);
         Some(DataLines {
-            left: (vmin, right.1 - slope * (right.0 - vmin)),
+            left: DataPoint::new(vmin, right.y - slope * (right.x - vmin)),
             right,
         })
     }
@@ -965,8 +981,8 @@ impl DataSeries {
         let (_, right) = Self::split_at(center, vright);
 
         Some(DataLines {
-            left: (vleft, Self::calc_height(left)),
-            right: (vright, Self::calc_height(right)),
+            left: DataPoint::new(vleft, Self::calc_height(left)),
+            right: DataPoint::new(vright, Self::calc_height(right)),
         })
     }
 
@@ -975,7 +991,7 @@ impl DataSeries {
         I: Iterator<Item = &'a DataPoint>,
     {
         let (err_sum, cnt) = points.fold((0.0, 0), |(err_sum, cnt), point| {
-            (err_sum + (point.1 - lines.eval(point.0)).powi(2), cnt + 1)
+            (err_sum + (point.y - lines.eval(point.x)).powi(2), cnt + 1)
         });
         err_sum.sqrt() / cnt as f64
     }
@@ -985,8 +1001,8 @@ impl DataSeries {
             return;
         }
 
-        let start = self.points.iter().next().unwrap().0;
-        let end = self.points.iter().last().unwrap().0;
+        let start = self.points.iter().next().unwrap().x;
+        let end = self.points.iter().last().unwrap().x;
         let intvs = ((end - start) / gran).ceil() as u32 + 1;
         let gran = (end - start) / (intvs - 1) as f64;
         assert!(intvs > 1);
@@ -998,16 +1014,10 @@ impl DataSeries {
         const MIN_SEG_DIST: f64 = 10.0;
 
         // Start with mean flat line which is acceptable for both dirs.
-        let mean = statistical::mean(
-            &self
-                .points
-                .iter()
-                .map(|(_, val)| *val)
-                .collect::<Vec<f64>>(),
-        );
+        let mean = statistical::mean(&self.points.iter().map(|p| p.y).collect::<Vec<f64>>());
         let mut best_lines = DataLines {
-            left: (Self::vmin(&self.points), mean),
-            right: (Self::vmax(&self.points), mean),
+            left: DataPoint::new(Self::vmin(&self.points), mean),
+            right: DataPoint::new(Self::vmax(&self.points), mean),
         };
 
         let best_error =
@@ -1015,18 +1025,18 @@ impl DataSeries {
 
         let mut try_and_pick = |fit: &(dyn Fn() -> Option<DataLines>)| -> bool {
             if let Some(lines) = fit() {
-                if lines.left.1 <= 0.0 || lines.right.1 <= 0.0 {
+                if lines.left.y <= 0.0 || lines.right.y <= 0.0 {
                     return false;
                 }
                 match dir {
                     DataShape::Any => {}
                     DataShape::Inc => {
-                        if lines.left.1 > lines.right.1 {
+                        if lines.left.y > lines.right.y {
                             return false;
                         }
                     }
                     DataShape::Dec => {
-                        if lines.left.1 < lines.right.1 {
+                        if lines.left.y < lines.right.y {
                             return false;
                         }
                     }
@@ -1036,10 +1046,10 @@ impl DataSeries {
                     trace!(
                         "iocost-qos: fit-best: ({:.3}, {:.3}) - ({:.3}, {:.3}) \
                          start={:.3} end={:.3} MIN_SEG_DIST={:.3}",
-                        lines.left.0,
-                        lines.left.1,
-                        lines.right.0,
-                        lines.right.1,
+                        lines.left.x,
+                        lines.left.y,
+                        lines.right.x,
+                        lines.right.y,
                         start,
                         end,
                         MIN_SEG_DIST
@@ -1097,7 +1107,7 @@ impl DataSeries {
         let mut points = vec![];
         points.append(&mut self.points);
         for point in points.into_iter() {
-            if point.0 <= vrate_thr {
+            if point.x <= vrate_thr {
                 self.points.push(point);
             } else {
                 self.outliers.push(point);
@@ -1121,7 +1131,7 @@ impl DataSeries {
         let nr_points = points.len() as f64;
         let errors: Vec<f64> = points
             .iter()
-            .map(|(vrate, val)| (val - lines.eval(*vrate)).powi(2))
+            .map(|p| (p.y - lines.eval(p.x)).powi(2))
             .collect();
         let mean = statistical::mean(&errors);
         let stdev = statistical::standard_deviation(&errors, None);
@@ -1148,14 +1158,14 @@ impl DataSeries {
     fn fill_vrate_range(&mut self) {
         let (vmin, vmax) = (Self::vmin(&self.points), Self::vmax(&self.points));
         let slope =
-            (self.lines.right.1 - self.lines.left.1) / (self.lines.right.0 - self.lines.left.0);
-        if self.lines.left.0 == vmin && vmin > self.vrate_range.0 {
-            self.lines.left.1 -= slope * (vmin - self.vrate_range.0);
-            self.lines.left.0 = self.vrate_range.0;
+            (self.lines.right.y - self.lines.left.y) / (self.lines.right.x - self.lines.left.x);
+        if self.lines.left.x == vmin && vmin > self.vrate_range.0 {
+            self.lines.left.y -= slope * (vmin - self.vrate_range.0);
+            self.lines.left.x = self.vrate_range.0;
         }
-        if self.lines.right.0 == vmax && vmax < self.vrate_range.1 {
-            self.lines.right.1 += slope * (self.vrate_range.1 - vmax);
-            self.lines.right.0 = self.vrate_range.1;
+        if self.lines.right.x == vmax && vmax < self.vrate_range.1 {
+            self.lines.right.y += slope * (self.vrate_range.1 - vmax);
+            self.lines.right.x = self.vrate_range.1;
         }
     }
 }
@@ -1398,7 +1408,7 @@ impl Job for IoCostTuneJob {
                     _ => continue,
                 };
                 if let Some(val) = sel.select(qrecr, qresr, &isol_pct) {
-                    series.points.push((vrate, val));
+                    series.points.push(DataPoint::new(vrate, val));
                 }
             }
             series.points.sort_by(|a, b| a.partial_cmp(b).unwrap());
@@ -1419,9 +1429,9 @@ impl Job for IoCostTuneJob {
 
             if filter_by_isol {
                 let dl = &data[&DataSel::Isol].lines;
-                if dl.right.1 < isol_thr {
-                    let slope = (dl.right.1 - dl.left.1) / (dl.right.0 - dl.left.0);
-                    let intcp = dl.right.0 - (dl.right.1 - isol_thr) / slope;
+                if dl.right.y < isol_thr {
+                    let slope = (dl.right.y - dl.left.y) / (dl.right.x - dl.left.x);
+                    let intcp = dl.right.x - (dl.right.y - isol_thr) / slope;
                     series.filter_beyond(intcp);
                     series.vrate_range.1 = intcp;
                 }
