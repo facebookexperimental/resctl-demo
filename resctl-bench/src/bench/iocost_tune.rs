@@ -862,7 +862,7 @@ impl DataPoint {
 //        +--------+--------+------> vrate
 //              vleft    vright
 //
-#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
 struct DataLines {
     range: (f64, f64),
     left: DataPoint,
@@ -1211,6 +1211,9 @@ impl DataSeries {
     }
 
     fn fill_vrate_range(&mut self, range: (f64, f64)) {
+        if self.lines == Default::default() {
+            return;
+        }
         let (vmin, vmax) = Self::vrange(&self.points);
         let slope = self.lines.slope();
         if self.lines.left.x == vmin && vmin > range.0 {
@@ -1365,7 +1368,8 @@ impl IoCostTuneJob {
             let dl = &data.get(&DataSel::Isol).unwrap().lines;
             let slope = dl.slope();
             if slope != 0.0 && dl.right.y < isol_thr {
-                let intcp = dl.right.x - (dl.right.y - isol_thr) / slope;
+                let intcp =
+                    (dl.right.x - (dl.right.y - isol_thr) / slope).clamp(dl.range.0, dl.range.1);
                 series.filter_beyond(intcp);
                 fill_upto = Some(intcp);
             }
