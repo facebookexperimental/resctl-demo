@@ -310,6 +310,9 @@ impl<'a> Studies<'a> {
                 }
                 Err(_) => nr_missed += 1,
             }
+            if prog_exiting() {
+                bail!("Program exiting");
+            }
         }
 
         if nr_reps == 0 {
