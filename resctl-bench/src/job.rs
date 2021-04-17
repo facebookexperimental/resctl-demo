@@ -182,6 +182,16 @@ impl JobCtx {
         self.incremental || &self.data.spec == other
     }
 
+    fn fill_sysinfo_from_rctx(si: &mut SysInfo, rctx: &RunCtx) {
+        si.sysreqs_report = Some((*rctx.sysreqs_report().unwrap()).clone());
+        si.sysreqs_missed = rctx.missed_sysreqs();
+        if let Some(rep) = rctx.report_sample() {
+            si.iocost = rep.iocost.clone();
+            si.swappiness = rep.swappiness;
+        }
+        si.mem = rctx.mem_info().clone();
+    }
+
     pub fn run(&mut self, rctx: &mut RunCtx) -> Result<()> {
         self.job
             .as_mut()
@@ -212,13 +222,7 @@ impl JobCtx {
             data.period.1 = unix_now();
 
             if rctx.sysreqs_report().is_some() {
-                data.sysinfo.sysreqs_report = Some((*rctx.sysreqs_report().unwrap()).clone());
-                data.sysinfo.sysreqs_missed = rctx.missed_sysreqs();
-                if let Some(rep) = rctx.report_sample() {
-                    data.sysinfo.iocost = rep.iocost.clone();
-                    data.sysinfo.swappiness = rep.swappiness;
-                }
-                data.sysinfo.mem = rctx.mem_info().clone();
+                Self::fill_sysinfo_from_rctx(&mut data.sysinfo, rctx);
             } else if rctx.sysinfo_forward.is_some() {
                 data.sysinfo = rctx.sysinfo_forward.take().unwrap();
             } else if pdata.is_some() {
@@ -233,9 +237,12 @@ impl JobCtx {
                     .clone();
             } else {
                 warn!(
-                    "job: No sysreqs available for {:?} after completion",
+                    "job: No sysreqs available for {:?} after completion, cycling rd_agent...",
                     &data.spec
                 );
+                rctx.start_agent(vec![])?;
+                rctx.stop_agent();
+                Self::fill_sysinfo_from_rctx(&mut data.sysinfo, rctx);
             }
 
             data.record = Some(record);
