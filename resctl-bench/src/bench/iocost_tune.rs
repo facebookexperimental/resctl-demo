@@ -871,7 +871,11 @@ struct DataLines {
 
 impl DataLines {
     fn slope(&self) -> f64 {
-        (self.right.y - self.left.y) / (self.right.x - self.left.x)
+        if self.left.x != self.right.x {
+            (self.right.y - self.left.y) / (self.right.x - self.left.x)
+        } else {
+            0.0
+        }
     }
 
     fn eval(&self, vrate: f64) -> f64 {
@@ -1034,7 +1038,11 @@ impl DataSeries {
         let (err_sum, cnt) = points.fold((0.0, 0), |(err_sum, cnt), point| {
             (err_sum + (point.y - lines.eval(point.x)).powi(2), cnt + 1)
         });
-        err_sum.sqrt() / cnt as f64
+        if cnt > 0 {
+            err_sum.sqrt() / cnt as f64
+        } else {
+            0.0
+        }
     }
 
     fn fit_lines(&mut self, gran: f64, dir: DataShape) -> Result<()> {
@@ -1204,11 +1212,7 @@ impl DataSeries {
 
     fn fill_vrate_range(&mut self, range: (f64, f64)) {
         let (vmin, vmax) = Self::vrange(&self.points);
-        let slope = if self.lines.right.x != self.lines.left.x {
-            (self.lines.right.y - self.lines.left.y) / (self.lines.right.x - self.lines.left.x)
-        } else {
-            0.0
-        };
+        let slope = self.lines.slope();
         if self.lines.left.x == vmin && vmin > range.0 {
             self.lines.left.y -= slope * (vmin - range.0);
             self.lines.left.x = range.0;
@@ -1356,16 +1360,21 @@ impl IoCostTuneJob {
             filter_by_isol
         );
 
-        match (filter_by_isol, data.get(&DataSel::Isol)) {
-            (true, Some(ds)) if ds.lines.right.y < isol_thr => {
-                let dl = &ds.lines;
-                let slope = (dl.right.y - dl.left.y) / (dl.right.x - dl.left.x);
+        let mut fill_upto = None;
+        if filter_by_isol {
+            let dl = &data.get(&DataSel::Isol).unwrap().lines;
+            let slope = dl.slope();
+            if slope != 0.0 && dl.right.y < isol_thr {
                 let intcp = dl.right.x - (dl.right.y - isol_thr) / slope;
                 series.filter_beyond(intcp);
-                series.fit_lines(self.gran, dir)?;
-                series.fill_vrate_range((series.lines.range.0, intcp));
+                fill_upto = Some(intcp);
             }
-            _ => series.fit_lines(self.gran, dir)?,
+        }
+
+        series.fit_lines(self.gran, dir)?;
+
+        if let Some(fill_upto) = fill_upto {
+            series.fill_vrate_range((series.lines.range.0, fill_upto));
         }
 
         if filter_outliers {
@@ -1612,7 +1621,7 @@ impl Job for IoCostTuneJob {
             for rule in self.rules.iter() {
                 match res.solutions.get(&rule.name) {
                     Some(sol) => Self::format_solution(&mut out, &rule.name, sol, &res.isol_pct),
-                    None => writeln!(out, "{}  NO SOLUTION", &rule.name).unwrap(),
+                    None => writeln!(out, "{}\n  NO SOLUTION", &rule.name).unwrap(),
                 }
                 writeln!(out, "").unwrap();
             }
