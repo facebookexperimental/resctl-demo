@@ -862,7 +862,7 @@ impl DataPoint {
 //        +--------+--------+------> vrate
 //              vleft    vright
 //
-#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
 struct DataLines {
     range: (f64, f64),
     left: DataPoint,
@@ -871,7 +871,11 @@ struct DataLines {
 
 impl DataLines {
     fn slope(&self) -> f64 {
-        (self.right.y - self.left.y) / (self.right.x - self.left.x)
+        if self.left.x != self.right.x {
+            (self.right.y - self.left.y) / (self.right.x - self.left.x)
+        } else {
+            0.0
+        }
     }
 
     fn eval(&self, vrate: f64) -> f64 {
@@ -937,8 +941,8 @@ impl DataSeries {
 
     fn vrange(points: &[DataPoint]) -> (f64, f64) {
         (
-            points.iter().next().unwrap().x,
-            points.iter().last().unwrap().x,
+            points.iter().next().unwrap_or(&DataPoint::new(0.0, 0.0)).x,
+            points.iter().last().unwrap_or(&DataPoint::new(0.0, 0.0)).x,
         )
     }
 
@@ -1034,12 +1038,16 @@ impl DataSeries {
         let (err_sum, cnt) = points.fold((0.0, 0), |(err_sum, cnt), point| {
             (err_sum + (point.y - lines.eval(point.x)).powi(2), cnt + 1)
         });
-        err_sum.sqrt() / cnt as f64
+        if cnt > 0 {
+            err_sum.sqrt() / cnt as f64
+        } else {
+            0.0
+        }
     }
 
-    fn fit_lines(&mut self, gran: f64, dir: DataShape) {
+    fn fit_lines(&mut self, gran: f64, dir: DataShape) -> Result<()> {
         if self.points.len() == 0 {
-            return;
+            return Ok(());
         }
 
         let start = self.points.iter().next().unwrap().x;
@@ -1066,21 +1074,24 @@ impl DataSeries {
         let best_error =
             RefCell::new(Self::calc_error(self.points.iter(), &best_lines) * ERROR_DISCOUNT);
 
-        let mut try_and_pick = |fit: &(dyn Fn() -> Option<DataLines>)| -> bool {
+        let mut try_and_pick = |fit: &(dyn Fn() -> Option<DataLines>)| -> Result<bool> {
+            if prog_exiting() {
+                bail!("Program exiting");
+            }
             if let Some(lines) = fit() {
                 if lines.left.y <= 0.0 || lines.right.y <= 0.0 {
-                    return false;
+                    return Ok(false);
                 }
                 match dir {
                     DataShape::Any => {}
                     DataShape::Inc => {
                         if lines.left.y > lines.right.y {
-                            return false;
+                            return Ok(false);
                         }
                     }
                     DataShape::Dec => {
                         if lines.left.y < lines.right.y {
-                            return false;
+                            return Ok(false);
                         }
                     }
                 }
@@ -1099,14 +1110,14 @@ impl DataSeries {
                     );
                     best_lines = lines;
                     best_error.replace(error);
-                    return true;
+                    return Ok(true);
                 }
             }
-            false
+            Ok(false)
         };
 
         // Try simple linear regression.
-        if self.points.len() > 3 && try_and_pick(&|| Some(Self::fit_line(&self.points))) {
+        if self.points.len() > 3 && try_and_pick(&|| Some(Self::fit_line(&self.points)))? {
             let be = *best_error.borrow();
             best_error.replace(be * ERROR_DISCOUNT);
         }
@@ -1118,8 +1129,8 @@ impl DataSeries {
             if infl < start + MIN_SEG_DIST || infl > end - MIN_SEG_DIST {
                 continue;
             }
-            updated |= try_and_pick(&|| Self::fit_slope_with_vleft(&self.points, infl));
-            updated |= try_and_pick(&|| Self::fit_slope_with_vright(&self.points, infl));
+            updated |= try_and_pick(&|| Self::fit_slope_with_vleft(&self.points, infl))?;
+            updated |= try_and_pick(&|| Self::fit_slope_with_vright(&self.points, infl))?;
         }
         if updated {
             let be = *best_error.borrow();
@@ -1139,11 +1150,12 @@ impl DataSeries {
                 }
                 try_and_pick(&|| {
                     Self::fit_slope_with_vleft_and_vright(&self.points, vleft, vright)
-                });
+                })?;
             }
         }
 
         self.lines = best_lines;
+        Ok(())
     }
 
     fn filter_beyond(&mut self, vrate_thr: f64) {
@@ -1199,9 +1211,11 @@ impl DataSeries {
     }
 
     fn fill_vrate_range(&mut self, range: (f64, f64)) {
+        if self.lines == Default::default() {
+            return;
+        }
         let (vmin, vmax) = Self::vrange(&self.points);
-        let slope =
-            (self.lines.right.y - self.lines.left.y) / (self.lines.right.x - self.lines.left.x);
+        let slope = self.lines.slope();
         if self.lines.left.x == vmin && vmin > range.0 {
             self.lines.left.y -= slope * (vmin - range.0);
             self.lines.left.x = range.0;
@@ -1303,6 +1317,99 @@ pub struct IoCostTuneResult {
 }
 
 impl IoCostTuneJob {
+    fn study_data_series(
+        &self,
+        sel: &DataSel,
+        qrec: &IoCostQoSRecord,
+        qres: &IoCostQoSResult,
+        isol_pct: &str,
+        isol_thr: f64,
+        data: &mut BTreeMap<DataSel, DataSeries>,
+    ) -> Result<()> {
+        let mut series = DataSeries::default();
+        for (qrecr, qresr) in qrec
+            .runs
+            .iter()
+            .filter_map(|x| x.as_ref())
+            .zip(qres.runs.iter().filter_map(|x| x.as_ref()))
+        {
+            let vrate = match qrecr.ovr {
+                IoCostQoSOvr {
+                    off: false,
+                    rpct: None,
+                    rlat: None,
+                    wpct: None,
+                    wlat: None,
+                    min: Some(min),
+                    max: Some(max),
+                    skip: _,
+                    min_adj: _,
+                } if min == max => min,
+                _ => continue,
+            };
+            if let Some(val) = sel.select(qrecr, qresr, &isol_pct) {
+                series.points.push(DataPoint::new(vrate, val));
+            }
+        }
+        series.points.sort_by(|a, b| a.partial_cmp(b).unwrap());
+
+        let (dir, filter_outliers, filter_by_isol) = sel.fit_lines_opts();
+        trace!(
+            "iocost-tune: fitting {:?} points={} dir={:?} filter_outliers={} filter_by_isol={}",
+            &sel,
+            series.points.len(),
+            &dir,
+            filter_outliers,
+            filter_by_isol
+        );
+
+        let mut fill_upto = None;
+        if filter_by_isol {
+            let dl = &data.get(&DataSel::Isol).unwrap().lines;
+            let slope = dl.slope();
+            if slope != 0.0 && dl.right.y < isol_thr {
+                let intcp =
+                    (dl.right.x - (dl.right.y - isol_thr) / slope).clamp(dl.range.0, dl.range.1);
+                series.filter_beyond(intcp);
+                fill_upto = Some(intcp);
+            }
+        }
+
+        series.fit_lines(self.gran, dir)?;
+
+        if let Some(fill_upto) = fill_upto {
+            series.fill_vrate_range((series.lines.range.0, fill_upto));
+        }
+
+        if filter_outliers {
+            series.filter_outliers();
+            trace!(
+                "iocost-tune: fitting {:?} points={} outliers={} dir={:?}",
+                &sel,
+                series.points.len(),
+                series.outliers.len(),
+                &dir
+            );
+            let range = series.lines.range;
+            series.fit_lines(self.gran, dir)?;
+            series.fill_vrate_range(range);
+        }
+
+        // For some data series, we fit the lines excluding the outliers
+        // so that the fitted lines can be used to guess the likely
+        // behaviors most of the time but we want to include the
+        // outliers when reporting error so that the users can gauge the
+        // flakiness of the device.
+        series.error = DataSeries::calc_error(
+            series.points.iter().chain(series.outliers.iter()),
+            &series.lines,
+        );
+
+        data.insert(sel.clone(), series);
+
+        Ok(())
+    }
+
     fn format_solution<'a>(
         out: &mut Box<dyn Write + 'a>,
         name: &str,
@@ -1430,84 +1537,7 @@ impl Job for IoCostTuneJob {
         };
 
         for sel in self.sels.iter() {
-            let mut series = DataSeries::default();
-            for (qrecr, qresr) in qrec
-                .runs
-                .iter()
-                .filter_map(|x| x.as_ref())
-                .zip(qres.runs.iter().filter_map(|x| x.as_ref()))
-            {
-                let vrate = match qrecr.ovr {
-                    IoCostQoSOvr {
-                        off: false,
-                        rpct: None,
-                        rlat: None,
-                        wpct: None,
-                        wlat: None,
-                        min: Some(min),
-                        max: Some(max),
-                        skip: _,
-                        min_adj: _,
-                    } if min == max => min,
-                    _ => continue,
-                };
-                if let Some(val) = sel.select(qrecr, qresr, &isol_pct) {
-                    series.points.push(DataPoint::new(vrate, val));
-                }
-            }
-            series.points.sort_by(|a, b| a.partial_cmp(b).unwrap());
-
-            let (dir, filter_outliers, filter_by_isol) = sel.fit_lines_opts();
-            trace!(
-                "iocost-tune: fitting {:?} points={} dir={:?} filter_outliers={} filter_by_isol={}",
-                &sel,
-                series.points.len(),
-                &dir,
-                filter_outliers,
-                filter_by_isol
-            );
-
-            match (filter_by_isol, data.get(&DataSel::Isol)) {
-                (true, Some(ds)) if ds.lines.right.y < isol_thr => {
-                    let dl = &ds.lines;
-                    let slope = (dl.right.y - dl.left.y) / (dl.right.x - dl.left.x);
-                    let intcp = dl.right.x - (dl.right.y - isol_thr) / slope;
-                    series.filter_beyond(intcp);
-                    series.fit_lines(self.gran, dir);
-                    series.fill_vrate_range((series.lines.range.0, intcp));
-                }
-                _ => series.fit_lines(self.gran, dir),
-            }
-
-            if filter_outliers {
-                series.filter_outliers();
-                trace!(
-                    "iocost-tune: fitting {:?} points={} outliers={} dir={:?}",
-                    &sel,
-                    series.points.len(),
-                    series.outliers.len(),
-                    &dir
-                );
-                let range = series.lines.range;
-                series.fit_lines(self.gran, dir);
-                series.fill_vrate_range(range);
-            }
-
-            // For some data series, we fit the lines excluding the outliers
-            // so that the fitted lines can be used to guess the likely
-            // behaviors most of the time but we want to include the
-            // outliers when reporting error so that the users can gauge the
-            // flakiness of the device.
-            series.error = DataSeries::calc_error(
-                series.points.iter().chain(series.outliers.iter()),
-                &series.lines,
-            );
-
-            data.insert(sel.clone(), series);
-
-            if prog_exiting() {
-                bail!("Program exiting");
-            }
+            self.study_data_series(sel, &qrec, &qres, &isol_pct, isol_thr, &mut data)?;
         }
 
         let base_model = qrec.base_model.clone();
@@ -1595,7 +1625,7 @@ impl Job for IoCostTuneJob {
             for rule in self.rules.iter() {
                 match res.solutions.get(&rule.name) {
                     Some(sol) => Self::format_solution(&mut out, &rule.name, sol, &res.isol_pct),
-                    None => writeln!(out, "{}  NO SOLUTION", &rule.name).unwrap(),
+                    None => writeln!(out, "{}\n  NO SOLUTION", &rule.name).unwrap(),
                 }
                 writeln!(out, "").unwrap();
             }
