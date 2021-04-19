@@ -1,5 +1,6 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
 use anyhow::{bail, Context, Error, Result};
+use indicatif::{ProgressBar, ProgressStyle};
 use log::{debug, error, info, warn};
 use std::io::Write;
 use std::path::Path;
@@ -260,7 +261,7 @@ impl Program {
             .open(&tarball)
             .with_context(|| format!("Opening {:?}", &tarball))?;
         let mut tgz =
-            tar::Builder::new(libflate::gzip::Encoder::new(f).context("Creating gzip encore")?);
+            tar::Builder::new(libflate::gzip::Encoder::new(f).context("Creating gzip encoder")?);
         let mut base = base::Base::dummy(args);
 
         let rctx = RunCtx::new(&args, &mut base, self.jobs.clone());
@@ -268,6 +269,12 @@ impl Program {
         debug!("Packing {:?} as {:?}", &args.result, &fname);
         tgz.append_path_with_name(&args.result, &fname)
             .with_context(|| format!("Packing {:?}", &args.result))?;
+
+        let pgbar = ProgressBar::new(pers.iter().fold(0, |acc, per| acc + per.1 - per.0));
+        pgbar.set_style(ProgressStyle::default_bar()
+                        .template("{spinner:.green} [{elapsed_precise}] [{wide_bar:.cyan/blue}] {pos:>7}/{len:7} ({eta})")
+                            .progress_chars("#>-")
+        );
 
         let mut nr_packed = 0;
         let mut nr_skipped = 0;
@@ -286,8 +293,15 @@ impl Program {
                 debug!("Packing {:?} as {:?}", &path, &target_path);
                 tgz.append_path_with_name(&path, &target_path)
                     .with_context(|| format!("Packing {:?}", path))?;
+
+                pgbar.set_position(nr_packed + nr_skipped);
+
+                if prog_exiting() {
+                    bail!("Program exiting");
+                }
             }
         }
+        pgbar.finish_and_clear();
 
         info!("Packed {}/{} reports", nr_packed, nr_packed + nr_skipped);
 
