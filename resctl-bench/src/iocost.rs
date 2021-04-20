@@ -9,12 +9,12 @@ pub use resctl_bench_intf::iocost::*;
 // seqiops are artificially lowered to avoid limiting throttling of older
 // SSDs which have similar seqiops as hard drives.
 pub const ABS_MIN_IO_PERF: IoCostModelParams = IoCostModelParams {
-    rbps: 60 << 20,
-    rseqiops: 160,
-    rrandiops: 160,
-    wbps: 60 << 20,
-    wseqiops: 160,
-    wrandiops: 160,
+    rbps: 125 << 20,
+    rseqiops: 280,
+    rrandiops: 280,
+    wbps: 125 << 20,
+    wseqiops: 280,
+    wrandiops: 280,
 };
 
 pub fn iocost_min_vrate(model: &IoCostModelParams) -> f64 {
