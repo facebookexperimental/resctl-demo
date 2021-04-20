@@ -1046,6 +1046,10 @@ impl DataSeries {
     }
 
     fn fit_lines(&mut self, gran: f64, dir: DataShape) -> Result<()> {
+        if self.points.len() == 0 {
+            return Ok(());
+        }
+
         let start = self.points.iter().next().unwrap().x;
         let end = self.points.iter().last().unwrap().x;
         let intvs = ((end - start) / gran).ceil() as u32 + 1;
