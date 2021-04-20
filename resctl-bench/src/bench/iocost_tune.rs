@@ -1046,15 +1046,13 @@ impl DataSeries {
     }
 
     fn fit_lines(&mut self, gran: f64, dir: DataShape) -> Result<()> {
-        if self.points.len() == 0 {
-            return Ok(());
-        }
-
         let start = self.points.iter().next().unwrap().x;
         let end = self.points.iter().last().unwrap().x;
         let intvs = ((end - start) / gran).ceil() as u32 + 1;
+        if intvs <= 1 {
+            return Ok(());
+        }
         let gran = (end - start) / (intvs - 1) as f64;
-        assert!(intvs > 1);
 
         // We want to prefer line fittings with fewer components. Discount
         // error from the previous stage. Also, make sure each line segment
@@ -1586,7 +1584,7 @@ impl Job for IoCostTuneJob {
         &self,
         mut out: Box<dyn Write + 'a>,
         data: &JobData,
-        _opts: &FormatOpts,
+        opts: &FormatOpts,
         props: &JobProps,
     ) -> Result<()> {
         let mut graph_prefix = None;
@@ -1603,21 +1601,25 @@ impl Job for IoCostTuneJob {
 
         let res: IoCostTuneResult = data.parse_result()?;
 
-        write!(
-            out,
-            "{}\n",
-            &double_underline("Graphs (square: fitted line, circle: data points, cross: rejected)")
-        )
-        .unwrap();
+        if opts.full {
+            write!(
+                out,
+                "{}\n",
+                &double_underline(
+                    "Graphs (square: fitted line, circle: data points, cross: rejected)"
+                )
+            )
+            .unwrap();
 
-        let vrate_range = res
-            .data
-            .iter()
-            .fold((std::f64::MAX, 0.0), |acc, (_sel, ds)| {
-                (ds.lines.range.0.min(acc.0), ds.lines.range.1.max(acc.1))
-            });
-        let mut grapher = graph::Grapher::new(&mut out, graph_prefix.as_deref(), vrate_range);
-        grapher.plot(data, &res)?;
+            let vrate_range = res
+                .data
+                .iter()
+                .fold((std::f64::MAX, 0.0), |acc, (_sel, ds)| {
+                    (ds.lines.range.0.min(acc.0), ds.lines.range.1.max(acc.1))
+                });
+            let mut grapher = graph::Grapher::new(&mut out, graph_prefix.as_deref(), vrate_range);
+            grapher.plot(data, &res)?;
+        }
 
         if self.rules.len() > 0 {
             write!(out, "{}\n", &double_underline("Solutions")).unwrap();
