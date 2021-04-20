@@ -1046,15 +1046,13 @@ impl DataSeries {
     }
 
     fn fit_lines(&mut self, gran: f64, dir: DataShape) -> Result<()> {
-        if self.points.len() == 0 {
-            return Ok(());
-        }
-
         let start = self.points.iter().next().unwrap().x;
         let end = self.points.iter().last().unwrap().x;
         let intvs = ((end - start) / gran).ceil() as u32 + 1;
+        if intvs <= 1 {
+            return Ok(());
+        }
         let gran = (end - start) / (intvs - 1) as f64;
-        assert!(intvs > 1);
 
         // We want to prefer line fittings with fewer components. Discount
         // error from the previous stage. Also, make sure each line segment
