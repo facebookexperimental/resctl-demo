@@ -167,9 +167,6 @@ pub struct Args {
     pub log_size: u64,
     pub interval: u32,
     pub rotational: Option<bool>,
-    pub total_memory: Option<usize>,
-    pub total_swap: Option<usize>,
-    pub nr_cpus: Option<usize>,
 
     #[serde(skip)]
     pub keep_cache: bool,
@@ -224,9 +221,6 @@ impl Args {
             log_size: mem_size as u64 / 2,
             interval: 10,
             rotational: None,
-            total_memory: None,
-            total_swap: None,
-            nr_cpus: None,
             clear_testfiles: false,
             keep_cache: false,
             bench_preload_cache: None,
