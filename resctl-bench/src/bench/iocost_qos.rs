@@ -698,15 +698,20 @@ impl Job for IoCostQoSJob {
                 StudyIoLatPcts::format_rw(&mut out, &resr.iolat, opts, None);
 
                 if recr.qos.is_some() {
+                    let mut cnt = 0;
                     write!(out, "\nvrate:").unwrap();
                     for pct in Self::VRATE_PCTS {
                         write!(
                             out,
-                            " p{}={}",
+                            " p{}={:.2}",
                             pct,
                             resr.vrate.get(&pct.to_string()).unwrap()
                         )
                         .unwrap();
+                        cnt += 1;
+                        if cnt % 7 == 0 {
+                            write!(out, "\n      ").unwrap();
+                        }
                     }
                     writeln!(out, "\n").unwrap();
 
