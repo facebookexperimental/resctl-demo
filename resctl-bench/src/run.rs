@@ -771,6 +771,10 @@ impl<'a, 'b> RunCtx<'a, 'b> {
         // state.
         write_one_line("/proc/sys/vm/drop_caches", "3").unwrap();
 
+        if self.base.mem_initialized {
+            extra_args.push(format!("--total-memory={}", self.base.mem.share));
+        }
+
         if self.test {
             extra_args.push("--bench-test".into());
         }
