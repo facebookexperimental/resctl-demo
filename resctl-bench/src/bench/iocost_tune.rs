@@ -1319,15 +1319,12 @@ pub struct IoCostTuneResult {
 }
 
 impl IoCostTuneJob {
-    fn study_data_series(
-        &self,
+    fn collect_data_series(
         sel: &DataSel,
         qrec: &IoCostQoSRecord,
         qres: &IoCostQoSResult,
         isol_pct: &str,
-        isol_thr: f64,
-        data: &mut BTreeMap<DataSel, DataSeries>,
-    ) -> Result<()> {
+    ) -> Result<DataSeries> {
         let mut series = DataSeries::default();
         for (qrecr, qresr) in qrec
             .runs
@@ -1354,7 +1351,16 @@ impl IoCostTuneJob {
             }
         }
         series.points.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        Ok(series)
+    }
 
+    fn solve_data_series(
+        &self,
+        sel: &DataSel,
+        series: &mut DataSeries,
+        isol_series: Option<&DataSeries>,
+        isol_thr: f64,
+    ) -> Result<()> {
         let (dir, filter_outliers, filter_by_isol) = sel.fit_lines_opts();
         trace!(
             "iocost-tune: fitting {:?} points={} dir={:?} filter_outliers={} filter_by_isol={}",
@@ -1367,7 +1373,13 @@ impl IoCostTuneJob {
 
         let mut fill_upto = None;
         if filter_by_isol {
-            let dl = &data.get(&DataSel::Isol).unwrap().lines;
+            let dl = &isol_series
+                .expect(&format!(
+                    "iocost-tune: Solving {:?} requires {:?} which isn't available",
+                    &sel,
+                    &DataSel::Isol
+                ))
+                .lines;
             let slope = dl.slope();
             if slope != 0.0 && dl.right.y < isol_thr {
                 let intcp =
@@ -1406,8 +1418,6 @@ impl IoCostTuneJob {
             series.points.iter().chain(series.outliers.iter()),
             &series.lines,
         );
-
-        data.insert(sel.clone(), series);
 
         Ok(())
     }
@@ -1538,12 +1548,36 @@ impl Job for IoCostTuneJob {
             _ => ("01".to_string(), 0.9),
         };
 
-        for sel in self.sels.iter() {
-            self.study_data_series(sel, &qrec, &qres, &isol_pct, isol_thr, &mut data)?;
-        }
-
         let base_model = qrec.base_model.clone();
         let base_qos = qrec.base_qos.clone();
+        let mem_profile = qrec.mem_profile;
+
+        for sel in self.sels.iter() {
+            data.insert(
+                sel.clone(),
+                Self::collect_data_series(sel, &qrec, &qres, &isol_pct)?,
+            );
+        }
+
+        // isol may be used in solving other data series, solve it first. We
+        // take it out of @data to avoid conflict with the mutable
+        // iteration below.
+        let isol_series = match data.remove(&DataSel::Isol) {
+            Some(mut series) => {
+                self.solve_data_series(&DataSel::Isol, &mut series, None, 0.0)?;
+                Some(series)
+            }
+            None => None,
+        };
+
+        for (sel, series) in data.iter_mut() {
+            self.solve_data_series(sel, series, isol_series.as_ref(), isol_thr)?;
+        }
+
+        // We're done solving. Put the isol series back in.
+        if let Some(isol_series) = isol_series {
+            data.insert(DataSel::Isol, isol_series);
+        }
 
         let mut solutions = BTreeMap::<String, QoSSolution>::new();
         for rule in self.rules.iter() {
@@ -1567,7 +1601,7 @@ impl Job for IoCostTuneJob {
                         &qos,
                         target_vrate,
                         scale_factor,
-                        qrec.mem_profile,
+                        mem_profile,
                         &data,
                     ),
                 );
@@ -1577,7 +1611,7 @@ impl Job for IoCostTuneJob {
         Ok(serde_json::to_value(IoCostTuneResult {
             base_model,
             base_qos,
-            mem_profile: qrec.mem_profile,
+            mem_profile,
             isol_pct,
             data,
             solutions,
