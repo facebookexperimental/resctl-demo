@@ -33,6 +33,13 @@ pub trait Job {
     fn study(&self, _rctx: &mut RunCtx, _rec_json: serde_json::Value) -> Result<serde_json::Value> {
         Ok(serde_json::Value::Bool(true))
     }
+    fn solve(
+        &self,
+        _rec_json: serde_json::Value,
+        res_json: serde_json::Value,
+    ) -> Result<serde_json::Value> {
+        Ok(res_json)
+    }
     fn format<'a>(
         &self,
         out: Box<dyn Write + 'a>,
@@ -248,11 +255,11 @@ impl JobCtx {
             data.record = Some(record);
         }
 
-        let res = match self
-            .job
-            .as_ref()
-            .unwrap()
-            .study(rctx, self.data.record.as_ref().unwrap().clone())
+        let job = self.job.as_ref().unwrap();
+        let rec = self.data.record.as_ref().unwrap();
+        let res = match job
+            .study(rctx, rec.clone())
+            .and_then(|res| job.solve(rec.clone(), res))
         {
             Ok(result) => {
                 self.data.result = Some(result);

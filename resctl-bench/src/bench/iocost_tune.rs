@@ -1314,6 +1314,7 @@ pub struct IoCostTuneResult {
     base_qos: IoCostQoSParams,
     mem_profile: u32,
     isol_pct: String,
+    isol_thr: f64,
     data: BTreeMap<DataSel, DataSeries>,
     solutions: BTreeMap<String, QoSSolution>,
 }
@@ -1548,10 +1549,6 @@ impl Job for IoCostTuneJob {
             _ => ("01".to_string(), 0.9),
         };
 
-        let base_model = qrec.base_model.clone();
-        let base_qos = qrec.base_qos.clone();
-        let mem_profile = qrec.mem_profile;
-
         for sel in self.sels.iter() {
             data.insert(
                 sel.clone(),
@@ -1559,10 +1556,28 @@ impl Job for IoCostTuneJob {
             );
         }
 
+        Ok(serde_json::to_value(IoCostTuneResult {
+            base_model: qrec.base_model.clone(),
+            base_qos: qrec.base_qos.clone(),
+            mem_profile: qrec.mem_profile,
+            isol_pct,
+            isol_thr,
+            data,
+            solutions: Default::default(),
+        })?)
+    }
+
+    fn solve(
+        &self,
+        _rec_json: serde_json::Value,
+        res_json: serde_json::Value,
+    ) -> Result<serde_json::Value> {
+        let mut res: IoCostTuneResult = parse_json_value_or_dump(res_json)?;
+
         // isol may be used in solving other data series, solve it first. We
         // take it out of @data to avoid conflict with the mutable
         // iteration below.
-        let isol_series = match data.remove(&DataSel::Isol) {
+        let isol_series = match res.data.remove(&DataSel::Isol) {
             Some(mut series) => {
                 self.solve_data_series(&DataSel::Isol, &mut series, None, 0.0)?;
                 Some(series)
@@ -1570,30 +1585,30 @@ impl Job for IoCostTuneJob {
             None => None,
         };
 
-        for (sel, series) in data.iter_mut() {
-            self.solve_data_series(sel, series, isol_series.as_ref(), isol_thr)?;
+        for (sel, series) in res.data.iter_mut() {
+            self.solve_data_series(sel, series, isol_series.as_ref(), res.isol_thr)?;
         }
 
         // We're done solving. Put the isol series back in.
         if let Some(isol_series) = isol_series {
-            data.insert(DataSel::Isol, isol_series);
+            res.data.insert(DataSel::Isol, isol_series);
         }
 
-        let mut solutions = BTreeMap::<String, QoSSolution>::new();
         for rule in self.rules.iter() {
-            if let Some((mut qos, target_vrate)) =
-                rule.target.solve(&data, (self.vrate_min, self.vrate_max))
+            if let Some((mut qos, target_vrate)) = rule
+                .target
+                .solve(&res.data, (self.vrate_min, self.vrate_max))
             {
                 debug!(
                     "iocost-tune: rule={:?} qos={:?} target_vrate={}",
                     rule, &qos, target_vrate
                 );
                 let scale_factor = target_vrate / 100.0;
-                let model = base_model.clone() * scale_factor;
+                let model = res.base_model.clone() * scale_factor;
                 qos.min /= scale_factor;
                 qos.max /= scale_factor;
 
-                solutions.insert(
+                res.solutions.insert(
                     rule.name.clone(),
                     QoSSolution::new(
                         &rule.target,
@@ -1601,21 +1616,14 @@ impl Job for IoCostTuneJob {
                         &qos,
                         target_vrate,
                         scale_factor,
-                        mem_profile,
-                        &data,
+                        res.mem_profile,
+                        &res.data,
                     ),
                 );
             }
         }
 
-        Ok(serde_json::to_value(IoCostTuneResult {
-            base_model,
-            base_qos,
-            mem_profile,
-            isol_pct,
-            data,
-            solutions,
-        })?)
+        Ok(serde_json::to_value(res)?)
     }
 
     fn format<'a>(
