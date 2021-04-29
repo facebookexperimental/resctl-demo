@@ -598,8 +598,13 @@ impl QoSTarget {
         &self,
         data: &BTreeMap<DataSel, DataSeries>,
         (vrate_min, vrate_max): (f64, f64),
-    ) -> Option<(IoCostQoSParams, f64)> {
-        match self {
+    ) -> Result<Option<(IoCostQoSParams, f64)>> {
+        let ds = |sel| {
+            data.get(sel)
+                .ok_or(anyhow!("Required data series {:?} unavailable", sel))
+        };
+
+        Ok(match self {
             Self::VrateRange((vrate_min, vrate_max), (rpct, wpct)) => {
                 let (rpct, rlat) = Self::solve_vrate_range(*vrate_max, READ, rpct.as_deref(), data);
                 let (wpct, wlat) =
@@ -616,8 +621,22 @@ impl QoSTarget {
                     *vrate_max,
                 ))
             }
-            Self::MOFMax => {
-                data[&DataSel::MOF]
+            Self::MOFMax => ds(&DataSel::MOF)?
+                .lines
+                .clamped(vrate_min, vrate_max)
+                .map(|clamped| {
+                    let vrate = Self::find_min_vrate_at_max_val(&clamped);
+                    (
+                        IoCostQoSParams {
+                            min: vrate,
+                            max: vrate,
+                            ..Default::default()
+                        },
+                        vrate,
+                    )
+                }),
+            Self::AMOFMax => {
+                ds(&DataSel::AMOF)?
                     .lines
                     .clamped(vrate_min, vrate_max)
                     .map(|clamped| {
@@ -632,24 +651,10 @@ impl QoSTarget {
                         )
                     })
             }
-            Self::AMOFMax => data[&DataSel::AMOF]
-                .lines
-                .clamped(vrate_min, vrate_max)
-                .map(|clamped| {
-                    let vrate = Self::find_min_vrate_at_max_val(&clamped);
-                    (
-                        IoCostQoSParams {
-                            min: vrate,
-                            max: vrate,
-                            ..Default::default()
-                        },
-                        vrate,
-                    )
-                }),
-            Self::Protect => match data[&DataSel::MOF].lines.clamped(vrate_min, vrate_max) {
+            Self::Protect => match ds(&DataSel::MOF)?.lines.clamped(vrate_min, vrate_max) {
                 Some(clamped) => {
                     let mof_max = Self::find_min_vrate_at_max_val(&clamped);
-                    match data[&DataSel::AMOFDelta].lines.clamped(vrate_min, mof_max) {
+                    match ds(&DataSel::AMOFDelta)?.lines.clamped(vrate_min, mof_max) {
                         Some(clamped) => {
                             let vrate = Self::find_max_vrate_at_min_val(&clamped);
                             Some((
@@ -668,7 +673,7 @@ impl QoSTarget {
             },
             Self::LatRange(sel, lat_rel_range) => {
                 if let Some((lat_target, vrate_range)) =
-                    Self::solve_lat_range(&data[&sel], *lat_rel_range, (vrate_min, vrate_max))
+                    Self::solve_lat_range(ds(&sel)?, *lat_rel_range, (vrate_min, vrate_max))
                 {
                     Some(match sel {
                         DataSel::RLat(pct, _) => (
@@ -699,7 +704,7 @@ impl QoSTarget {
                     None
                 }
             }
-        }
+        })
     }
 }
 
@@ -1597,7 +1602,7 @@ impl Job for IoCostTuneJob {
         for rule in self.rules.iter() {
             if let Some((mut qos, target_vrate)) = rule
                 .target
-                .solve(&res.data, (self.vrate_min, self.vrate_max))
+                .solve(&res.data, (self.vrate_min, self.vrate_max))?
             {
                 debug!(
                     "iocost-tune: rule={:?} qos={:?} target_vrate={}",
