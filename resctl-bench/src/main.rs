@@ -120,7 +120,7 @@ impl Program {
 
     fn do_run(&mut self) {
         let mut base = match self.args_file.data.mode {
-            Mode::Study => base::Base::dummy(&self.args_file.data),
+            Mode::Study | Mode::Solve => base::Base::dummy(&self.args_file.data),
             _ => base::Base::new(&self.args_file.data),
         };
 
@@ -333,7 +333,7 @@ impl Program {
 
         let rstat = args.rstat;
         match args.mode {
-            Mode::Run | Mode::Study => self.do_run(),
+            Mode::Run | Mode::Study | Mode::Solve => self.do_run(),
             Mode::Format => self.do_format(&FormatOpts { full: true, rstat }),
             Mode::Summary => self.do_format(&FormatOpts {
                 full: false,

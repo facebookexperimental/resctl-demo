@@ -46,6 +46,7 @@ lazy_static::lazy_static! {
 pub enum Mode {
     Run,
     Study,
+    Solve,
     Format,
     Summary,
     Pack,
@@ -299,6 +300,12 @@ impl JsonArgs for Args {
                     .arg(job_spec_arg.clone()),
             )
             .subcommand(
+                clap::SubCommand::with_name("solve")
+                    .about("Solve benchmark results, optional phase to be used with merge")
+                    .arg(job_file_arg.clone())
+                    .arg(job_spec_arg.clone()),
+            )
+            .subcommand(
                 clap::SubCommand::with_name("format")
                     .about("Format benchmark results")
                     .arg(
@@ -461,6 +468,7 @@ impl JsonArgs for Args {
         updated |= match matches.subcommand() {
             ("run", Some(subm)) => self.process_subcommand(Mode::Run, subm),
             ("study", Some(subm)) => self.process_subcommand(Mode::Study, subm),
+            ("solve", Some(subm)) => self.process_subcommand(Mode::Solve, subm),
             ("format", Some(subm)) => self.process_subcommand(Mode::Format, subm),
             ("summary", Some(subm)) => self.process_subcommand(Mode::Summary, subm),
             ("pack", Some(_)) => {

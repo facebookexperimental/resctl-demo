@@ -16,7 +16,7 @@ use super::base::MemInfo;
 use super::parse_json_value_or_dump;
 use super::run::RunCtx;
 use rd_agent_intf::{SysReq, SysReqsReport};
-use resctl_bench_intf::{JobProps, JobSpec};
+use resctl_bench_intf::{JobProps, JobSpec, Mode};
 
 #[derive(Debug, Clone)]
 pub struct FormatOpts {
@@ -200,17 +200,23 @@ impl JobCtx {
     }
 
     pub fn run(&mut self, rctx: &mut RunCtx) -> Result<()> {
-        self.job
-            .as_mut()
-            .unwrap()
-            .pre_run(rctx)
-            .context("Executing pre-run")?;
+        let solve_mode = rctx.mode() == Mode::Solve;
 
+        // solve() should only consume data from its own record and result.
+        // No need to execute pre_run() which exists to trigger
+        // dependencies.
+        if !solve_mode {
+            self.job
+                .as_mut()
+                .unwrap()
+                .pre_run(rctx)
+                .context("Executing pre-run")?;
+        }
         let pdata = rctx.prev_job_data();
 
-        if rctx.study_mode() || (pdata.is_some() && !self.incremental) {
+        if rctx.studying() || (pdata.is_some() && !self.incremental) {
             self.data = pdata.ok_or(anyhow!(
-                "--study specified but {} isn't complete",
+                "study or solve mode but {} isn't complete",
                 &self.data.spec
             ))?;
         } else {
@@ -257,12 +263,21 @@ impl JobCtx {
 
         let job = self.job.as_ref().unwrap();
         let rec = self.data.record.as_ref().unwrap();
-        let res = match job
-            .study(rctx, rec.clone())
-            .and_then(|res| job.solve(rec.clone(), res))
-        {
-            Ok(result) => {
-                self.data.result = Some(result);
+        let res = if solve_mode {
+            self.data
+                .result
+                .take()
+                .ok_or(anyhow!(
+                    "solve mode but intermediate result is not available"
+                ))
+                .and_then(|res| job.solve(rec.clone(), res))
+        } else {
+            job.study(rctx, rec.clone())
+                .and_then(|res| job.solve(rec.clone(), res))
+        };
+        let res = match res {
+            Ok(res) => {
+                self.data.result = Some(res);
                 Ok(())
             }
             Err(e) => Err(e),

@@ -366,8 +366,15 @@ impl<'a, 'b> RunCtx<'a, 'b> {
         self
     }
 
-    pub fn study_mode(&self) -> bool {
-        self.args.mode == Mode::Study
+    pub fn mode(&self) -> Mode {
+        self.args.mode
+    }
+
+    pub fn studying(&self) -> bool {
+        match self.mode() {
+            Mode::Study | Mode::Solve => true,
+            _ => false
+        }
     }
 
     pub fn update_incremental_jctx(&mut self, jctx: &JobCtx) {
@@ -377,7 +384,7 @@ impl<'a, 'b> RunCtx<'a, 'b> {
         let prev = jobs.by_uid_mut(jctx.uid).unwrap();
         prev.update_seq = UPDATE_SEQ.fetch_add(1, Ordering::Relaxed);
         prev.data = jctx.data.clone();
-        if !self.study_mode() {
+        if !self.studying() {
             jobs.sort_by_update_seq();
         }
         jobs.save_results(self.result_path);
@@ -532,8 +539,8 @@ impl<'a, 'b> RunCtx<'a, 'b> {
     }
 
     pub fn start_agent(&mut self, extra_args: Vec<String>) -> Result<()> {
-        if self.study_mode() {
-            bail!("Can't run unfinished benchmarks when --study is specified");
+        if self.studying() {
+            bail!("Can't run unfinished benchmarks in study or solve mode");
         }
 
         if !self.skip_mem_profile {

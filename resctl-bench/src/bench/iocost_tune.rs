@@ -933,6 +933,17 @@ struct DataSeries {
 }
 
 impl DataSeries {
+    fn reset(&mut self) {
+        let mut points = vec![];
+        points.append(&mut self.points);
+        points.append(&mut self.outliers);
+        points.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        *self = DataSeries {
+            points,
+            ..Default::default()
+        };
+    }
+
     fn split_at<'a>(points: &'a [DataPoint], at: f64) -> (&'a [DataPoint], &'a [DataPoint]) {
         let mut idx = 0;
         for (i, point) in points.iter().enumerate() {
@@ -1578,6 +1589,13 @@ impl Job for IoCostTuneJob {
         res_json: serde_json::Value,
     ) -> Result<serde_json::Value> {
         let mut res: IoCostTuneResult = parse_json_value_or_dump(res_json)?;
+
+        // We might be called multiple times on the same intermediate
+        // result. Reset data serieses and solutions.
+        for (_, ds) in res.data.iter_mut() {
+            ds.reset();
+        }
+        res.solutions = Default::default();
 
         // isol may be used in solving other data series, solve it first. We
         // take it out of @data to avoid conflict with the mutable
