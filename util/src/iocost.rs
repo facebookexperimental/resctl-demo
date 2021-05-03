@@ -6,7 +6,7 @@ use std::fmt::Write as FmtWrite;
 use std::fs;
 use std::io::Write;
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(default)]
 pub struct IoCostModelParams {
     pub rbps: u64,

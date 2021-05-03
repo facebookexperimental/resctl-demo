@@ -8,6 +8,7 @@ use std::cmp::{Ordering, PartialOrd};
 use std::collections::{BTreeMap, BTreeSet};
 
 mod graph;
+mod merge;
 
 const DFL_IOCOST_QOS_VRATE_MAX: f64 = 125.0;
 const DFL_IOCOST_QOS_VRATE_INTVS: u32 = 25;
@@ -860,6 +861,10 @@ impl Bench for IoCostTuneBench {
         qos_props[0].remove("vrate-intvs");
 
         Some(format!("{:?}", &qos_props))
+    }
+
+    fn merge(&self, srcs: Vec<MergeSrc>) -> Result<JobData> {
+        merge::merge(srcs)
     }
 }
 
@@ -1740,7 +1745,7 @@ mod tests {
 
     #[test]
     fn test_bench_iocost_tune_datasel_sort_and_group() {
-        let sels = vec![
+        let mut sels = vec![
             DataSel::RLat("99".to_owned(), "90".to_owned()),
             DataSel::RLat("90".to_owned(), "99".to_owned()),
             DataSel::MOF,
@@ -1755,7 +1760,8 @@ mod tests {
             DataSel::WLat("99".to_owned(), "99".to_owned()),
         ];
 
-        let grouped = DataSel::sort_and_group(sels);
+        sels.sort();
+        let grouped = DataSel::group(sels);
         assert_eq!(
             grouped,
             vec![
