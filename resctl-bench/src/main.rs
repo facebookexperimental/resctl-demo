@@ -14,6 +14,7 @@ mod base;
 mod bench;
 mod iocost;
 mod job;
+mod merge;
 mod progress;
 mod run;
 mod study;
@@ -340,6 +341,7 @@ impl Program {
                 rstat: 0,
             }),
             Mode::Pack => self.do_pack().unwrap(),
+            Mode::Merge => merge::merge(&self.args_file.data).unwrap(),
         }
     }
 }

@@ -26,13 +26,17 @@ pub struct FormatOpts {
 
 pub trait Job {
     fn sysreqs(&self) -> BTreeSet<SysReq>;
+
     fn pre_run(&mut self, _rctx: &mut RunCtx) -> Result<()> {
         Ok(())
     }
+
     fn run(&mut self, rctx: &mut RunCtx) -> Result<serde_json::Value>;
+
     fn study(&self, _rctx: &mut RunCtx, _rec_json: serde_json::Value) -> Result<serde_json::Value> {
         Ok(serde_json::Value::Bool(true))
     }
+
     fn solve(
         &self,
         _rec_json: serde_json::Value,
@@ -40,6 +44,7 @@ pub trait Job {
     ) -> Result<serde_json::Value> {
         Ok(res_json)
     }
+
     fn format<'a>(
         &self,
         out: Box<dyn Write + 'a>,
@@ -170,6 +175,29 @@ impl JobCtx {
         self.job = Some(bench.parse(spec, prev_data)?);
         self.bench = Some(bench);
         Ok(())
+    }
+
+    fn init_from_job_data(&mut self) -> Result<()> {
+        self.uid = JobCtx::new_uid();
+        self.update_seq = std::u64::MAX;
+        if let Err(e) = self.parse_job_spec(None) {
+            bail!("Failed to parse {} ({:#})", &self.data.spec, &e);
+        }
+        Ok(())
+    }
+
+    pub fn with_job_data(data: JobData) -> Result<Self> {
+        let mut jctx = Self {
+            data,
+            bench: None,
+            job: None,
+            incremental: false,
+            uid: 0,
+            used: false,
+            update_seq: 0,
+        };
+        jctx.init_from_job_data()?;
+        Ok(jctx)
     }
 
     pub fn weak_clone(&self) -> Self {
@@ -517,11 +545,7 @@ impl JobCtxs {
 
         let mut vec: Vec<JobCtx> = serde_json::from_str(&buf)?;
         for jctx in vec.iter_mut() {
-            jctx.uid = JobCtx::new_uid();
-            jctx.update_seq = std::u64::MAX;
-            if let Err(e) = jctx.parse_job_spec(None) {
-                bail!("Failed to parse {} ({:#})", &jctx.data.spec, &e);
-            }
+            jctx.init_from_job_data()?;
         }
 
         Ok(Self { vec })

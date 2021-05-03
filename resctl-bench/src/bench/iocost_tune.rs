@@ -15,6 +15,15 @@ const DFL_GRAN: f64 = 0.1;
 const DFL_VRATE_MIN: f64 = 1.0;
 const DFL_VRATE_MAX: f64 = 100.0;
 
+lazy_static::lazy_static! {
+    static ref DFL_QOS_SPEC_STR: String = format!(
+        "iocost-qos:dither,vrate-max={},vrate-intvs={}",
+        DFL_IOCOST_QOS_VRATE_MAX, DFL_IOCOST_QOS_VRATE_INTVS,
+    );
+    static ref DFL_QOS_SPEC: JobSpec =
+        resctl_bench_intf::Args::parse_job_spec(&DFL_QOS_SPEC_STR).unwrap();
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum DataSel {
     MOF,                  // Memory offloading Factor
@@ -745,6 +754,8 @@ impl Bench for IoCostTuneBench {
             .takes_run_propsets()
             .takes_format_props()
             .incremental()
+            .mergeable()
+            .merge_needs_storage_model()
     }
 
     fn parse(&self, spec: &JobSpec, _prev_data: Option<&JobData>) -> Result<Box<dyn Job>> {
@@ -837,6 +848,18 @@ impl Bench for IoCostTuneBench {
         }
 
         Ok(Box::new(job))
+    }
+
+    fn merge_classifier(&self, data: &JobData) -> Option<String> {
+        let rec: IoCostTuneRecord = data.parse_record().unwrap();
+
+        // Allow results with different vrate-intvs to be merged so that
+        // people can submit more detailed runs. There are other parameters
+        // which are safe to ignore too but let's keep it simple for now.
+        let mut qos_props = rec.qos_props.clone();
+        qos_props[0].remove("vrate-intvs");
+
+        Some(format!("{:?}", &qos_props))
     }
 }
 
@@ -1325,6 +1348,12 @@ impl QoSSolution {
 }
 
 #[derive(Serialize, Deserialize, Clone, Default, Debug)]
+pub struct IoCostTuneRecord {
+    qos_props: JobProps,
+    dfl_qos: bool,
+}
+
+#[derive(Serialize, Deserialize, Clone, Default, Debug)]
 pub struct IoCostTuneResult {
     base_model: IoCostModelParams,
     base_qos: IoCostQoSParams,
@@ -1517,14 +1546,10 @@ impl Job for IoCostTuneJob {
         self.qos_data = Some(match rctx.find_done_job_data("iocost-qos") {
             Some(v) => v,
             None => {
-                let spec = format!(
-                    "iocost-qos:dither,vrate-max={},vrate-intvs={}",
-                    DFL_IOCOST_QOS_VRATE_MAX, DFL_IOCOST_QOS_VRATE_INTVS,
-                );
                 info!("iocost-tune: iocost-qos run not specified, running the following");
-                info!("iocost-tune: {}", &spec);
+                info!("iocost-tune: {}", *DFL_QOS_SPEC_STR);
 
-                rctx.run_nested_job_spec(&resctl_bench_intf::Args::parse_job_spec(&spec).unwrap())
+                rctx.run_nested_job_spec(&DFL_QOS_SPEC)
                     .context("Failed to run iocost-qos")?;
                 rctx.find_done_job_data("iocost-qos")
                     .ok_or(anyhow!("Failed to find iocost-qos result after nested run"))?
@@ -1544,7 +1569,10 @@ impl Job for IoCostTuneJob {
 
         // We don't have any record of our own to keep. Return a dummy
         // value.
-        Ok(serde_json::to_value(true)?)
+        Ok(serde_json::to_value(IoCostTuneRecord {
+            qos_props: qos_data.spec.props.clone(),
+            dfl_qos: qos_data.spec.props == DFL_QOS_SPEC.props,
+        })?)
     }
 
     fn study(&self, _rctx: &mut RunCtx, _rec_json: serde_json::Value) -> Result<serde_json::Value> {

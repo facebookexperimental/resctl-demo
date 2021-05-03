@@ -50,6 +50,7 @@ pub enum Mode {
     Format,
     Summary,
     Pack,
+    Merge,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -86,6 +87,10 @@ pub struct Args {
     pub verbosity: u32,
     #[serde(skip)]
     pub rstat: u32,
+    #[serde(skip)]
+    pub merge_srcs: Vec<String>,
+    #[serde(skip)]
+    pub merge_by_id: bool,
 }
 
 impl Default for Args {
@@ -113,6 +118,8 @@ impl Default for Args {
             test: false,
             verbosity: 0,
             rstat: 0,
+            merge_srcs: vec![],
+            merge_by_id: false,
         }
     }
 }
@@ -289,12 +296,11 @@ impl JsonArgs for Args {
             .subcommand(
                 clap::SubCommand::with_name("study")
                     .about("Study benchmark results, all benchmarks must be complete")
-                    .arg(
-                        clap::Arg::with_name("reports")
-                            .long("reports")
-                            .short("r")
-                            .takes_value(true)
-                            .help("Study reports in the directory (default: RESULTFILE_BASENAME-report.d/)"),
+                    .arg(clap::Arg::with_name("reports")
+                         .long("reports")
+                         .short("r")
+                         .takes_value(true)
+                         .help("Study reports in the directory (default: RESULTFILE_BASENAME-report.d/)"),
                     )
                     .arg(job_file_arg.clone())
                     .arg(job_spec_arg.clone()),
@@ -323,24 +329,28 @@ impl JsonArgs for Args {
             .subcommand(
                 clap::SubCommand::with_name("summary")
                     .about("Benchmark result summaries")
-                    .arg(
-                        clap::Arg::with_name("file")
-                            .long("file")
-                            .short("f")
-                            .multiple(true)
-                            .takes_value(true)
-                            .number_of_values(1)
-                            .help("Benchmark format file"),
-                    )
-                    .arg(
-                        clap::Arg::with_name("spec")
-                            .multiple(true)
-                            .help("Results to format - \"BENCY_TYPE[:KEY=VAL...]\""),
-                    ),
+                    .arg(job_file_arg.clone())
+                    .arg(job_spec_arg.clone()),
             )
             .subcommand(clap::SubCommand::with_name("pack").about(
                 "Create a tarball containing the result file and the associated report files",
             ))
+            .subcommand(
+                clap::SubCommand::with_name("merge")
+                    .about("Merge result files from multiple runs on supported benchmarks")
+                    .arg(
+                        clap::Arg::with_name("SOURCEFILE")
+                            .multiple(true)
+                            .required(true)
+                            .help("Result file to merge")
+                    )
+                    .arg(
+                        clap::Arg::with_name("by-id")
+                            .long("by-id")
+                            .short("-i")
+                            .help("Don't ignore bench IDs when merging")
+                    )
+            )
             .get_matches()
     }
 
@@ -471,8 +481,18 @@ impl JsonArgs for Args {
             ("solve", Some(subm)) => self.process_subcommand(Mode::Solve, subm),
             ("format", Some(subm)) => self.process_subcommand(Mode::Format, subm),
             ("summary", Some(subm)) => self.process_subcommand(Mode::Summary, subm),
-            ("pack", Some(_)) => {
+            ("pack", Some(_subm)) => {
                 self.mode = Mode::Pack;
+                false
+            }
+            ("merge", Some(subm)) => {
+                self.mode = Mode::Merge;
+                self.merge_by_id = subm.is_present("by-id");
+                self.merge_srcs = subm
+                    .values_of("SOURCEFILE")
+                    .unwrap()
+                    .map(|x| x.to_string())
+                    .collect();
                 false
             }
             _ => false,

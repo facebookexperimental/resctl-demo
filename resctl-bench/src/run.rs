@@ -373,7 +373,7 @@ impl<'a, 'b> RunCtx<'a, 'b> {
     pub fn studying(&self) -> bool {
         match self.mode() {
             Mode::Study | Mode::Solve => true,
-            _ => false
+            _ => false,
         }
     }
 
