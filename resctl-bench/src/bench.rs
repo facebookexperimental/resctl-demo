@@ -12,7 +12,7 @@ use std::time::Duration;
 
 use super::base::MemInfo;
 use super::iocost::{iocost_min_vrate, IoCostQoSCfg, IoCostQoSOvr};
-use super::job::{FormatOpts, Job, JobData};
+use super::job::{FormatOpts, Job, JobData, SysInfo};
 use super::merge::MergeSrc;
 use super::parse_json_value_or_dump;
 use super::progress::BenchProgress;

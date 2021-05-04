@@ -1651,10 +1651,18 @@ impl Job for IoCostTuneJob {
         }
 
         for rule in self.rules.iter() {
-            if let Some((mut qos, target_vrate)) = rule
+            let solution = match rule
                 .target
-                .solve(&res.data, (self.vrate_min, self.vrate_max))?
+                .solve(&res.data, (self.vrate_min, self.vrate_max))
             {
+                Ok(v) => v,
+                Err(e) => {
+                    warn!("iocost-tune: Failed to solve {:?} ({:?})", rule, &e);
+                    continue;
+                }
+            };
+
+            if let Some((mut qos, target_vrate)) = solution {
                 debug!(
                     "iocost-tune: rule={:?} qos={:?} target_vrate={}",
                     rule, &qos, target_vrate

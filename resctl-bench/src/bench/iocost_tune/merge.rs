@@ -1,6 +1,7 @@
 use super::super::*;
+use super::{DataSel, DataSeries, IoCostTuneBench, IoCostTuneRecord, IoCostTuneResult};
 use statrs::distribution::{Normal, Univariate};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 fn model_to_array(model: &IoCostModelParams) -> [f64; 6] {
     [
@@ -111,7 +112,78 @@ pub fn merge(mut srcs: Vec<MergeSrc>) -> Result<JobData> {
         }
     }
 
-    bail!("not implemented");
+    let mut first_valid = None;
+    let mut data = BTreeMap::<DataSel, DataSeries>::default();
+
+    for src in srcs.iter_mut().filter(|src| src.rejected.is_none()) {
+        let (rec, res): (IoCostTuneRecord, IoCostTuneResult) =
+            match (src.data.parse_record(), src.data.parse_result()) {
+                (Ok(rec), Ok(res)) => (rec, res),
+                (Err(e), _) | (_, Err(e)) => {
+                    src.rejected = Some(format!("failed to parse ({:?})", &e));
+                    continue;
+                }
+            };
+
+        match first_valid.as_ref() {
+            None => first_valid = Some((src.data.sysinfo.clone(), rec.clone(), res.clone())),
+            Some((_, _, fres)) => {
+                assert_eq!(
+                    (fres.mem_profile, &fres.isol_pct, fres.isol_thr),
+                    (res.mem_profile, &res.isol_pct, res.isol_thr)
+                );
+            }
+        }
+
+        for (sel, mut src_ds) in res.data.into_iter() {
+            let dst_ds = match data.get_mut(&sel) {
+                Some(ds) => ds,
+                None => {
+                    data.insert(sel.clone(), DataSeries::default());
+                    data.get_mut(&sel).unwrap()
+                }
+            };
+            dst_ds.points.append(&mut src_ds.points);
+            dst_ds.outliers.append(&mut src_ds.outliers);
+        }
+    }
+    if first_valid.is_none() {
+        bail!("No valid result to merge");
+    }
+    let (first_si, first_rec, first_res) = first_valid.unwrap();
+
+    let (rec, res) = (
+        first_rec,
+        IoCostTuneResult {
+            data,
+            solutions: Default::default(),
+            ..first_res
+        },
+    );
+
+    let dfl_spec = JobSpec::new("iocost-tune", None, Default::default());
+    let job = IoCostTuneBench {}.parse(&dfl_spec, None)?;
+    let rec_json = serde_json::to_value(rec)?;
+    let res_json = job.solve(rec_json.clone(), serde_json::to_value(res)?)?;
+
+    Ok(JobData {
+        spec: dfl_spec,
+        period: (0, 0),
+        sysinfo: SysInfo {
+            sysreqs_report: None,
+            iocost: rd_agent_intf::IoCostReport {
+                vrate: first_si.iocost.vrate,
+                model: rd_agent_intf::IoCostModelReport {
+                    knobs: median_model,
+                    ..first_si.iocost.model
+                },
+                qos: first_si.iocost.qos,
+            },
+            ..first_si
+        },
+        record: Some(rec_json),
+        result: Some(res_json),
+    })
 }
 
 #[cfg(test)]
