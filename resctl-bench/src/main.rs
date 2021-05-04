@@ -341,7 +341,12 @@ impl Program {
                 rstat: 0,
             }),
             Mode::Pack => self.do_pack().unwrap(),
-            Mode::Merge => merge::merge(&self.args_file.data).unwrap(),
+            Mode::Merge => {
+                if let Err(e) = merge::merge(&self.args_file.data) {
+                    error!("Failed to merge ({:?})", &e);
+                    panic!();
+                }
+            }
         }
     }
 }
