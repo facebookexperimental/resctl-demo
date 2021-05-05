@@ -2,7 +2,7 @@ use anyhow::Result;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use super::job::{FormatOpts, JobCtx, JobCtxs, JobData};
+use super::job::{FormatOpts, JobCtx, JobCtxs, JobData, SysInfo};
 use resctl_bench_intf::Args;
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -67,7 +67,7 @@ pub fn merge(args: &Args) -> Result<()> {
     }
 
     let mut jobs = JobCtxs::default();
-    for (_mid, srcs) in src_sets.into_iter() {
+    for (_mid, srcs) in src_sets.iter_mut() {
         let bench = srcs[0].bench.clone();
         let merged = bench.merge(srcs)?;
         let jctx = JobCtx::with_job_data(merged)?;
@@ -86,4 +86,26 @@ pub fn merge(args: &Args) -> Result<()> {
 
     jobs.save_results(&args.result);
     Ok(())
+}
+
+pub fn merged_period(srcs: &Vec<MergeSrc>) -> (u64, u64) {
+    let init = (std::u64::MAX, 0u64);
+    let merged = srcs
+        .iter()
+        .filter(|src| src.rejected.is_none())
+        .fold(init, |acc, src| {
+            (acc.0.min(src.data.period.0), acc.1.max(src.data.period.1))
+        });
+
+    match merged {
+        v if v == init => (0, 0),
+        v => v,
+    }
+}
+
+pub fn merged_sysinfo(srcs: &Vec<MergeSrc>) -> Option<SysInfo> {
+    srcs.iter()
+        .filter(|src| src.rejected.is_none())
+        .next()
+        .map(|src| src.data.sysinfo.clone())
 }

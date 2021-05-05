@@ -12,8 +12,8 @@ use std::time::Duration;
 
 use super::base::MemInfo;
 use super::iocost::{iocost_min_vrate, IoCostQoSCfg, IoCostQoSOvr};
-use super::job::{FormatOpts, Job, JobData, SysInfo};
-use super::merge::MergeSrc;
+use super::job::{FormatOpts, Job, JobData};
+use super::merge::{merged_period, merged_sysinfo, MergeSrc};
 use super::parse_json_value_or_dump;
 use super::progress::BenchProgress;
 use super::run::{RunCtx, WorkloadMon};
@@ -163,7 +163,7 @@ pub trait Bench: Send + Sync {
     fn merge_classifier(&self, _data: &JobData) -> Option<String> {
         None
     }
-    fn merge(&self, _srcs: Vec<MergeSrc>) -> Result<JobData> {
+    fn merge(&self, _srcs: &mut Vec<MergeSrc>) -> Result<JobData> {
         bail!("not implemented");
     }
 }

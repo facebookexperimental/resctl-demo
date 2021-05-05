@@ -863,7 +863,7 @@ impl Bench for IoCostTuneBench {
         Some(format!("{:?}", &qos_props))
     }
 
-    fn merge(&self, srcs: Vec<MergeSrc>) -> Result<JobData> {
+    fn merge(&self, srcs: &mut Vec<MergeSrc>) -> Result<JobData> {
         merge::merge(srcs)
     }
 }

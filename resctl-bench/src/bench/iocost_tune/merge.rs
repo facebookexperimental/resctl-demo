@@ -96,7 +96,7 @@ fn merge_model(
     (model_from_array(&medians), model_is_outlier)
 }
 
-pub fn merge(mut srcs: Vec<MergeSrc>) -> Result<JobData> {
+pub fn merge(srcs: &mut Vec<MergeSrc>) -> Result<JobData> {
     // We only care about distinct models. Weed out duplicates using HashSet.
     let models: HashSet<IoCostModelParams> = srcs
         .iter()
@@ -131,8 +131,8 @@ pub fn merge(mut srcs: Vec<MergeSrc>) -> Result<JobData> {
             };
 
         match first_valid.as_ref() {
-            None => first_valid = Some((src.data.sysinfo.clone(), rec.clone(), res.clone())),
-            Some((_, _, fres)) => {
+            None => first_valid = Some((rec.clone(), res.clone())),
+            Some((_, fres)) => {
                 assert_eq!(
                     (fres.mem_profile, &fres.isol_pct, fres.isol_thr),
                     (res.mem_profile, &res.isol_pct, res.isol_thr)
@@ -155,7 +155,7 @@ pub fn merge(mut srcs: Vec<MergeSrc>) -> Result<JobData> {
     if first_valid.is_none() {
         bail!("No valid result to merge");
     }
-    let (first_si, first_rec, first_res) = first_valid.unwrap();
+    let (first_rec, first_res) = first_valid.unwrap();
 
     let (rec, res) = (
         first_rec,
@@ -171,24 +171,15 @@ pub fn merge(mut srcs: Vec<MergeSrc>) -> Result<JobData> {
     let rec_json = serde_json::to_value(rec)?;
     let res_json = job.solve(rec_json.clone(), serde_json::to_value(res)?)?;
 
-    Ok(JobData {
+    let mut job_data = JobData {
         spec: dfl_spec,
-        period: (0, 0),
-        sysinfo: SysInfo {
-            sysreqs_report: None,
-            iocost: rd_agent_intf::IoCostReport {
-                vrate: first_si.iocost.vrate,
-                model: rd_agent_intf::IoCostModelReport {
-                    knobs: median_model,
-                    ..first_si.iocost.model
-                },
-                qos: first_si.iocost.qos,
-            },
-            ..first_si
-        },
+        period: merged_period(&srcs),
+        sysinfo: merged_sysinfo(&srcs).unwrap(),
         record: Some(rec_json),
         result: Some(res_json),
-    })
+    };
+    job_data.sysinfo.iocost.model.knobs = median_model;
+    Ok(job_data)
 }
 
 #[cfg(test)]
