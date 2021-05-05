@@ -16,7 +16,7 @@ use super::base::MemInfo;
 use super::parse_json_value_or_dump;
 use super::run::RunCtx;
 use rd_agent_intf::{SysReq, SysReqsReport};
-use resctl_bench_intf::{JobProps, JobSpec};
+use resctl_bench_intf::{JobProps, JobSpec, Mode};
 
 #[derive(Debug, Clone)]
 pub struct FormatOpts {
@@ -26,13 +26,25 @@ pub struct FormatOpts {
 
 pub trait Job {
     fn sysreqs(&self) -> BTreeSet<SysReq>;
+
     fn pre_run(&mut self, _rctx: &mut RunCtx) -> Result<()> {
         Ok(())
     }
+
     fn run(&mut self, rctx: &mut RunCtx) -> Result<serde_json::Value>;
+
     fn study(&self, _rctx: &mut RunCtx, _rec_json: serde_json::Value) -> Result<serde_json::Value> {
         Ok(serde_json::Value::Bool(true))
     }
+
+    fn solve(
+        &self,
+        _rec_json: serde_json::Value,
+        res_json: serde_json::Value,
+    ) -> Result<serde_json::Value> {
+        Ok(res_json)
+    }
+
     fn format<'a>(
         &self,
         out: Box<dyn Write + 'a>,
@@ -165,6 +177,29 @@ impl JobCtx {
         Ok(())
     }
 
+    fn init_from_job_data(&mut self) -> Result<()> {
+        self.uid = JobCtx::new_uid();
+        self.update_seq = std::u64::MAX;
+        if let Err(e) = self.parse_job_spec(None) {
+            bail!("Failed to parse {} ({:#})", &self.data.spec, &e);
+        }
+        Ok(())
+    }
+
+    pub fn with_job_data(data: JobData) -> Result<Self> {
+        let mut jctx = Self {
+            data,
+            bench: None,
+            job: None,
+            incremental: false,
+            uid: 0,
+            used: false,
+            update_seq: 0,
+        };
+        jctx.init_from_job_data()?;
+        Ok(jctx)
+    }
+
     pub fn weak_clone(&self) -> Self {
         Self {
             data: self.data.clone(),
@@ -193,17 +228,23 @@ impl JobCtx {
     }
 
     pub fn run(&mut self, rctx: &mut RunCtx) -> Result<()> {
-        self.job
-            .as_mut()
-            .unwrap()
-            .pre_run(rctx)
-            .context("Executing pre-run")?;
+        let solve_mode = rctx.mode() == Mode::Solve;
 
+        // solve() should only consume data from its own record and result.
+        // No need to execute pre_run() which exists to trigger
+        // dependencies.
+        if !solve_mode {
+            self.job
+                .as_mut()
+                .unwrap()
+                .pre_run(rctx)
+                .context("Executing pre-run")?;
+        }
         let pdata = rctx.prev_job_data();
 
-        if rctx.study_mode() || (pdata.is_some() && !self.incremental) {
+        if rctx.studying() || (pdata.is_some() && !self.incremental) {
             self.data = pdata.ok_or(anyhow!(
-                "--study specified but {} isn't complete",
+                "study or solve mode but {} isn't complete",
                 &self.data.spec
             ))?;
         } else {
@@ -248,14 +289,23 @@ impl JobCtx {
             data.record = Some(record);
         }
 
-        let res = match self
-            .job
-            .as_ref()
-            .unwrap()
-            .study(rctx, self.data.record.as_ref().unwrap().clone())
-        {
-            Ok(result) => {
-                self.data.result = Some(result);
+        let job = self.job.as_ref().unwrap();
+        let rec = self.data.record.as_ref().unwrap();
+        let res = if solve_mode {
+            self.data
+                .result
+                .take()
+                .ok_or(anyhow!(
+                    "solve mode but intermediate result is not available"
+                ))
+                .and_then(|res| job.solve(rec.clone(), res))
+        } else {
+            job.study(rctx, rec.clone())
+                .and_then(|res| job.solve(rec.clone(), res))
+        };
+        let res = match res {
+            Ok(res) => {
+                self.data.result = Some(res);
                 Ok(())
             }
             Err(e) => Err(e),
@@ -495,11 +545,7 @@ impl JobCtxs {
 
         let mut vec: Vec<JobCtx> = serde_json::from_str(&buf)?;
         for jctx in vec.iter_mut() {
-            jctx.uid = JobCtx::new_uid();
-            jctx.update_seq = std::u64::MAX;
-            if let Err(e) = jctx.parse_job_spec(None) {
-                bail!("Failed to parse {} ({:#})", &jctx.data.spec, &e);
-            }
+            jctx.init_from_job_data()?;
         }
 
         Ok(Self { vec })

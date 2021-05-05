@@ -14,6 +14,7 @@ mod base;
 mod bench;
 mod iocost;
 mod job;
+mod merge;
 mod progress;
 mod run;
 mod study;
@@ -120,7 +121,7 @@ impl Program {
 
     fn do_run(&mut self) {
         let mut base = match self.args_file.data.mode {
-            Mode::Study => base::Base::dummy(&self.args_file.data),
+            Mode::Study | Mode::Solve => base::Base::dummy(&self.args_file.data),
             _ => base::Base::new(&self.args_file.data),
         };
 
@@ -333,13 +334,19 @@ impl Program {
 
         let rstat = args.rstat;
         match args.mode {
-            Mode::Run | Mode::Study => self.do_run(),
+            Mode::Run | Mode::Study | Mode::Solve => self.do_run(),
             Mode::Format => self.do_format(&FormatOpts { full: true, rstat }),
             Mode::Summary => self.do_format(&FormatOpts {
                 full: false,
                 rstat: 0,
             }),
             Mode::Pack => self.do_pack().unwrap(),
+            Mode::Merge => {
+                if let Err(e) = merge::merge(&self.args_file.data) {
+                    error!("Failed to merge ({:?})", &e);
+                    panic!();
+                }
+            }
         }
     }
 }

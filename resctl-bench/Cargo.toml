@@ -14,6 +14,7 @@ resctl-bench-intf = { path = "../resctl-bench-intf" }
 anyhow = "^1.0"
 chrono = "^0.4"
 console = "^0.14"
+env_logger = "^0.8"
 indicatif = "^0.15"
 lazy_static = "^1.4"
 libc = "^0.2"

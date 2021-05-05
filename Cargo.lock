@@ -1632,6 +1632,7 @@ dependencies = [
  "anyhow",
  "chrono",
  "console",
+ "env_logger",
  "indicatif",
  "lazy_static",
  "libc",

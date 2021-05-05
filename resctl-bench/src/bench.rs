@@ -13,6 +13,7 @@ use std::time::Duration;
 use super::base::MemInfo;
 use super::iocost::{iocost_min_vrate, IoCostQoSCfg, IoCostQoSOvr};
 use super::job::{FormatOpts, Job, JobData};
+use super::merge::{merged_period, merged_sysinfo, MergeSrc};
 use super::parse_json_value_or_dump;
 use super::progress::BenchProgress;
 use super::run::{RunCtx, WorkloadMon};
@@ -96,6 +97,7 @@ pub fn find_bench(kind: &str) -> Result<Arc<Box<dyn Bench>>> {
     bail!("unknown bench kind {:?}", kind);
 }
 
+#[derive(Default)]
 pub struct BenchDesc {
     pub kind: String,
     pub takes_run_props: bool,
@@ -103,6 +105,9 @@ pub struct BenchDesc {
     pub takes_format_props: bool,
     pub takes_format_propsets: bool,
     pub incremental: bool,
+
+    pub mergeable: bool,
+    pub merge_by_storage_model: bool,
 }
 
 #[allow(dead_code)]
@@ -110,11 +115,7 @@ impl BenchDesc {
     pub fn new(kind: &str) -> Self {
         Self {
             kind: kind.into(),
-            takes_run_props: false,
-            takes_run_propsets: false,
-            takes_format_props: false,
-            takes_format_propsets: false,
-            incremental: false,
+            ..Default::default()
         }
     }
 
@@ -144,11 +145,27 @@ impl BenchDesc {
         self.incremental = true;
         self
     }
+
+    pub fn mergeable(mut self) -> Self {
+        self.mergeable = true;
+        self
+    }
+
+    pub fn merge_needs_storage_model(mut self) -> Self {
+        self.merge_by_storage_model = true;
+        self
+    }
 }
 
 pub trait Bench: Send + Sync {
     fn desc(&self) -> BenchDesc;
     fn parse(&self, spec: &JobSpec, prev_data: Option<&JobData>) -> Result<Box<dyn Job>>;
+    fn merge_classifier(&self, _data: &JobData) -> Option<String> {
+        None
+    }
+    fn merge(&self, _srcs: &mut Vec<MergeSrc>) -> Result<JobData> {
+        bail!("not implemented");
+    }
 }
 
 fn register_bench(bench: Box<dyn Bench>) -> () {
