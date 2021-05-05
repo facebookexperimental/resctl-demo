@@ -1671,6 +1671,7 @@ impl Job for IoCostTuneJob {
                 let model = res.base_model.clone() * scale_factor;
                 qos.min /= scale_factor;
                 qos.max /= scale_factor;
+                qos.sanitize();
 
                 res.solutions.insert(
                     rule.name.clone(),
