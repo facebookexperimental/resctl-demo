@@ -562,21 +562,22 @@ impl JobCtxs {
     pub fn save_results(&self, path: &str) {
         let serialized =
             serde_json::to_string_pretty(&self.vec).expect("Failed to serialize output");
-        let mut f: Box<dyn IoWrite> = Box::new(
-            fs::OpenOptions::new()
-                .write(true)
-                .create(true)
-                .truncate(true)
-                .open(path)
-                .expect("Failed to open output file"),
-        );
+        let mut f = fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(path)
+            .expect("Failed to open output file");
 
         if path.ends_with(".gz") {
-            f = Box::new(libflate::gzip::Encoder::new(f).expect("Creating gzip encoder"));
+            let mut f = libflate::gzip::Encoder::new(f).expect("Creating gzip encoder");
+            f.write_all(serialized.as_ref())
+                .expect("Failed to write output file");
+            f.finish().into_result().expect("Finishing up gzip");
+        } else {
+            f.write_all(serialized.as_ref())
+                .expect("Failed to write output file");
         }
-
-        f.write_all(serialized.as_ref())
-            .expect("Failed to write output file");
     }
 
     pub fn format_ids(&self) -> String {
