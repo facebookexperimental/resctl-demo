@@ -540,10 +540,18 @@ impl JobCtxs {
 
     pub fn load_results(path: &str) -> Result<Self> {
         let mut f = fs::OpenOptions::new().read(true).open(path)?;
-        let mut buf = String::new();
-        f.read_to_string(&mut buf)?;
+        let mut buf = Vec::<u8>::new();
 
-        let mut vec: Vec<JobCtx> = serde_json::from_str(&buf)?;
+        if path.ends_with(".gz") {
+            libflate::gzip::Decoder::new(f)
+                .context("Creating gzip decoder")?
+                .read_to_end(&mut buf)
+                .context("Decompressing")?;
+        } else {
+            f.read_to_end(&mut buf)?;
+        }
+
+        let mut vec: Vec<JobCtx> = serde_json::from_str(std::str::from_utf8(&buf)?)?;
         for jctx in vec.iter_mut() {
             jctx.init_from_job_data()?;
         }
@@ -554,12 +562,19 @@ impl JobCtxs {
     pub fn save_results(&self, path: &str) {
         let serialized =
             serde_json::to_string_pretty(&self.vec).expect("Failed to serialize output");
-        let mut f = fs::OpenOptions::new()
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .open(path)
-            .expect("Failed to open output file");
+        let mut f: Box<dyn IoWrite> = Box::new(
+            fs::OpenOptions::new()
+                .write(true)
+                .create(true)
+                .truncate(true)
+                .open(path)
+                .expect("Failed to open output file"),
+        );
+
+        if path.ends_with(".gz") {
+            f = Box::new(libflate::gzip::Encoder::new(f).expect("Creating gzip encoder"));
+        }
+
         f.write_all(serialized.as_ref())
             .expect("Failed to write output file");
     }
