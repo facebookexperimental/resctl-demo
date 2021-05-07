@@ -1,4 +1,5 @@
 use anyhow::Result;
+use log::debug;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
@@ -56,6 +57,7 @@ pub fn merge(args: &Args) -> Result<()> {
                 rejected: None,
             };
             let mid = src.merge_id(args);
+            debug!("merge: file={:?} mid={:?}", &file, &mid);
 
             match src_sets.get_mut(&mid) {
                 Some(vec) => vec.push(src),

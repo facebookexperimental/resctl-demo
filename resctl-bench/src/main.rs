@@ -216,9 +216,12 @@ impl Program {
 
     fn do_pack(&mut self) -> Result<()> {
         let args = &self.args_file.data;
-        let res_path = Path::new(&args.result);
-        let stem = res_path.file_stem().unwrap().to_string_lossy().to_string();
-        let fname = res_path.file_name().unwrap().to_string_lossy().to_string();
+        let fname = Path::new(&args.result)
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .to_string();
+        let stem = fname.trim_end_matches(".gz").trim_end_matches(".json");
 
         let mut collected = vec![];
         for job in self.jobs.lock().unwrap().vec.iter() {
