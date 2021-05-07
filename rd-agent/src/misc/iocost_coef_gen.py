@@ -14,7 +14,7 @@ are performed against the whole device; otherwise, on
 ./iocost-coef-fio.testfile.  The result can be written directly to
 /sys/fs/cgroup/io.cost.model.
 
-On high performance devices, --numjobs > 1 is needed to achieve
+On high performance devices, higher --numjobs may be needed to achieve
 saturation.
 
 --json output includes suggested parameters for
@@ -31,6 +31,7 @@ import json
 import glob
 import os
 import sys
+import math
 import time
 import signal
 import atexit
@@ -51,12 +52,12 @@ parser.add_argument('--duration', type=int, metavar='SECONDS', default=120,
                     help='Individual test run duration in seconds (default: %(default)s)')
 parser.add_argument('--seqio-block-mb', metavar='MEGABYTES', type=int, default=128,
                     help='Sequential test block size in megabytes (default: %(default)s)')
-parser.add_argument('--seq-depth', type=int, metavar='DEPTH', default=64,
+parser.add_argument('--seq-depth', type=int, metavar='DEPTH', default=256,
                     help='Sequential test queue depth (default: %(default)s)')
-parser.add_argument('--rand-depth', type=int, metavar='DEPTH', default=64,
+parser.add_argument('--rand-depth', type=int, metavar='DEPTH', default=256,
                     help='Random test queue depth (default: %(default)s)')
-parser.add_argument('--numjobs', type=int, metavar='JOBS', default=1,
-                    help='Number of parallel fio jobs to run (default: %(default)s)')
+parser.add_argument('--numjobs', type=int, metavar='JOBS', default=8,
+                    help='Number of parallel fio jobs to run on SSD (default: %(default)s)')
 parser.add_argument('--json', metavar='FILE',
                     help='Store the results to the specified json file')
 parser.add_argument('--model-override', metavar='"rbps=XXX rseqiops=XXX..."',
@@ -134,11 +135,11 @@ def run_fio(testfile, duration, iotype, iodepth, blocksize, jobs, rate_iops, out
     global args
 
     eta = 'never' if args.quiet else 'always'
-    cmd = (f'fio --direct=1 --ioengine=libaio --name=coef '
+    cmd = (f'fio --direct=1 --ioengine=io_uring --name=coef '
            f'--filename={testfile} --runtime={round(duration)} '
            f'--readwrite={iotype} --iodepth={iodepth} --blocksize={blocksize} '
            f'--eta={eta} --output-format json --output={outfile} '
-           f'--time_based --numjobs={jobs}')
+           f'--time_based --numjobs={jobs} --iodepth_batch_submit={math.ceil(iodepth/16)}')
     if rate_iops is not None:
         cmd += f' --rate_iops={rate_iops}'
     if not sys.stderr.isatty():
@@ -291,6 +292,9 @@ else:
 dev_path = f'/sys/block/{devname}'
 elevator_path = f'{dev_path}/queue/scheduler'
 nomerges_path = f'{dev_path}/queue/nomerges'
+
+if not is_ssd():
+    args.numjobs = 1
 
 with open(elevator_path, 'r') as f:
     elevator = re.sub(r'.*\[(.*)\].*', r'\1', f.read().strip())
