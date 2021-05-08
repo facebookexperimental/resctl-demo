@@ -5,4 +5,4 @@ pub mod jobspec;
 
 pub use args::{Args, Mode};
 pub use iocost::IoCostQoSOvr;
-pub use jobspec::{JobProps, JobSpec};
+pub use jobspec::{format_job_props, JobProps, JobSpec};

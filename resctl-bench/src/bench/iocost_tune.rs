@@ -860,7 +860,7 @@ impl Bench for IoCostTuneBench {
         let mut qos_props = rec.qos_props.clone();
         qos_props[0].remove("vrate-intvs");
 
-        Some(format!("{:?}", &qos_props))
+        Some(format_job_props(&qos_props))
     }
 
     fn merge(&self, srcs: &mut Vec<MergeSrc>) -> Result<JobData> {
