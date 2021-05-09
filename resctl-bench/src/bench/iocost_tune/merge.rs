@@ -106,7 +106,7 @@ pub fn merge(srcs: &mut Vec<MergeSrc>) -> Result<JobData> {
     let (median_model, model_is_outlier) = merge_model(models);
 
     // Mark outlier sources.
-    for src in srcs.iter_mut() {
+    for src in srcs.iter_mut().filter(|src| src.rejected.is_none()) {
         if model_is_outlier[&src.data.sysinfo.iocost.model.knobs] {
             src.rejected = Some("model is an outlier".to_string());
         }

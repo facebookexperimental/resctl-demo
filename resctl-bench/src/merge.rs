@@ -15,6 +15,23 @@ struct MergeId {
     classifier: Option<String>,
 }
 
+impl std::fmt::Display for MergeId {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "{}", self.kind)?;
+        if let Some(id) = self.id.as_ref() {
+            write!(f, ":{}", id)?;
+        }
+        write!(f, " mem-profile={}", self.mem_profile)?;
+        if let Some(storage) = self.storage_model.as_ref() {
+            write!(f, " storage={:?}", storage)?;
+        }
+        if let Some(cl) = self.classifier.as_ref() {
+            write!(f, " classifier={:?}", &cl)?;
+        }
+        Ok(())
+    }
+}
+
 pub struct MergeSrc {
     pub data: JobData,
     pub file: String,
@@ -50,12 +67,27 @@ pub fn merge(args: &Args) -> Result<()> {
             if !jctx.bench.as_ref().unwrap().desc().mergeable {
                 continue;
             }
-            let src = MergeSrc {
+            let mut src = MergeSrc {
                 data: jctx.data,
                 bench: jctx.bench.unwrap(),
                 file: file.clone(),
                 rejected: None,
             };
+
+            if !args.merge_ignore_sysreqs {
+                let nr_missed = src
+                    .data
+                    .sysinfo
+                    .sysreqs_report
+                    .as_ref()
+                    .unwrap()
+                    .missed
+                    .len();
+                if nr_missed > 0 {
+                    src.rejected = Some(format!("{} missed sysreqs", nr_missed));
+                }
+            }
+
             let mid = src.merge_id(args);
             debug!("merge: file={:?} mid={:?}", &file, &mid);
 
