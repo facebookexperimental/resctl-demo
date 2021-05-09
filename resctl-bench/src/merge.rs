@@ -1,12 +1,12 @@
 use anyhow::Result;
 use log::debug;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
-use super::job::{FormatOpts, JobCtx, JobCtxs, JobData, SysInfo};
+use super::job::{JobCtx, JobCtxs, JobData, SysInfo};
 use resctl_bench_intf::Args;
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 struct MergeId {
     kind: String,
     id: Option<String>,
@@ -100,22 +100,51 @@ pub fn merge(args: &Args) -> Result<()> {
         }
     }
 
-    let mut jobs = JobCtxs::default();
-    for (_mid, srcs) in src_sets.iter_mut() {
+    // mid -> (JobData, worse_mids)
+    type Merged = BTreeMap<MergeId, (JobData, BTreeSet<MergeId>)>;
+    let mut merged = Merged::default();
+    for (mid, srcs) in src_sets.iter_mut() {
         let bench = srcs[0].bench.clone();
-        let merged = bench.merge(srcs)?;
-        let jctx = JobCtx::with_job_data(merged)?;
+        merged.insert(mid.clone(), (bench.merge(srcs)?, Default::default()));
+    }
 
-        jctx.print(
-            &FormatOpts {
-                full: false,
-                rstat: 0,
-            },
-            &vec![Default::default()],
-        )
-        .unwrap();
+    if !args.merge_multiple {
+        // (kind, id) -> (best_cnt, best_mid, worse_mids)
+        let mut best_mids: BTreeMap<(String, Option<String>), (usize, MergeId, BTreeSet<MergeId>)> =
+            Default::default();
+        for (mid, srcs) in src_sets.iter() {
+            let key = (mid.kind.clone(), mid.id.clone());
+            let cnt = srcs.iter().filter(|src| src.rejected.is_none()).count();
+            match best_mids.get_mut(&key) {
+                None => {
+                    best_mids.insert(key, (cnt, mid.clone(), Default::default()));
+                }
+                Some((best_cnt, best_mid, worse_mids)) => {
+                    if cnt > *best_cnt {
+                        *best_cnt = cnt;
+                        let mut mid = mid.clone();
+                        std::mem::swap(best_mid, &mut mid);
+                        worse_mids.insert(mid);
+                    } else {
+                        worse_mids.insert(mid.clone());
+                    }
+                }
+            }
+        }
 
-        jobs.vec.push(jctx);
+        let mut src = Merged::default();
+        std::mem::swap(&mut merged, &mut src);
+        for (mid, (jdata, _)) in src.into_iter() {
+            let key = (mid.kind.clone(), mid.id.clone());
+            if best_mids[&key].1 == mid {
+                merged.insert(mid, (jdata, best_mids[&key].2.clone()));
+            }
+        }
+    }
+
+    let mut jobs = JobCtxs::default();
+    for (_mid, (data, _worse_mids)) in merged.into_iter() {
+        jobs.vec.push(JobCtx::with_job_data(data)?);
     }
 
     jobs.save_results(&args.result);
