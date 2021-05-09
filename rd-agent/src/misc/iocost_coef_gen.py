@@ -135,7 +135,7 @@ def run_fio(testfile, duration, iotype, iodepth, blocksize, jobs, rate_iops, out
     global args
 
     eta = 'never' if args.quiet else 'always'
-    cmd = (f'fio --direct=1 --ioengine=io_uring --name=coef '
+    cmd = (f'fio --direct=1 --ioengine=libaio --name=coef '
            f'--filename={testfile} --runtime={round(duration)} '
            f'--readwrite={iotype} --iodepth={iodepth} --blocksize={blocksize} '
            f'--eta={eta} --output-format json --output={outfile} '
