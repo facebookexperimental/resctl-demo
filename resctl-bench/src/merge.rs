@@ -5,7 +5,10 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 use util::*;
 
+pub mod info;
+
 use super::job::{FormatOpts, JobCtx, JobCtxs, JobData, SysInfo};
+use info::{MergeEntry, MergeInfo};
 use resctl_bench_intf::{Args, JobSpec};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -69,60 +72,6 @@ impl MergeSrc {
             classifier: self.bench.merge_classifier(&self.data),
         }
     }
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct MergeSrcName {
-    file: String,
-    kind: String,
-    id: Option<String>,
-}
-
-impl MergeSrcName {
-    fn from_src(src: &MergeSrc) -> Self {
-        Self {
-            file: src.file.clone(),
-            kind: src.data.spec.kind.clone(),
-            id: src.data.spec.id.clone(),
-        }
-    }
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct MergeEntry {
-    mid: MergeId,
-    srcs: Vec<MergeSrcName>,
-    rejects: Vec<(MergeSrcName, String)>, // id, why
-    dropped: Vec<MergeEntry>,
-}
-
-impl MergeEntry {
-    fn from_srcs(mid: &MergeId, srcs: &[MergeSrc]) -> Self {
-        Self {
-            mid: mid.clone(),
-            srcs: srcs
-                .iter()
-                .filter(|src| src.rejected.is_none())
-                .map(|src| MergeSrcName::from_src(src))
-                .collect(),
-            rejects: srcs
-                .iter()
-                .filter(|src| src.rejected.is_some())
-                .map(|src| {
-                    (
-                        MergeSrcName::from_src(src),
-                        src.rejected.as_ref().unwrap().clone(),
-                    )
-                })
-                .collect(),
-            dropped: Default::default(),
-        }
-    }
-}
-
-#[derive(Clone, Default, Debug, Serialize, Deserialize)]
-pub struct MergeInfo {
-    merges: Vec<MergeEntry>,
 }
 
 pub fn merge(args: &Args) -> Result<()> {
@@ -228,8 +177,7 @@ pub fn merge(args: &Args) -> Result<()> {
         jobs.vec.push(JobCtx::with_job_data(data)?);
         let mut ent = MergeEntry::from_srcs(&mid, &src_sets[&mid]);
         for lmid in lost_mids.iter() {
-            ent.dropped
-                .push(MergeEntry::from_srcs(lmid, &src_sets[lmid]));
+            ent.add_dropped_from_srcs(lmid, &src_sets[lmid]);
         }
         info.merges.push(ent);
     }
@@ -261,6 +209,9 @@ pub fn merge(args: &Args) -> Result<()> {
     Ok(())
 }
 
+//
+// Helpers for bench merge methods.
+//
 pub fn merged_period(srcs: &Vec<MergeSrc>) -> (u64, u64) {
     let init = (std::u64::MAX, 0u64);
     let merged = srcs

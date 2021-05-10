@@ -1,6 +1,6 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
 use super::*;
-use crate::merge::MergeInfo;
+use crate::merge::info::MergeInfo;
 
 struct MergeInfoJob {}
 
