@@ -622,7 +622,7 @@ impl Job for IoCostQoSJob {
 
     fn format<'a>(
         &self,
-        mut out: Box<dyn Write + 'a>,
+        out: &mut Box<dyn Write + 'a>,
         data: &JobData,
         opts: &FormatOpts,
         props: &JobProps,
@@ -650,7 +650,7 @@ impl Job for IoCostQoSJob {
         let base_stor_res = &res.runs[0].as_ref().unwrap().stor;
 
         self.stor_job
-            .format_header(&mut out, base_stor_rec, base_stor_res, false);
+            .format_header(out, base_stor_rec, base_stor_res, false);
 
         if opts.full {
             for (i, (recr, resr)) in rec.runs.iter().zip(res.runs.iter()).enumerate() {
@@ -670,7 +670,7 @@ impl Job for IoCostQoSJob {
                 writeln!(out, "{}", underline(&format!("RUN {:02} - Storage", i))).unwrap();
 
                 self.stor_job.format_result(
-                    &mut out,
+                    out,
                     &recr.stor,
                     &resr.stor,
                     false,
@@ -683,7 +683,7 @@ impl Job for IoCostQoSJob {
                 let mut pjob = self.prot_job.clone();
                 Self::set_prot_size_range(&mut pjob, &recr.stor, &resr.stor);
                 pjob.format_result(
-                    &mut out,
+                    out,
                     &recr.prot,
                     &resr.prot,
                     &FormatOpts {
@@ -695,7 +695,7 @@ impl Job for IoCostQoSJob {
 
                 writeln!(out, "\n{}", underline(&format!("RUN {:02} - Result", i))).unwrap();
 
-                StudyIoLatPcts::format_rw(&mut out, &resr.iolat, opts, None);
+                StudyIoLatPcts::format_rw(out, &resr.iolat, opts, None);
 
                 if recr.qos.is_some() {
                     let mut cnt = 0;

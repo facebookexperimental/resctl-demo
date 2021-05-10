@@ -47,7 +47,7 @@ pub trait Job {
 
     fn format<'a>(
         &self,
-        out: Box<dyn Write + 'a>,
+        out: &mut Box<dyn Write + 'a>,
         data: &JobData,
         opts: &FormatOpts,
         props: &JobProps,
@@ -437,11 +437,12 @@ impl JobCtx {
             }
         }
 
-        self.job
-            .as_ref()
-            .unwrap()
-            .format(Box::new(&mut buf), data, opts, props)?;
-
+        self.job.as_ref().unwrap().format(
+            &mut (Box::new(&mut buf) as Box<dyn Write>),
+            data,
+            opts,
+            props,
+        )?;
         Ok(buf)
     }
 

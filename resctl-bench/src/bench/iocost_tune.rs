@@ -860,7 +860,7 @@ impl Bench for IoCostTuneBench {
         let mut qos_props = rec.qos_props.clone();
         qos_props[0].remove("vrate-intvs");
 
-        Some(format!("{:?}", &qos_props))
+        Some(format_job_props(&qos_props))
     }
 
     fn merge(&self, srcs: &mut Vec<MergeSrc>) -> Result<JobData> {
@@ -1144,7 +1144,7 @@ impl DataSeries {
                 let error = Self::calc_error(self.points.iter(), &lines);
                 if error < *best_error.borrow() {
                     trace!(
-                        "iocost-qos: fit-best: ({:.3}, {:.3}) - ({:.3}, {:.3}) \
+                        "fit-best: ({:.3}, {:.3}) - ({:.3}, {:.3}) \
                          start={:.3} end={:.3} MIN_SEG_DIST={:.3}",
                         lines.left.x,
                         lines.left.y,
@@ -1414,7 +1414,7 @@ impl IoCostTuneJob {
     ) -> Result<()> {
         let (dir, filter_outliers, filter_by_isol) = sel.fit_lines_opts();
         trace!(
-            "iocost-tune: fitting {:?} points={} dir={:?} filter_outliers={} filter_by_isol={}",
+            "fitting {:?} points={} dir={:?} filter_outliers={} filter_by_isol={}",
             &sel,
             series.points.len(),
             &dir,
@@ -1449,7 +1449,7 @@ impl IoCostTuneJob {
         if filter_outliers {
             series.filter_outliers();
             trace!(
-                "iocost-tune: fitting {:?} points={} outliers={} dir={:?}",
+                "fitting {:?} points={} outliers={} dir={:?}",
                 &sel,
                 series.points.len(),
                 series.outliers.len(),
@@ -1664,7 +1664,7 @@ impl Job for IoCostTuneJob {
 
             if let Some((mut qos, target_vrate)) = solution {
                 debug!(
-                    "iocost-tune: rule={:?} qos={:?} target_vrate={}",
+                    "rule={:?} qos={:?} target_vrate={}",
                     rule, &qos, target_vrate
                 );
                 let scale_factor = target_vrate / 100.0;
@@ -1693,7 +1693,7 @@ impl Job for IoCostTuneJob {
 
     fn format<'a>(
         &self,
-        mut out: Box<dyn Write + 'a>,
+        out: &mut Box<dyn Write + 'a>,
         data: &JobData,
         opts: &FormatOpts,
         props: &JobProps,
@@ -1728,7 +1728,7 @@ impl Job for IoCostTuneJob {
                 .fold((std::f64::MAX, 0.0), |acc, (_sel, ds)| {
                     (ds.lines.range.0.min(acc.0), ds.lines.range.1.max(acc.1))
                 });
-            let mut grapher = graph::Grapher::new(&mut out, graph_prefix.as_deref(), vrate_range);
+            let mut grapher = graph::Grapher::new(out, graph_prefix.as_deref(), vrate_range);
             grapher.plot(data, &res)?;
         }
 
@@ -1737,7 +1737,7 @@ impl Job for IoCostTuneJob {
 
             for rule in self.rules.iter() {
                 match res.solutions.get(&rule.name) {
-                    Some(sol) => Self::format_solution(&mut out, &rule.name, sol, &res.isol_pct),
+                    Some(sol) => Self::format_solution(out, &rule.name, sol, &res.isol_pct),
                     None => writeln!(out, "{}\n  NO SOLUTION", &rule.name).unwrap(),
                 }
                 writeln!(out, "").unwrap();

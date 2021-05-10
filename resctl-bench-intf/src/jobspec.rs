@@ -1,8 +1,35 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use std::fmt::Write;
 
 pub type JobProps = Vec<BTreeMap<String, String>>;
+
+pub fn format_job_props(props: &JobProps) -> String {
+    let mut buf = String::new();
+
+    let mut first_group = true;
+    for group in props.iter() {
+        if !first_group {
+            write!(buf, ":").unwrap();
+        }
+        first_group = false;
+
+        let mut first_prop = true;
+        for (k, v) in group.iter() {
+            if !first_prop {
+                write!(buf, ",").unwrap();
+            }
+            first_prop = false;
+
+            write!(buf, "{}", k).unwrap();
+            if v.len() > 0 {
+                write!(buf, "={}", v).unwrap();
+            }
+        }
+    }
+    buf
+}
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct JobSpec {

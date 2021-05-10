@@ -406,14 +406,14 @@ impl Job for ProtectionJob {
 
     fn format<'a>(
         &self,
-        mut out: Box<dyn Write + 'a>,
+        out: &mut Box<dyn Write + 'a>,
         data: &JobData,
         opts: &FormatOpts,
         _props: &JobProps,
     ) -> Result<()> {
         let rec: ProtectionRecord = data.parse_record()?;
         let res: ProtectionResult = data.parse_result()?;
-        self.format_result(&mut out, &rec, &res, opts, "");
+        self.format_result(out, &rec, &res, opts, "");
         Ok(())
     }
 }
