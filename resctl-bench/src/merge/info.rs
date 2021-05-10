@@ -4,6 +4,7 @@
 // the pseudo merge-info bench record.
 //
 use serde::{Deserialize, Serialize};
+use std::fmt::Write;
 
 use super::{MergeId, MergeSrc};
 
@@ -58,9 +59,61 @@ impl MergeEntry {
     pub fn add_dropped_from_srcs(&mut self, mid: &MergeId, srcs: &[MergeSrc]) {
         self.dropped.push(Self::from_srcs(mid, srcs));
     }
+
+    fn format<'a>(&self, out: &mut Box<dyn Write + 'a>, seq: Option<usize>) {
+        match seq {
+            Some(seq) => write!(out, "[{}] ", seq).unwrap(),
+            None => write!(out, "[-] ").unwrap(),
+        }
+        writeln!(out, "{}", &self.mid).unwrap();
+        let fmt_sname = |sname: &MergeSrcName| {
+            if let Some(id) = sname.id.as_ref() {
+                format!("{}[{}]", sname.file, id)
+            } else {
+                sname.file.clone()
+            }
+        };
+        let sname_len = self
+            .srcs
+            .iter()
+            .chain(self.rejects.iter().map(|rej| &rej.0))
+            .map(|sname| fmt_sname(sname).len())
+            .max()
+            .unwrap_or(0);
+        for sname in self.srcs.iter() {
+            writeln!(
+                out,
+                "  {:<width$}: MERGED",
+                fmt_sname(sname),
+                width = sname_len
+            )
+            .unwrap();
+        }
+        for (sname, why) in self.rejects.iter() {
+            writeln!(
+                out,
+                "  {:<width$}: REJECTED ({})",
+                fmt_sname(sname),
+                why,
+                width = sname_len
+            )
+            .unwrap();
+        }
+        for dropped in self.dropped.iter() {
+            dropped.format(out, None);
+        }
+    }
 }
 
 #[derive(Clone, Default, Debug, Serialize, Deserialize)]
 pub struct MergeInfo {
     pub merges: Vec<MergeEntry>,
+}
+
+impl MergeInfo {
+    pub fn format<'a>(&self, out: &mut Box<dyn Write + 'a>) {
+        for (i, merge) in self.merges.iter().enumerate() {
+            merge.format(out, Some(i));
+        }
+    }
 }

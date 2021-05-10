@@ -43,12 +43,13 @@ impl Job for MergeInfoJob {
 
     fn format<'a>(
         &self,
-        mut _out: Box<dyn Write + 'a>,
+        out: &mut Box<dyn Write + 'a>,
         data: &JobData,
         _full: &FormatOpts,
         _props: &JobProps,
     ) -> Result<()> {
-        let _rec: MergeInfo = data.parse_record()?;
+        let merge_info: MergeInfo = data.parse_record()?;
+        merge_info.format(out);
         Ok(())
     }
 }

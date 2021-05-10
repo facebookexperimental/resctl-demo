@@ -26,12 +26,12 @@ impl std::fmt::Display for MergeId {
         if let Some(id) = self.id.as_ref() {
             write!(f, "[{}]", id)?;
         }
-        write!(f, " mem-profile={}", self.mem_profile)?;
+        write!(f, " mem={}", self.mem_profile)?;
         if let Some(storage) = self.storage_model.as_ref() {
-            write!(f, " storage={:?}", storage)?;
+            write!(f, " stor={:?}", storage)?;
         }
         if let Some(cl) = self.classifier.as_ref() {
-            write!(f, " classifier={:?}", &cl)?;
+            write!(f, " cls={:?}", &cl)?;
         }
         Ok(())
     }
@@ -190,7 +190,7 @@ pub fn merge(args: &Args) -> Result<()> {
         period: (now, now),
         sysinfo: Default::default(),
         record: Some(serde_json::to_value(info)?),
-        result: None,
+        result: Some(serde_json::to_value(true)?),
     })?;
 
     merge_info_job

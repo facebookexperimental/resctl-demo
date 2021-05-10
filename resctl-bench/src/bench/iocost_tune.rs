@@ -1693,7 +1693,7 @@ impl Job for IoCostTuneJob {
 
     fn format<'a>(
         &self,
-        mut out: Box<dyn Write + 'a>,
+        out: &mut Box<dyn Write + 'a>,
         data: &JobData,
         opts: &FormatOpts,
         props: &JobProps,
@@ -1728,7 +1728,7 @@ impl Job for IoCostTuneJob {
                 .fold((std::f64::MAX, 0.0), |acc, (_sel, ds)| {
                     (ds.lines.range.0.min(acc.0), ds.lines.range.1.max(acc.1))
                 });
-            let mut grapher = graph::Grapher::new(&mut out, graph_prefix.as_deref(), vrate_range);
+            let mut grapher = graph::Grapher::new(out, graph_prefix.as_deref(), vrate_range);
             grapher.plot(data, &res)?;
         }
 
@@ -1737,7 +1737,7 @@ impl Job for IoCostTuneJob {
 
             for rule in self.rules.iter() {
                 match res.solutions.get(&rule.name) {
-                    Some(sol) => Self::format_solution(&mut out, &rule.name, sol, &res.isol_pct),
+                    Some(sol) => Self::format_solution(out, &rule.name, sol, &res.isol_pct),
                     None => writeln!(out, "{}\n  NO SOLUTION", &rule.name).unwrap(),
                 }
                 writeln!(out, "").unwrap();

@@ -118,7 +118,7 @@ impl Job for HashdParamsJob {
 
     fn format<'a>(
         &self,
-        mut out: Box<dyn Write + 'a>,
+        out: &mut Box<dyn Write + 'a>,
         data: &JobData,
         _opts: &FormatOpts,
         _props: &JobProps,

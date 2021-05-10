@@ -476,14 +476,14 @@ impl Job for StorageJob {
 
     fn format<'a>(
         &self,
-        mut out: Box<dyn Write + 'a>,
+        out: &mut Box<dyn Write + 'a>,
         data: &JobData,
         opts: &FormatOpts,
         _props: &JobProps,
     ) -> Result<()> {
         let rec: StorageRecord = data.parse_record()?;
         let res: StorageResult = data.parse_result()?;
-        self.format_result(&mut out, &rec, &res, true, opts);
+        self.format_result(out, &rec, &res, true, opts);
         Ok(())
     }
 }

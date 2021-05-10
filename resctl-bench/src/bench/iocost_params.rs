@@ -53,7 +53,7 @@ impl Job for IoCostParamsJob {
 
     fn format<'a>(
         &self,
-        mut out: Box<dyn Write + 'a>,
+        out: &mut Box<dyn Write + 'a>,
         data: &JobData,
         _full: &FormatOpts,
         _props: &JobProps,
