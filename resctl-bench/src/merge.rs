@@ -1,13 +1,15 @@
 use anyhow::Result;
 use log::debug;
+use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
+use util::*;
 
-use super::job::{JobCtx, JobCtxs, JobData, SysInfo};
-use resctl_bench_intf::Args;
+use super::job::{FormatOpts, JobCtx, JobCtxs, JobData, SysInfo};
+use resctl_bench_intf::{Args, JobSpec};
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-struct MergeId {
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+pub struct MergeId {
     kind: String,
     id: Option<String>,
     mem_profile: u32,
@@ -19,7 +21,7 @@ impl std::fmt::Display for MergeId {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(f, "{}", self.kind)?;
         if let Some(id) = self.id.as_ref() {
-            write!(f, ":{}", id)?;
+            write!(f, "[{}]", id)?;
         }
         write!(f, " mem-profile={}", self.mem_profile)?;
         if let Some(storage) = self.storage_model.as_ref() {
@@ -57,6 +59,12 @@ impl MergeSrc {
             classifier: self.bench.merge_classifier(&self.data),
         }
     }
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct MergeInfo {
+    // merged_mid -> lost_mids
+    merged: BTreeMap<MergeId, BTreeSet<MergeId>>,
 }
 
 pub fn merge(args: &Args) -> Result<()> {
@@ -100,7 +108,7 @@ pub fn merge(args: &Args) -> Result<()> {
         }
     }
 
-    // mid -> (JobData, worse_mids)
+    // mid -> (JobData, lost_mids)
     type Merged = BTreeMap<MergeId, (JobData, BTreeSet<MergeId>)>;
     let mut merged = Merged::default();
     for (mid, srcs) in src_sets.iter_mut() {
@@ -108,8 +116,12 @@ pub fn merge(args: &Args) -> Result<()> {
         merged.insert(mid.clone(), (bench.merge(srcs)?, Default::default()));
     }
 
+    // If !multiple, pick the one with the most number of unrejected sources
+    // from each result set with the same (kind, id). If there are multiple
+    // results with the same number of sources, the first one is selected.
+    // The winner tracks the mids which lost to it.
     if !args.merge_multiple {
-        // (kind, id) -> (best_cnt, best_mid, worse_mids)
+        // (kind, id) -> (best_cnt, best_mid, lost_mids)
         let mut best_mids: BTreeMap<(String, Option<String>), (usize, MergeId, BTreeSet<MergeId>)> =
             Default::default();
         for (mid, srcs) in src_sets.iter() {
@@ -117,21 +129,25 @@ pub fn merge(args: &Args) -> Result<()> {
             let cnt = srcs.iter().filter(|src| src.rejected.is_none()).count();
             match best_mids.get_mut(&key) {
                 None => {
+                    // We're the first for this (kind, id).
                     best_mids.insert(key, (cnt, mid.clone(), Default::default()));
                 }
-                Some((best_cnt, best_mid, worse_mids)) => {
+                Some((best_cnt, best_mid, lost_mids)) => {
                     if cnt > *best_cnt {
+                        // We have a new winner.
                         *best_cnt = cnt;
                         let mut mid = mid.clone();
                         std::mem::swap(best_mid, &mut mid);
-                        worse_mids.insert(mid);
+                        lost_mids.insert(mid);
                     } else {
-                        worse_mids.insert(mid.clone());
+                        // We lost.
+                        lost_mids.insert(mid.clone());
                     }
                 }
             }
         }
 
+        // Update the merged map accordingly.
         let mut src = Merged::default();
         std::mem::swap(&mut merged, &mut src);
         for (mid, (jdata, _)) in src.into_iter() {
@@ -142,10 +158,37 @@ pub fn merge(args: &Args) -> Result<()> {
         }
     }
 
+    // Transfer the merge results into JobCtxs and what happened into
+    // MergeInfo.
     let mut jobs = JobCtxs::default();
-    for (_mid, (data, _worse_mids)) in merged.into_iter() {
+    let mut info = MergeInfo::default();
+    for (mid, (data, lost_mids)) in merged.into_iter() {
         jobs.vec.push(JobCtx::with_job_data(data)?);
+        info.merged.insert(mid, lost_mids);
     }
+
+    // Create a fake merge-info record, print out and put it at the head of
+    // JobCtxs so that there's a record of how the merged result came to be.
+    let now = unix_now();
+    let merge_info_job = JobCtx::with_job_data(JobData {
+        spec: JobSpec::new("merge-info", None, JobSpec::props(&[])),
+        period: (now, now),
+        sysinfo: Default::default(),
+        record: Some(serde_json::to_value(info)?),
+        result: None,
+    })?;
+
+    merge_info_job
+        .print(
+            &FormatOpts {
+                full: true,
+                rstat: 0,
+            },
+            &vec![Default::default()],
+        )
+        .unwrap();
+
+    jobs.vec.insert(0, merge_info_job);
 
     jobs.save_results(&args.result);
     Ok(())

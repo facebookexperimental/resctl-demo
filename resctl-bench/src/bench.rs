@@ -25,6 +25,7 @@ use util::*;
 
 // Helpers shared by bench implementations.
 lazy_static::lazy_static! {
+    pub static ref NO_SYSREQS: BTreeSet<SysReq> = Default::default();
     pub static ref MIN_SYSREQS: BTreeSet<SysReq> =
         vec![
             SysReq::Dependencies
@@ -176,6 +177,7 @@ mod hashd_params;
 mod iocost_params;
 mod iocost_qos;
 mod iocost_tune;
+mod merge_info;
 mod protection;
 mod storage;
 
@@ -186,4 +188,5 @@ pub fn init_benchs() -> () {
     register_bench(Box::new(iocost_qos::IoCostQoSBench {}));
     register_bench(Box::new(iocost_tune::IoCostTuneBench {}));
     register_bench(Box::new(protection::ProtectionBench {}));
+    register_bench(Box::new(merge_info::MergeInfoBench {}));
 }
