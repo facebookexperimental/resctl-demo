@@ -1144,7 +1144,7 @@ impl DataSeries {
                 let error = Self::calc_error(self.points.iter(), &lines);
                 if error < *best_error.borrow() {
                     trace!(
-                        "iocost-qos: fit-best: ({:.3}, {:.3}) - ({:.3}, {:.3}) \
+                        "fit-best: ({:.3}, {:.3}) - ({:.3}, {:.3}) \
                          start={:.3} end={:.3} MIN_SEG_DIST={:.3}",
                         lines.left.x,
                         lines.left.y,
@@ -1414,7 +1414,7 @@ impl IoCostTuneJob {
     ) -> Result<()> {
         let (dir, filter_outliers, filter_by_isol) = sel.fit_lines_opts();
         trace!(
-            "iocost-tune: fitting {:?} points={} dir={:?} filter_outliers={} filter_by_isol={}",
+            "fitting {:?} points={} dir={:?} filter_outliers={} filter_by_isol={}",
             &sel,
             series.points.len(),
             &dir,
@@ -1449,7 +1449,7 @@ impl IoCostTuneJob {
         if filter_outliers {
             series.filter_outliers();
             trace!(
-                "iocost-tune: fitting {:?} points={} outliers={} dir={:?}",
+                "fitting {:?} points={} outliers={} dir={:?}",
                 &sel,
                 series.points.len(),
                 series.outliers.len(),
@@ -1664,7 +1664,7 @@ impl Job for IoCostTuneJob {
 
             if let Some((mut qos, target_vrate)) = solution {
                 debug!(
-                    "iocost-tune: rule={:?} qos={:?} target_vrate={}",
+                    "rule={:?} qos={:?} target_vrate={}",
                     rule, &qos, target_vrate
                 );
                 let scale_factor = target_vrate / 100.0;

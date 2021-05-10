@@ -41,6 +41,16 @@ pub struct MergeSrc {
     bench: Arc<Box<dyn super::bench::Bench>>,
 }
 
+impl std::fmt::Debug for MergeSrc {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MergeSrc")
+            .field("file", &self.file)
+            .field("data.spec", &self.data.spec)
+            .field("rejected", &self.rejected)
+            .finish()
+    }
+}
+
 impl MergeSrc {
     fn merge_id(&self, args: &Args) -> MergeId {
         let desc = self.bench.desc();
@@ -61,10 +71,58 @@ impl MergeSrc {
     }
 }
 
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct MergeSrcName {
+    file: String,
+    kind: String,
+    id: Option<String>,
+}
+
+impl MergeSrcName {
+    fn from_src(src: &MergeSrc) -> Self {
+        Self {
+            file: src.file.clone(),
+            kind: src.data.spec.kind.clone(),
+            id: src.data.spec.id.clone(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct MergeEntry {
+    mid: MergeId,
+    srcs: Vec<MergeSrcName>,
+    rejects: Vec<(MergeSrcName, String)>, // id, why
+    dropped: Vec<MergeEntry>,
+}
+
+impl MergeEntry {
+    fn from_srcs(mid: &MergeId, srcs: &[MergeSrc]) -> Self {
+        Self {
+            mid: mid.clone(),
+            srcs: srcs
+                .iter()
+                .filter(|src| src.rejected.is_none())
+                .map(|src| MergeSrcName::from_src(src))
+                .collect(),
+            rejects: srcs
+                .iter()
+                .filter(|src| src.rejected.is_some())
+                .map(|src| {
+                    (
+                        MergeSrcName::from_src(src),
+                        src.rejected.as_ref().unwrap().clone(),
+                    )
+                })
+                .collect(),
+            dropped: Default::default(),
+        }
+    }
+}
+
+#[derive(Clone, Default, Debug, Serialize, Deserialize)]
 pub struct MergeInfo {
-    // merged_mid -> lost_mids
-    merged: BTreeMap<MergeId, BTreeSet<MergeId>>,
+    merges: Vec<MergeEntry>,
 }
 
 pub fn merge(args: &Args) -> Result<()> {
@@ -97,7 +155,7 @@ pub fn merge(args: &Args) -> Result<()> {
             }
 
             let mid = src.merge_id(args);
-            debug!("merge: file={:?} mid={:?}", &file, &mid);
+            debug!("src: {:?} {:?}", &file, &mid);
 
             match src_sets.get_mut(&mid) {
                 Some(vec) => vec.push(src),
@@ -113,6 +171,7 @@ pub fn merge(args: &Args) -> Result<()> {
     let mut merged = Merged::default();
     for (mid, srcs) in src_sets.iter_mut() {
         let bench = srcs[0].bench.clone();
+        debug!("merging {} from {:?}", &mid, &srcs);
         merged.insert(mid.clone(), (bench.merge(srcs)?, Default::default()));
     }
 
@@ -130,17 +189,20 @@ pub fn merge(args: &Args) -> Result<()> {
             match best_mids.get_mut(&key) {
                 None => {
                     // We're the first for this (kind, id).
+                    debug!("{:?}: first {:?}", &key, &mid);
                     best_mids.insert(key, (cnt, mid.clone(), Default::default()));
                 }
                 Some((best_cnt, best_mid, lost_mids)) => {
                     if cnt > *best_cnt {
                         // We have a new winner.
+                        debug!("{:?}: new {:?}", &key, &mid);
                         *best_cnt = cnt;
                         let mut mid = mid.clone();
                         std::mem::swap(best_mid, &mut mid);
                         lost_mids.insert(mid);
                     } else {
                         // We lost.
+                        debug!("{:?}: lost {:?}", &key, &mid);
                         lost_mids.insert(mid.clone());
                     }
                 }
@@ -164,7 +226,12 @@ pub fn merge(args: &Args) -> Result<()> {
     let mut info = MergeInfo::default();
     for (mid, (data, lost_mids)) in merged.into_iter() {
         jobs.vec.push(JobCtx::with_job_data(data)?);
-        info.merged.insert(mid, lost_mids);
+        let mut ent = MergeEntry::from_srcs(&mid, &src_sets[&mid]);
+        for lmid in lost_mids.iter() {
+            ent.dropped
+                .push(MergeEntry::from_srcs(lmid, &src_sets[lmid]));
+        }
+        info.merges.push(ent);
     }
 
     // Create a fake merge-info record, print out and put it at the head of
