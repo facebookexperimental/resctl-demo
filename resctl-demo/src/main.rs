@@ -33,6 +33,11 @@ use rd_agent_intf::{
     SYSLOAD_SVC_PREFIX,
 };
 
+lazy_static::lazy_static! {
+    pub static ref VERSION: &'static str = env!("CARGO_PKG_VERSION");
+    pub static ref FULL_VERSION: String = full_version(*VERSION);
+}
+
 static AGENT_ZV_REQ: AtomicBool = AtomicBool::new(true);
 static AGENT_SEEN_RUNNING: AtomicBool = AtomicBool::new(false);
 
@@ -478,8 +483,8 @@ fn touch_units() {
 
 fn main() {
     let matches = clap::App::new("resctl-demo")
-        .version(env!("CARGO_PKG_VERSION"))
-        .author(env!("CARGO_PKG_AUTHORS"))
+        .version((*FULL_VERSION).as_str())
+        .author(clap::crate_authors!("\n"))
         .about("Facebook Resource Control Demo")
         .args_from_usage(&ARGS_STR)
         .setting(clap::AppSettings::UnifiedHelpMessage)

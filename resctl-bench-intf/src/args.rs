@@ -287,7 +287,7 @@ impl JsonArgs for Args {
             .help("Benchmark job spec - \"BENCH_TYPE[:KEY=VAL...]\"");
 
         clap::App::new("resctl-bench")
-            .version(clap::crate_version!())
+            .version((*super::FULL_VERSION).as_str())
             .author(clap::crate_authors!("\n"))
             .about("Facebook Resource Control Benchmarks")
             .setting(clap::AppSettings::UnifiedHelpMessage)

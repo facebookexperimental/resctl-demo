@@ -33,6 +33,11 @@ use rd_agent_intf::{
 };
 use report::clear_old_report_files;
 
+lazy_static::lazy_static! {
+    pub static ref VERSION: &'static str = env!("CARGO_PKG_VERSION");
+    pub static ref FULL_VERSION: String = full_version(*VERSION);
+}
+
 pub static INSTANCE_SEQ: AtomicU64 = AtomicU64::new(0);
 
 pub fn instance_seq() -> u64 {
@@ -1142,6 +1147,7 @@ fn update_index(cfg: &Config) -> Result<()> {
 }
 
 fn main() {
+    assert_eq!(*VERSION, *rd_agent_intf::VERSION);
     setup_prog_state();
     unsafe {
         libc::umask(0o002);

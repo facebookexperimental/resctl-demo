@@ -20,6 +20,11 @@ mod workqueue;
 use logger::Logger;
 use testfiles::TestFiles;
 
+lazy_static::lazy_static! {
+    pub static ref VERSION: &'static str = env!("CARGO_PKG_VERSION");
+    pub static ref FULL_VERSION: String = full_version(*VERSION);
+}
+
 const TESTFILE_UNIT_SIZE: u64 = 32 << 20;
 const LOGFILE_UNIT_SIZE: u64 = 1 << 30;
 const LOGGER_HOLD_SEC: f64 = 300.0;
@@ -152,6 +157,8 @@ fn create_logger(args: &Args, params: &Params) -> Option<Logger> {
 }
 
 fn main() {
+    assert_eq!(*VERSION, *rd_hashd_intf::VERSION);
+
     //
     // Parse arguments and set up application logging (not the hash logging).
     //

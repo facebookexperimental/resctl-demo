@@ -209,8 +209,8 @@ impl Args {
 impl JsonArgs for Args {
     fn match_cmdline() -> clap::ArgMatches<'static> {
         clap::App::new("rd-agent")
-            .version(env!("CARGO_PKG_VERSION"))
-            .author(env!("CARGO_PKG_AUTHORS"))
+            .version((*super::FULL_VERSION).as_str())
+            .author(clap::crate_authors!("\n"))
             .about(HELP_BODY)
             .args_from_usage(&ARGS_STR)
             .subcommand(
