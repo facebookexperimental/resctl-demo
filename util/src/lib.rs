@@ -48,7 +48,24 @@ pub const MSEC: f64 = 1.0 / 1000.0;
 pub const READ: usize = 0;
 pub const WRITE: usize = 1;
 
+const VERGEN_GIT_SEMVER: &'static str = env!("VERGEN_GIT_SEMVER_LIGHTWEIGHT");
+const VERGEN_HOST_TRIPLE: &'static str = env!("VERGEN_RUSTC_HOST_TRIPLE");
+
 lazy_static::lazy_static! {
+    static ref GIT_VERSION: &'static str = {
+        VERGEN_GIT_SEMVER
+            .split_once('-')
+            .map(|(_, suffix)| suffix)
+            .unwrap_or("")
+    };
+    static ref BUILD_TAG: String = {
+        let mut tag = VERGEN_HOST_TRIPLE.to_string();
+        if cfg!(debug_assertions) {
+            write!(tag, "/debug").unwrap();
+        }
+        tag
+    };
+
     pub static ref TOTAL_SYSTEM_MEMORY: usize = {
         let mut sys = sysinfo::System::new();
         sys.refresh_memory();
@@ -78,6 +95,23 @@ lazy_static::lazy_static! {
             None => false,
         }
     };
+}
+
+pub fn full_version(semver: &str) -> String {
+    let mut ver = semver.to_string();
+    if GIT_VERSION.len() > 0 {
+        write!(ver, "-{}", &*GIT_VERSION).unwrap();
+    }
+    if BUILD_TAG.len() > 0 {
+        write!(ver, " {}", &*BUILD_TAG).unwrap();
+    }
+    ver
+}
+
+pub fn parse_version(ver: &str) -> (&str, &str, &str) {
+    let (rest, tag) = ver.split_once(' ').unwrap_or((ver, ""));
+    let (sem, git) = rest.split_once('-').unwrap_or((rest, ""));
+    (sem, git, tag)
 }
 
 pub fn total_memory() -> usize {

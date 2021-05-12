@@ -23,6 +23,9 @@ use job::{FormatOpts, JobCtxs};
 use run::RunCtx;
 
 lazy_static::lazy_static! {
+    pub static ref VERSION: &'static str = env!("CARGO_PKG_VERSION");
+    pub static ref FULL_VERSION: String = full_version(*VERSION);
+
     pub static ref AGENT_BIN: String =
         find_bin("rd-agent", exe_dir().ok())
         .expect("can't find rd-agent")
@@ -355,6 +358,7 @@ impl Program {
 }
 
 fn main() {
+    assert_eq!(*VERSION, *resctl_bench_intf::VERSION);
     setup_prog_state();
     bench::init_benchs();
 

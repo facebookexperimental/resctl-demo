@@ -33,6 +33,11 @@ use rd_agent_intf::{
 };
 use report::clear_old_report_files;
 
+lazy_static::lazy_static! {
+    pub static ref VERSION: &'static str = env!("CARGO_PKG_VERSION");
+    pub static ref FULL_VERSION: String = full_version(*VERSION);
+}
+
 pub static INSTANCE_SEQ: AtomicU64 = AtomicU64::new(0);
 
 pub fn instance_seq() -> u64 {
@@ -602,6 +607,19 @@ impl Config {
     fn startup_checks(&mut self) -> Result<()> {
         let sys = sysinfo::System::new();
 
+        // Obtain rd-hashd version.
+        let output = Command::new(&self.hashd_paths[0].bin)
+            .arg("--version")
+            .output()
+            .expect("cfg: \"rd-hashd --version\" failed");
+        let hashd_version = String::from_utf8(output.stdout)
+            .unwrap()
+            .lines()
+            .next()
+            .expect("cfg: Failed to read \"rd-hashd --version\" output")
+            .trim_start_matches("rd-hashd ")
+            .to_string();
+
         // check cgroup2 & controllers
         match path_to_mountpoint("/sys/fs/cgroup") {
             Ok(mi) => {
@@ -927,6 +945,8 @@ impl Config {
             kernel_version: sys
                 .get_kernel_version()
                 .expect("Failed to read kernel version"),
+            agent_version: FULL_VERSION.to_string(),
+            hashd_version,
             nr_cpus: nr_cpus(),
             total_memory: total_memory(),
             total_swap: total_swap(),
@@ -1142,6 +1162,7 @@ fn update_index(cfg: &Config) -> Result<()> {
 }
 
 fn main() {
+    assert_eq!(*VERSION, *rd_agent_intf::VERSION);
     setup_prog_state();
     unsafe {
         libc::umask(0o002);

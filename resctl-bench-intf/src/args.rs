@@ -92,6 +92,8 @@ pub struct Args {
     #[serde(skip)]
     pub merge_by_id: bool,
     #[serde(skip)]
+    pub merge_ignore_versions: bool,
+    #[serde(skip)]
     pub merge_ignore_sysreqs: bool,
     #[serde(skip)]
     pub merge_multiple: bool,
@@ -124,6 +126,7 @@ impl Default for Args {
             rstat: 0,
             merge_srcs: vec![],
             merge_by_id: false,
+            merge_ignore_versions: false,
             merge_ignore_sysreqs: false,
             merge_multiple: false,
         }
@@ -287,7 +290,7 @@ impl JsonArgs for Args {
             .help("Benchmark job spec - \"BENCH_TYPE[:KEY=VAL...]\"");
 
         clap::App::new("resctl-bench")
-            .version(clap::crate_version!())
+            .version((*super::FULL_VERSION).as_str())
             .author(clap::crate_authors!("\n"))
             .about("Facebook Resource Control Benchmarks")
             .setting(clap::AppSettings::UnifiedHelpMessage)
@@ -354,6 +357,11 @@ impl JsonArgs for Args {
                         clap::Arg::with_name("by-id")
                             .long("by-id")
                             .help("Don't ignore bench IDs when merging")
+                    )
+                    .arg(
+                        clap::Arg::with_name("ignore-versions")
+                            .long("ignore-versions")
+                            .help("Ignore resctl-demo and bench versions when merging")
                     )
                     .arg(
                         clap::Arg::with_name("ignore-sysreqs")
@@ -503,6 +511,7 @@ impl JsonArgs for Args {
             ("merge", Some(subm)) => {
                 self.mode = Mode::Merge;
                 self.merge_by_id = subm.is_present("by-id");
+                self.merge_ignore_versions = subm.is_present("ignore-versions");
                 self.merge_ignore_sysreqs = subm.is_present("ignore-sysreqs");
                 self.merge_multiple = subm.is_present("multiple");
                 self.merge_srcs = subm

@@ -408,7 +408,7 @@ pub fn status_layout_factory() -> impl View {
     )
     .title(format!(
         "Facebook Resource Control Demo v{} - 'q': quit",
-        env!("CARGO_PKG_VERSION")
+        &*super::VERSION
     ))
     .resized(
         SizeConstraint::Fixed(layout.status.x),

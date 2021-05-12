@@ -60,6 +60,8 @@ pub struct SysReqsReport {
     pub satisfied: BTreeSet<SysReq>,
     pub missed: BTreeSet<SysReq>,
     pub kernel_version: String,
+    pub agent_version: String,
+    pub hashd_version: String,
     pub nr_cpus: usize,
     pub total_memory: usize,
     pub total_swap: usize,

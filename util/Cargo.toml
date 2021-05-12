@@ -3,6 +3,7 @@ name = "util"
 version = "1.0.0"
 authors = ["Tejun Heo <tj@kernel.org>"]
 edition = "2018"
+build = "build.rs"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -30,3 +31,7 @@ serde = { version = "^1.0", features = ["derive"] }
 serde_json = "^1.0"
 simplelog = "^0.10"
 sysinfo = "^0.16"
+
+[build-dependencies]
+anyhow = "^1.0"
+vergen = "^5.1"
