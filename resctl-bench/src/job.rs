@@ -54,14 +54,29 @@ pub trait Job {
     ) -> Result<()>;
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct SysInfo {
+    pub bench_version: String,
     pub sysreqs: BTreeSet<SysReq>,
     pub sysreqs_missed: BTreeSet<SysReq>,
     pub sysreqs_report: Option<SysReqsReport>,
     pub iocost: rd_agent_intf::IoCostReport,
     pub mem: MemInfo,
     pub swappiness: u32,
+}
+
+impl Default for SysInfo {
+    fn default() -> Self {
+        Self {
+            bench_version: super::FULL_VERSION.to_string(),
+            sysreqs: Default::default(),
+            sysreqs_missed: Default::default(),
+            sysreqs_report: None,
+            iocost: Default::default(),
+            mem: Default::default(),
+            swappiness: 60,
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
