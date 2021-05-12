@@ -1737,7 +1737,7 @@ dependencies = [
 
 [[package]]
 name = "resctl-bench"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -1769,7 +1769,7 @@ dependencies = [
 
 [[package]]
 name = "resctl-bench-intf"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "anyhow",
  "clap",

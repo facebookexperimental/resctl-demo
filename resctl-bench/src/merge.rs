@@ -13,28 +13,12 @@ use resctl_bench_intf::{Args, JobSpec};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct MergeId {
-    kind: String,
-    id: Option<String>,
-    mem_profile: u32,
-    storage_model: Option<String>,
-    classifier: Option<String>,
-}
-
-impl std::fmt::Display for MergeId {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "{}", self.kind)?;
-        if let Some(id) = self.id.as_ref() {
-            write!(f, "[{}]", id)?;
-        }
-        write!(f, " mem={}", self.mem_profile)?;
-        if let Some(storage) = self.storage_model.as_ref() {
-            write!(f, " stor={:?}", storage)?;
-        }
-        if let Some(cl) = self.classifier.as_ref() {
-            write!(f, " cls={:?}", &cl)?;
-        }
-        Ok(())
-    }
+    pub kind: String,
+    pub id: Option<String>,
+    pub versions: Option<(String, String, String)>,
+    pub mem_profile: u32,
+    pub storage_model: Option<String>,
+    pub classifier: Option<String>,
 }
 
 pub struct MergeSrc {
@@ -58,15 +42,33 @@ impl MergeSrc {
     fn merge_id(&self, args: &Args) -> MergeId {
         let desc = self.bench.desc();
         let si = &self.data.sysinfo;
+        let srep = si
+            .sysreqs_report
+            .as_ref()
+            .expect("sysreqs_report missing in result");
+
+        let sem_tag = |ver: &str| {
+            let (sem, _, tag) = parse_version(&ver);
+            format!("{} {}", &sem, &tag)
+        };
+
         MergeId {
             kind: self.data.spec.kind.clone(),
             id: match args.merge_by_id {
                 true => self.data.spec.id.clone(),
                 false => None,
             },
+            versions: match args.merge_ignore_versions {
+                false => Some((
+                    sem_tag(&si.bench_version),
+                    sem_tag(&srep.agent_version),
+                    sem_tag(&srep.hashd_version),
+                )),
+                true => None,
+            },
             mem_profile: si.mem.profile,
             storage_model: match desc.merge_by_storage_model {
-                true => Some(si.sysreqs_report.as_ref().unwrap().scr_dev_model.clone()),
+                true => Some(srep.scr_dev_model.clone()),
                 false => None,
             },
             classifier: self.bench.merge_classifier(&self.data),
@@ -120,7 +122,7 @@ pub fn merge(args: &Args) -> Result<()> {
     let mut merged = Merged::default();
     for (mid, srcs) in src_sets.iter_mut() {
         let bench = srcs[0].bench.clone();
-        debug!("merging {} from {:?}", &mid, &srcs);
+        debug!("merging {:?} from {:?}", &mid, &srcs);
         merged.insert(mid.clone(), (bench.merge(srcs)?, Default::default()));
     }
 

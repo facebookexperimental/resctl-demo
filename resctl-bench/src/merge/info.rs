@@ -65,7 +65,36 @@ impl MergeEntry {
             Some(seq) => write!(out, "[{}] ", seq).unwrap(),
             None => write!(out, "[-] ").unwrap(),
         }
-        writeln!(out, "{}", &self.mid).unwrap();
+
+        // kind[id]
+        write!(out, "{}", &self.mid.kind).unwrap();
+        if let Some(id) = self.mid.id.as_ref() {
+            write!(out, "[{}]", id).unwrap();
+        }
+        writeln!(out, "").unwrap();
+
+        // versions
+        if let Some(versions) = self.mid.versions.as_ref() {
+            if versions.0 == versions.1 && versions.1 == versions.2 {
+                writeln!(out, "  version: {}", &versions.0).unwrap();
+            } else {
+                writeln!(out, "  bench-version: {}", &versions.0).unwrap();
+                writeln!(out, "  agent-version: {}", &versions.1).unwrap();
+                writeln!(out, "  hashd-version: {}", &versions.2).unwrap();
+            }
+        }
+
+        // memory profile, storage, classifer
+        writeln!(out, "  memory-profile: {}", self.mid.mem_profile).unwrap();
+        if let Some(storage) = self.mid.storage_model.as_ref() {
+            writeln!(out, "  storage: {}", storage).unwrap();
+        }
+        if let Some(cl) = self.mid.classifier.as_ref() {
+            writeln!(out, "  classifier: {}", &cl).unwrap();
+        }
+
+        // sources
+        writeln!(out, "  sources:").unwrap();
         let fmt_sname = |sname: &MergeSrcName| {
             if let Some(id) = sname.id.as_ref() {
                 format!("{}[{}]", sname.file, id)
@@ -73,31 +102,11 @@ impl MergeEntry {
                 sname.file.clone()
             }
         };
-        let sname_len = self
-            .srcs
-            .iter()
-            .chain(self.rejects.iter().map(|rej| &rej.0))
-            .map(|sname| fmt_sname(sname).len())
-            .max()
-            .unwrap_or(0);
         for sname in self.srcs.iter() {
-            writeln!(
-                out,
-                "  {:<width$}: MERGED",
-                fmt_sname(sname),
-                width = sname_len
-            )
-            .unwrap();
+            writeln!(out, "    + {}", fmt_sname(sname),).unwrap();
         }
         for (sname, why) in self.rejects.iter() {
-            writeln!(
-                out,
-                "  {:<width$}: REJECTED ({})",
-                fmt_sname(sname),
-                why,
-                width = sname_len
-            )
-            .unwrap();
+            writeln!(out, "    - {} ({})", fmt_sname(sname), why).unwrap();
         }
         for dropped in self.dropped.iter() {
             dropped.format(out, None);
