@@ -1105,7 +1105,7 @@ impl DataSeries {
         // We want to prefer line fittings with fewer components. Discount
         // error from the previous stage. Also, make sure each line segment
         // is at least 10% of the vrate range.
-        const ERROR_DISCOUNT: f64 = 0.95;
+        const ERROR_DISCOUNT: f64 = 0.975;
         const MIN_SEG_DIST: f64 = 10.0;
 
         // Start with mean flat line which is acceptable for both dirs.
