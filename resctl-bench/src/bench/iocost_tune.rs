@@ -377,7 +377,7 @@ enum QoSTarget {
     VrateRange((f64, f64), (Option<String>, Option<String>)),
     MOFMax,
     AMOFMax,
-    Protect,
+    Isolation,
     LatRange(DataSel, (f64, f64)),
 }
 
@@ -409,7 +409,7 @@ impl std::fmt::Display for QoSTarget {
             }
             Self::MOFMax => write!(f, "MOF=max").unwrap(),
             Self::AMOFMax => write!(f, "aMOF=max").unwrap(),
-            Self::Protect => write!(f, "protect").unwrap(),
+            Self::Isolation => write!(f, "isolation").unwrap(),
             Self::LatRange(sel, (low, high)) => match sel {
                 DataSel::RLat(lat_pct, _) => {
                     write!(f, "rlat-{}={}-{}", lat_pct, low, high).unwrap()
@@ -469,7 +469,7 @@ impl QoSTarget {
         let k = k.to_lowercase();
         let v = v.to_lowercase();
         match k.as_str() {
-            "protect" => Ok(Self::Protect),
+            "isolation" => Ok(Self::Isolation),
             k => {
                 let sel = DataSel::parse(k)?;
                 match &sel {
@@ -524,7 +524,7 @@ impl QoSTarget {
             }
             Self::MOFMax => vec![DataSel::MOF, DataSel::LatImp],
             Self::AMOFMax => vec![DataSel::AMOF, DataSel::LatImp],
-            Self::Protect => vec![DataSel::MOF, DataSel::LatImp, DataSel::AMOFDelta],
+            Self::Isolation => vec![DataSel::MOF, DataSel::LatImp, DataSel::AMOFDelta],
             Self::LatRange(sel, _) => vec![sel.clone()],
         }
     }
@@ -660,7 +660,7 @@ impl QoSTarget {
             }
             Self::MOFMax => solve_mof_max(&DataSel::MOF)?.map(params_at_vrate),
             Self::AMOFMax => solve_mof_max(&DataSel::AMOF)?.map(params_at_vrate),
-            Self::Protect => {
+            Self::Isolation => {
                 let amof_delta_ds = ds(&DataSel::AMOFDelta)?;
                 solve_mof_max(&DataSel::MOF)?
                     .map(|mof_max| {
@@ -810,7 +810,7 @@ impl Bench for IoCostTuneBench {
 
             push_props(&[("name", "naive")]);
             push_props(&[("name", "bandwidth"), ("mof", "max")]);
-            push_props(&[("name", "protect"), ("protect", "")]);
+            push_props(&[("name", "isolation"), ("isolation", "")]);
             push_props(&[("name", "rlat-99-q1"), ("rlat-99", "q1")]);
             push_props(&[("name", "rlat-99-q2"), ("rlat-99", "q2")]);
             push_props(&[("name", "rlat-99-q3"), ("rlat-99", "q3")]);
