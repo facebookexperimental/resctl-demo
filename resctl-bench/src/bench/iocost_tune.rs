@@ -377,7 +377,7 @@ enum QoSTarget {
     VrateRange((f64, f64), (Option<String>, Option<String>)),
     MOFMax,
     AMOFMax,
-    IsolatedBandwidth, // max of AMOFMax and Isolation
+    IsolatedBandwidth,
     Isolation,
     LatRange(DataSel, (f64, f64)),
 }
@@ -642,16 +642,20 @@ impl QoSTarget {
                 vrate,
             )
         };
-        let solve_mof_max = |sel| -> Result<Option<f64>> {
+        let solve_mof_max = |sel, no_sig_sel| -> Result<Option<f64>> {
+            let no_sig_vrate = match no_sig_sel {
+                Some(nssel) => Self::find_max_vrate_at_min_val(ds(nssel)?, (vrate_min, vrate_max)),
+                None => None,
+            };
             Ok(Self::find_min_vrate_at_max_val(
                 ds(sel)?,
                 (vrate_min, vrate_max),
-                Self::find_max_vrate_at_min_val(ds(&DataSel::LatImp)?, (vrate_min, vrate_max)),
+                no_sig_vrate,
             ))
         };
         let solve_isolation = || -> Result<Option<f64>> {
             let amof_delta_ds = ds(&DataSel::AMOFDelta)?;
-            Ok(solve_mof_max(&DataSel::MOF)?
+            Ok(solve_mof_max(&DataSel::MOF, Some(&DataSel::LatImp))?
                 .map(|mof_max| Self::find_max_vrate_at_min_val(amof_delta_ds, (vrate_min, mof_max)))
                 .filter(|vrate| vrate.is_some())
                 .map(|vrate| vrate.unwrap()))
@@ -674,15 +678,27 @@ impl QoSTarget {
                     *vrate_max,
                 ))
             }
-            Self::MOFMax => solve_mof_max(&DataSel::MOF)?.map(params_at_vrate),
-            Self::AMOFMax => solve_mof_max(&DataSel::AMOF)?.map(params_at_vrate),
-            Self::IsolatedBandwidth => match (solve_mof_max(&DataSel::AMOF)?, solve_isolation()?) {
-                (None, None) => None,
-                (amof_max, isolation) => {
-                    Some(amof_max.unwrap_or(0.0).max(isolation.unwrap_or(0.0)))
-                }
+            Self::MOFMax => {
+                solve_mof_max(&DataSel::MOF, Some(&DataSel::LatImp))?.map(params_at_vrate)
             }
-            .map(params_at_vrate),
+            Self::AMOFMax => {
+                solve_mof_max(&DataSel::AMOF, Some(&DataSel::LatImp))?.map(params_at_vrate)
+            }
+            Self::IsolatedBandwidth => {
+                // Isolation if it has the maximum aMOF; otherwise, the
+                // lowest vrate which maps to max aMOF. Note that we don't
+                // want to consider LatImp when determining aMOF maximum
+                // point here - we're already pushing higher than the
+                // Isolation solution and don't want to go any higher than
+                // needed for reaching the aMOF max point.
+                match (solve_mof_max(&DataSel::AMOF, None)?, solve_isolation()?) {
+                    (None, None) => None,
+                    (amof_max, isolation) => {
+                        Some(amof_max.unwrap_or(0.0).max(isolation.unwrap_or(0.0)))
+                    }
+                }
+                .map(params_at_vrate)
+            }
             Self::Isolation => solve_isolation()?.map(params_at_vrate),
             Self::LatRange(sel, lat_rel_range) => {
                 if let Some((lat_target, vrate_range)) =
