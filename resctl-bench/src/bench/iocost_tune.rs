@@ -522,15 +522,19 @@ impl QoSTarget {
                 }
                 sels
             }
-            Self::MOFMax => vec![DataSel::MOF],
-            Self::AMOFMax => vec![DataSel::AMOF],
-            Self::Protect => vec![DataSel::MOF, DataSel::AMOFDelta],
+            Self::MOFMax => vec![DataSel::MOF, DataSel::LatImp],
+            Self::AMOFMax => vec![DataSel::AMOF, DataSel::LatImp],
+            Self::Protect => vec![DataSel::MOF, DataSel::LatImp, DataSel::AMOFDelta],
             Self::LatRange(sel, _) => vec![sel.clone()],
         }
     }
 
     /// Find the minimum vrate with the maximum value.
-    fn find_min_vrate_at_max_val(ds: &DataSeries, range: (f64, f64)) -> Option<f64> {
+    fn find_min_vrate_at_max_val(
+        ds: &DataSeries,
+        range: (f64, f64),
+        no_sig_vrate: Option<f64>,
+    ) -> Option<f64> {
         ds.lines.clamped(range.0, range.1).map(|dl| {
             let left = &dl.left;
             let right = &dl.right;
@@ -538,7 +542,9 @@ impl QoSTarget {
             if left.y < right.y {
                 right.x
             } else {
-                dl.range.0
+                no_sig_vrate
+                    .unwrap_or(dl.range.0)
+                    .clamp(dl.range.0, dl.range.1)
             }
         })
     }
@@ -627,6 +633,13 @@ impl QoSTarget {
                 vrate,
             )
         };
+        let solve_mof_max = |sel| -> Result<Option<f64>> {
+            Ok(Self::find_min_vrate_at_max_val(
+                ds(sel)?,
+                (vrate_min, vrate_max),
+                Self::find_max_vrate_at_min_val(ds(&DataSel::LatImp)?, (vrate_min, vrate_max)),
+            ))
+        };
 
         Ok(match self {
             Self::VrateRange((vrate_min, vrate_max), (rpct, wpct)) => {
@@ -645,17 +658,11 @@ impl QoSTarget {
                     *vrate_max,
                 ))
             }
-            Self::MOFMax => {
-                Self::find_min_vrate_at_max_val(ds(&DataSel::MOF)?, (vrate_min, vrate_max))
-                    .map(params_at_vrate)
-            }
-            Self::AMOFMax => {
-                Self::find_min_vrate_at_max_val(ds(&DataSel::AMOF)?, (vrate_min, vrate_max))
-                    .map(params_at_vrate)
-            }
+            Self::MOFMax => solve_mof_max(&DataSel::MOF)?.map(params_at_vrate),
+            Self::AMOFMax => solve_mof_max(&DataSel::AMOF)?.map(params_at_vrate),
             Self::Protect => {
-                let (mof_ds, amof_delta_ds) = (ds(&DataSel::MOF)?, ds(&DataSel::AMOFDelta)?);
-                Self::find_min_vrate_at_max_val(mof_ds, (vrate_min, vrate_max))
+                let amof_delta_ds = ds(&DataSel::AMOFDelta)?;
+                solve_mof_max(&DataSel::MOF)?
                     .map(|mof_max| {
                         Self::find_max_vrate_at_min_val(amof_delta_ds, (vrate_min, mof_max))
                     })
