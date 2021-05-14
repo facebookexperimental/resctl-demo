@@ -530,27 +530,31 @@ impl QoSTarget {
     }
 
     /// Find the minimum vrate with the maximum value.
-    fn find_min_vrate_at_max_val(dl: &DataLines) -> f64 {
-        let left = &dl.left;
-        let right = &dl.right;
+    fn find_min_vrate_at_max_val(ds: &DataSeries, range: (f64, f64)) -> Option<f64> {
+        ds.lines.clamped(range.0, range.1).map(|dl| {
+            let left = &dl.left;
+            let right = &dl.right;
 
-        if left.y < right.y {
-            right.x
-        } else {
-            dl.range.0
-        }
+            if left.y < right.y {
+                right.x
+            } else {
+                dl.range.0
+            }
+        })
     }
 
     /// Find the maximum vrate with the minimum value.
-    fn find_max_vrate_at_min_val(dl: &DataLines) -> f64 {
-        let left = &dl.left;
-        let right = &dl.right;
+    fn find_max_vrate_at_min_val(ds: &DataSeries, range: (f64, f64)) -> Option<f64> {
+        ds.lines.clamped(range.0, range.1).map(|dl| {
+            let left = &dl.left;
+            let right = &dl.right;
 
-        if left.y < right.y {
-            left.x
-        } else {
-            dl.range.1
-        }
+            if left.y < right.y {
+                left.x
+            } else {
+                dl.range.1
+            }
+        })
     }
 
     fn solve_vrate_range(
@@ -613,6 +617,16 @@ impl QoSTarget {
             data.get(sel)
                 .ok_or(anyhow!("Required data series {:?} unavailable", sel))
         };
+        let params_at_vrate = |vrate| {
+            (
+                IoCostQoSParams {
+                    min: vrate,
+                    max: vrate,
+                    ..Default::default()
+                },
+                vrate,
+            )
+        };
 
         Ok(match self {
             Self::VrateRange((vrate_min, vrate_max), (rpct, wpct)) => {
@@ -631,56 +645,23 @@ impl QoSTarget {
                     *vrate_max,
                 ))
             }
-            Self::MOFMax => ds(&DataSel::MOF)?
-                .lines
-                .clamped(vrate_min, vrate_max)
-                .map(|clamped| {
-                    let vrate = Self::find_min_vrate_at_max_val(&clamped);
-                    (
-                        IoCostQoSParams {
-                            min: vrate,
-                            max: vrate,
-                            ..Default::default()
-                        },
-                        vrate,
-                    )
-                }),
-            Self::AMOFMax => {
-                ds(&DataSel::AMOF)?
-                    .lines
-                    .clamped(vrate_min, vrate_max)
-                    .map(|clamped| {
-                        let vrate = Self::find_min_vrate_at_max_val(&clamped);
-                        (
-                            IoCostQoSParams {
-                                min: vrate,
-                                max: vrate,
-                                ..Default::default()
-                            },
-                            vrate,
-                        )
-                    })
+            Self::MOFMax => {
+                Self::find_min_vrate_at_max_val(ds(&DataSel::MOF)?, (vrate_min, vrate_max))
+                    .map(params_at_vrate)
             }
-            Self::Protect => match ds(&DataSel::MOF)?.lines.clamped(vrate_min, vrate_max) {
-                Some(clamped) => {
-                    let mof_max = Self::find_min_vrate_at_max_val(&clamped);
-                    match ds(&DataSel::AMOFDelta)?.lines.clamped(vrate_min, mof_max) {
-                        Some(clamped) => {
-                            let vrate = Self::find_max_vrate_at_min_val(&clamped);
-                            Some((
-                                IoCostQoSParams {
-                                    min: vrate,
-                                    max: vrate,
-                                    ..Default::default()
-                                },
-                                vrate,
-                            ))
-                        }
-                        None => None,
-                    }
-                }
-                None => None,
-            },
+            Self::AMOFMax => {
+                Self::find_min_vrate_at_max_val(ds(&DataSel::AMOF)?, (vrate_min, vrate_max))
+                    .map(params_at_vrate)
+            }
+            Self::Protect => {
+                let (mof_ds, amof_delta_ds) = (ds(&DataSel::MOF)?, ds(&DataSel::AMOFDelta)?);
+                Self::find_min_vrate_at_max_val(mof_ds, (vrate_min, vrate_max))
+                    .map(|mof_max| {
+                        Self::find_max_vrate_at_min_val(amof_delta_ds, (vrate_min, mof_max))
+                    })
+                    .filter(|vrate| vrate.is_some())
+                    .map(|vrate| params_at_vrate(vrate.unwrap()))
+            }
             Self::LatRange(sel, lat_rel_range) => {
                 if let Some((lat_target, vrate_range)) =
                     Self::solve_lat_range(ds(&sel)?, *lat_rel_range, (vrate_min, vrate_max))
