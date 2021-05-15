@@ -402,16 +402,18 @@ impl std::fmt::Display for QoSTarget {
             Self::VrateRange((vmin, vmax), (rpct, wpct)) => {
                 write!(f, "vrate={}-{}", vmin, vmax).unwrap();
                 if let Some(rpct) = rpct {
-                    write!(f, ",rpct={}", rpct).unwrap();
+                    write!(f, ", rpct={}", rpct).unwrap();
                 }
                 if let Some(wpct) = wpct {
-                    write!(f, ",wpct={}", wpct).unwrap();
+                    write!(f, ", wpct={}", wpct).unwrap();
                 }
             }
             Self::MOFMax => write!(f, "MOF=max").unwrap(),
             Self::AMOFMax => write!(f, "aMOF=max").unwrap(),
-            Self::IsolatedBandwidth => write!(f, "isolated-bandwidth").unwrap(),
-            Self::Isolation => write!(f, "isolation").unwrap(),
+            Self::IsolatedBandwidth => {
+                write!(f, "isolated-bandwidth (max(isolation, aMOF=MAX))").unwrap()
+            }
+            Self::Isolation => write!(f, "isolation (aMOF-delta=min)").unwrap(),
             Self::LatRange(sel, (low, high)) => match sel {
                 DataSel::RLat(lat_pct, _) => {
                     write!(f, "rlat-{}={}-{}", lat_pct, low, high).unwrap()
@@ -1294,7 +1296,7 @@ impl DataSeries {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Default, Debug)]
+#[derive(Serialize, Deserialize, Clone, Default, Debug, PartialEq)]
 struct QoSSolution {
     target: QoSTarget,
     model: IoCostModelParams,
@@ -1368,6 +1370,16 @@ impl QoSSolution {
             isol: data[&DataSel::Isol].lines.eval(target_vrate),
             rlat: Self::lat_table(READ, target_vrate, data),
             wlat: Self::lat_table(WRITE, target_vrate, data),
+        }
+    }
+
+    fn equal_sans_target(&self, other: &Self) -> bool {
+        Self {
+            target: Default::default(),
+            ..self.clone()
+        } == Self {
+            target: Default::default(),
+            ..other.clone()
         }
     }
 }
@@ -1493,16 +1505,23 @@ impl IoCostTuneJob {
         Ok(())
     }
 
-    fn format_solution<'a>(
-        out: &mut Box<dyn Write + 'a>,
-        name: &str,
-        sol: &QoSSolution,
-        isol_pct: &str,
-    ) {
+    fn format_rules<'a>(out: &mut Box<dyn Write + 'a>, rules: &[&QoSRule]) {
+        let name_len = rules.iter().map(|rule| rule.name.len()).max().unwrap_or(0);
+        for rule in rules.iter() {
+            writeln!(
+                out,
+                "[{:<width$}] {}",
+                &rule.name,
+                &rule.target,
+                width = name_len
+            )
+            .unwrap();
+        }
+    }
+
+    fn format_solution<'a>(out: &mut Box<dyn Write + 'a>, sol: &QoSSolution, isol_pct: &str) {
         let model = &sol.model;
         let qos = &sol.qos;
-        writeln!(out, "{}", name).unwrap();
-        writeln!(out, "  target: {}", &sol.target).unwrap();
         writeln!(
             out,
             "  info: scale={}% MOF={:.3}@{} aMOF={:.3} aMOF-delta={:.3} isol-{}={}%",
@@ -1755,13 +1774,36 @@ impl Job for IoCostTuneJob {
         if self.rules.len() > 0 {
             write!(out, "{}\n", &double_underline("Solutions")).unwrap();
 
-            for rule in self.rules.iter() {
-                match res.solutions.get(&rule.name) {
-                    Some(sol) => Self::format_solution(out, &rule.name, sol, &res.isol_pct),
-                    None => writeln!(out, "{}\n  NO SOLUTION", &rule.name).unwrap(),
+            let mut rules: Vec<&QoSRule> = vec![];
+            let mut prev_sol: Option<&QoSSolution> = None;
+            let mut flush = |rules: &mut Vec<&QoSRule>, prev_sol: Option<&QoSSolution>| {
+                if rules.len() > 0 {
+                    Self::format_rules(out, &rules);
+                    match prev_sol {
+                        Some(prev_sol) => Self::format_solution(out, prev_sol, &res.isol_pct),
+                        None => writeln!(out, "  NO SOLUTION").unwrap(),
+                    }
+                    writeln!(out, "").unwrap();
+                    rules.clear();
                 }
-                writeln!(out, "").unwrap();
+            };
+
+            for rule in self.rules.iter() {
+                let sol = res.solutions.get(&rule.name);
+                if !rules.is_empty()
+                    && !(sol.is_none() && prev_sol.is_none())
+                    && !((sol.is_some() && prev_sol.is_some())
+                        && sol
+                            .as_ref()
+                            .unwrap()
+                            .equal_sans_target(prev_sol.as_ref().unwrap()))
+                {
+                    flush(&mut rules, prev_sol);
+                }
+                rules.push(rule);
+                prev_sol = sol;
             }
+            flush(&mut rules, prev_sol);
         }
 
         Ok(())
