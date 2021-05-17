@@ -1399,6 +1399,7 @@ pub struct IoCostTuneResult {
     isol_thr: f64,
     data: BTreeMap<DataSel, DataSeries>,
     solutions: BTreeMap<String, QoSSolution>,
+    remarks: Vec<String>,
 }
 
 impl IoCostTuneJob {
@@ -1503,6 +1504,121 @@ impl IoCostTuneJob {
         );
 
         Ok(())
+    }
+
+    fn remark_on_lat(
+        &self,
+        rw: usize,
+        lat_50_mean: &DataSeries,
+        lat_99_mean: &DataSeries,
+        lat_99_99: &DataSeries,
+        lat_100_100: &DataSeries,
+    ) -> Vec<String> {
+        let mut remarks = vec![];
+        let rw_str = if rw == READ { "read" } else { "write" };
+
+        let (lat_50_mean_lines, lat_99_mean_lines, lat_99_99_lines, lat_100_100_lines) = match (
+            lat_50_mean.lines.clamped(self.vrate_min, self.vrate_max),
+            lat_99_mean.lines.clamped(self.vrate_min, self.vrate_max),
+            lat_99_99.lines.clamped(self.vrate_min, self.vrate_max),
+            lat_100_100.lines.clamped(self.vrate_min, self.vrate_max),
+        ) {
+            (Some(v0), Some(v1), Some(v2), Some(v3)) => (v0, v1, v2, v3),
+            _ => return vec![format!("Insufficient {} latencies data.", rw_str)],
+        };
+
+        if lat_50_mean_lines.left.y == lat_50_mean_lines.right.y
+            && lat_99_mean_lines.left.y == lat_99_mean_lines.right.y
+        {
+            remarks.push(format!(
+                "Mean {} latencies cannot be modulated with throttling.",
+                rw_str
+            ));
+        }
+
+        if lat_99_99_lines.left.y >= 500.0 * MSEC {
+            remarks.push(format!(
+                "Minimum p99 {} latencies spike above {} every 100s.",
+                rw_str,
+                format_duration(lat_99_99_lines.left.y)
+            ));
+        }
+
+        if lat_100_100_lines.left.y >= 1000.0 * MSEC {
+            remarks.push(format!(
+                "Minimum {} tail latencies spike above {}.",
+                rw_str,
+                format_duration(lat_100_100_lines.left.y)
+            ));
+        }
+
+        remarks
+    }
+
+    fn remarks(&self, res: &IoCostTuneResult) -> Vec<String> {
+        let mut remarks = vec![];
+
+        // Remark on latencies.
+        if let (Some(rlat_50_mean), Some(rlat_99_mean), Some(rlat_99_99), Some(rlat_100_100)) = (
+            res.data
+                .get(&DataSel::RLat("50".to_string(), "mean".to_string())),
+            res.data
+                .get(&DataSel::RLat("99".to_string(), "mean".to_string())),
+            res.data
+                .get(&DataSel::RLat("99".to_string(), "99".to_string())),
+            res.data
+                .get(&DataSel::RLat("100".to_string(), "100".to_string())),
+        ) {
+            remarks.append(&mut self.remark_on_lat(
+                READ,
+                rlat_50_mean,
+                rlat_99_mean,
+                rlat_99_99,
+                rlat_100_100,
+            ));
+        } else {
+            remarks.push("rlat-99-99 and/or rlat-100-100 unavailable.".to_string());
+        }
+
+        if let (Some(wlat_50_mean), Some(wlat_99_mean), Some(wlat_99_99), Some(wlat_100_100)) = (
+            res.data
+                .get(&DataSel::RLat("50".to_string(), "mean".to_string())),
+            res.data
+                .get(&DataSel::RLat("99".to_string(), "mean".to_string())),
+            res.data
+                .get(&DataSel::WLat("99".to_string(), "99".to_string())),
+            res.data
+                .get(&DataSel::WLat("100".to_string(), "100".to_string())),
+        ) {
+            remarks.append(&mut self.remark_on_lat(
+                WRITE,
+                wlat_50_mean,
+                wlat_99_mean,
+                wlat_99_99,
+                wlat_100_100,
+            ));
+        } else {
+            remarks.push("wlat-99-99 and/or wlat-100-100 unavailable.".to_string());
+        }
+
+        // Remark on aMOF-delta.
+        for (name, sol) in res.solutions.iter() {
+            match &sol.target {
+                QoSTarget::IsolatedBandwidth | QoSTarget::Isolation => {
+                    let err = sol.adjusted_mem_offload_delta / sol.mem_offload_factor;
+                    if err >= 0.05 {
+                        remarks.push(format!(
+                            "{}: Isolatable memory size is {}% < supportable, sizing may be difficult.",
+                            name,
+                            format_pct(err),
+                        ));
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        remarks
     }
 
     fn format_rules<'a>(out: &mut Box<dyn Write + 'a>, rules: &[&QoSRule]) {
@@ -1652,6 +1768,7 @@ impl Job for IoCostTuneJob {
             isol_thr,
             data,
             solutions: Default::default(),
+            remarks: Default::default(),
         })?)
     }
 
@@ -1726,6 +1843,8 @@ impl Job for IoCostTuneJob {
                 );
             }
         }
+
+        res.remarks = self.remarks(&res);
 
         Ok(serde_json::to_value(res)?)
     }
@@ -1804,6 +1923,13 @@ impl Job for IoCostTuneJob {
                 prev_sol = sol;
             }
             flush(&mut rules, prev_sol);
+        }
+
+        if !res.remarks.is_empty() {
+            write!(out, "{}\n", &double_underline("Remarks")).unwrap();
+            for remark in res.remarks.iter() {
+                writeln!(out, "* {}", &remark).unwrap();
+            }
         }
 
         Ok(())
