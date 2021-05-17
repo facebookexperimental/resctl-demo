@@ -309,6 +309,7 @@ impl JobCtx {
         let res = if solve_mode {
             self.data
                 .result
+                .clone()
                 .take()
                 .ok_or(anyhow!(
                     "solve mode but intermediate result is not available"

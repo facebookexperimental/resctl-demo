@@ -377,7 +377,8 @@ enum QoSTarget {
     VrateRange((f64, f64), (Option<String>, Option<String>)),
     MOFMax,
     AMOFMax,
-    Protect,
+    IsolatedBandwidth,
+    Isolation,
     LatRange(DataSel, (f64, f64)),
 }
 
@@ -401,15 +402,18 @@ impl std::fmt::Display for QoSTarget {
             Self::VrateRange((vmin, vmax), (rpct, wpct)) => {
                 write!(f, "vrate={}-{}", vmin, vmax).unwrap();
                 if let Some(rpct) = rpct {
-                    write!(f, ",rpct={}", rpct).unwrap();
+                    write!(f, ", rpct={}", rpct).unwrap();
                 }
                 if let Some(wpct) = wpct {
-                    write!(f, ",wpct={}", wpct).unwrap();
+                    write!(f, ", wpct={}", wpct).unwrap();
                 }
             }
             Self::MOFMax => write!(f, "MOF=max").unwrap(),
             Self::AMOFMax => write!(f, "aMOF=max").unwrap(),
-            Self::Protect => write!(f, "protect").unwrap(),
+            Self::IsolatedBandwidth => {
+                write!(f, "isolated-bandwidth (max(isolation, aMOF=MAX))").unwrap()
+            }
+            Self::Isolation => write!(f, "isolation (aMOF-delta=min)").unwrap(),
             Self::LatRange(sel, (low, high)) => match sel {
                 DataSel::RLat(lat_pct, _) => {
                     write!(f, "rlat-{}={}-{}", lat_pct, low, high).unwrap()
@@ -469,7 +473,8 @@ impl QoSTarget {
         let k = k.to_lowercase();
         let v = v.to_lowercase();
         match k.as_str() {
-            "protect" => Ok(Self::Protect),
+            "isolated-bandwidth" => Ok(Self::IsolatedBandwidth),
+            "isolation" => Ok(Self::Isolation),
             k => {
                 let sel = DataSel::parse(k)?;
                 match &sel {
@@ -522,35 +527,51 @@ impl QoSTarget {
                 }
                 sels
             }
-            Self::MOFMax => vec![DataSel::MOF],
-            Self::AMOFMax => vec![DataSel::AMOF],
-            Self::Protect => vec![DataSel::MOF, DataSel::AMOFDelta],
+            Self::MOFMax => vec![DataSel::MOF, DataSel::LatImp],
+            Self::AMOFMax => vec![DataSel::AMOF, DataSel::LatImp],
+            Self::IsolatedBandwidth => vec![
+                DataSel::MOF,
+                DataSel::AMOF,
+                DataSel::LatImp,
+                DataSel::AMOFDelta,
+            ],
+            Self::Isolation => vec![DataSel::MOF, DataSel::LatImp, DataSel::AMOFDelta],
             Self::LatRange(sel, _) => vec![sel.clone()],
         }
     }
 
     /// Find the minimum vrate with the maximum value.
-    fn find_min_vrate_at_max_val(dl: &DataLines) -> f64 {
-        let left = &dl.left;
-        let right = &dl.right;
+    fn find_min_vrate_at_max_val(
+        ds: &DataSeries,
+        range: (f64, f64),
+        no_sig_vrate: Option<f64>,
+    ) -> Option<f64> {
+        ds.lines.clamped(range.0, range.1).map(|dl| {
+            let left = &dl.left;
+            let right = &dl.right;
 
-        if left.y < right.y {
-            right.x
-        } else {
-            dl.range.0
-        }
+            if left.y < right.y {
+                right.x
+            } else {
+                no_sig_vrate
+                    .unwrap_or(dl.range.0)
+                    .clamp(dl.range.0, dl.range.1)
+            }
+        })
     }
 
     /// Find the maximum vrate with the minimum value.
-    fn find_max_vrate_at_min_val(dl: &DataLines) -> f64 {
-        let left = &dl.left;
-        let right = &dl.right;
+    fn find_max_vrate_at_min_val(ds: &DataSeries, range: (f64, f64)) -> Option<f64> {
+        ds.lines.clamped(range.0, range.1).map(|dl| {
+            let left = &dl.left;
+            let right = &dl.right;
 
-        if left.y < right.y {
-            left.x
-        } else {
-            dl.range.1
-        }
+            if left.y < right.y {
+                left.x
+            } else {
+                dl.range.1
+            }
+        })
     }
 
     fn solve_vrate_range(
@@ -613,6 +634,34 @@ impl QoSTarget {
             data.get(sel)
                 .ok_or(anyhow!("Required data series {:?} unavailable", sel))
         };
+        let params_at_vrate = |vrate| {
+            (
+                IoCostQoSParams {
+                    min: vrate,
+                    max: vrate,
+                    ..Default::default()
+                },
+                vrate,
+            )
+        };
+        let solve_mof_max = |sel, no_sig_sel| -> Result<Option<f64>> {
+            let no_sig_vrate = match no_sig_sel {
+                Some(nssel) => Self::find_max_vrate_at_min_val(ds(nssel)?, (vrate_min, vrate_max)),
+                None => None,
+            };
+            Ok(Self::find_min_vrate_at_max_val(
+                ds(sel)?,
+                (vrate_min, vrate_max),
+                no_sig_vrate,
+            ))
+        };
+        let solve_isolation = || -> Result<Option<f64>> {
+            let amof_delta_ds = ds(&DataSel::AMOFDelta)?;
+            Ok(solve_mof_max(&DataSel::MOF, Some(&DataSel::LatImp))?
+                .map(|mof_max| Self::find_max_vrate_at_min_val(amof_delta_ds, (vrate_min, mof_max)))
+                .filter(|vrate| vrate.is_some())
+                .map(|vrate| vrate.unwrap()))
+        };
 
         Ok(match self {
             Self::VrateRange((vrate_min, vrate_max), (rpct, wpct)) => {
@@ -631,56 +680,28 @@ impl QoSTarget {
                     *vrate_max,
                 ))
             }
-            Self::MOFMax => ds(&DataSel::MOF)?
-                .lines
-                .clamped(vrate_min, vrate_max)
-                .map(|clamped| {
-                    let vrate = Self::find_min_vrate_at_max_val(&clamped);
-                    (
-                        IoCostQoSParams {
-                            min: vrate,
-                            max: vrate,
-                            ..Default::default()
-                        },
-                        vrate,
-                    )
-                }),
-            Self::AMOFMax => {
-                ds(&DataSel::AMOF)?
-                    .lines
-                    .clamped(vrate_min, vrate_max)
-                    .map(|clamped| {
-                        let vrate = Self::find_min_vrate_at_max_val(&clamped);
-                        (
-                            IoCostQoSParams {
-                                min: vrate,
-                                max: vrate,
-                                ..Default::default()
-                            },
-                            vrate,
-                        )
-                    })
+            Self::MOFMax => {
+                solve_mof_max(&DataSel::MOF, Some(&DataSel::LatImp))?.map(params_at_vrate)
             }
-            Self::Protect => match ds(&DataSel::MOF)?.lines.clamped(vrate_min, vrate_max) {
-                Some(clamped) => {
-                    let mof_max = Self::find_min_vrate_at_max_val(&clamped);
-                    match ds(&DataSel::AMOFDelta)?.lines.clamped(vrate_min, mof_max) {
-                        Some(clamped) => {
-                            let vrate = Self::find_max_vrate_at_min_val(&clamped);
-                            Some((
-                                IoCostQoSParams {
-                                    min: vrate,
-                                    max: vrate,
-                                    ..Default::default()
-                                },
-                                vrate,
-                            ))
-                        }
-                        None => None,
+            Self::AMOFMax => {
+                solve_mof_max(&DataSel::AMOF, Some(&DataSel::LatImp))?.map(params_at_vrate)
+            }
+            Self::IsolatedBandwidth => {
+                // Isolation if it has the maximum aMOF; otherwise, the
+                // lowest vrate which maps to max aMOF. Note that we don't
+                // want to consider LatImp when determining aMOF maximum
+                // point here - we're already pushing higher than the
+                // Isolation solution and don't want to go any higher than
+                // needed for reaching the aMOF max point.
+                match (solve_mof_max(&DataSel::AMOF, None)?, solve_isolation()?) {
+                    (None, None) => None,
+                    (amof_max, isolation) => {
+                        Some(amof_max.unwrap_or(0.0).max(isolation.unwrap_or(0.0)))
                     }
                 }
-                None => None,
-            },
+                .map(params_at_vrate)
+            }
+            Self::Isolation => solve_isolation()?.map(params_at_vrate),
             Self::LatRange(sel, lat_rel_range) => {
                 if let Some((lat_target, vrate_range)) =
                     Self::solve_lat_range(ds(&sel)?, *lat_rel_range, (vrate_min, vrate_max))
@@ -822,7 +843,8 @@ impl Bench for IoCostTuneBench {
 
             push_props(&[("name", "naive")]);
             push_props(&[("name", "bandwidth"), ("mof", "max")]);
-            push_props(&[("name", "protect"), ("protect", "")]);
+            push_props(&[("name", "isolated-bandwidth"), ("isolated-bandwidth", "")]);
+            push_props(&[("name", "isolation"), ("isolation", "")]);
             push_props(&[("name", "rlat-99-q1"), ("rlat-99", "q1")]);
             push_props(&[("name", "rlat-99-q2"), ("rlat-99", "q2")]);
             push_props(&[("name", "rlat-99-q3"), ("rlat-99", "q3")]);
@@ -1105,7 +1127,7 @@ impl DataSeries {
         // We want to prefer line fittings with fewer components. Discount
         // error from the previous stage. Also, make sure each line segment
         // is at least 10% of the vrate range.
-        const ERROR_DISCOUNT: f64 = 0.95;
+        const ERROR_DISCOUNT: f64 = 0.975;
         const MIN_SEG_DIST: f64 = 10.0;
 
         // Start with mean flat line which is acceptable for both dirs.
@@ -1274,7 +1296,7 @@ impl DataSeries {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Default, Debug)]
+#[derive(Serialize, Deserialize, Clone, Default, Debug, PartialEq)]
 struct QoSSolution {
     target: QoSTarget,
     model: IoCostModelParams,
@@ -1350,6 +1372,16 @@ impl QoSSolution {
             wlat: Self::lat_table(WRITE, target_vrate, data),
         }
     }
+
+    fn equal_sans_target(&self, other: &Self) -> bool {
+        Self {
+            target: Default::default(),
+            ..self.clone()
+        } == Self {
+            target: Default::default(),
+            ..other.clone()
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Default, Debug)]
@@ -1367,6 +1399,7 @@ pub struct IoCostTuneResult {
     isol_thr: f64,
     data: BTreeMap<DataSel, DataSeries>,
     solutions: BTreeMap<String, QoSSolution>,
+    remarks: Vec<String>,
 }
 
 impl IoCostTuneJob {
@@ -1473,16 +1506,138 @@ impl IoCostTuneJob {
         Ok(())
     }
 
-    fn format_solution<'a>(
-        out: &mut Box<dyn Write + 'a>,
-        name: &str,
-        sol: &QoSSolution,
-        isol_pct: &str,
-    ) {
+    fn remark_on_lat(
+        &self,
+        rw: usize,
+        lat_50_mean: &DataSeries,
+        lat_99_mean: &DataSeries,
+        lat_99_99: &DataSeries,
+        lat_100_100: &DataSeries,
+    ) -> Vec<String> {
+        let mut remarks = vec![];
+        let rw_str = if rw == READ { "read" } else { "write" };
+
+        let (lat_50_mean_lines, lat_99_mean_lines, lat_99_99_lines, lat_100_100_lines) = match (
+            lat_50_mean.lines.clamped(self.vrate_min, self.vrate_max),
+            lat_99_mean.lines.clamped(self.vrate_min, self.vrate_max),
+            lat_99_99.lines.clamped(self.vrate_min, self.vrate_max),
+            lat_100_100.lines.clamped(self.vrate_min, self.vrate_max),
+        ) {
+            (Some(v0), Some(v1), Some(v2), Some(v3)) => (v0, v1, v2, v3),
+            _ => return vec![format!("Insufficient {} latencies data.", rw_str)],
+        };
+
+        if lat_50_mean_lines.left.y == lat_50_mean_lines.right.y
+            && lat_99_mean_lines.left.y == lat_99_mean_lines.right.y
+        {
+            remarks.push(format!(
+                "Mean {} latencies cannot be modulated with throttling.",
+                rw_str
+            ));
+        }
+
+        if lat_99_99_lines.left.y >= 500.0 * MSEC {
+            remarks.push(format!(
+                "Minimum p99 {} latencies spike above {} every 100s.",
+                rw_str,
+                format_duration(lat_99_99_lines.left.y)
+            ));
+        }
+
+        if lat_100_100_lines.left.y >= 1000.0 * MSEC {
+            remarks.push(format!(
+                "Minimum {} tail latencies spike above {}.",
+                rw_str,
+                format_duration(lat_100_100_lines.left.y)
+            ));
+        }
+
+        remarks
+    }
+
+    fn remarks(&self, res: &IoCostTuneResult) -> Vec<String> {
+        let mut remarks = vec![];
+
+        // Remark on latencies.
+        if let (Some(rlat_50_mean), Some(rlat_99_mean), Some(rlat_99_99), Some(rlat_100_100)) = (
+            res.data
+                .get(&DataSel::RLat("50".to_string(), "mean".to_string())),
+            res.data
+                .get(&DataSel::RLat("99".to_string(), "mean".to_string())),
+            res.data
+                .get(&DataSel::RLat("99".to_string(), "99".to_string())),
+            res.data
+                .get(&DataSel::RLat("100".to_string(), "100".to_string())),
+        ) {
+            remarks.append(&mut self.remark_on_lat(
+                READ,
+                rlat_50_mean,
+                rlat_99_mean,
+                rlat_99_99,
+                rlat_100_100,
+            ));
+        } else {
+            remarks.push("rlat-99-99 and/or rlat-100-100 unavailable.".to_string());
+        }
+
+        if let (Some(wlat_50_mean), Some(wlat_99_mean), Some(wlat_99_99), Some(wlat_100_100)) = (
+            res.data
+                .get(&DataSel::RLat("50".to_string(), "mean".to_string())),
+            res.data
+                .get(&DataSel::RLat("99".to_string(), "mean".to_string())),
+            res.data
+                .get(&DataSel::WLat("99".to_string(), "99".to_string())),
+            res.data
+                .get(&DataSel::WLat("100".to_string(), "100".to_string())),
+        ) {
+            remarks.append(&mut self.remark_on_lat(
+                WRITE,
+                wlat_50_mean,
+                wlat_99_mean,
+                wlat_99_99,
+                wlat_100_100,
+            ));
+        } else {
+            remarks.push("wlat-99-99 and/or wlat-100-100 unavailable.".to_string());
+        }
+
+        // Remark on aMOF-delta.
+        for (name, sol) in res.solutions.iter() {
+            match &sol.target {
+                QoSTarget::IsolatedBandwidth | QoSTarget::Isolation => {
+                    let err = sol.adjusted_mem_offload_delta / sol.mem_offload_factor;
+                    if err >= 0.05 {
+                        remarks.push(format!(
+                            "{}: Isolatable memory size is {}% < supportable, sizing may be difficult.",
+                            name,
+                            format_pct(err),
+                        ));
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        remarks
+    }
+
+    fn format_rules<'a>(out: &mut Box<dyn Write + 'a>, rules: &[&QoSRule]) {
+        let name_len = rules.iter().map(|rule| rule.name.len()).max().unwrap_or(0);
+        for rule in rules.iter() {
+            writeln!(
+                out,
+                "[{:<width$}] {}",
+                &rule.name,
+                &rule.target,
+                width = name_len
+            )
+            .unwrap();
+        }
+    }
+
+    fn format_solution<'a>(out: &mut Box<dyn Write + 'a>, sol: &QoSSolution, isol_pct: &str) {
         let model = &sol.model;
         let qos = &sol.qos;
-        writeln!(out, "{}", name).unwrap();
-        writeln!(out, "  target: {}", &sol.target).unwrap();
         writeln!(
             out,
             "  info: scale={}% MOF={:.3}@{} aMOF={:.3} aMOF-delta={:.3} isol-{}={}%",
@@ -1613,6 +1768,7 @@ impl Job for IoCostTuneJob {
             isol_thr,
             data,
             solutions: Default::default(),
+            remarks: Default::default(),
         })?)
     }
 
@@ -1688,6 +1844,8 @@ impl Job for IoCostTuneJob {
             }
         }
 
+        res.remarks = self.remarks(&res);
+
         Ok(serde_json::to_value(res)?)
     }
 
@@ -1735,12 +1893,42 @@ impl Job for IoCostTuneJob {
         if self.rules.len() > 0 {
             write!(out, "{}\n", &double_underline("Solutions")).unwrap();
 
-            for rule in self.rules.iter() {
-                match res.solutions.get(&rule.name) {
-                    Some(sol) => Self::format_solution(out, &rule.name, sol, &res.isol_pct),
-                    None => writeln!(out, "{}\n  NO SOLUTION", &rule.name).unwrap(),
+            let mut rules: Vec<&QoSRule> = vec![];
+            let mut prev_sol: Option<&QoSSolution> = None;
+            let mut flush = |rules: &mut Vec<&QoSRule>, prev_sol: Option<&QoSSolution>| {
+                if rules.len() > 0 {
+                    Self::format_rules(out, &rules);
+                    match prev_sol {
+                        Some(prev_sol) => Self::format_solution(out, prev_sol, &res.isol_pct),
+                        None => writeln!(out, "  NO SOLUTION").unwrap(),
+                    }
+                    writeln!(out, "").unwrap();
+                    rules.clear();
                 }
-                writeln!(out, "").unwrap();
+            };
+
+            for rule in self.rules.iter() {
+                let sol = res.solutions.get(&rule.name);
+                if !rules.is_empty()
+                    && !(sol.is_none() && prev_sol.is_none())
+                    && !((sol.is_some() && prev_sol.is_some())
+                        && sol
+                            .as_ref()
+                            .unwrap()
+                            .equal_sans_target(prev_sol.as_ref().unwrap()))
+                {
+                    flush(&mut rules, prev_sol);
+                }
+                rules.push(rule);
+                prev_sol = sol;
+            }
+            flush(&mut rules, prev_sol);
+        }
+
+        if !res.remarks.is_empty() {
+            write!(out, "{}\n", &double_underline("Remarks")).unwrap();
+            for remark in res.remarks.iter() {
+                writeln!(out, "* {}", &remark).unwrap();
             }
         }
 
