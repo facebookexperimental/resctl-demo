@@ -108,7 +108,7 @@ fn read_system_usage(devnr: (u32, u32)) -> Result<(Usage, f64)> {
     let mem_stat = match read_stat_file(&mem_stat_path) {
         Ok(v) => v,
         Err(e) => {
-            warn!("report: Failed to read {} ({:?})", &mem_stat_path, &e);
+            debug!("report: Failed to read {} ({:?})", &mem_stat_path, &e);
             Default::default()
         }
     };
@@ -210,7 +210,7 @@ fn read_cgroup_usage(cgrp: &str, devnr: (u32, u32)) -> Usage {
     usage.mem_stat = match read_stat_file(&mem_stat_path) {
         Ok(v) => v,
         Err(e) => {
-            warn!("report: Failed to read {} ({:?})", &mem_stat_path, &e);
+            debug!("report: Failed to read {} ({:?})", &mem_stat_path, &e);
             Default::default()
         }
     };
