@@ -1635,7 +1635,7 @@ impl IoCostTuneJob {
         }
     }
 
-    fn format_solution<'a>(out: &mut Box<dyn Write + 'a>, sol: &QoSSolution, isol_pct: &str) {
+    fn format_one_solution<'a>(out: &mut Box<dyn Write + 'a>, sol: &QoSSolution, isol_pct: &str) {
         let model = &sol.model;
         let qos = &sol.qos;
         writeln!(
@@ -1694,6 +1694,63 @@ impl IoCostTuneJob {
             qos.rpct, qos.rlat, qos.wpct, qos.wlat, qos.min, qos.max,
         )
         .unwrap();
+    }
+
+    fn format_solutions<'a>(&self, out: &mut Box<dyn Write + 'a>, res: &IoCostTuneResult) {
+        if self.rules.len() == 0 {
+            return;
+        }
+
+        write!(out, "{}\n", &double_underline("Solutions")).unwrap();
+
+        let mut rules: Vec<&QoSRule> = vec![];
+        let mut prev_sol: Option<&QoSSolution> = None;
+        let mut flush = |rules: &mut Vec<&QoSRule>, prev_sol: Option<&QoSSolution>| {
+            if rules.len() > 0 {
+                Self::format_rules(out, &rules);
+                match prev_sol {
+                    Some(prev_sol) => Self::format_one_solution(out, prev_sol, &res.isol_pct),
+                    None => writeln!(out, "  NO SOLUTION").unwrap(),
+                }
+                writeln!(out, "").unwrap();
+                rules.clear();
+            }
+        };
+
+        for rule in self.rules.iter() {
+            let sol = res.solutions.get(&rule.name);
+            if !rules.is_empty()
+                && !(sol.is_none() && prev_sol.is_none())
+                && !((sol.is_some() && prev_sol.is_some())
+                    && sol
+                        .as_ref()
+                        .unwrap()
+                        .equal_sans_target(prev_sol.as_ref().unwrap()))
+            {
+                flush(&mut rules, prev_sol);
+            }
+            rules.push(rule);
+            prev_sol = sol;
+        }
+        flush(&mut rules, prev_sol);
+    }
+
+    fn format_remarks<'a>(&self, out: &mut Box<dyn Write + 'a>, res: &IoCostTuneResult) {
+        if res.remarks.is_empty() {
+            return;
+        }
+
+        write!(out, "{}\n", &double_underline("Remarks")).unwrap();
+        for remark in res.remarks.iter() {
+            writeln!(out, "* {}", &remark).unwrap();
+        }
+    }
+
+    fn format_pdf(&self, path: &str, grapher: &mut graph::Grapher) -> Result<()> {
+        let dir = tempfile::TempDir::new().context("Creating temp dir for rendering graphs")?;
+        let graphs_pdf = grapher.plot_pdf(dir.path())?;
+        std::fs::copy(graphs_pdf, path)?;
+        Ok(())
     }
 }
 
@@ -1870,6 +1927,14 @@ impl Job for IoCostTuneJob {
 
         let res: IoCostTuneResult = data.parse_result()?;
 
+        let vrate_range = res
+            .data
+            .iter()
+            .fold((std::f64::MAX, 0.0), |acc, (_sel, ds)| {
+                (ds.lines.range.0.min(acc.0), ds.lines.range.1.max(acc.1))
+            });
+        let mut grapher = graph::Grapher::new(vrate_range, data, &res);
+
         if opts.full {
             write!(
                 out,
@@ -1880,64 +1945,14 @@ impl Job for IoCostTuneJob {
             )
             .unwrap();
 
-            let vrate_range = res
-                .data
-                .iter()
-                .fold((std::f64::MAX, 0.0), |acc, (_sel, ds)| {
-                    (ds.lines.range.0.min(acc.0), ds.lines.range.1.max(acc.1))
-                });
-
-            let mut grapher = graph::Grapher::new(vrate_range, data, &res);
-
             grapher.plot_text(out)?;
-            if let Some(path) = pdf_path.as_ref() {
-                let dir =
-                    tempfile::TempDir::new().context("Creating temp dir for rendering graphs")?;
-                let graphs_pdf = grapher.plot_pdf(dir.path())?;
-                std::fs::copy(graphs_pdf, path)?;
-            }
         }
 
-        if self.rules.len() > 0 {
-            write!(out, "{}\n", &double_underline("Solutions")).unwrap();
+        self.format_solutions(out, &res);
+        self.format_remarks(out, &res);
 
-            let mut rules: Vec<&QoSRule> = vec![];
-            let mut prev_sol: Option<&QoSSolution> = None;
-            let mut flush = |rules: &mut Vec<&QoSRule>, prev_sol: Option<&QoSSolution>| {
-                if rules.len() > 0 {
-                    Self::format_rules(out, &rules);
-                    match prev_sol {
-                        Some(prev_sol) => Self::format_solution(out, prev_sol, &res.isol_pct),
-                        None => writeln!(out, "  NO SOLUTION").unwrap(),
-                    }
-                    writeln!(out, "").unwrap();
-                    rules.clear();
-                }
-            };
-
-            for rule in self.rules.iter() {
-                let sol = res.solutions.get(&rule.name);
-                if !rules.is_empty()
-                    && !(sol.is_none() && prev_sol.is_none())
-                    && !((sol.is_some() && prev_sol.is_some())
-                        && sol
-                            .as_ref()
-                            .unwrap()
-                            .equal_sans_target(prev_sol.as_ref().unwrap()))
-                {
-                    flush(&mut rules, prev_sol);
-                }
-                rules.push(rule);
-                prev_sol = sol;
-            }
-            flush(&mut rules, prev_sol);
-        }
-
-        if !res.remarks.is_empty() {
-            write!(out, "{}\n", &double_underline("Remarks")).unwrap();
-            for remark in res.remarks.iter() {
-                writeln!(out, "* {}", &remark).unwrap();
-            }
+        if let Some(path) = pdf_path.as_ref() {
+            self.format_pdf(path, &mut grapher)?;
         }
 
         Ok(())
