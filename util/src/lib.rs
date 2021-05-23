@@ -696,8 +696,8 @@ pub fn run_command(cmd: &mut Command, emsg: &str) -> Result<()> {
 
     match cmd.status() {
         Ok(rc) if rc.success() => Ok(()),
-        Ok(rc) => bail!("{:?} ({:?}): {}", &cmd_str, &rc, emsg,),
-        Err(e) => bail!("{:?} ({:?}): {}", &cmd_str, &e, emsg,),
+        Ok(rc) => bail!("{:?} ({:?}): {}", &cmd_str, &rc, emsg),
+        Err(e) => bail!("{:?} ({:?}): {}", &cmd_str, &e, emsg),
     }
 }
 

@@ -6,6 +6,9 @@ use statrs::distribution::{Normal, Univariate};
 use std::cell::RefCell;
 use std::cmp::{Ordering, PartialOrd};
 use std::collections::{BTreeMap, BTreeSet};
+use std::io::Write as IoWrite;
+use std::path::{Path, PathBuf};
+use std::process::Command;
 
 mod graph;
 mod merge;
@@ -1635,7 +1638,7 @@ impl IoCostTuneJob {
         }
     }
 
-    fn format_solution<'a>(out: &mut Box<dyn Write + 'a>, sol: &QoSSolution, isol_pct: &str) {
+    fn format_one_solution<'a>(out: &mut Box<dyn Write + 'a>, sol: &QoSSolution, isol_pct: &str) {
         let model = &sol.model;
         let qos = &sol.qos;
         writeln!(
@@ -1694,6 +1697,130 @@ impl IoCostTuneJob {
             qos.rpct, qos.rlat, qos.wpct, qos.wlat, qos.min, qos.max,
         )
         .unwrap();
+    }
+
+    fn format_solutions<'a>(&self, out: &mut Box<dyn Write + 'a>, res: &IoCostTuneResult) {
+        if self.rules.len() == 0 {
+            return;
+        }
+
+        write!(out, "{}\n", &double_underline("Solutions")).unwrap();
+
+        let mut rules: Vec<&QoSRule> = vec![];
+        let mut prev_sol: Option<&QoSSolution> = None;
+        let mut flush = |rules: &mut Vec<&QoSRule>, prev_sol: Option<&QoSSolution>| {
+            if rules.len() > 0 {
+                Self::format_rules(out, &rules);
+                match prev_sol {
+                    Some(prev_sol) => Self::format_one_solution(out, prev_sol, &res.isol_pct),
+                    None => writeln!(out, "  NO SOLUTION").unwrap(),
+                }
+                writeln!(out, "").unwrap();
+                rules.clear();
+            }
+        };
+
+        for rule in self.rules.iter() {
+            let sol = res.solutions.get(&rule.name);
+            if !rules.is_empty()
+                && !(sol.is_none() && prev_sol.is_none())
+                && !((sol.is_some() && prev_sol.is_some())
+                    && sol
+                        .as_ref()
+                        .unwrap()
+                        .equal_sans_target(prev_sol.as_ref().unwrap()))
+            {
+                flush(&mut rules, prev_sol);
+            }
+            rules.push(rule);
+            prev_sol = sol;
+        }
+        flush(&mut rules, prev_sol);
+    }
+
+    fn format_remarks<'a>(&self, out: &mut Box<dyn Write + 'a>, res: &IoCostTuneResult) {
+        if res.remarks.is_empty() {
+            return;
+        }
+
+        write!(out, "{}\n", &double_underline("Remarks")).unwrap();
+        for remark in res.remarks.iter() {
+            writeln!(out, "* {}", &remark).unwrap();
+        }
+    }
+
+    fn format_pdf(
+        &self,
+        path: &str,
+        keep: bool,
+        data: &JobData,
+        res: &IoCostTuneResult,
+        grapher: &mut graph::Grapher,
+    ) -> Result<()> {
+        let dir = tempfile::TempDir::new().context("Creating temp dir for rendering graphs")?;
+        let dir_path = if keep { Path::new("./") } else { dir.path() };
+
+        // Generate the cover page.
+        let mut cover_txt = PathBuf::from(&dir_path);
+        cover_txt.push("iocost-tune-cover.txt");
+        let mut cover_pdf = PathBuf::from(&dir_path);
+        cover_pdf.push("iocost-tune-cover.pdf");
+        let mut gs_err = PathBuf::from(&dir_path);
+        gs_err.push("iocost-tune-gs.err");
+
+        let mut buf = String::new();
+        let mut out = Box::new(&mut buf) as Box<dyn Write>;
+        data.format_header(&mut out);
+        self.format_solutions(&mut out, res);
+        self.format_remarks(&mut out, res);
+        drop(out);
+
+        let mut cover_file = std::fs::File::create(&cover_txt)?;
+        cover_file.write_all(buf.as_bytes())?;
+        let mut text_arg = std::ffi::OsString::from("text:");
+        text_arg.push(&cover_txt);
+
+        run_command(
+            Command::new("convert")
+                .args(&[
+                    "-font",
+                    "Source-Code-Pro",
+                    "-pointsize",
+                    "7",
+                    "-density",
+                    "300",
+                ])
+                .arg(&text_arg)
+                .arg(&cover_pdf),
+            "are imagemagick and adobe-source-code-pro font available?",
+        )?;
+
+        // Draw the graphs.
+        let graphs_pdf = grapher.plot_pdf(&dir_path)?;
+
+        // Concatenate them.
+        let mut output_arg = std::ffi::OsString::from("-sOUTPUTFILE=");
+        output_arg.push(path);
+        run_command(
+            Command::new("gs")
+                .arg(&output_arg)
+                .args(&[
+                    "-sstdout=%stderr",
+                    "-dNOPAUSE",
+                    "-sDEVICE=pdfwrite",
+                    "-sPAPERSIZE=letter",
+                    "-dFIXEDMEDIA",
+                    "-dPDFFitPage",
+                    "-dCompatibilityLevel=1.4",
+                    "-dBATCH",
+                ])
+                .arg(&cover_pdf)
+                .arg(&graphs_pdf)
+                .stderr(std::fs::File::create(&gs_err)?),
+            "is ghostscript available?",
+        )?;
+
+        Ok(())
     }
 }
 
@@ -1856,19 +1983,35 @@ impl Job for IoCostTuneJob {
         opts: &FormatOpts,
         props: &JobProps,
     ) -> Result<()> {
-        let mut graph_prefix = None;
+        let mut pdf_path = None;
+        let mut pdf_keep = false;
         for (k, v) in props[0].iter() {
             match k.as_ref() {
-                "graph" => {
+                "pdf" => {
                     if v.len() > 0 {
-                        graph_prefix = Some(v.to_owned());
+                        pdf_path = Some(v.to_owned());
                     }
                 }
+                "pdf-keep" => pdf_keep = v.len() == 0 || v.parse::<bool>()?,
                 k => bail!("unknown format parameter {:?}", k),
             }
         }
 
         let res: IoCostTuneResult = data.parse_result()?;
+
+        let vrate_range = res
+            .data
+            .iter()
+            .fold((std::f64::MAX, 0.0), |acc, (_sel, ds)| {
+                (ds.lines.range.0.min(acc.0), ds.lines.range.1.max(acc.1))
+            });
+        let mut grapher = graph::Grapher::new(vrate_range, data, &res);
+
+        if let Some(path) = pdf_path.as_ref() {
+            self.format_pdf(path, pdf_keep, data, &res, &mut grapher)?;
+            write!(out, "Formatted result into {:?}", path).unwrap();
+            return Ok(());
+        }
 
         if opts.full {
             write!(
@@ -1880,58 +2023,11 @@ impl Job for IoCostTuneJob {
             )
             .unwrap();
 
-            let vrate_range = res
-                .data
-                .iter()
-                .fold((std::f64::MAX, 0.0), |acc, (_sel, ds)| {
-                    (ds.lines.range.0.min(acc.0), ds.lines.range.1.max(acc.1))
-                });
-            let mut grapher = graph::Grapher::new(out, graph_prefix.as_deref(), vrate_range);
-            grapher.plot(data, &res)?;
+            grapher.plot_text(out)?;
         }
 
-        if self.rules.len() > 0 {
-            write!(out, "{}\n", &double_underline("Solutions")).unwrap();
-
-            let mut rules: Vec<&QoSRule> = vec![];
-            let mut prev_sol: Option<&QoSSolution> = None;
-            let mut flush = |rules: &mut Vec<&QoSRule>, prev_sol: Option<&QoSSolution>| {
-                if rules.len() > 0 {
-                    Self::format_rules(out, &rules);
-                    match prev_sol {
-                        Some(prev_sol) => Self::format_solution(out, prev_sol, &res.isol_pct),
-                        None => writeln!(out, "  NO SOLUTION").unwrap(),
-                    }
-                    writeln!(out, "").unwrap();
-                    rules.clear();
-                }
-            };
-
-            for rule in self.rules.iter() {
-                let sol = res.solutions.get(&rule.name);
-                if !rules.is_empty()
-                    && !(sol.is_none() && prev_sol.is_none())
-                    && !((sol.is_some() && prev_sol.is_some())
-                        && sol
-                            .as_ref()
-                            .unwrap()
-                            .equal_sans_target(prev_sol.as_ref().unwrap()))
-                {
-                    flush(&mut rules, prev_sol);
-                }
-                rules.push(rule);
-                prev_sol = sol;
-            }
-            flush(&mut rules, prev_sol);
-        }
-
-        if !res.remarks.is_empty() {
-            write!(out, "{}\n", &double_underline("Remarks")).unwrap();
-            for remark in res.remarks.iter() {
-                writeln!(out, "* {}", &remark).unwrap();
-            }
-        }
-
+        self.format_solutions(out, &res);
+        self.format_remarks(out, &res);
         Ok(())
     }
 }

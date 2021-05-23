@@ -119,6 +119,123 @@ impl JobData {
             None => bail!("Job result not found"),
         }
     }
+
+    pub fn format_header<'a>(&self, out: &mut Box<dyn Write + 'a>) {
+        write!(out, "[{} result] ", self.spec.kind).unwrap();
+        if let Some(id) = self.spec.id.as_ref() {
+            write!(out, "\"{}\" ", id).unwrap();
+        }
+        writeln!(
+            out,
+            "{} - {}\n",
+            DateTime::<Local>::from(UNIX_EPOCH + Duration::from_secs(self.period.0))
+                .format("%Y-%m-%d %T"),
+            DateTime::<Local>::from(UNIX_EPOCH + Duration::from_secs(self.period.1)).format("%T")
+        )
+        .unwrap();
+
+        let si = &self.sysinfo;
+        if si.sysreqs_report.is_some() {
+            let rep = self.sysinfo.sysreqs_report.as_ref().unwrap();
+            writeln!(out, "System info: kernel={:?}", &rep.kernel_version).unwrap();
+            writeln!(
+                out,
+                "             nr_cpus={} memory={} swap={} swappiness={}",
+                rep.nr_cpus,
+                format_size(rep.total_memory),
+                format_size(rep.total_swap),
+                si.swappiness
+            )
+            .unwrap();
+            if si.mem.profile > 0 {
+                writeln!(
+                    out,
+                    "             mem_profile={} (avail={} share={} target={})",
+                    si.mem.profile,
+                    format_size(si.mem.avail),
+                    format_size(si.mem.share),
+                    format_size(si.mem.target)
+                )
+                .unwrap();
+            }
+            writeln!(out, "").unwrap();
+
+            writeln!(
+                out,
+                "IO info: dev={}({}:{}) model=\"{}\" size={}",
+                &rep.scr_dev,
+                rep.scr_devnr.0,
+                rep.scr_devnr.1,
+                &rep.scr_dev_model,
+                format_size(rep.scr_dev_size)
+            )
+            .unwrap();
+
+            writeln!(
+                out,
+                "         iosched={} wbt={} iocost={} other={}",
+                &rep.scr_dev_iosched,
+                match si.sysreqs_missed.contains(&SysReq::NoWbt) {
+                    true => "on",
+                    false => "off",
+                },
+                match si.iocost.qos.enable > 0 {
+                    true => "on",
+                    false => "off",
+                },
+                match si.sysreqs_missed.contains(&SysReq::NoOtherIoControllers) {
+                    true => "on",
+                    false => "off",
+                },
+            )
+            .unwrap();
+
+            let iocost = &self.sysinfo.iocost;
+            if iocost.qos.enable > 0 {
+                let model = &iocost.model;
+                let qos = &iocost.qos;
+                writeln!(
+                    out,
+                    "         iocost model: rbps={} rseqiops={} rrandiops={}",
+                    model.knobs.rbps, model.knobs.rseqiops, model.knobs.rrandiops
+                )
+                .unwrap();
+                writeln!(
+                    out,
+                    "                       wbps={} wseqiops={} wrandiops={}",
+                    model.knobs.wbps, model.knobs.wseqiops, model.knobs.wrandiops
+                )
+                .unwrap();
+                writeln!(
+                out,
+                "         iocost QoS: rpct={:.2} rlat={} wpct={:.2} wlat={} min={:.2} max={:.2}",
+                qos.knobs.rpct,
+                qos.knobs.rlat,
+                qos.knobs.wpct,
+                qos.knobs.wlat,
+                qos.knobs.min,
+                qos.knobs.max
+            )
+                .unwrap();
+            }
+            writeln!(out, "").unwrap();
+
+            if self.sysinfo.sysreqs_missed.len() > 0 {
+                writeln!(
+                    out,
+                    "Missed requirements: {}\n",
+                    &self
+                        .sysinfo
+                        .sysreqs_missed
+                        .iter()
+                        .map(|x| format!("{:?}", x))
+                        .collect::<Vec<String>>()
+                        .join(", ")
+                )
+                .unwrap();
+            }
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize)]
@@ -336,129 +453,14 @@ impl JobCtx {
 
     pub fn format(&self, opts: &FormatOpts, props: &JobProps) -> Result<String> {
         let mut buf = String::new();
-        let data = &self.data;
-        write!(buf, "[{} result] ", data.spec.kind).unwrap();
-        if let Some(id) = data.spec.id.as_ref() {
-            write!(buf, "\"{}\" ", id).unwrap();
-        }
-        writeln!(
-            buf,
-            "{} - {}\n",
-            DateTime::<Local>::from(UNIX_EPOCH + Duration::from_secs(data.period.0))
-                .format("%Y-%m-%d %T"),
-            DateTime::<Local>::from(UNIX_EPOCH + Duration::from_secs(data.period.1)).format("%T")
-        )
-        .unwrap();
+        let mut out = Box::new(&mut buf) as Box<dyn Write>;
 
-        let si = &data.sysinfo;
-        if si.sysreqs_report.is_some() {
-            let rep = data.sysinfo.sysreqs_report.as_ref().unwrap();
-            writeln!(buf, "System info: kernel={:?}", &rep.kernel_version).unwrap();
-            writeln!(
-                buf,
-                "             nr_cpus={} memory={} swap={} swappiness={}",
-                rep.nr_cpus,
-                format_size(rep.total_memory),
-                format_size(rep.total_swap),
-                si.swappiness
-            )
-            .unwrap();
-            if si.mem.profile > 0 {
-                writeln!(
-                    buf,
-                    "             mem_profile={} (avail={} share={} target={})",
-                    si.mem.profile,
-                    format_size(si.mem.avail),
-                    format_size(si.mem.share),
-                    format_size(si.mem.target)
-                )
-                .unwrap();
-            }
-            writeln!(buf, "").unwrap();
-
-            writeln!(
-                buf,
-                "IO info: dev={}({}:{}) model=\"{}\" size={}",
-                &rep.scr_dev,
-                rep.scr_devnr.0,
-                rep.scr_devnr.1,
-                &rep.scr_dev_model,
-                format_size(rep.scr_dev_size)
-            )
-            .unwrap();
-
-            writeln!(
-                buf,
-                "         iosched={} wbt={} iocost={} other={}",
-                &rep.scr_dev_iosched,
-                match si.sysreqs_missed.contains(&SysReq::NoWbt) {
-                    true => "on",
-                    false => "off",
-                },
-                match si.iocost.qos.enable > 0 {
-                    true => "on",
-                    false => "off",
-                },
-                match si.sysreqs_missed.contains(&SysReq::NoOtherIoControllers) {
-                    true => "on",
-                    false => "off",
-                },
-            )
-            .unwrap();
-
-            let iocost = &data.sysinfo.iocost;
-            if iocost.qos.enable > 0 {
-                let model = &iocost.model;
-                let qos = &iocost.qos;
-                writeln!(
-                    buf,
-                    "         iocost model: rbps={} rseqiops={} rrandiops={}",
-                    model.knobs.rbps, model.knobs.rseqiops, model.knobs.rrandiops
-                )
-                .unwrap();
-                writeln!(
-                    buf,
-                    "                       wbps={} wseqiops={} wrandiops={}",
-                    model.knobs.wbps, model.knobs.wseqiops, model.knobs.wrandiops
-                )
-                .unwrap();
-                writeln!(
-                buf,
-                "         iocost QoS: rpct={:.2} rlat={} wpct={:.2} wlat={} min={:.2} max={:.2}",
-                qos.knobs.rpct,
-                qos.knobs.rlat,
-                qos.knobs.wpct,
-                qos.knobs.wlat,
-                qos.knobs.min,
-                qos.knobs.max
-            )
-                .unwrap();
-            }
-            writeln!(buf, "").unwrap();
-
-            if data.sysinfo.sysreqs_missed.len() > 0 {
-                writeln!(
-                    buf,
-                    "Missed requirements: {}\n",
-                    &self
-                        .data
-                        .sysinfo
-                        .sysreqs_missed
-                        .iter()
-                        .map(|x| format!("{:?}", x))
-                        .collect::<Vec<String>>()
-                        .join(", ")
-                )
-                .unwrap();
-            }
-        }
-
-        self.job.as_ref().unwrap().format(
-            &mut (Box::new(&mut buf) as Box<dyn Write>),
-            data,
-            opts,
-            props,
-        )?;
+        self.data.format_header(&mut out);
+        self.job
+            .as_ref()
+            .unwrap()
+            .format(&mut out, &self.data, opts, props)?;
+        drop(out);
         Ok(buf)
     }
 
