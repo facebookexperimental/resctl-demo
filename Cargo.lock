@@ -1762,6 +1762,7 @@ dependencies = [
  "statistical",
  "statrs",
  "tar",
+ "tempfile",
  "term_size",
  "thiserror",
  "util",

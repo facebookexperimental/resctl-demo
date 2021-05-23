@@ -3,24 +3,21 @@ use plotlib::page::Page;
 use plotlib::repr::Plot;
 use plotlib::style::{LineStyle, PointMarker, PointStyle};
 use plotlib::view::ContinuousView;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 pub struct Grapher<'a, 'b> {
-    out: &'a mut Box<dyn Write + 'b>,
-    file_prefix: Option<String>,
     vrate_range: (f64, f64),
+    data: &'a JobData,
+    res: &'b IoCostTuneResult,
 }
 
 impl<'a, 'b> Grapher<'a, 'b> {
-    pub fn new(
-        out: &'a mut Box<dyn Write + 'b>,
-        file_prefix: Option<&str>,
-        vrate_range: (f64, f64),
-    ) -> Self {
+    pub fn new(vrate_range: (f64, f64), data: &'a JobData, res: &'b IoCostTuneResult) -> Self {
         Self {
-            out,
-            file_prefix: file_prefix.map(|x| x.to_owned()),
             vrate_range,
+            data,
+            res,
         }
     }
 
@@ -109,8 +106,9 @@ impl<'a, 'b> Grapher<'a, 'b> {
         (view, yscale)
     }
 
-    fn plot_one_text(
+    fn plot_one_text<'o>(
         &mut self,
+        out: &mut Box<dyn Write + 'o>,
         sel: &DataSel,
         series: &DataSeries,
         mem_profile: u32,
@@ -143,16 +141,13 @@ impl<'a, 'b> Grapher<'a, 'b> {
             view.add(Plot::new(points).point_style(PointStyle::new().marker(PointMarker::Circle)));
 
         let page = Page::single(&view).dimensions(SIZE.0, SIZE.1);
-        write!(self.out, "{}\n\n", page.to_text().unwrap()).unwrap();
+        write!(out, "{}\n\n", page.to_text().unwrap()).unwrap();
         Ok(())
-    }
-
-    fn plot_filename(&self, sel: &DataSel) -> String {
-        format!("{}-{}.svg", self.file_prefix.as_ref().unwrap(), sel)
     }
 
     fn plot_one_svg(
         &mut self,
+        dir: &Path,
         sel: &DataSel,
         series: &DataSeries,
         mem_profile: u32,
@@ -206,25 +201,28 @@ impl<'a, 'b> Grapher<'a, 'b> {
 
         let view = view.x_max_ticks(10).y_max_ticks(10);
 
-        if let Err(e) = Page::single(&view)
-            .dimensions(SIZE.0, SIZE.1)
-            .save(self.plot_filename(sel))
-        {
+        let mut path = PathBuf::from(dir);
+        path.push(format!("{}.svg", sel));
+        if let Err(e) = Page::single(&view).dimensions(SIZE.0, SIZE.1).save(&path) {
             bail!("{}", &e);
         }
         Ok(())
     }
 
-    fn collect_svgs(&self, sels: Vec<DataSel>, dst: &str) -> Result<()> {
+    fn collect_svgs(dir: &Path, sels: Vec<DataSel>, dst: &Path) -> Result<()> {
         const NR_PER_PAGE: usize = 6;
 
         let groups = DataSel::align_and_merge_groups(DataSel::group(sels), NR_PER_PAGE);
-        let mut srcs: Vec<String> = vec![];
+        let mut srcs: Vec<PathBuf> = vec![];
         for grp in groups.iter() {
-            srcs.extend(grp.iter().map(|sel| self.plot_filename(sel)));
+            srcs.extend(grp.iter().map(|sel| {
+                let mut src = PathBuf::from(dir);
+                src.push(format!("{}.svg", sel));
+                src
+            }));
             let pad = NR_PER_PAGE - (grp.len() % NR_PER_PAGE);
             if pad < NR_PER_PAGE {
-                srcs.extend(std::iter::repeat("null:".to_owned()).take(pad));
+                srcs.extend(std::iter::repeat(PathBuf::from("null:")).take(pad));
             }
         }
 
@@ -246,34 +244,33 @@ impl<'a, 'b> Grapher<'a, 'b> {
         )
     }
 
-    pub fn plot(&mut self, data: &JobData, res: &IoCostTuneResult) -> Result<()> {
-        for (sel, series) in res.data.iter() {
-            self.plot_one_text(sel, series, res.mem_profile, &res.isol_pct)?;
+    pub fn plot_text<'o>(&mut self, out: &mut Box<dyn Write + 'o>) -> Result<()> {
+        for (sel, series) in self.res.data.iter() {
+            self.plot_one_text(out, sel, series, self.res.mem_profile, &self.res.isol_pct)?;
         }
-        if self.file_prefix.is_none() {
-            return Ok(());
-        }
+        Ok(())
+    }
 
-        for (sel, series) in res.data.iter() {
-            let sr = data.sysinfo.sysreqs_report.as_ref().unwrap();
+    pub fn plot_pdf(&mut self, dir: &Path) -> Result<PathBuf> {
+        for (sel, series) in self.res.data.iter() {
+            let sr = self.data.sysinfo.sysreqs_report.as_ref().unwrap();
             if let Err(e) = self.plot_one_svg(
+                dir,
                 sel,
                 series,
-                res.mem_profile,
-                &res.isol_pct,
+                self.res.mem_profile,
+                &self.res.isol_pct,
                 &format!("{}", sr.scr_dev_model.trim()),
             ) {
-                bail!(
-                    "Failed to plot graph into {:?} ({})",
-                    &self.plot_filename(sel),
-                    &e
-                );
+                bail!("Failed to plot {} graph into {:?} ({})", sel, dir, &e);
             }
         }
 
-        let sels = res.data.iter().map(|(sel, _)| sel).cloned().collect();
-        let dst = format!("{}.pdf", self.file_prefix.as_ref().unwrap());
-        self.collect_svgs(sels, &dst)
-            .map_err(|e| anyhow!("Failed to collect graphs into {:?} ({})", &dst, &e))
+        let mut dst = PathBuf::from(dir);
+        dst.push("graphs.pdf");
+        let sels = self.res.data.iter().map(|(sel, _)| sel).cloned().collect();
+        Self::collect_svgs(dir, sels, &dst)
+            .map_err(|e| anyhow!("Failed to collect graphs into {:?} ({})", &dst, &e))?;
+        Ok(dst)
     }
 }

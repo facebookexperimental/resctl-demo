@@ -1856,12 +1856,12 @@ impl Job for IoCostTuneJob {
         opts: &FormatOpts,
         props: &JobProps,
     ) -> Result<()> {
-        let mut graph_prefix = None;
+        let mut pdf_path = None;
         for (k, v) in props[0].iter() {
             match k.as_ref() {
-                "graph" => {
+                "pdf" => {
                     if v.len() > 0 {
-                        graph_prefix = Some(v.to_owned());
+                        pdf_path = Some(v.to_owned());
                     }
                 }
                 k => bail!("unknown format parameter {:?}", k),
@@ -1886,8 +1886,16 @@ impl Job for IoCostTuneJob {
                 .fold((std::f64::MAX, 0.0), |acc, (_sel, ds)| {
                     (ds.lines.range.0.min(acc.0), ds.lines.range.1.max(acc.1))
                 });
-            let mut grapher = graph::Grapher::new(out, graph_prefix.as_deref(), vrate_range);
-            grapher.plot(data, &res)?;
+
+            let mut grapher = graph::Grapher::new(vrate_range, data, &res);
+
+            grapher.plot_text(out)?;
+            if let Some(path) = pdf_path.as_ref() {
+                let dir =
+                    tempfile::TempDir::new().context("Creating temp dir for rendering graphs")?;
+                let graphs_pdf = grapher.plot_pdf(dir.path())?;
+                std::fs::copy(graphs_pdf, path)?;
+            }
         }
 
         if self.rules.len() > 0 {
