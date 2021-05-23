@@ -6,6 +6,9 @@ use statrs::distribution::{Normal, Univariate};
 use std::cell::RefCell;
 use std::cmp::{Ordering, PartialOrd};
 use std::collections::{BTreeMap, BTreeSet};
+use std::io::Write as IoWrite;
+use std::path::{Path, PathBuf};
+use std::process::Command;
 
 mod graph;
 mod merge;
@@ -1746,10 +1749,77 @@ impl IoCostTuneJob {
         }
     }
 
-    fn format_pdf(&self, path: &str, grapher: &mut graph::Grapher) -> Result<()> {
+    fn format_pdf(
+        &self,
+        path: &str,
+        keep: bool,
+        data: &JobData,
+        res: &IoCostTuneResult,
+        grapher: &mut graph::Grapher,
+    ) -> Result<()> {
         let dir = tempfile::TempDir::new().context("Creating temp dir for rendering graphs")?;
-        let graphs_pdf = grapher.plot_pdf(dir.path())?;
-        std::fs::copy(graphs_pdf, path)?;
+        let dir_path = if keep { Path::new("./") } else { dir.path() };
+
+        // Generate the cover page.
+        let mut cover_txt = PathBuf::from(&dir_path);
+        cover_txt.push("iocost-tune-cover.txt");
+        let mut cover_pdf = PathBuf::from(&dir_path);
+        cover_pdf.push("iocost-tune-cover.pdf");
+        let mut gs_err = PathBuf::from(&dir_path);
+        gs_err.push("iocost-tune-gs.err");
+
+        let mut buf = String::new();
+        let mut out = Box::new(&mut buf) as Box<dyn Write>;
+        data.format_header(&mut out);
+        self.format_solutions(&mut out, res);
+        self.format_remarks(&mut out, res);
+        drop(out);
+
+        let mut cover_file = std::fs::File::create(&cover_txt)?;
+        cover_file.write_all(buf.as_bytes())?;
+        let mut text_arg = std::ffi::OsString::from("text:");
+        text_arg.push(&cover_txt);
+
+        run_command(
+            Command::new("convert")
+                .args(&[
+                    "-font",
+                    "Source-Code-Pro",
+                    "-pointsize",
+                    "7",
+                    "-density",
+                    "300",
+                ])
+                .arg(&text_arg)
+                .arg(&cover_pdf),
+            "are imagemagick and adobe-source-code-pro font available?",
+        )?;
+
+        // Draw the graphs.
+        let graphs_pdf = grapher.plot_pdf(&dir_path)?;
+
+        // Concatenate them.
+        let mut output_arg = std::ffi::OsString::from("-sOUTPUTFILE=");
+        output_arg.push(path);
+        run_command(
+            Command::new("gs")
+                .arg(&output_arg)
+                .args(&[
+                    "-sstdout=%stderr",
+                    "-dNOPAUSE",
+                    "-sDEVICE=pdfwrite",
+                    "-sPAPERSIZE=letter",
+                    "-dFIXEDMEDIA",
+                    "-dPDFFitPage",
+                    "-dCompatibilityLevel=1.4",
+                    "-dBATCH",
+                ])
+                .arg(&cover_pdf)
+                .arg(&graphs_pdf)
+                .stderr(std::fs::File::create(&gs_err)?),
+            "is ghostscript available?",
+        )?;
+
         Ok(())
     }
 }
@@ -1914,6 +1984,7 @@ impl Job for IoCostTuneJob {
         props: &JobProps,
     ) -> Result<()> {
         let mut pdf_path = None;
+        let mut pdf_keep = false;
         for (k, v) in props[0].iter() {
             match k.as_ref() {
                 "pdf" => {
@@ -1921,6 +1992,7 @@ impl Job for IoCostTuneJob {
                         pdf_path = Some(v.to_owned());
                     }
                 }
+                "pdf-keep" => pdf_keep = v.len() == 0 || v.parse::<bool>()?,
                 k => bail!("unknown format parameter {:?}", k),
             }
         }
@@ -1934,6 +2006,12 @@ impl Job for IoCostTuneJob {
                 (ds.lines.range.0.min(acc.0), ds.lines.range.1.max(acc.1))
             });
         let mut grapher = graph::Grapher::new(vrate_range, data, &res);
+
+        if let Some(path) = pdf_path.as_ref() {
+            self.format_pdf(path, pdf_keep, data, &res, &mut grapher)?;
+            write!(out, "Formatted result into {:?}", path).unwrap();
+            return Ok(());
+        }
 
         if opts.full {
             write!(
@@ -1950,11 +2028,6 @@ impl Job for IoCostTuneJob {
 
         self.format_solutions(out, &res);
         self.format_remarks(out, &res);
-
-        if let Some(path) = pdf_path.as_ref() {
-            self.format_pdf(path, &mut grapher)?;
-        }
-
         Ok(())
     }
 }

@@ -202,7 +202,7 @@ impl<'a, 'b> Grapher<'a, 'b> {
         let view = view.x_max_ticks(10).y_max_ticks(10);
 
         let mut path = PathBuf::from(dir);
-        path.push(format!("{}.svg", sel));
+        path.push(format!("iocost-tune-{}.svg", sel));
         if let Err(e) = Page::single(&view).dimensions(SIZE.0, SIZE.1).save(&path) {
             bail!("{}", &e);
         }
@@ -217,7 +217,7 @@ impl<'a, 'b> Grapher<'a, 'b> {
         for grp in groups.iter() {
             srcs.extend(grp.iter().map(|sel| {
                 let mut src = PathBuf::from(dir);
-                src.push(format!("{}.svg", sel));
+                src.push(format!("iocost-tune-{}.svg", sel));
                 src
             }));
             let pad = NR_PER_PAGE - (grp.len() % NR_PER_PAGE);
@@ -230,9 +230,9 @@ impl<'a, 'b> Grapher<'a, 'b> {
             Command::new("montage")
                 .args(&[
                     "-font",
-                    "cantarell",
+                    "Source-Code-Pro",
                     "-density",
-                    "150",
+                    "300",
                     "-tile",
                     "2x3",
                     "-geometry",
@@ -240,7 +240,7 @@ impl<'a, 'b> Grapher<'a, 'b> {
                 ])
                 .args(srcs)
                 .arg(dst),
-            "are imagemagick and cantarell font available?",
+            "are imagemagick and adobe-source-code-pro font available?",
         )
     }
 
@@ -267,7 +267,7 @@ impl<'a, 'b> Grapher<'a, 'b> {
         }
 
         let mut dst = PathBuf::from(dir);
-        dst.push("graphs.pdf");
+        dst.push("iocost-tune-graphs.pdf");
         let sels = self.res.data.iter().map(|(sel, _)| sel).cloned().collect();
         Self::collect_svgs(dir, sels, &dst)
             .map_err(|e| anyhow!("Failed to collect graphs into {:?} ({})", &dst, &e))?;
