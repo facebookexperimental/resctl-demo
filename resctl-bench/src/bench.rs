@@ -98,36 +98,30 @@ pub fn find_bench(kind: &str) -> Result<Arc<Box<dyn Bench>>> {
     bail!("unknown bench kind {:?}", kind);
 }
 
-pub fn bench_list() -> String {
-    let mut buf = String::new();
-
-    let descs: Vec<BenchDesc> = BENCHS
+pub fn bench_list() -> Vec<(String, String)> {
+    BENCHS
         .lock()
         .unwrap()
         .iter()
         .filter_map(|bench| {
             let desc = bench.desc();
             if desc.about.len() > 0 {
-                Some(desc)
+                Some((desc.kind, desc.about))
             } else {
                 None
             }
         })
-        .collect();
+        .collect()
+}
 
-    let kind_width = descs.iter().map(|desc| desc.kind.len()).max().unwrap_or(0);
-
-    for desc in descs.iter() {
-        writeln!(
-            buf,
-            "    {:width$}    {}",
-            &desc.kind,
-            &desc.about,
-            width = kind_width
-        )
-        .unwrap();
+pub fn show_bench_doc<'a>(out: &mut Box<dyn Write + 'a>, subj: &str) -> Result<()> {
+    for bench in BENCHS.lock().unwrap().iter() {
+        if bench.desc().kind == subj {
+            bench.doc(out)?;
+            return Ok(());
+        }
     }
-    buf
+    bail!("Unknown subject");
 }
 
 #[derive(Default)]
@@ -206,6 +200,10 @@ pub trait Bench: Send + Sync {
     }
     fn merge(&self, _srcs: &mut Vec<MergeSrc>) -> Result<JobData> {
         bail!("not implemented");
+    }
+    fn doc<'a>(&self, out: &mut Box<dyn Write + 'a>) -> Result<()> {
+        write!(out, "no documentation")?;
+        Ok(())
     }
 }
 

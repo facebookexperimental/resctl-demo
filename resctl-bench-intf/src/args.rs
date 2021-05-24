@@ -3,6 +3,7 @@ use anyhow::{bail, Context, Result};
 use log::error;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use std::fmt::Write;
 use std::path::Path;
 use std::process::exit;
 use std::sync::Mutex;
@@ -103,14 +104,44 @@ lazy_static::lazy_static! {
         )
     };
     pub static ref AFTER_HELP: Mutex<&'static str> = Mutex::new("");
+    pub static ref DOC_AFTER_HELP: Mutex<&'static str> = Mutex::new("");
 }
 
-pub fn set_bench_list(help: &str) {
-    let help = Box::new(format!(
-        "BENCHMARKS: Use the \"help\" subcommand for more info\n{}",
-        help
-    ));
-    *AFTER_HELP.lock().unwrap() = Box::leak(help);
+fn static_format_bench_list(header: &str, list: &[(String, String)]) -> &'static str {
+    let mut buf = String::new();
+    let kind_width = list.iter().map(|pair| pair.0.len()).max().unwrap_or(0);
+    write!(buf, "{}", header).unwrap();
+    for pair in list.iter() {
+        writeln!(
+            buf,
+            "    {:width$}    {}",
+            &pair.0,
+            &pair.1,
+            width = kind_width
+        )
+        .unwrap();
+    }
+    Box::leak(Box::new(buf))
+}
+
+pub fn set_bench_list(mut list: Vec<(String, String)>) {
+    // Global help
+    *AFTER_HELP.lock().unwrap() = static_format_bench_list(
+        "BENCHMARKS: Use the \"help\" subcommand for more info\n",
+        &list,
+    );
+
+    // Doc help
+    list.insert(
+        0,
+        (
+            "common".to_string(),
+            "Common options and properties".to_string(),
+        ),
+    );
+    *DOC_AFTER_HELP.lock().unwrap() = static_format_bench_list(
+        "SUBJECTS:\n", &list);
+    list.remove(0);
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -171,6 +202,8 @@ pub struct Args {
     pub merge_ignore_sysreqs: bool,
     #[serde(skip)]
     pub merge_multiple: bool,
+    #[serde(skip)]
+    pub doc_subjects: Vec<String>,
 }
 
 impl Default for Args {
@@ -204,6 +237,7 @@ impl Default for Args {
             merge_ignore_versions: false,
             merge_ignore_sysreqs: false,
             merge_multiple: false,
+            doc_subjects: vec![],
         }
     }
 }
@@ -453,6 +487,13 @@ impl JsonArgs for Args {
             .subcommand(
                 clap::App::new("doc")
                     .about("Shows documentation")
+                    .arg(
+                        clap::Arg::with_name("SUBJECT")
+                            .multiple(true)
+                            .required(true)
+                            .help("Documentation subject to show")
+                    )
+                    .after_help(*DOC_AFTER_HELP.lock().unwrap())
                 )
             .after_help(*AFTER_HELP.lock().unwrap()).get_matches()
     }
@@ -602,8 +643,13 @@ impl JsonArgs for Args {
                     .collect();
                 false
             }
-            ("doc", Some(_subm)) => {
+            ("doc", Some(subm)) => {
                 self.mode = Mode::Doc;
+                self.doc_subjects = subm
+                    .values_of("SUBJECT")
+                    .unwrap()
+                    .map(|x| x.to_string())
+                    .collect();
                 false
             }
             _ => false,
