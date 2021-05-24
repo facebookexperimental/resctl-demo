@@ -98,9 +98,42 @@ pub fn find_bench(kind: &str) -> Result<Arc<Box<dyn Bench>>> {
     bail!("unknown bench kind {:?}", kind);
 }
 
+pub fn bench_list() -> String {
+    let mut buf = String::new();
+
+    let descs: Vec<BenchDesc> = BENCHS
+        .lock()
+        .unwrap()
+        .iter()
+        .filter_map(|bench| {
+            let desc = bench.desc();
+            if desc.about.len() > 0 {
+                Some(desc)
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    let kind_width = descs.iter().map(|desc| desc.kind.len()).max().unwrap_or(0);
+
+    for desc in descs.iter() {
+        writeln!(
+            buf,
+            "    {:width$}    {}",
+            &desc.kind,
+            &desc.about,
+            width = kind_width
+        )
+        .unwrap();
+    }
+    buf
+}
+
 #[derive(Default)]
 pub struct BenchDesc {
     pub kind: String,
+    pub about: String,
     pub takes_run_props: bool,
     pub takes_run_propsets: bool,
     pub takes_format_props: bool,
@@ -113,9 +146,10 @@ pub struct BenchDesc {
 
 #[allow(dead_code)]
 impl BenchDesc {
-    pub fn new(kind: &str) -> Self {
+    pub fn new(kind: &str, about: &str) -> Self {
         Self {
             kind: kind.into(),
+            about: about.into(),
             ..Default::default()
         }
     }
@@ -185,8 +219,8 @@ pub fn init_benchs() -> () {
     register_bench(Box::new(storage::StorageBench {}));
     register_bench(Box::new(iocost_params::IoCostParamsBench {}));
     register_bench(Box::new(hashd_params::HashdParamsBench {}));
+    register_bench(Box::new(protection::ProtectionBench {}));
     register_bench(Box::new(iocost_qos::IoCostQoSBench {}));
     register_bench(Box::new(iocost_tune::IoCostTuneBench {}));
-    register_bench(Box::new(protection::ProtectionBench {}));
     register_bench(Box::new(merge_info::MergeInfoBench {}));
 }

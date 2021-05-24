@@ -9,7 +9,7 @@ pub struct IoCostParamsBench {}
 
 impl Bench for IoCostParamsBench {
     fn desc(&self) -> BenchDesc {
-        BenchDesc::new("iocost-params")
+        BenchDesc::new("iocost-params", "Benchmark io.cost model parameters")
     }
 
     fn parse(&self, _spec: &JobSpec, _prev_data: Option<&JobData>) -> Result<Box<dyn Job>> {

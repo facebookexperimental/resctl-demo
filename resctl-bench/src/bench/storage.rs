@@ -47,7 +47,7 @@ pub struct StorageBench {}
 
 impl Bench for StorageBench {
     fn desc(&self) -> BenchDesc {
-        BenchDesc::new("storage").takes_run_props()
+        BenchDesc::new("storage", "Benchmark storage device with rd-hashd").takes_run_props()
     }
 
     fn parse(&self, spec: &JobSpec, _prev_data: Option<&JobData>) -> Result<Box<dyn Job>> {
