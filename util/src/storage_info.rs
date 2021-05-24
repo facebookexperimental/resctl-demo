@@ -101,33 +101,59 @@ pub fn path_to_devname<P: AsRef<Path>>(path: P) -> Result<OsString> {
     devnr_to_devname(fs::metadata(&path_to_mountpoint(path.as_ref())?.source)?.st_rdev())
 }
 
+fn read_model(dev_path: &Path) -> Result<String> {
+    let mut path = PathBuf::from(dev_path);
+    path.push("device");
+    path.push("model");
+
+    let mut model = String::new();
+    let mut f = fs::File::open(&path)?;
+    f.read_to_string(&mut model)?;
+    Ok(model.trim_end().to_string())
+}
+
+fn read_fwrev(dev_path: &Path) -> Result<String> {
+    let mut path = PathBuf::from(dev_path);
+    path.push("device");
+    path.push("firmware_rev");
+
+    let mut fwrev = String::new();
+    if path.exists() {
+        let mut f = fs::File::open(&path)?;
+        f.read_to_string(&mut fwrev)?;
+    } else {
+        path.pop();
+        path.push("rev");
+        if path.exists() {
+            let mut f = fs::File::open(&path)?;
+            f.read_to_string(&mut fwrev)?;
+        }
+        bail!("neither \"firmware_dev\" or \"rev\" is found");
+    }
+    Ok(fwrev.trim_end().to_string())
+}
+
 /// Given a device name, determine its model, firmware version and size.
 pub fn devname_to_model_fwrev_size<D: AsRef<OsStr>>(name_in: D) -> Result<(String, String, u64)> {
+    let unknown = "<UNKNOWN>";
     let mut dev_path = PathBuf::from("/sys/block");
     dev_path.push(name_in.as_ref());
 
-    let mut model_path = dev_path.clone();
-    model_path.push("device");
-    model_path.push("model");
-
-    let mut model = String::new();
-    let mut f = fs::File::open(&model_path)?;
-    f.read_to_string(&mut model)?;
-    let model = model.trim_end().to_string();
-
-    let mut fwrev = String::new();
-    let mut fwrev_path = dev_path.clone();
-    fwrev_path.push("device");
-    fwrev_path.push("firmware_rev");
-    if fwrev_path.exists() {
-        f.read_to_string(&mut fwrev)?;
-    } else {
-        fwrev_path.pop();
-        fwrev_path.push("rev");
-        if fwrev_path.exists() {
-            f.read_to_string(&mut fwrev)?;
+    let model = match read_model(&dev_path) {
+        Ok(v) => v,
+        Err(e) => {
+            warn!("storage_info: Failed to read model string for {:?} ({:#})", &dev_path, &e);
+            unknown.to_string()
         }
-    }
+    };
+
+    let fwrev = match read_fwrev(&dev_path) {
+        Ok(v) => v,
+        Err(e) => {
+            warn!("storage_info: Failed to read firmware revision for {:?} ({:#})", &dev_path, &e);
+            unknown.to_string()
+        }
+    };
 
     let mut size_path = dev_path.clone();
     size_path.push("size");
