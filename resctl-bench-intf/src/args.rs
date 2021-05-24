@@ -11,6 +11,66 @@ use util::*;
 use super::{IoCostQoSOvr, JobSpec};
 use rd_agent_intf;
 
+const BEFORE_HELP: &'static str = r#"OVERVIEW:
+
+resctl-bench (Resource Control Benchmark) uses rd-hashd and rd-agent to
+perform whole-system benchmarks to evaulate various aspects of resource
+control and system including the storage device.
+
+Each benchmark is composed of the following stages:
+
+    RUN: Benchmark is executed and the result records are written to the
+    result file. Some benchmarks are incremental - the result file is
+    continuously updated and the benchmark can resume after interruptions.
+
+    STUDY: After a benchmark is complete, the study stage walks and analyzes
+    the rd-agent report files to compute the result of the benchmark. The
+    computed result is written to the result file.
+
+    SOLVE: Some benchmarks have an additional solve stage where further
+    result computation is performed. If present, this stage is only allowed
+    to access the data recorded in the result file.
+
+    FORMAT: The result is formatted in a human readable form.
+
+The "run", "study", "solve" and "format" subcommands trigger the respective
+and all the subsequent stages.
+
+A benchmark is specified by a benchmark job spec:
+
+    BENCH_TYPE[:KEY[=VAL][,KEY[=VAL]...]]...
+
+Each job spec is composed of a bench type identifier and property groups.
+
+See the BENCHMARKS section below for the supported benchmark types and use
+the "help" subcommand for per-benchmark details.
+
+A sole KEY or KEY=VAL pair specifies a property. Multiple properties in a
+group are deliminated by a comma and the groups by a semicolon. All
+benchmarks accept the first group. Only some accept multiple groups. The
+following first group properties are always supported:
+
+    id: Optionally specify the ID of the benchmark which can be useful in
+    distinguishing multiple instances of the same benchmark type.
+
+Multiple benchmarks can be specified together and will be processed in the
+specified order.
+
+    resctl-bench -r result.json run \
+        iocost-params \
+        iocost-qos:id=qos-run-0:min=90,max=90:min=50,max=50 \
+        iocost-qos::min=40,max=40:min=25,max=25
+
+The above runs three benchmarks - iocost-params, iocost-qos w/ qos-run-0 as
+ID and another iocost-qos without ID. The iocost-qos benchmark accepts
+multiple property groups and each group after the first one describes the
+QoS configuration to benchmark. In the above, the first iocost-qos instance
+will benchmark vrate at 90% and 50%, and the second 40% and 25%. Note "::"
+in the latter indicating that there are no properties in the first group.
+
+See "help common" for more information on common options and properties.
+"#;
+
 lazy_static::lazy_static! {
     static ref TOP_ARGS_STR: String = {
         let dfl_args = Args::default();
@@ -302,7 +362,7 @@ impl JsonArgs for Args {
             .help("Benchmark job file");
         let job_spec_arg = clap::Arg::with_name("spec")
             .multiple(true)
-            .help("Benchmark job spec - \"BENCH_TYPE[:KEY=VAL...]\"");
+            .help("Benchmark job spec - \"BENCH_TYPE[:KEY[=VAL][,KEY[=VAL]...]]...\"");
 
         clap::App::new("resctl-bench")
             .version((*super::FULL_VERSION).as_str())
@@ -310,6 +370,7 @@ impl JsonArgs for Args {
             .about("Facebook Resource Control Benchmarks")
             .setting(clap::AppSettings::UnifiedHelpMessage)
             .setting(clap::AppSettings::DeriveDisplayOrder)
+            .before_help(BEFORE_HELP)
             .args_from_usage(&TOP_ARGS_STR)
             .subcommand(
                 clap::SubCommand::with_name("run")
