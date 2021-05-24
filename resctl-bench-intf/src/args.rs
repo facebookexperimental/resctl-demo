@@ -15,23 +15,23 @@ lazy_static::lazy_static! {
     static ref TOP_ARGS_STR: String = {
         let dfl_args = Args::default();
         format!(
-            "<RESULTFILE>                 'Record the bench results into the specified json file'
-             -d, --dir=[TOPDIR]           'Top-level dir for operation and scratch files (default: {dfl_dir})'
+            "-r, --result=[RESULTFILE]    'Result json file'
+             -d, --dir=[TOPDIR]           'Top dir for bench files (dfl: {dfl_dir})'
              -D, --dev=[DEVICE]           'Scratch device override (e.g. nvme0n1)'
              -l, --linux=[PATH]           'Path to linux.tar, downloaded automatically if not specified'
-             -R, --rep-retention=[SECS]   '1s report retention in seconds (default: {dfl_rep_ret:.1}h)'
-             -M, --mem-profile=[PROF|off] 'Memory profile in power-of-two gigabytes, \"off\" to disable (default: {dfl_mem_prof})'
+             -R, --rep-retention=[SECS]   '1s report retention in seconds (dfl: {dfl_rep_ret:.1}h)'
+             -M, --mem-profile=[PROF|off] 'Memory profile in power-of-two gigabytes or \"off\" (dfl: {dfl_mem_prof})'
              -m, --mem-avail=[SIZE]       'Amount of memory available for resctl-bench'
-                 --mem-margin=[PCT]       'Memory margin for system.slice (default: {dfl_mem_margin}%)'
-                 --systemd-timeout=[SECS] 'Systemd timeout (default: {dfl_systemd_timeout})'
-                 --hashd-size=[SIZE]      'Override hashd memory footprint'
-                 --hashd-cpu-load=[keep|fake|real] 'Override hashd fake cpu load mode'
+                 --mem-margin=[PCT]       'Memory margin for system.slice (dfl: {dfl_mem_margin}%)'
+                 --systemd-timeout=[SECS] 'Systemd timeout (dfl: {dfl_systemd_timeout})'
+                 --hashd-size=[SIZE]      'hashd memory footprint override'
+                 --hashd-cpu-load=[keep|fake|real] 'hashd fake cpu load mode override'
                  --iocost-qos=[OVRS]      'iocost QoS overrides'
                  --swappiness=[OVR]       'swappiness override [0, 200]'
-             -a, --args=[FILE]            'Load base command line arguments from FILE'
-                 --iocost-from-sys        'Use parameters from io.cost.{{model,qos}} instead of bench.json'
-                 --keep-reports           'Don't delete expired report files'
-                 --clear-reports          'Remove existing report files'
+             -a, --args=[FILE]            'Loads base command line arguments from FILE'
+                 --iocost-from-sys        'Uses parameters from io.cost.{{model,qos}} instead of bench.json'
+                 --keep-reports           'Prevents deleting expired report files'
+                 --clear-reports          'Removes existing report files'
                  --test                   'Test mode for development'
              -v...                        'Sets the level of verbosity'",
             dfl_dir = dfl_args.dir,
@@ -44,9 +44,11 @@ lazy_static::lazy_static! {
     pub static ref AFTER_HELP: Mutex<&'static str> = Mutex::new("");
 }
 
-pub fn set_after_help(help: &str)
-{
-    let help = Box::new(help.to_string());
+pub fn set_bench_list(help: &str) {
+    let help = Box::new(format!(
+        "BENCHMARKS: Use the \"help\" subcommand for more info\n{}",
+        help
+    ));
     *AFTER_HELP.lock().unwrap() = Box::leak(help);
 }
 
@@ -59,6 +61,7 @@ pub enum Mode {
     Summary,
     Pack,
     Merge,
+    Doc,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -306,13 +309,13 @@ impl JsonArgs for Args {
             .args_from_usage(&TOP_ARGS_STR)
             .subcommand(
                 clap::SubCommand::with_name("run")
-                    .about("Run benchmarks")
+                    .about("Runs benchmarks")
                     .arg(job_file_arg.clone())
                     .arg(job_spec_arg.clone()),
             )
             .subcommand(
                 clap::SubCommand::with_name("study")
-                    .about("Study benchmark results, all benchmarks must be complete")
+                    .about("Studies benchmark results, all benchmarks must be complete")
                     .arg(clap::Arg::with_name("reports")
                          .long("reports")
                          .short("r")
@@ -324,13 +327,13 @@ impl JsonArgs for Args {
             )
             .subcommand(
                 clap::SubCommand::with_name("solve")
-                    .about("Solve benchmark results, optional phase to be used with merge")
+                    .about("Solves benchmark results, optional phase to be used with merge")
                     .arg(job_file_arg.clone())
                     .arg(job_spec_arg.clone()),
             )
             .subcommand(
                 clap::SubCommand::with_name("format")
-                    .about("Format benchmark results")
+                    .about("Formats benchmark results")
                     .arg(
                         clap::Arg::with_name("rstat")
                             .long("rstat")
@@ -354,7 +357,7 @@ impl JsonArgs for Args {
             ))
             .subcommand(
                 clap::SubCommand::with_name("merge")
-                    .about("Merge result files from multiple runs on supported benchmarks")
+                    .about("Merges result files from multiple runs on supported benchmarks")
                     .arg(
                         clap::Arg::with_name("SOURCEFILE")
                             .multiple(true)
@@ -381,7 +384,12 @@ impl JsonArgs for Args {
                             .long("multiple")
                             .help("Allow more than one result per kind (and optionally id)")
                     )
-            ).after_help(*AFTER_HELP.lock().unwrap()).get_matches()
+            )
+            .subcommand(
+                clap::App::new("doc")
+                    .about("Shows documentation")
+                )
+            .after_help(*AFTER_HELP.lock().unwrap()).get_matches()
     }
 
     fn verbosity(matches: &clap::ArgMatches) -> u32 {
@@ -498,7 +506,7 @@ impl JsonArgs for Args {
             updated = true;
         }
 
-        self.result = matches.value_of("RESULTFILE").unwrap().into();
+        self.result = matches.value_of("result").unwrap_or("").into();
         self.iocost_from_sys = matches.is_present("iocost-from-sys");
         self.keep_reports = matches.is_present("keep-reports");
         self.clear_reports = matches.is_present("clear-reports");
@@ -528,8 +536,17 @@ impl JsonArgs for Args {
                     .collect();
                 false
             }
+            ("doc", Some(_subm)) => {
+                self.mode = Mode::Doc;
+                false
+            }
             _ => false,
         };
+
+        if self.mode != Mode::Doc && self.result.len() == 0 {
+            error!("{:?} requires --result", &self.mode);
+            exit(1);
+        }
 
         updated
     }

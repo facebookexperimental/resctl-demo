@@ -353,6 +353,7 @@ impl Program {
                     panic!();
                 }
             }
+            Mode::Doc => {}
         }
     }
 }
@@ -362,7 +363,7 @@ fn main() {
     setup_prog_state();
     bench::init_benchs();
 
-    resctl_bench_intf::set_after_help(&bench::bench_list());
+    resctl_bench_intf::set_bench_list(&bench::bench_list());
     let (args_file, args_updated) = Args::init_args_and_logging_nosave().unwrap_or_else(|e| {
         error!("Failed to process args file ({})", &e);
         panic!();

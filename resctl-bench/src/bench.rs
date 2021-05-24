@@ -100,7 +100,6 @@ pub fn find_bench(kind: &str) -> Result<Arc<Box<dyn Bench>>> {
 
 pub fn bench_list() -> String {
     let mut buf = String::new();
-    writeln!(buf, "BENCHMARKS:").unwrap();
 
     let descs: Vec<BenchDesc> = BENCHS
         .lock()
@@ -220,8 +219,8 @@ pub fn init_benchs() -> () {
     register_bench(Box::new(storage::StorageBench {}));
     register_bench(Box::new(iocost_params::IoCostParamsBench {}));
     register_bench(Box::new(hashd_params::HashdParamsBench {}));
-    register_bench(Box::new(iocost_qos::IoCostQoSBench {}));
     register_bench(Box::new(protection::ProtectionBench {}));
+    register_bench(Box::new(iocost_qos::IoCostQoSBench {}));
     register_bench(Box::new(iocost_tune::IoCostTuneBench {}));
     register_bench(Box::new(merge_info::MergeInfoBench {}));
 }
