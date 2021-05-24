@@ -775,12 +775,15 @@ pub struct IoCostTuneBench {}
 
 impl Bench for IoCostTuneBench {
     fn desc(&self) -> BenchDesc {
-        BenchDesc::new("iocost-tune")
-            .takes_run_propsets()
-            .takes_format_props()
-            .incremental()
-            .mergeable()
-            .merge_needs_storage_model()
+        BenchDesc::new(
+            "iocost-tune",
+            "Benchmark storage device to determine io.cost QoS solutions",
+        )
+        .takes_run_propsets()
+        .takes_format_props()
+        .incremental()
+        .mergeable()
+        .merge_needs_storage_model()
     }
 
     fn parse(&self, spec: &JobSpec, _prev_data: Option<&JobData>) -> Result<Box<dyn Job>> {

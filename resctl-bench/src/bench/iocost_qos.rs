@@ -38,10 +38,13 @@ pub struct IoCostQoSBench {}
 
 impl Bench for IoCostQoSBench {
     fn desc(&self) -> BenchDesc {
-        BenchDesc::new("iocost-qos")
-            .takes_run_propsets()
-            .takes_format_props()
-            .incremental()
+        BenchDesc::new(
+            "iocost-qos",
+            "Benchmark IO isolation with different io.cost QoS configurations",
+        )
+        .takes_run_propsets()
+        .takes_format_props()
+        .incremental()
     }
 
     fn parse(&self, spec: &JobSpec, prev_data: Option<&JobData>) -> Result<Box<dyn Job>> {

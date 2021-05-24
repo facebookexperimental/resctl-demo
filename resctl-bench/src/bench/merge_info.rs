@@ -8,7 +8,7 @@ pub struct MergeInfoBench {}
 
 impl Bench for MergeInfoBench {
     fn desc(&self) -> BenchDesc {
-        BenchDesc::new("merge-info")
+        BenchDesc::new("merge-info", "")
     }
 
     fn parse(&self, _spec: &JobSpec, _prev_data: Option<&JobData>) -> Result<Box<dyn Job>> {

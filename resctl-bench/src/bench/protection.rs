@@ -214,7 +214,7 @@ pub struct ProtectionBench {}
 
 impl Bench for ProtectionBench {
     fn desc(&self) -> BenchDesc {
-        BenchDesc::new("protection").takes_run_propsets()
+        BenchDesc::new("protection", "Benchmark resource protection").takes_run_propsets()
     }
 
     fn parse(&self, spec: &JobSpec, _prev_data: Option<&JobData>) -> Result<Box<dyn Job>> {

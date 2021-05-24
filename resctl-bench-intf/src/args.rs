@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::Path;
 use std::process::exit;
+use std::sync::Mutex;
 use util::*;
 
 use super::{IoCostQoSOvr, JobSpec};
@@ -40,6 +41,13 @@ lazy_static::lazy_static! {
             dfl_systemd_timeout = format_duration(dfl_args.systemd_timeout),
         )
     };
+    pub static ref AFTER_HELP: Mutex<&'static str> = Mutex::new("");
+}
+
+pub fn set_after_help(help: &str)
+{
+    let help = Box::new(help.to_string());
+    *AFTER_HELP.lock().unwrap() = Box::leak(help);
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -373,8 +381,7 @@ impl JsonArgs for Args {
                             .long("multiple")
                             .help("Allow more than one result per kind (and optionally id)")
                     )
-            )
-            .get_matches()
+            ).after_help(*AFTER_HELP.lock().unwrap()).get_matches()
     }
 
     fn verbosity(matches: &clap::ArgMatches) -> u32 {
