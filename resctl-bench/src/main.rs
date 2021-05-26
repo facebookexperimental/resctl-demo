@@ -13,6 +13,7 @@ use resctl_bench_intf::{Args, Mode};
 
 mod base;
 mod bench;
+mod doc;
 mod iocost;
 mod job;
 mod merge;
@@ -330,7 +331,7 @@ impl Program {
 
     pub fn do_doc(subj: &str) -> Result<()> {
         if subj == "common" {
-            println!("COMMON DOC");
+            println!("{}", doc::COMMON_DOC);
         } else {
             let mut buf = String::new();
             let mut out = Box::new(&mut buf) as Box<dyn Write>;

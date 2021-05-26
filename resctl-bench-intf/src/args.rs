@@ -69,7 +69,7 @@ QoS configuration to benchmark. In the above, the first iocost-qos instance
 will benchmark vrate at 90% and 50%, and the second 40% and 25%. Note "::"
 in the latter indicating that there are no properties in the first group.
 
-See "help common" for more information on common options and properties.
+See "help common" for more information on common concepts and options.
 "#;
 
 lazy_static::lazy_static! {
