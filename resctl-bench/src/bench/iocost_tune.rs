@@ -633,20 +633,29 @@ impl QoSTarget {
         data: &BTreeMap<DataSel, DataSeries>,
         (vrate_min, vrate_max): (f64, f64),
     ) -> Result<Option<(IoCostQoSParams, f64)>> {
-        let ds = |sel| {
+        let ds = |sel: &DataSel| -> Result<&DataSeries> {
             data.get(sel)
                 .ok_or(anyhow!("Required data series {:?} unavailable", sel))
         };
+
+        let (rlat_99_dl, wlat_99_dl) = (
+            &ds(&DataSel::RLat("99".into(), "mean".into()))?.lines,
+            &ds(&DataSel::WLat("99".into(), "mean".into()))?.lines,
+        );
         let params_at_vrate = |vrate| {
             (
                 IoCostQoSParams {
                     min: vrate,
                     max: vrate,
-                    ..Default::default()
+                    rpct: 0.0,
+                    wpct: 0.0,
+                    rlat: (rlat_99_dl.eval(vrate) * 1_000_000.0).round() as u64,
+                    wlat: (wlat_99_dl.eval(vrate) * 1_000_000.0).round() as u64,
                 },
                 vrate,
             )
         };
+
         let solve_mof_max = |sel, no_sig_sel| -> Result<Option<f64>> {
             let no_sig_vrate = match no_sig_sel {
                 Some(nssel) => Self::find_max_vrate_at_min_val(ds(nssel)?, (vrate_min, vrate_max)),
@@ -658,6 +667,7 @@ impl QoSTarget {
                 no_sig_vrate,
             ))
         };
+
         let solve_isolation = || -> Result<Option<f64>> {
             let amof_delta_ds = ds(&DataSel::AMOFDelta)?;
             Ok(solve_mof_max(&DataSel::MOF, Some(&DataSel::LatImp))?
