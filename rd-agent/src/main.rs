@@ -140,9 +140,18 @@ pub struct IoCostPaths {
 
 #[derive(Debug, Clone)]
 pub struct EnforceConfig {
-    pub all: bool,
-    pub none: bool,
     pub crit_mem_prot: bool,
+    pub cpu: bool,
+    pub mem: bool,
+    pub io: bool,
+    pub fs: bool,
+    pub oomd: bool,
+}
+
+impl EnforceConfig {
+    pub fn all(&self) -> bool {
+        self.crit_mem_prot && self.cpu && self.mem && self.io && self.fs && self.oomd
+    }
 }
 
 #[derive(Debug)]
@@ -449,9 +458,12 @@ impl Config {
             bypass: args.bypass,
             verbosity: args.verbosity,
             enforce: EnforceConfig {
-                all: !args.passive,
-                none: !args.keep_crit_mem_prot,
                 crit_mem_prot: !args.passive || args.keep_crit_mem_prot,
+                cpu: !args.passive,
+                mem: !args.passive,
+                io: !args.passive,
+                fs: !args.passive,
+                oomd: !args.passive,
             },
 
             sr_failed: BTreeSet::new(),
@@ -629,7 +641,7 @@ impl Config {
                 }
 
                 if !mi.options.contains(&"memory_recursiveprot".to_string()) {
-                    if self.enforce.all {
+                    if self.enforce.mem {
                         match Command::new("mount")
                             .arg("-o")
                             .arg("remount,memory_recursiveprot")
@@ -686,7 +698,7 @@ impl Config {
         }
 
         // IO controllers
-        self.check_iocost(self.enforce.all);
+        self.check_iocost(self.enforce.io);
         slices::check_other_io_controllers(&mut self.sr_failed);
 
         // anon memory balance
@@ -707,7 +719,7 @@ impl Config {
         let mi = match Self::check_one_fs(
             &self.scr_path.clone(),
             &mut self.sr_failed,
-            self.enforce.all,
+            self.enforce.fs,
         ) {
             Ok(v) => Some(v),
             Err(e) => {
@@ -717,7 +729,7 @@ impl Config {
         };
 
         if mi.is_none() || mi.unwrap().dest != AsRef::<Path>::as_ref("/") {
-            if let Err(e) = Self::check_one_fs("/", &mut self.sr_failed, self.enforce.all) {
+            if let Err(e) = Self::check_one_fs("/", &mut self.sr_failed, self.enforce.fs) {
                 warn!("cfg: Root fs: {}", &e);
             }
         }
@@ -738,7 +750,7 @@ impl Config {
         }
 
         // mq-deadline scheduler
-        if self.enforce.all {
+        if self.enforce.io {
             if let Err(e) = set_iosched(&self.scr_dev, "mq-deadline") {
                 warn!(
                     "cfg: Failed to set mq-deadline iosched on {:?} ({})",
@@ -774,7 +786,7 @@ impl Config {
         if let Ok(line) = read_one_line(&wbt_path) {
             let wbt = line.trim().parse::<u64>()?;
             if wbt != 0 {
-                if self.enforce.all {
+                if self.enforce.io {
                     info!("cfg: wbt is enabled on {:?}, disabling", &self.scr_dev);
                     if let Err(e) = write_one_line(&wbt_path, "0") {
                         warn!("cfg: Failed to disable wbt on {:?} ({})", &self.scr_dev, &e);
@@ -833,11 +845,11 @@ impl Config {
         }
 
         if let Ok(swappiness) = read_swappiness() {
-            if self.enforce.all {
+            if self.enforce.mem {
                 self.sr_swappiness = Some(swappiness);
             }
             if swappiness < 60 {
-                if self.enforce.all {
+                if self.enforce.mem {
                     info!(
                         "cfg: Swappiness {} is smaller than default 60, updating to 60",
                         swappiness
@@ -865,7 +877,7 @@ impl Config {
         // make sure oomd or earlyoom isn't gonna interfere
         if let Some(oomd_sys_svc) = &self.oomd_sys_svc {
             if let Ok(svc) = systemd::Unit::new_sys(oomd_sys_svc.clone()) {
-                if svc.state == systemd::UnitState::Running && self.enforce.all {
+                if svc.state == systemd::UnitState::Running && self.enforce.oomd {
                     self.sr_oomd_sys_svc = Some(svc);
                     let svc = self.sr_oomd_sys_svc.as_mut().unwrap();
                     info!("cfg: Stopping {:?} while resctl-demo is running", &svc.name);
@@ -1275,14 +1287,14 @@ fn main() {
         panic!();
     }
 
-    if !cfg.enforce.all {
+    if !cfg.enforce.oomd {
         info!("cfg: Enforcement off, not starting oomd");
     } else if let Err(e) = sobjs.oomd.apply() {
         error!("cfg: Failed to initialize oomd ({:?})", &e);
         panic!();
     }
 
-    if !cfg.enforce.all || sobjs.slice_file.data.controlls_disabled(instance_seq()) {
+    if !cfg.enforce.all() || sobjs.slice_file.data.controlls_disabled(instance_seq()) {
         info!("cfg: Enforcement or controllers off, not starting sideloader");
     } else {
         let sideloader_cmd = &sobjs.cmd_file.data.sideloader;

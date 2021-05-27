@@ -139,7 +139,7 @@ impl RunnerData {
             }
         }
 
-        if (re_bench || re_oomd) && self.cfg.enforce.all {
+        if (re_bench || re_oomd) && self.cfg.enforce.oomd {
             if let Err(e) = sobjs.oomd.apply() {
                 error!("cmd: Failed to apply oomd configuration ({:?})", &e);
                 panic!();
@@ -174,7 +174,7 @@ impl RunnerData {
             apply_sideloader = true;
         }
 
-        if apply_sideloader && self.cfg.enforce.all {
+        if apply_sideloader && self.cfg.enforce.all() {
             let sideloader_cmd = &sobjs.cmd_file.data.sideloader;
             let slice_knobs = &sobjs.slice_file.data;
             if let Err(e) = sobjs.sideloader.apply(sideloader_cmd, slice_knobs) {
@@ -187,7 +187,7 @@ impl RunnerData {
     }
 
     fn apply_swappiness(&self, swappiness: Option<u32>) -> Result<()> {
-        if !self.cfg.enforce.all {
+        if !self.cfg.enforce.mem {
             return Ok(());
         }
         let cur = read_swappiness()?;

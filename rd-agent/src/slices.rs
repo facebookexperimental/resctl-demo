@@ -91,6 +91,10 @@ fn slice_needs_crit_mem_prot(slice: Slice) -> bool {
     }
 }
 
+fn slice_enforce_mem(ecfg: &EnforceConfig, slice: Slice) -> bool {
+    ecfg.mem || (ecfg.crit_mem_prot && slice_needs_crit_mem_prot(slice))
+}
+
 fn build_configlet(
     slice: Slice,
     cpu_weight: Option<u32>,
@@ -239,23 +243,23 @@ pub fn apply_slices(knobs: &mut SliceKnobs, hashd_mem_size: u64, cfg: &Config) -
 
     let mut updated = false;
     for slice in Slice::into_enum_iter() {
-        let enforce_mem =
-            cfg.enforce.all || (cfg.enforce.crit_mem_prot && slice_needs_crit_mem_prot(slice));
+        let enforce_mem = slice_enforce_mem(&cfg.enforce, slice);
 
-        if !cfg.enforce.all && !enforce_mem {
+        if !cfg.enforce.cpu && !enforce_mem && !cfg.enforce.io {
             continue;
         }
 
         let sk = knobs.slices.get(slice.name()).unwrap();
         let (cpu_weight, io_weight, mem_min, mem_low, mem_high);
 
-        if cfg.enforce.all {
-            cpu_weight = Some(sk.cpu_weight);
-            io_weight = Some(sk.io_weight);
-        } else {
-            cpu_weight = None;
-            io_weight = None;
-        }
+        cpu_weight = match cfg.enforce.cpu {
+            true => Some(sk.cpu_weight),
+            false => None,
+        };
+        io_weight = match cfg.enforce.io {
+            true => Some(sk.io_weight),
+            false => None,
+        };
 
         if enforce_mem {
             mem_min = Some(sk.mem_min);
@@ -302,14 +306,18 @@ pub fn apply_slices(knobs: &mut SliceKnobs, hashd_mem_size: u64, cfg: &Config) -
     Ok(())
 }
 
-fn clear_one_slice(slice: Slice, mem_prot_only: bool) -> Result<bool> {
+fn clear_one_slice(slice: Slice, ecfg: &EnforceConfig) -> Result<bool> {
     match systemd::Unit::new_sys(slice.name().into()) {
         Ok(mut unit) => {
-            if mem_prot_only {
+            if ecfg.cpu {
+                unit.resctl.cpu_weight = None;
+            }
+            if slice_enforce_mem(ecfg, slice) {
                 unit.resctl.mem_min = None;
                 unit.resctl.mem_low = None;
-            } else {
-                unit.resctl = Default::default();
+            }
+            if ecfg.io {
+                unit.resctl.io_weight = None;
             }
             if let Err(e) = unit.apply() {
                 error!("resctl: Failed to reset {:?} ({})", slice.name(), &e);
@@ -342,15 +350,13 @@ fn clear_one_slice(slice: Slice, mem_prot_only: bool) -> Result<bool> {
 pub fn clear_slices(ecfg: &EnforceConfig) -> Result<()> {
     let mut updated = false;
     for slice in Slice::into_enum_iter() {
-        let enforce_crit_mem_prot = ecfg.crit_mem_prot && slice_needs_crit_mem_prot(slice);
-        let enforce = ecfg.all || enforce_crit_mem_prot;
-        let mem_prot_only = !ecfg.all && enforce_crit_mem_prot;
+        let enforce_mem = slice_enforce_mem(ecfg, slice);
 
-        if !enforce {
+        if !ecfg.cpu && !enforce_mem && !ecfg.io {
             continue;
         }
 
-        match clear_one_slice(slice, mem_prot_only) {
+        match clear_one_slice(slice, &ecfg) {
             Ok(true) => updated = true,
             Ok(false) => {}
             Err(e) => warn!(
@@ -360,7 +366,7 @@ pub fn clear_slices(ecfg: &EnforceConfig) -> Result<()> {
             ),
         }
 
-        if slice_needs_mem_prot_propagation(slice) {
+        if enforce_mem && slice_needs_mem_prot_propagation(slice) {
             propagate_one_slice(slice, &Default::default())?;
         }
     }
@@ -375,12 +381,14 @@ fn fix_overrides(dseqs: &DisableSeqKnobs, cfg: &Config) -> Result<()> {
     let mut disable = String::new();
     let mut enable = String::new();
 
-    if cfg.enforce.all {
+    if cfg.enforce.cpu {
         if dseqs.cpu < seq {
             enable += " +cpu";
         } else {
             disable += " -cpu";
         }
+    }
+    if cfg.enforce.io {
         enable += " +io";
     }
 
@@ -572,7 +580,8 @@ pub fn verify_and_fix_slices(
     let dseqs = &knobs.disable_seqs;
     let line = read_one_line("/sys/fs/cgroup/cgroup.subtree_control")?;
 
-    if (cfg.enforce.all && ((dseqs.cpu < seq) != line.contains("cpu") || !line.contains("io")))
+    if (cfg.enforce.cpu && ((dseqs.cpu < seq) != line.contains("cpu")))
+        || (cfg.enforce.io && !line.contains("io"))
         || (cfg.enforce.crit_mem_prot && !line.contains("memory"))
     {
         info!("resctl: Controller enable state disagrees with overrides, fixing");
@@ -589,12 +598,14 @@ pub fn verify_and_fix_slices(
             continue;
         }
 
-        if cfg.enforce.all {
+        if cfg.enforce.cpu {
             fix_slice_cpu(&sk, path, dseqs.cpu < seq)?;
+        }
+        if cfg.enforce.io {
             fix_slice_io(&sk, path, dseqs.io < seq)?;
         }
 
-        if cfg.enforce.all || (cfg.enforce.crit_mem_prot && slice_needs_crit_mem_prot(slice)) {
+        if slice_enforce_mem(&cfg.enforce, slice) {
             let (enable_mem, verify_mem_high) = match slice {
                 Slice::Work => (dseqs.mem < seq, !workload_senpai),
                 _ => (true, true),
@@ -612,7 +623,7 @@ pub fn verify_and_fix_slices(
         }
     }
 
-    if cfg.enforce.all {
+    if cfg.enforce.io {
         check_other_io_controllers(&mut BTreeSet::new());
     }
     Ok(())
