@@ -547,6 +547,7 @@ impl QoSTarget {
     fn find_min_vrate_at_max_val(
         ds: &DataSeries,
         range: (f64, f64),
+        infl_margin: f64,
         no_sig_vrate: Option<f64>,
     ) -> Option<f64> {
         ds.lines.clamped(range.0, range.1).map(|dl| {
@@ -554,7 +555,7 @@ impl QoSTarget {
             let right = &dl.right;
 
             if left.y < right.y {
-                right.x
+                (right.x * (1.0 + infl_margin)).min(range.1)
             } else {
                 no_sig_vrate
                     .unwrap_or(dl.range.0)
@@ -564,13 +565,17 @@ impl QoSTarget {
     }
 
     /// Find the maximum vrate with the minimum value.
-    fn find_max_vrate_at_min_val(ds: &DataSeries, range: (f64, f64)) -> Option<f64> {
+    fn find_max_vrate_at_min_val(
+        ds: &DataSeries,
+        range: (f64, f64),
+        infl_margin: f64,
+    ) -> Option<f64> {
         ds.lines.clamped(range.0, range.1).map(|dl| {
             let left = &dl.left;
             let right = &dl.right;
 
             if left.y < right.y {
-                left.x
+                (left.x * (1.0 - infl_margin)).max(range.0)
             } else {
                 dl.range.1
             }
@@ -633,35 +638,78 @@ impl QoSTarget {
         data: &BTreeMap<DataSel, DataSeries>,
         (vrate_min, vrate_max): (f64, f64),
     ) -> Result<Option<(IoCostQoSParams, f64)>> {
-        let ds = |sel| {
+        let ds = |sel: &DataSel| -> Result<&DataSeries> {
             data.get(sel)
                 .ok_or(anyhow!("Required data series {:?} unavailable", sel))
         };
+
+        // When detecting inflection point for solutions, if the slope is
+        // steep and the error bar is wild, picking the exact inflection
+        // point can be dangerous as a small amount of error can lead to a
+        // large deviation from the target. Let's offset the result by some
+        // amount proportional to the slope * relative error. The scaling
+        // factor was determined empricially and the maximum offsetting is
+        // limited to 10%. We calculate infl_offset based on MOF and use it
+        // everywhere. There likely is a better way of determining the
+        // offset amount.
+        let mof_ds = ds(&DataSel::MOF)?;
+        let infl_offset = || {
+            let mof_max = mof_ds.lines.right.y;
+            if mof_max == 0.0 {
+                0.0
+            } else {
+                (mof_ds.lines.slope() * (mof_ds.error / mof_ds.lines.right.y) * 400.0).min(0.1)
+            }
+        };
+
+        // Helper to create fixed vrate result. {r|w}pct's are zero as the
+        // vrate won't be modulated but let's still fill in {r|w}lat's as
+        // iocost uses those values to determine the period.
+        let (rlat_99_dl, wlat_99_dl) = (
+            &ds(&DataSel::RLat("99".into(), "mean".into()))?.lines,
+            &ds(&DataSel::WLat("99".into(), "mean".into()))?.lines,
+        );
         let params_at_vrate = |vrate| {
             (
                 IoCostQoSParams {
                     min: vrate,
                     max: vrate,
-                    ..Default::default()
+                    rpct: 0.0,
+                    wpct: 0.0,
+                    rlat: (rlat_99_dl.eval(vrate) * 1_000_000.0).round() as u64,
+                    wlat: (wlat_99_dl.eval(vrate) * 1_000_000.0).round() as u64,
                 },
                 vrate,
             )
         };
+
         let solve_mof_max = |sel, no_sig_sel| -> Result<Option<f64>> {
             let no_sig_vrate = match no_sig_sel {
-                Some(nssel) => Self::find_max_vrate_at_min_val(ds(nssel)?, (vrate_min, vrate_max)),
+                Some(nssel) => Self::find_max_vrate_at_min_val(
+                    ds(nssel)?,
+                    (vrate_min, vrate_max),
+                    infl_offset(),
+                ),
                 None => None,
             };
             Ok(Self::find_min_vrate_at_max_val(
                 ds(sel)?,
                 (vrate_min, vrate_max),
+                infl_offset(),
                 no_sig_vrate,
             ))
         };
+
         let solve_isolation = || -> Result<Option<f64>> {
             let amof_delta_ds = ds(&DataSel::AMOFDelta)?;
             Ok(solve_mof_max(&DataSel::MOF, Some(&DataSel::LatImp))?
-                .map(|mof_max| Self::find_max_vrate_at_min_val(amof_delta_ds, (vrate_min, mof_max)))
+                .map(|mof_max| {
+                    Self::find_max_vrate_at_min_val(
+                        amof_delta_ds,
+                        (vrate_min, mof_max),
+                        infl_offset(),
+                    )
+                })
                 .filter(|vrate| vrate.is_some())
                 .map(|vrate| vrate.unwrap()))
         };
