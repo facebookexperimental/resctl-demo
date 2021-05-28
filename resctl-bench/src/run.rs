@@ -119,6 +119,28 @@ impl Sloper {
     }
 }
 
+#[derive(Default)]
+struct RunCtxInnerCfg {
+    need_linux_tar: bool,
+    prep_testfiles: bool,
+    bypass: bool,
+    passive_all: bool,
+    passive_keep_crit_mem_prot: bool,
+}
+
+#[derive(Default)]
+struct RunCtxCfg {
+    commit_bench: bool,
+    extra_args: Vec<String>,
+    agent_init_fns: Vec<Box<dyn FnMut(&mut RunCtx)>>,
+}
+
+#[derive(Default)]
+pub struct RunCtxCfgSave {
+    inner_cfg: RunCtxInnerCfg,
+    cfg: RunCtxCfg,
+}
+
 struct RunCtxInner {
     dir: String,
     systemd_timeout: f64,
@@ -127,11 +149,7 @@ struct RunCtxInner {
     verbosity: u32,
     sysreqs: BTreeSet<SysReq>,
     missed_sysreqs: BTreeSet<SysReq>,
-    need_linux_tar: bool,
-    prep_testfiles: bool,
-    bypass: bool,
-    passive_all: bool,
-    passive_keep_crit_mem_prot: bool,
+    cfg: RunCtxInnerCfg,
 
     agent_files: AgentFiles,
     agent_svc: Option<TransientService>,
@@ -155,7 +173,7 @@ impl RunCtxInner {
         args.push("--reset".into());
         args.push("--keep-reports".into());
 
-        if self.need_linux_tar {
+        if self.cfg.need_linux_tar {
             if self.linux_tar.is_some() {
                 args.push("--linux-tar".into());
                 args.push(self.linux_tar.as_ref().unwrap().into());
@@ -165,13 +183,13 @@ impl RunCtxInner {
             args.push("__SKIP__".into());
         }
 
-        if self.bypass {
+        if self.cfg.bypass {
             args.push("--bypass".into());
         }
 
-        if self.passive_all {
+        if self.cfg.passive_all {
             args.push("--passive=all".into());
-        } else if self.passive_keep_crit_mem_prot {
+        } else if self.cfg.passive_keep_crit_mem_prot {
             args.push("--passive=keep-crit-mem-prot".into());
         }
 
@@ -198,7 +216,7 @@ impl RunCtxInner {
         }
 
         // Prepare testfiles synchronously for better progress report.
-        if self.prep_testfiles {
+        if self.cfg.prep_testfiles {
             let hashd_bin =
                 find_bin("rd-hashd", exe_dir().ok()).ok_or(anyhow!("can't find rd-hashd"))?;
             let testfiles_path = self.dir.clone() + "/scratch/hashd-A/testfiles";
@@ -240,7 +258,7 @@ impl RunCtxInner {
 
 pub struct RunCtx<'a, 'b> {
     inner: Arc<Mutex<RunCtxInner>>,
-    agent_init_fns: Vec<Box<dyn FnMut(&mut RunCtx)>>,
+    cfg: RunCtxCfg,
     base: &'a mut Base<'b>,
     pub jobs: Arc<Mutex<JobCtxs>>,
     pub uid: u64,
@@ -249,9 +267,7 @@ pub struct RunCtx<'a, 'b> {
     result_path: &'a str,
     pub test: bool,
     skip_mem_profile: bool,
-    pub commit_bench: bool,
     args: &'a resctl_bench_intf::Args,
-    extra_args: Vec<String>,
     svcs: HashSet<String>,
 }
 
@@ -270,11 +286,7 @@ impl<'a, 'b> RunCtx<'a, 'b> {
                 verbosity: args.verbosity,
                 sysreqs: Default::default(),
                 missed_sysreqs: Default::default(),
-                need_linux_tar: false,
-                prep_testfiles: false,
-                bypass: false,
-                passive_all: false,
-                passive_keep_crit_mem_prot: false,
+                cfg: Default::default(),
                 agent_files: AgentFiles::new(&args.dir),
                 agent_svc: None,
                 minder_state: MinderState::Ok,
@@ -283,8 +295,8 @@ impl<'a, 'b> RunCtx<'a, 'b> {
                 reports: VecDeque::new(),
                 report_sample: None,
             })),
+            cfg: Default::default(),
             base,
-            agent_init_fns: vec![],
             jobs,
             uid: 0,
             run_started_at: 0,
@@ -292,9 +304,7 @@ impl<'a, 'b> RunCtx<'a, 'b> {
             result_path: &args.result,
             test: args.test,
             skip_mem_profile: false,
-            commit_bench: false,
             args,
-            extra_args: vec![],
             svcs: Default::default(),
         }
     }
@@ -312,32 +322,32 @@ impl<'a, 'b> RunCtx<'a, 'b> {
     where
         F: FnMut(&mut RunCtx) + 'static,
     {
-        self.agent_init_fns.push(Box::new(init_fn));
+        self.cfg.agent_init_fns.push(Box::new(init_fn));
         self
     }
 
     pub fn set_need_linux_tar(&mut self) -> &mut Self {
-        self.inner.lock().unwrap().need_linux_tar = true;
+        self.inner.lock().unwrap().cfg.need_linux_tar = true;
         self
     }
 
     pub fn set_prep_testfiles(&mut self) -> &mut Self {
-        self.inner.lock().unwrap().prep_testfiles = true;
+        self.inner.lock().unwrap().cfg.prep_testfiles = true;
         self
     }
 
     pub fn set_bypass(&mut self) -> &mut Self {
-        self.inner.lock().unwrap().bypass = true;
+        self.inner.lock().unwrap().cfg.bypass = true;
         self
     }
 
     pub fn set_passive_all(&mut self) -> &mut Self {
-        self.inner.lock().unwrap().passive_all = true;
+        self.inner.lock().unwrap().cfg.passive_all = true;
         self
     }
 
     pub fn set_passive_keep_crit_mem_prot(&mut self) -> &mut Self {
-        self.inner.lock().unwrap().passive_keep_crit_mem_prot = true;
+        self.inner.lock().unwrap().cfg.passive_keep_crit_mem_prot = true;
         self
     }
 
@@ -347,23 +357,20 @@ impl<'a, 'b> RunCtx<'a, 'b> {
     }
 
     pub fn set_commit_bench(&mut self) -> &mut Self {
-        self.commit_bench = true;
+        self.cfg.commit_bench = true;
         self
     }
 
-    pub fn clear(&mut self) -> &mut Self {
-        let mut inner = self.inner.lock().unwrap();
-        inner.need_linux_tar = false;
-        inner.prep_testfiles = false;
-        inner.bypass = false;
-        inner.passive_all = false;
-        inner.passive_keep_crit_mem_prot = false;
-        drop(inner);
+    pub fn reset_cfg(&mut self, saved_cfg: Option<RunCtxCfgSave>) -> RunCtxCfgSave {
+        let saved = saved_cfg.unwrap_or_default();
+        let (mut inner_cfg, mut cfg) = (saved.inner_cfg, saved.cfg);
 
-        self.agent_init_fns.clear();
-        self.commit_bench = false;
-        self.extra_args.clear();
-        self
+        let mut inner = self.inner.lock().unwrap();
+        std::mem::swap(&mut inner.cfg, &mut inner_cfg);
+        drop(inner);
+        std::mem::swap(&mut self.cfg, &mut cfg);
+
+        RunCtxCfgSave { inner_cfg, cfg }
     }
 
     pub fn mode(&self) -> Mode {
@@ -615,15 +622,15 @@ impl<'a, 'b> RunCtx<'a, 'b> {
         self.access_agent_files(|af| af.cmd.data.swappiness = self.args.swappiness_ovr);
 
         // Run init functions.
-        if self.agent_init_fns.len() > 0 {
+        if self.cfg.agent_init_fns.len() > 0 {
             let mut init_fns: Vec<Box<dyn FnMut(&mut RunCtx)>> = vec![];
-            init_fns.append(&mut self.agent_init_fns);
+            init_fns.append(&mut self.cfg.agent_init_fns);
 
             for init_fn in init_fns.iter_mut() {
                 init_fn(self);
             }
 
-            self.agent_init_fns.append(&mut init_fns);
+            self.cfg.agent_init_fns.append(&mut init_fns);
 
             if let Err(e) = self.cmd_barrier() {
                 self.stop_agent();
@@ -634,12 +641,12 @@ impl<'a, 'b> RunCtx<'a, 'b> {
         // Start recording reports.
         self.inner.lock().unwrap().record_rep(true);
 
-        self.extra_args = extra_args;
+        self.cfg.extra_args = extra_args;
         AGENT_WAS_ACTIVE.store(true, Ordering::Relaxed);
         Ok(())
     }
 
-    fn stop_agent_no_clear(&mut self) {
+    fn stop_agent_keep_cfg(&mut self) {
         let agent_svc = self.inner.lock().unwrap().agent_svc.take();
         if let Some(svc) = agent_svc {
             drop(svc);
@@ -658,13 +665,13 @@ impl<'a, 'b> RunCtx<'a, 'b> {
     }
 
     pub fn stop_agent(&mut self) {
-        self.stop_agent_no_clear();
-        self.clear();
+        self.stop_agent_keep_cfg();
+        self.reset_cfg(None);
     }
 
     pub fn restart_agent(&mut self) -> Result<()> {
-        self.stop_agent_no_clear();
-        self.start_agent(self.extra_args.clone())
+        self.stop_agent_keep_cfg();
+        self.start_agent(self.cfg.extra_args.clone())
             .context("Restarting agent...")
     }
 
@@ -1088,7 +1095,7 @@ impl<'a, 'b> RunCtx<'a, 'b> {
 
         res?;
 
-        self.base.finish(self.commit_bench)?;
+        self.base.finish(self.cfg.commit_bench)?;
 
         jctx.print(
             &FormatOpts {
@@ -1145,8 +1152,10 @@ impl<'a, 'b> RunCtx<'a, 'b> {
         // rd-agent isn't running for this instance.
         if self.args.mem_profile.is_some() && self.base.mem.avail == 0 {
             let was_running = self.inner.lock().unwrap().agent_svc.is_some();
-            self.stop_agent_no_clear();
+            let saved_cfg = self.reset_cfg(None);
+            self.stop_agent();
             self.base.estimate_available_memory()?;
+            self.reset_cfg(Some(saved_cfg));
             if was_running {
                 self.restart_agent()?;
             }
