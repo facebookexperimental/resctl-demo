@@ -206,7 +206,6 @@ impl Scenario {
 
 #[derive(Clone, Debug, Default)]
 pub struct ProtectionJob {
-    pub passive: bool,
     pub scenarios: Vec<Scenario>,
 }
 
@@ -237,9 +236,8 @@ impl ProtectionJob {
     pub fn parse(spec: &JobSpec) -> Result<Self> {
         let mut job = Self::default();
 
-        for (k, v) in spec.props[0].iter() {
+        for (k, _v) in spec.props[0].iter() {
             match k.as_str() {
-                "passive" => job.passive = v.len() == 0 || v.parse::<bool>()?,
                 k => bail!("unknown property key {:?}", k),
             }
         }
@@ -364,10 +362,6 @@ impl Job for ProtectionJob {
     fn run(&mut self, rctx: &mut RunCtx) -> Result<serde_json::Value> {
         rctx.maybe_run_nested_iocost_params()?;
         rctx.maybe_run_nested_hashd_params()?;
-
-        if self.passive {
-            rctx.set_passive_keep_crit_mem_prot();
-        }
         rctx.set_prep_testfiles().start_agent(vec![])?;
 
         let mut scns = vec![];

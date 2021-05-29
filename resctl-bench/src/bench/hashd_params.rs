@@ -4,7 +4,6 @@ use rd_agent_intf::HashdKnobs;
 use rd_agent_intf::{HASHD_BENCH_SVC_NAME, ROOT_SLICE};
 
 struct HashdParamsJob {
-    passive: bool,
     log_bps: u64,
     fake_cpu_load: bool,
     hash_size: Option<usize>,
@@ -16,7 +15,6 @@ impl Default for HashdParamsJob {
     fn default() -> Self {
         let dfl_cmd = rd_agent_intf::Cmd::default();
         Self {
-            passive: false,
             log_bps: dfl_cmd.hashd[0].log_bps,
             fake_cpu_load: false,
             hash_size: None,
@@ -38,7 +36,6 @@ impl Bench for HashdParamsBench {
 
         for (k, v) in spec.props[0].iter() {
             match k.as_str() {
-                "passive" => job.passive = v.len() == 0 || v.parse::<bool>()?,
                 "log-bps" => job.log_bps = v.parse::<u64>()?,
                 "fake-cpu-load" => job.fake_cpu_load = v.len() == 0 || v.parse::<bool>()?,
                 "hash-size" => job.hash_size = Some(v.parse::<usize>()?),
@@ -58,9 +55,6 @@ impl Job for HashdParamsJob {
     }
 
     fn run(&mut self, rctx: &mut RunCtx) -> Result<serde_json::Value> {
-        if self.passive {
-            rctx.set_passive_keep_crit_mem_prot();
-        }
         rctx.set_commit_bench().start_agent(vec![])?;
 
         info!("hashd-params: Estimating rd-hashd parameters");

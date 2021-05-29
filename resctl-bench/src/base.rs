@@ -236,7 +236,7 @@ impl<'a> Base<'a> {
 
         let mut rctx = RunCtx::new(self.args, self, Default::default());
         rctx.skip_mem_profile()
-            .set_passive_keep_crit_mem_prot()
+            .set_crit_mem_prot_only()
             .set_prep_testfiles()
             .start_agent(vec![])?;
 

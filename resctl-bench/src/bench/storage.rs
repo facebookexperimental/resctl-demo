@@ -13,7 +13,6 @@ pub struct StorageJob {
     pub mem_avail_err_max: f64,
     pub mem_avail_inner_retries: u32,
     pub mem_avail_outer_retries: u32,
-    pub active: bool,
 
     first_try: bool,
     mem_usage: usize,
@@ -34,7 +33,6 @@ impl Default for StorageJob {
             mem_avail_err_max: 0.1,
             mem_avail_inner_retries: 2,
             mem_avail_outer_retries: 2,
-            active: false,
             first_try: true,
             mem_usage: 0,
             mem_probe_at: 0,
@@ -47,7 +45,9 @@ pub struct StorageBench {}
 
 impl Bench for StorageBench {
     fn desc(&self) -> BenchDesc {
-        BenchDesc::new("storage", "Benchmark storage device with rd-hashd").takes_run_props()
+        BenchDesc::new("storage", "Benchmark storage device with rd-hashd")
+            .takes_run_props()
+            .crit_mem_prot_only()
     }
 
     fn parse(&self, spec: &JobSpec, _prev_data: Option<&JobData>) -> Result<Box<dyn Job>> {
@@ -91,7 +91,6 @@ impl StorageJob {
                 "mem-avail-err-max" => job.mem_avail_err_max = v.parse::<f64>()?,
                 "mem-avail-inner-retries" => job.mem_avail_inner_retries = v.parse::<u32>()?,
                 "mem-avail-outer-retries" => job.mem_avail_outer_retries = v.parse::<u32>()?,
-                "active" => job.active = v.len() == 0 || v.parse::<bool>()?,
                 k => bail!("unknown property key {:?}", k),
             }
         }
@@ -340,16 +339,12 @@ impl Job for StorageJob {
     }
 
     fn run(&mut self, rctx: &mut RunCtx) -> Result<serde_json::Value> {
-        if !self.active {
-            rctx.set_passive_keep_crit_mem_prot();
-        }
         rctx.set_prep_testfiles().start_agent(vec![])?;
 
         // Depending on mem-profile, we might be using a large balloon which
         // can push down available memory below workload's memory.low
-        // cratering memory reclaim. Make sure memory protection is off
-        // regardless of @active. We aren't testing memory protection
-        // anyway.
+        // cratering memory reclaim. Make sure memory protection is off. We
+        // aren't testing memory protection.
         rctx.access_agent_files(|af| {
             af.slices.data.disable_seqs.mem = af.report.data.seq;
             af.slices.save().unwrap();

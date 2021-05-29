@@ -18,7 +18,7 @@ use super::parse_json_value_or_dump;
 use super::progress::BenchProgress;
 use super::run::{RunCtx, WorkloadMon};
 use super::study::*;
-use rd_agent_intf::{AgentFiles, Slice, SysReq, ROOT_SLICE};
+use rd_agent_intf::{AgentFiles, EnforceConfig, Slice, SysReq, ROOT_SLICE};
 use resctl_bench_intf::{format_job_props, JobProps, JobSpec};
 
 use util::*;
@@ -139,6 +139,7 @@ pub struct BenchDesc {
     pub takes_format_props: bool,
     pub takes_format_propsets: bool,
     pub incremental: bool,
+    pub enforce: EnforceConfig,
 
     pub mergeable: bool,
     pub merge_by_storage_model: bool,
@@ -173,6 +174,11 @@ impl BenchDesc {
     pub fn takes_format_propsets(mut self) -> Self {
         self.takes_format_props = true;
         self.takes_format_propsets = true;
+        self
+    }
+
+    pub fn crit_mem_prot_only(mut self) -> Self {
+        self.enforce.set_crit_mem_prot_only();
         self
     }
 

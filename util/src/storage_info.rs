@@ -142,7 +142,10 @@ pub fn devname_to_model_fwrev_size<D: AsRef<OsStr>>(name_in: D) -> Result<(Strin
     let model = match read_model(&dev_path) {
         Ok(v) => v,
         Err(e) => {
-            warn!("storage_info: Failed to read model string for {:?} ({:#})", &dev_path, &e);
+            warn!(
+                "storage_info: Failed to read model string for {:?} ({:#})",
+                &dev_path, &e
+            );
             unknown.to_string()
         }
     };
@@ -150,7 +153,10 @@ pub fn devname_to_model_fwrev_size<D: AsRef<OsStr>>(name_in: D) -> Result<(Strin
     let fwrev = match read_fwrev(&dev_path) {
         Ok(v) => v,
         Err(e) => {
-            warn!("storage_info: Failed to read firmware revision for {:?} ({:#})", &dev_path, &e);
+            warn!(
+                "storage_info: Failed to read firmware revision for {:?} ({:#})",
+                &dev_path, &e
+            );
             unknown.to_string()
         }
     };

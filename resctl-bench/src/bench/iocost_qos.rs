@@ -94,10 +94,16 @@ impl IoCostQoSJob {
     ];
 
     fn parse(spec: &JobSpec, prev_data: Option<&JobData>) -> Result<Self> {
-        let mut stor_spec = JobSpec::new("storage", None, JobSpec::props(&[&[("active", "")]]));
+        let mut stor_spec = JobSpec::new(
+            "storage",
+            None,
+            Some(format!("none,{}", spec.passive.as_deref().unwrap_or("")).trim_end_matches(',')),
+            JobSpec::props(&[]),
+        );
         let mut prot_spec = JobSpec::new(
             "protection",
             None,
+            spec.passive.as_deref(),
             JobSpec::props(&[
                 &[],
                 &[

@@ -184,12 +184,12 @@ impl Args {
 
         let mut props = vec![];
         let mut id = None;
+        let mut passive = None;
 
         for group in groups {
             let mut propset = Self::parse_propset(group);
-            if let Some(v) = propset.remove("id") {
-                id = Some(v);
-            }
+            id = propset.remove("id");
+            passive = propset.remove("passive");
             props.push(propset);
         }
 
@@ -198,7 +198,7 @@ impl Args {
             props.push(Default::default());
         }
 
-        Ok(JobSpec::new(kind, id.as_deref(), props))
+        Ok(JobSpec::new(kind, id.as_deref(), passive.as_deref(), props))
     }
 
     fn parse_job_specs(subm: &clap::ArgMatches) -> Result<Vec<JobSpec>> {

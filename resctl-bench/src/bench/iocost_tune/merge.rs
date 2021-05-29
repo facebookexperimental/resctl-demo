@@ -166,7 +166,7 @@ pub fn merge(srcs: &mut Vec<MergeSrc>) -> Result<JobData> {
         },
     );
 
-    let dfl_spec = JobSpec::new("iocost-tune", None, JobSpec::props(&vec![]));
+    let dfl_spec = JobSpec::new("iocost-tune", None, None, JobSpec::props(&vec![]));
     let job = IoCostTuneBench {}.parse(&dfl_spec, None)?;
     let rec_json = serde_json::to_value(rec)?;
     let res_json = job.solve(rec_json.clone(), serde_json::to_value(res)?)?;
