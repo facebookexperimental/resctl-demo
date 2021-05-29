@@ -305,7 +305,9 @@ impl JobCtx {
 
         self.enforce = desc.enforce.clone();
         if let Some(passive) = spec.passive.as_deref() {
-            self.enforce.parse_and_merge(passive)?;
+            self.enforce
+                .parse_and_merge(passive)
+                .context("Parsing enforce")?;
         }
 
         let prev_data = match prev_data {
@@ -316,7 +318,7 @@ impl JobCtx {
             v => v,
         };
 
-        self.job = Some(bench.parse(spec, prev_data)?);
+        self.job = Some(bench.parse(spec, prev_data).context("Parsing bench")?);
         self.bench = Some(bench);
         Ok(())
     }
