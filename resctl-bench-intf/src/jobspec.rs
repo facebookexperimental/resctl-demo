@@ -31,17 +31,12 @@ pub fn format_job_props(props: &JobProps) -> String {
     buf
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct JobSpec {
     pub kind: String,
     pub id: Option<String>,
+    pub passive: Option<String>,
     pub props: JobProps,
-}
-
-impl std::cmp::PartialEq for JobSpec {
-    fn eq(&self, other: &Self) -> bool {
-        self.kind == other.kind && self.id == other.id && self.props == other.props
-    }
 }
 
 impl std::cmp::Eq for JobSpec {}
@@ -62,11 +57,12 @@ impl JobSpec {
         }
     }
 
-    pub fn new(kind: &str, id: Option<&str>, props: JobProps) -> Self {
+    pub fn new(kind: &str, id: Option<&str>, passive: Option<&str>, props: JobProps) -> Self {
         assert!(props.len() > 0);
         Self {
             kind: kind.to_owned(),
             id: id.map(Into::into),
+            passive: passive.map(Into::into),
             props,
         }
     }

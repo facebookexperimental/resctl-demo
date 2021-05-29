@@ -13,8 +13,10 @@ use std::path::Path;
 use util::systemd::UnitState as US;
 use util::*;
 
-use super::{Config, EnforceConfig};
-use rd_agent_intf::{DisableSeqKnobs, MemoryKnob, Slice, SliceConfig, SliceKnobs, SysReq};
+use super::Config;
+use rd_agent_intf::{
+    DisableSeqKnobs, EnforceConfig, MemoryKnob, Slice, SliceConfig, SliceKnobs, SysReq,
+};
 
 pub fn check_other_io_controllers(sr_failed: &mut BTreeSet<SysReq>) {
     let mut failed = None;

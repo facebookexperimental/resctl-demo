@@ -188,7 +188,7 @@ pub fn merge(args: &Args) -> Result<()> {
     // JobCtxs so that there's a record of how the merged result came to be.
     let now = unix_now();
     let merge_info_job = JobCtx::with_job_data(JobData {
-        spec: JobSpec::new("merge-info", None, JobSpec::props(&[])),
+        spec: JobSpec::new("merge-info", None, None, JobSpec::props(&[])),
         period: (now, now),
         sysinfo: Default::default(),
         record: Some(serde_json::to_value(info)?),

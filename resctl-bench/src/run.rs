@@ -17,8 +17,8 @@ use super::progress::BenchProgress;
 use super::{Program, AGENT_BIN};
 use crate::job::{FormatOpts, JobCtx, JobCtxs, JobData, SysInfo};
 use rd_agent_intf::{
-    AgentFiles, ReportIter, ReportPathIter, RunnerState, Slice, SvcStateReport, SysReq,
-    AGENT_SVC_NAME, HASHD_A_SVC_NAME, HASHD_BENCH_SVC_NAME, HASHD_B_SVC_NAME,
+    AgentFiles, EnforceConfig, ReportIter, ReportPathIter, RunnerState, Slice, SvcStateReport,
+    SysReq, AGENT_SVC_NAME, HASHD_A_SVC_NAME, HASHD_BENCH_SVC_NAME, HASHD_B_SVC_NAME,
     IOCOST_BENCH_SVC_NAME, SIDELOAD_SVC_PREFIX, SYSLOAD_SVC_PREFIX,
 };
 use resctl_bench_intf::{JobSpec, Mode};
@@ -124,8 +124,7 @@ struct RunCtxInnerCfg {
     need_linux_tar: bool,
     prep_testfiles: bool,
     bypass: bool,
-    passive_all: bool,
-    passive_keep_crit_mem_prot: bool,
+    enforce: EnforceConfig,
 }
 
 #[derive(Default)]
@@ -187,10 +186,9 @@ impl RunCtxInner {
             args.push("--bypass".into());
         }
 
-        if self.cfg.passive_all {
-            args.push("--passive=all".into());
-        } else if self.cfg.passive_keep_crit_mem_prot {
-            args.push("--passive=keep-crit-mem-prot".into());
+        let passive = self.cfg.enforce.to_passive_string();
+        if passive.len() > 0 {
+            args.push(format!("--passive={}", &passive));
         }
 
         if self.verbosity > 0 {
@@ -341,13 +339,13 @@ impl<'a, 'b> RunCtx<'a, 'b> {
         self
     }
 
-    pub fn set_passive_all(&mut self) -> &mut Self {
-        self.inner.lock().unwrap().cfg.passive_all = true;
-        self
-    }
-
-    pub fn set_passive_keep_crit_mem_prot(&mut self) -> &mut Self {
-        self.inner.lock().unwrap().cfg.passive_keep_crit_mem_prot = true;
+    pub fn set_crit_mem_prot_only(&mut self) -> &mut Self {
+        self.inner
+            .lock()
+            .unwrap()
+            .cfg
+            .enforce
+            .set_crit_mem_prot_only();
         self
     }
 
@@ -1076,7 +1074,8 @@ impl<'a, 'b> RunCtx<'a, 'b> {
     }
 
     pub fn run_jctx(&mut self, mut jctx: JobCtx) -> Result<()> {
-        // Always start with a fresh bench file.
+        // Always start with the job's enforce config and a fresh bench file.
+        self.inner.lock().unwrap().cfg.enforce = jctx.enforce.clone();
         self.base.initialize()?;
 
         assert_eq!(self.uid, 0);

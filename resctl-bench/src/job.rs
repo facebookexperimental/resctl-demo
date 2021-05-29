@@ -15,7 +15,7 @@ use util::*;
 use super::base::MemInfo;
 use super::parse_json_value_or_dump;
 use super::run::RunCtx;
-use rd_agent_intf::{SysReq, SysReqsReport};
+use rd_agent_intf::{EnforceConfig, SysReq, SysReqsReport};
 use resctl_bench_intf::{JobProps, JobSpec, Mode};
 
 #[derive(Debug, Clone)]
@@ -158,6 +158,10 @@ impl JobData {
                 )
                 .unwrap();
             }
+            let passive = rep.enforce.to_passive_string();
+            if passive.len() > 0 {
+                writeln!(out, "             passive={}", &passive).unwrap();
+            }
             writeln!(out, "").unwrap();
 
             writeln!(
@@ -250,6 +254,8 @@ pub struct JobCtx {
     #[serde(skip)]
     pub incremental: bool,
     #[serde(skip)]
+    pub enforce: EnforceConfig,
+    #[serde(skip)]
     pub uid: u64,
     #[serde(skip)]
     pub used: bool,
@@ -278,6 +284,7 @@ impl JobCtx {
             bench: None,
             job: None,
             incremental: false,
+            enforce: Default::default(),
             uid: 0,
             used: false,
             update_seq: std::u64::MAX,
@@ -295,6 +302,11 @@ impl JobCtx {
             bail!("multiple property sets not supported");
         }
         self.incremental = desc.incremental;
+
+        self.enforce = desc.enforce.clone();
+        if let Some(passive) = spec.passive.as_deref() {
+            self.enforce.parse_and_merge(passive)?;
+        }
 
         let prev_data = match prev_data {
             None => match self.data.result.is_some() {
@@ -324,6 +336,7 @@ impl JobCtx {
             bench: None,
             job: None,
             incremental: false,
+            enforce: Default::default(),
             uid: 0,
             used: false,
             update_seq: 0,
@@ -338,15 +351,11 @@ impl JobCtx {
             bench: None,
             job: None,
             incremental: self.incremental,
+            enforce: self.enforce.clone(),
             uid: self.uid,
             used: false,
             update_seq: std::u64::MAX,
         }
-    }
-
-    pub fn are_results_compatible(&self, other: &JobSpec) -> bool {
-        assert!(self.data.spec.kind == other.kind);
-        self.incremental || &self.data.spec == other
     }
 
     fn fill_sysinfo_from_rctx(si: &mut SysInfo, rctx: &RunCtx) {
@@ -509,7 +518,7 @@ impl JobCtxs {
             if !jctx.used
                 && jctx.data.spec.kind == spec.kind
                 && jctx.data.spec.id == spec.id
-                && jctx.are_results_compatible(spec)
+                && (jctx.incremental || &jctx.data.spec == spec)
             {
                 return Some(jctx);
             }

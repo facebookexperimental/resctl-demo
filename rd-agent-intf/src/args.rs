@@ -1,5 +1,7 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
+use anyhow::{bail, Result};
 use serde::{Deserialize, Serialize};
+use std::fmt::Write;
 use util::*;
 
 const HELP_BODY: &str = "\
@@ -38,6 +40,7 @@ lazy_static::lazy_static! {
          -r, --rep-retention=[SECS]      '1s report retention in seconds (default: {dfl_rep_ret:.1}h)'
          -R, --rep-1min-retention=[SECS] '1m report retention in seconds (default: {dfl_rep_1m_ret:.1}h)'
              --systemd-timeout=[SECS] 'Systemd timeout (default: {dfl_systemd_timeout})'
+             --passive=[SELS]   'Avoid system config changes (SELS=ALL/all/cpu/mem/io/fs/oomd/none)'
          -a, --args=[FILE]      'Load base command line arguments from FILE'
              --no-iolat         'Disable bpf-based io latency stat monitoring'
              --force            'Ignore startup check results and proceed'
@@ -48,7 +51,6 @@ lazy_static::lazy_static! {
              --reset            'Reset all states except for bench results, linux.tar and testfiles'
              --keep-reports     'Don't delete expired report files, also affects --reset'
              --bypass           'Skip startup and periodic health checks'
-             --passive=[MODE]   'Avoid system config changes (MODE=all|keep-crit-mem-prot)'
          -v...                  'Sets the level of verbosity'",
         dfl_dir = Args::default().dir,
         dfl_rep_ret = Args::default().rep_retention as f64 / 3600.0,
@@ -64,6 +66,101 @@ lazy_static::lazy_static! {
          -c, --compressibility=[FRAC] 'Content compressibility (default: 0)
          -p, --report=[PATH]          'Report file path'"
     );
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EnforceConfig {
+    pub crit_mem_prot: bool,
+    pub cpu: bool,
+    pub mem: bool,
+    pub io: bool,
+    pub fs: bool,
+    pub oomd: bool,
+}
+
+impl Default for EnforceConfig {
+    fn default() -> Self {
+        Self {
+            crit_mem_prot: true,
+            cpu: true,
+            mem: true,
+            io: true,
+            fs: true,
+            oomd: true,
+        }
+    }
+}
+
+impl EnforceConfig {
+    pub fn set_all_passive(&mut self) -> &mut Self {
+        *self = Self {
+            crit_mem_prot: false,
+            cpu: false,
+            mem: false,
+            io: false,
+            fs: false,
+            oomd: false,
+        };
+        self
+    }
+
+    pub fn set_crit_mem_prot_only(&mut self) -> &mut Self {
+        self.set_all_passive().crit_mem_prot = true;
+        self
+    }
+
+    pub fn parse_and_merge(&mut self, input: &str) -> Result<()> {
+        for passive in input.split(&[',', '/'][..]) {
+            match passive {
+                "ALL" => {
+                    self.set_all_passive();
+                }
+                "all" => {
+                    self.set_crit_mem_prot_only();
+                }
+                "cpu" => self.cpu = false,
+                "mem" => self.mem = false,
+                "io" => self.io = false,
+                "fs" => self.fs = false,
+                "oomd" => self.oomd = false,
+                "none" => *self = Default::default(),
+                "" => {}
+                v => bail!("Unknown --passive value {:?}", &v),
+            }
+        }
+        Ok(())
+    }
+
+    pub fn to_passive_string(&self) -> String {
+        let mut buf = String::new();
+        if !self.crit_mem_prot {
+            write!(buf, "ALL").unwrap();
+        } else if !self.cpu && !self.mem && !self.io && !self.fs && !self.oomd {
+            write!(buf, "all").unwrap();
+        } else {
+            if !self.cpu {
+                write!(buf, "cpu/").unwrap();
+            }
+            if !self.mem {
+                write!(buf, "mem/").unwrap();
+            }
+            if !self.io {
+                write!(buf, "io/").unwrap();
+            }
+            if !self.fs {
+                write!(buf, "fs/").unwrap();
+            }
+            if !self.oomd {
+                write!(buf, "oomd/").unwrap();
+            }
+            buf.pop();
+        }
+        buf
+    }
+
+    pub fn all(&self) -> bool {
+        self.crit_mem_prot && self.cpu && self.mem && self.io && self.fs && self.oomd
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -103,6 +200,7 @@ pub struct Args {
     pub rep_retention: u64,
     pub rep_1min_retention: u64,
     pub systemd_timeout: f64,
+    pub enforce: EnforceConfig,
 
     #[serde(skip)]
     pub no_iolat: bool,
@@ -123,10 +221,6 @@ pub struct Args {
     #[serde(skip)]
     pub bypass: bool,
     #[serde(skip)]
-    pub passive: bool,
-    #[serde(skip)]
-    pub keep_crit_mem_prot: bool,
-    #[serde(skip)]
     pub verbosity: u32,
 
     pub bandit: Option<Bandit>,
@@ -141,6 +235,7 @@ impl Default for Args {
             rep_retention: 3600,
             rep_1min_retention: 24 * 3600,
             systemd_timeout: systemd::SYSTEMD_DFL_TIMEOUT,
+            enforce: Default::default(),
             no_iolat: false,
             force: false,
             force_running: false,
@@ -150,8 +245,6 @@ impl Default for Args {
             reset: false,
             keep_reports: false,
             bypass: false,
-            passive: false,
-            keep_crit_mem_prot: false,
             verbosity: 0,
             bandit: None,
         }
@@ -293,16 +386,10 @@ impl JsonArgs for Args {
         self.keep_reports = matches.is_present("keep-reports");
         self.verbosity = Self::verbosity(&matches);
         self.bypass = matches.is_present("bypass");
-        if let Some(v) = matches.value_of("passive") {
-            self.passive = true;
-            self.force = true;
-            match v {
-                "all" => {}
-                "keep-crit-mem-prot" => self.keep_crit_mem_prot = true,
-                v => {
-                    panic!("Unknown --passive value {:?}", &v);
-                }
-            }
+
+        match matches.value_of("passive") {
+            Some(passives) => self.enforce.parse_and_merge(passives).unwrap(),
+            None => self.enforce = Default::default(),
         }
 
         if let (bandit, Some(subm)) = matches.subcommand() {

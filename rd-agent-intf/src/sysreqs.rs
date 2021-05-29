@@ -71,6 +71,7 @@ pub struct SysReqsReport {
     pub scr_dev_fwrev: String,
     pub scr_dev_size: u64,
     pub scr_dev_iosched: String,
+    pub enforce: super::EnforceConfig,
 }
 
 impl JsonLoad for SysReqsReport {}

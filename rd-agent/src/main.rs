@@ -28,8 +28,8 @@ mod sideloader;
 mod slices;
 
 use rd_agent_intf::{
-    Args, BenchKnobs, Cmd, CmdAck, Report, SideloadDefs, SliceKnobs, SvcReport, SvcStateReport,
-    SysReq, SysReqsReport, ALL_SYSREQS_SET, OOMD_SVC_NAME,
+    Args, BenchKnobs, Cmd, CmdAck, EnforceConfig, Report, SideloadDefs, SliceKnobs, SvcReport,
+    SvcStateReport, SysReq, SysReqsReport, ALL_SYSREQS_SET, OOMD_SVC_NAME,
 };
 use report::clear_old_report_files;
 
@@ -136,22 +136,6 @@ pub struct IoCostPaths {
     pub bin: String,
     pub working: String,
     pub result: String,
-}
-
-#[derive(Debug, Clone)]
-pub struct EnforceConfig {
-    pub crit_mem_prot: bool,
-    pub cpu: bool,
-    pub mem: bool,
-    pub io: bool,
-    pub fs: bool,
-    pub oomd: bool,
-}
-
-impl EnforceConfig {
-    pub fn all(&self) -> bool {
-        self.crit_mem_prot && self.cpu && self.mem && self.io && self.fs && self.oomd
-    }
 }
 
 #[derive(Debug)]
@@ -457,14 +441,7 @@ impl Config {
             force_running: args.force_running,
             bypass: args.bypass,
             verbosity: args.verbosity,
-            enforce: EnforceConfig {
-                crit_mem_prot: !args.passive || args.keep_crit_mem_prot,
-                cpu: !args.passive,
-                mem: !args.passive,
-                io: !args.passive,
-                fs: !args.passive,
-                oomd: !args.passive,
-            },
+            enforce: args.enforce.clone(),
 
             sr_failed: BTreeSet::new(),
             sr_wbt: None,
@@ -968,6 +945,7 @@ impl Config {
             scr_dev_fwrev,
             scr_dev_size,
             scr_dev_iosched,
+            enforce: self.enforce.clone(),
         }
         .save(&self.sysreqs_path)?;
 
