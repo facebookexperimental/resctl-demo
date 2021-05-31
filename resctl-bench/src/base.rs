@@ -1,8 +1,9 @@
 use anyhow::{anyhow, bail, Context, Result};
 use log::{error, info, warn};
-use rd_agent_intf::{BenchKnobs, HASHD_BENCH_SVC_NAME};
+use rd_agent_intf::{BenchKnobs, SysReq, HASHD_BENCH_SVC_NAME};
 use resctl_bench_intf::Args;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeSet;
 use std::path::PathBuf;
 use util::*;
 
@@ -26,6 +27,8 @@ pub struct Base<'a> {
     pub bench_knobs: BenchKnobs,
     pub mem: MemInfo,
     pub mem_initialized: bool,
+    pub all_sysreqs: BTreeSet<SysReq>,
+    pub all_sysreqs_checked: bool,
     args: &'a Args,
 }
 
@@ -165,6 +168,8 @@ impl<'a> Base<'a> {
                 ..Default::default()
             },
             mem_initialized: false,
+            all_sysreqs: Default::default(),
+            all_sysreqs_checked: false,
             args,
         }
     }
@@ -178,6 +183,8 @@ impl<'a> Base<'a> {
             bench_knobs: Default::default(),
             mem: Default::default(),
             mem_initialized: true,
+            all_sysreqs: Default::default(),
+            all_sysreqs_checked: false,
             args,
         }
     }

@@ -3,7 +3,7 @@ use super::{prepare_bin_file, Config};
 use anyhow::{anyhow, bail, Result};
 use log::{debug, error, info, warn};
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::collections::{BTreeMap, HashSet};
 use std::fs;
 use std::process::Command;
 use std::sync::Arc;
@@ -93,7 +93,7 @@ pub fn prepare_linux_tar(cfg: &Config) -> Result<()> {
     Ok(())
 }
 
-pub fn startup_checks(sr_failed: &mut BTreeSet<SysReq>) {
+pub fn startup_checks(cfg: &mut Config) {
     for bin in &[
         "gcc",
         "ld",
@@ -105,8 +105,10 @@ pub fn startup_checks(sr_failed: &mut BTreeSet<SysReq>) {
         "bc",
     ] {
         if find_bin(bin, Option::<&str>::None).is_none() {
-            warn!("side: binary dependency {:?} is missing", bin);
-            sr_failed.insert(SysReq::Dependencies);
+            cfg.sr_failed.add(
+                SysReq::Dependencies,
+                &format!("binary dependency {:?} is missing", bin),
+            );
         }
     }
 
@@ -114,15 +116,19 @@ pub fn startup_checks(sr_failed: &mut BTreeSet<SysReq>) {
         let st = match Command::new("pkg-config").arg("--exists").arg(lib).status() {
             Ok(v) => v,
             Err(e) => {
-                warn!("side: pkg-config failed ({:?})", &e);
-                sr_failed.insert(SysReq::Dependencies);
+                cfg.sr_failed.add(
+                    SysReq::Dependencies,
+                    &format!("pkg-config failed ({:?})", &e),
+                );
                 continue;
             }
         };
 
         if !st.success() {
-            warn!("side: devel library dependency {:?} is missing", lib);
-            sr_failed.insert(SysReq::Dependencies);
+            cfg.sr_failed.add(
+                SysReq::Dependencies,
+                &format!("devel library dependency {:?} is missing", lib),
+            );
         }
     }
 }

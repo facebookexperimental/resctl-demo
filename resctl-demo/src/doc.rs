@@ -134,7 +134,7 @@ fn format_markup_tags(tag: &str) -> Option<StyledString> {
     } else {
         match tag {
             "MissedSysReqs" => {
-                let missed = sysreqs.missed.len();
+                let missed = sysreqs.missed.map.len();
                 if missed > 0 {
                     return Some(StyledString::plain(format!("{}", missed)));
                 } else {

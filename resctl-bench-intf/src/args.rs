@@ -32,6 +32,7 @@ lazy_static::lazy_static! {
                  --iocost-from-sys        'Uses parameters from io.cost.{{model,qos}} instead of bench.json'
                  --keep-reports           'Prevents deleting expired report files'
                  --clear-reports          'Removes existing report files'
+                 --force                  'Ignore missing system requirements and proceed'
                  --test                   'Test mode for development'
              -v...                        'Sets the level of verbosity'",
             dfl_dir = dfl_args.dir,
@@ -93,6 +94,8 @@ pub struct Args {
     #[serde(skip)]
     pub clear_reports: bool,
     #[serde(skip)]
+    pub force: bool,
+    #[serde(skip)]
     pub test: bool,
     #[serde(skip)]
     pub verbosity: u32,
@@ -132,6 +135,7 @@ impl Default for Args {
             iocost_from_sys: false,
             keep_reports: false,
             clear_reports: false,
+            force: false,
             test: false,
             verbosity: 0,
             rstat: 0,
@@ -510,6 +514,7 @@ impl JsonArgs for Args {
         self.iocost_from_sys = matches.is_present("iocost-from-sys");
         self.keep_reports = matches.is_present("keep-reports");
         self.clear_reports = matches.is_present("clear-reports");
+        self.force = matches.is_present("force");
         self.test = matches.is_present("test");
         self.verbosity = Self::verbosity(matches);
 

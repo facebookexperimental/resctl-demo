@@ -42,7 +42,7 @@ impl UpdateWorker {
         let mut line = StyledString::new();
         let sysreqs = AGENT_FILES.sysreqs();
         let nr_satisfied = sysreqs.satisfied.len();
-        let nr_missed = sysreqs.missed.len();
+        let nr_missed = sysreqs.missed.map.len();
         let full_control = rep.cpu && rep.mem && rep.io;
 
         line.append_plain("[");

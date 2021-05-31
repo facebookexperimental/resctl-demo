@@ -17,9 +17,9 @@ use super::progress::BenchProgress;
 use super::{Program, AGENT_BIN};
 use crate::job::{FormatOpts, JobCtx, JobCtxs, JobData, SysInfo};
 use rd_agent_intf::{
-    AgentFiles, EnforceConfig, ReportIter, ReportPathIter, RunnerState, Slice, SvcStateReport,
-    SysReq, AGENT_SVC_NAME, HASHD_A_SVC_NAME, HASHD_BENCH_SVC_NAME, HASHD_B_SVC_NAME,
-    IOCOST_BENCH_SVC_NAME, SIDELOAD_SVC_PREFIX, SYSLOAD_SVC_PREFIX,
+    AgentFiles, EnforceConfig, MissedSysReqs, ReportIter, ReportPathIter, RunnerState, Slice,
+    SvcStateReport, SysReq, AGENT_SVC_NAME, HASHD_A_SVC_NAME, HASHD_BENCH_SVC_NAME,
+    HASHD_B_SVC_NAME, IOCOST_BENCH_SVC_NAME, SIDELOAD_SVC_PREFIX, SYSLOAD_SVC_PREFIX,
 };
 use resctl_bench_intf::{JobSpec, Mode};
 
@@ -147,7 +147,7 @@ struct RunCtxInner {
     linux_tar: Option<String>,
     verbosity: u32,
     sysreqs: BTreeSet<SysReq>,
-    missed_sysreqs: BTreeSet<SysReq>,
+    missed_sysreqs: MissedSysReqs,
     cfg: RunCtxInnerCfg,
 
     agent_files: AgentFiles,
@@ -579,15 +579,64 @@ impl<'a, 'b> RunCtx<'a, 'b> {
 
         let mut ctx = self.inner.lock().unwrap();
 
-        // Record and warn about missing sysreqs.
+        // It not checked yet, check if sysreqs for any bench is not met and
+        // abort unless forced.
         ctx.sysreqs_rep = Some(Arc::new(ctx.agent_files.sysreqs.data.clone()));
-        ctx.missed_sysreqs = &ctx.sysreqs & &ctx.sysreqs_rep.as_ref().unwrap().missed;
-        if ctx.missed_sysreqs.len() > 0 {
+
+        if !self.base.all_sysreqs_checked {
+            self.base.all_sysreqs_checked = true;
+
+            let mut missed = MissedSysReqs::default();
+            for req in self.base.all_sysreqs.iter() {
+                if let Some(msgs) = ctx.sysreqs_rep.as_ref().unwrap().missed.map.get(req) {
+                    missed.map.insert(*req, msgs.clone());
+                }
+            }
+
+            if missed.map.len() > 0 {
+                let mut buf = String::new();
+                missed.format(&mut (Box::new(&mut buf) as Box<dyn Write>));
+                for line in buf.lines() {
+                    error!("{}", line);
+                }
+                if self.args.force {
+                    warn!(
+                        "Continuing after failing {} system requirements due to --force",
+                        missed.map.len()
+                    );
+                } else {
+                    bail!(
+                        "Failed {} system requirements, use --force to ignore",
+                        missed.map.len()
+                    );
+                }
+            }
+        }
+
+        // Record and warn about missing sysreqs for this bench.
+        ctx.missed_sysreqs.map = ctx
+            .sysreqs_rep
+            .as_ref()
+            .unwrap()
+            .missed
+            .map
+            .iter()
+            .filter_map(|(k, v)| {
+                if ctx.sysreqs.contains(k) {
+                    Some((k.clone(), v.clone()))
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        if ctx.missed_sysreqs.map.len() > 0 {
             error!(
-                "Failed to meet {} bench system requirements, see help: {}",
-                ctx.missed_sysreqs.len(),
+                "Failed {} bench system requirements, see help: {}",
+                ctx.missed_sysreqs.map.len(),
                 ctx.missed_sysreqs
-                    .iter()
+                    .map
+                    .keys()
                     .map(|x| format!("{:?}", x))
                     .collect::<Vec<String>>()
                     .join(", ")
@@ -1182,7 +1231,7 @@ impl<'a, 'b> RunCtx<'a, 'b> {
         self.inner.lock().unwrap().sysreqs_rep.clone()
     }
 
-    pub fn missed_sysreqs(&self) -> BTreeSet<SysReq> {
+    pub fn missed_sysreqs(&self) -> MissedSysReqs {
         self.inner.lock().unwrap().missed_sysreqs.clone()
     }
 
