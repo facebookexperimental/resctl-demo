@@ -419,14 +419,18 @@ impl JobCtx {
                     .data
                     .sysinfo
                     .clone();
-            } else {
+            }
+
+            if rctx.sysreqs_report().is_none() {
                 warn!(
                     "job: No sysreqs available for {:?} after completion, cycling rd_agent...",
                     &data.spec
                 );
-                rctx.start_agent(vec![])?;
+                let saved_cfg = rctx.reset_cfg(None);
+                rctx.skip_mem_profile().start_agent(vec![])?;
                 rctx.stop_agent();
                 Self::fill_sysinfo_from_rctx(&mut data.sysinfo, rctx);
+                rctx.reset_cfg(Some(saved_cfg));
             }
 
             data.record = Some(record);

@@ -10,7 +10,11 @@ pub fn sel_factory_iolat(io_type: &str, pct: &str) -> impl FnMut(&SelArg) -> Vec
     let io_type = io_type.to_string();
     let pct = pct.to_string();
     move |arg: &SelArg| {
-        if arg.rep.iolat.map[&io_type]["100"] > 0.0 {
+        let map = &arg.rep.iolat.map;
+        if map.contains_key(&io_type)
+            && map[&io_type].contains_key(&pct)
+            && map[&io_type]["100"] > 0.0
+        {
             vec![arg.rep.iolat.map[&io_type][&pct]]
         } else {
             vec![]
