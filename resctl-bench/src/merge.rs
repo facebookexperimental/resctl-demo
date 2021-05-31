@@ -99,6 +99,7 @@ pub fn merge(args: &Args) -> Result<()> {
                     .as_ref()
                     .unwrap()
                     .missed
+                    .map
                     .len();
                 if nr_missed > 0 {
                     src.rejected = Some(format!("{} missed sysreqs", nr_missed));

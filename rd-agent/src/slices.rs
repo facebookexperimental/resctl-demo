@@ -4,7 +4,6 @@ use enum_iterator::IntoEnumIterator;
 use glob::glob;
 use log::{debug, error, info, trace, warn};
 use scan_fmt::scan_fmt;
-use std::collections::BTreeSet;
 use std::ffi::{OsStr, OsString};
 use std::fmt::Write;
 use std::fs;
@@ -15,10 +14,11 @@ use util::*;
 
 use super::Config;
 use rd_agent_intf::{
-    DisableSeqKnobs, EnforceConfig, MemoryKnob, Slice, SliceConfig, SliceKnobs, SysReq,
+    DisableSeqKnobs, EnforceConfig, MemoryKnob, MissedSysReqs, Slice, SliceConfig, SliceKnobs,
+    SysReq,
 };
 
-pub fn check_other_io_controllers(sr_failed: &mut BTreeSet<SysReq>) {
+pub fn check_other_io_controllers(sr_failed: &mut MissedSysReqs) {
     let mut failed = None;
     let mut nr_fails = 0;
 
@@ -38,15 +38,17 @@ pub fn check_other_io_controllers(sr_failed: &mut BTreeSet<SysReq>) {
                 .parent()
                 .and_then(|x| x.file_name())
                 .and_then(|x| Some(x.to_string_lossy().into_owned()));
-            sr_failed.insert(SysReq::NoOtherIoControllers);
         }
         nr_fails += 1;
     }
 
     if let Some(failed) = failed {
-        error!(
-            "resctl: {} cgroups including {:?} have non-empty io.latency/low/max configs: disable",
-            nr_fails, &failed
+        sr_failed.add(
+            SysReq::NoOtherIoControllers,
+            &format!(
+                "{} cgroups including {:?} have non-empty io.latency/low/max configs: disable",
+                nr_fails, &failed
+            ),
         );
     }
 }
@@ -626,7 +628,7 @@ pub fn verify_and_fix_slices(
     }
 
     if cfg.enforce.io {
-        check_other_io_controllers(&mut BTreeSet::new());
+        check_other_io_controllers(&mut Default::default());
     }
     Ok(())
 }

@@ -3,7 +3,6 @@ use anyhow::{anyhow, bail, Result};
 use log::{debug, error, info, trace, warn};
 use proc_mounts::MountInfo;
 use scan_fmt::scan_fmt;
-use std::collections::BTreeSet;
 use std::fs;
 use std::io;
 use std::io::prelude::*;
@@ -28,8 +27,8 @@ mod sideloader;
 mod slices;
 
 use rd_agent_intf::{
-    Args, BenchKnobs, Cmd, CmdAck, EnforceConfig, Report, SideloadDefs, SliceKnobs, SvcReport,
-    SvcStateReport, SysReq, SysReqsReport, ALL_SYSREQS_SET, OOMD_SVC_NAME,
+    Args, BenchKnobs, Cmd, CmdAck, EnforceConfig, MissedSysReqs, Report, SideloadDefs, SliceKnobs,
+    SvcReport, SvcStateReport, SysReq, SysReqsReport, ALL_SYSREQS_SET, OOMD_SVC_NAME,
 };
 use report::clear_old_report_files;
 
@@ -182,7 +181,7 @@ pub struct Config {
     pub verbosity: u32,
     pub enforce: EnforceConfig,
 
-    pub sr_failed: BTreeSet<SysReq>,
+    pub sr_failed: MissedSysReqs,
     sr_wbt: Option<u64>,
     sr_wbt_path: Option<String>,
     sr_swappiness: Option<u32>,
@@ -443,7 +442,7 @@ impl Config {
             verbosity: args.verbosity,
             enforce: args.enforce.clone(),
 
-            sr_failed: BTreeSet::new(),
+            sr_failed: Default::default(),
             sr_wbt: None,
             sr_wbt_path: None,
             sr_swappiness: None,
@@ -453,14 +452,14 @@ impl Config {
 
     fn check_iocost(&mut self, enforce: bool) {
         if !Path::new("/sys/fs/cgroup/io.cost.qos").exists() {
-            warn!("cfg: cgroup2 iocost controller unavailable");
-            self.sr_failed.insert(SysReq::IoCost);
+            self.sr_failed
+                .add(SysReq::IoCost, "cgroup2 iocost controller unavailable");
             return;
         }
 
         if !Path::new("/sys/fs/cgroup/io.stat").exists() {
-            warn!("cfg: /sys/fs/cgroup/io.stat doesn't exist");
-            self.sr_failed.insert(SysReq::IoCostVer);
+            self.sr_failed
+                .add(SysReq::IoCostVer, "/sys/fs/cgroup/io.stat doesn't exist");
             return;
         }
 
@@ -470,8 +469,10 @@ impl Config {
 
         // enforcing, perform more invasive tests
         if let Err(e) = bench::iocost_on_off(true, &self) {
-            warn!("cfg: failed to enable cgroup2 iocost controller ({:?})", &e);
-            self.sr_failed.insert(SysReq::IoCost);
+            self.sr_failed.add(
+                SysReq::IoCost,
+                &format!("failed to enable cgroup2 iocost controller ({:?})", &e),
+            );
             return;
         }
 
@@ -479,33 +480,48 @@ impl Config {
             Ok(is) => {
                 if let Some(stat) = is.get(&format!("{}:{}", self.scr_devnr.0, self.scr_devnr.1)) {
                     if let None = stat.get("cost.usage") {
-                        warn!("cfg: /sys/fs/cgroup/io.stat doesn't contain cost.usage");
-                        self.sr_failed.insert(SysReq::IoCostVer);
+                        self.sr_failed.add(
+                            SysReq::IoCostVer,
+                            "/sys/fs/cgroup/io.stat doesn't contain cost.usage",
+                        );
                     }
                 }
             }
             Err(e) => {
-                warn!("cfg: failed to read /sys/fs/cgroup/io.stat ({:?})", &e);
-                self.sr_failed.insert(SysReq::IoCostVer);
+                self.sr_failed.add(
+                    SysReq::IoCostVer,
+                    &format!("failed to read /sys/fs/cgroup/io.stat ({:?})", &e),
+                );
             }
         }
     }
 
-    fn check_one_fs(
-        path: &str,
-        sr_failed: &mut BTreeSet<SysReq>,
-        enforce: bool,
-    ) -> Result<MountInfo> {
-        let mi = path_to_mountpoint(path)?;
+    fn check_one_fs(&mut self, path: &str, prefix: &str, enforce: bool) -> Option<MountInfo> {
+        let mi = match path_to_mountpoint(path) {
+            Ok(v) => v,
+            Err(e) => {
+                self.sr_failed.add(
+                    SysReq::Btrfs,
+                    &format!(
+                        "{}: Failed to map {:?} to mountpoint ({})",
+                        prefix, path, &e
+                    ),
+                );
+                return None;
+            }
+        };
         let rot = is_path_rotational(path);
         if mi.fstype != "btrfs" {
-            sr_failed.insert(SysReq::Btrfs);
-            bail!("{:?} is not on btrfs", path);
+            self.sr_failed.add(
+                SysReq::Btrfs,
+                &format!("{}: {:?} is not on btrfs", prefix, path),
+            );
+            return None;
         }
         if mi.options.contains(&"space_cache=v2".into())
             && (rot || mi.options.contains(&"discard=async".into()))
         {
-            return Ok(mi);
+            return Some(mi);
         }
 
         let mut opts = String::from("remount,space_cache=v2");
@@ -514,11 +530,14 @@ impl Config {
         }
 
         if !enforce {
-            sr_failed.insert(SysReq::BtrfsAsyncDiscard);
-            bail!(
-                "{:?} doesn't have \"space_cache=v2\" and/or \"discard=async\"",
-                path
+            self.sr_failed.add(
+                SysReq::BtrfsAsyncDiscard,
+                &format!(
+                    "{}: {:?} doesn't have \"space_cache=v2\" and/or \"discard=async\"",
+                    prefix, path
+                ),
             );
+            return None;
         }
 
         // enforcing, try remounting w/ the needed options
@@ -526,15 +545,16 @@ impl Config {
             Command::new("mount").arg("-o").arg(&opts).arg(&mi.dest),
             "failed to enable space_cache=v2 and discard=async",
         ) {
-            sr_failed.insert(SysReq::BtrfsAsyncDiscard);
-            bail!("{}", &e);
+            self.sr_failed
+                .add(SysReq::BtrfsAsyncDiscard, &format!("{}", &e));
+            return None;
         }
 
         info!(
             "cfg: {:?} didn't have \"space_cache=v2\" and/or \"discard=async\", remounted",
             path
         );
-        Ok(mi)
+        Some(mi)
     }
 
     fn check_one_hostcritical_service(
@@ -613,8 +633,8 @@ impl Config {
         match path_to_mountpoint("/sys/fs/cgroup") {
             Ok(mi) => {
                 if mi.fstype != "cgroup2" {
-                    warn!("cfg: /sys/fs/cgroup is not cgroup2 fs");
-                    self.sr_failed.insert(SysReq::Controllers);
+                    self.sr_failed
+                        .add(SysReq::Controllers, "/sys/fs/cgroup is not cgroup2 fs");
                 }
 
                 if !mi.options.contains(&"memory_recursiveprot".to_string()) {
@@ -630,32 +650,37 @@ impl Config {
                                 info!("cfg: enabled memcg recursive protection")
                             }
                             Ok(rc) => {
-                                warn!(
-                                    "cfg: failed to enable memcg recursive protection ({:?})",
-                                    &rc
+                                self.sr_failed.add(
+                                    SysReq::MemCgRecursiveProt,
+                                    &format!(
+                                        "failed to enable memcg recursive protection ({:?})",
+                                        &rc
+                                    ),
                                 );
-                                self.sr_failed.insert(SysReq::MemCgRecursiveProt);
                             }
                             Err(e) => {
-                                warn!(
-                                    "cfg: failed to enable memcg recursive protection ({:?})",
-                                    &e
+                                self.sr_failed.add(
+                                    SysReq::MemCgRecursiveProt,
+                                    &format!(
+                                        "failed to enable memcg recursive protection ({:?})",
+                                        &e
+                                    ),
                                 );
-                                self.sr_failed.insert(SysReq::MemCgRecursiveProt);
                             }
                         }
                     } else {
-                        warn!("cfg: memcg recursive protection not enabled");
-                        self.sr_failed.insert(SysReq::MemCgRecursiveProt);
+                        self.sr_failed.add(
+                            SysReq::MemCgRecursiveProt,
+                            "memcg recursive protection not enabled",
+                        );
                     }
                 }
             }
             Err(e) => {
-                warn!(
-                    "cfg: failed to obtain mountinfo for /sys/fs/cgroup ({:?})",
-                    &e
+                self.sr_failed.add(
+                    SysReq::Controllers,
+                    &format!("failed to obtain mountinfo for /sys/fs/cgroup ({:?})", &e),
                 );
-                self.sr_failed.insert(SysReq::Controllers);
             }
         }
 
@@ -664,14 +689,16 @@ impl Config {
             .and_then(|mut f| f.read_to_string(&mut buf))?;
         for ctrl in ["cpu", "memory", "io"].iter() {
             if !buf.contains(ctrl) {
-                warn!("cfg: cgroup2 {} controller not available", ctrl);
-                self.sr_failed.insert(SysReq::Controllers);
+                self.sr_failed.add(
+                    SysReq::Controllers,
+                    &format!("cgroup2 {} controller not available", ctrl),
+                );
             }
         }
 
         if !Path::new("/sys/fs/cgroup/system.slice/cgroup.freeze").exists() {
-            warn!("cfg: cgroup2 freezer not available");
-            self.sr_failed.insert(SysReq::Freezer);
+            self.sr_failed
+                .add(SysReq::Freezer, "cgroup2 freezer not available");
         }
 
         // IO controllers
@@ -682,33 +709,25 @@ impl Config {
         match read_cgroup_flat_keyed_file("/proc/vmstat") {
             Ok(stat) => {
                 if let None = stat.get("pgscan_anon") {
-                    warn!("cfg: /proc/vmstat doesn't contain pgscan_anon");
-                    self.sr_failed.insert(SysReq::AnonBalance);
+                    self.sr_failed.add(
+                        SysReq::AnonBalance,
+                        "/proc/vmstat doesn't contain pgscan_anon",
+                    );
                 }
             }
             Err(e) => {
-                warn!("cfg: failed to read /proc/vmstat ({:?})", &e);
-                self.sr_failed.insert(SysReq::AnonBalance);
+                self.sr_failed.add(
+                    SysReq::AnonBalance,
+                    &format!("failed to read /proc/vmstat ({:?})", &e),
+                );
             }
         }
 
         // scratch and root filesystems
-        let mi = match Self::check_one_fs(
-            &self.scr_path.clone(),
-            &mut self.sr_failed,
-            self.enforce.fs,
-        ) {
-            Ok(v) => Some(v),
-            Err(e) => {
-                warn!("cfg: Scratch dir: {}", &e);
-                None
-            }
-        };
+        let mi = self.check_one_fs(&self.scr_path.clone(), "Scratch dir", self.enforce.fs);
 
         if mi.is_none() || mi.unwrap().dest != AsRef::<Path>::as_ref("/") {
-            if let Err(e) = Self::check_one_fs("/", &mut self.sr_failed, self.enforce.fs) {
-                warn!("cfg: Root fs: {}", &e);
-            }
+            self.check_one_fs("/", "Root fs", self.enforce.fs);
         }
 
         if self.scr_dev.starts_with("md") || self.scr_dev.starts_with("dm") {
@@ -718,42 +737,47 @@ impl Config {
                     &self.scr_dev
                 );
             } else {
-                warn!(
-                    "cfg: Scratch dir {:?} is on a composite dev {:?}, specify the real one with --dev",
-                    &self.scr_path, &self.scr_dev
+                self.sr_failed.add(
+                    SysReq::NoCompositeStorage,
+                    &format!(
+                        "Scratch dir {:?} is on a composite dev {:?}, specify the real one with --dev",
+                        &self.scr_path, &self.scr_dev
+                    ),
                 );
-                self.sr_failed.insert(SysReq::NoCompositeStorage);
             }
         }
 
         // mq-deadline scheduler
         if self.enforce.io {
             if let Err(e) = set_iosched(&self.scr_dev, "mq-deadline") {
-                warn!(
-                    "cfg: Failed to set mq-deadline iosched on {:?} ({})",
-                    &self.scr_dev, &e
+                self.sr_failed.add(
+                    SysReq::IoSched,
+                    &format!(
+                        "Failed to set mq-deadline iosched on {:?} ({})",
+                        &self.scr_dev, &e
+                    ),
                 );
-                self.sr_failed.insert(SysReq::IoSched);
             }
         }
 
         let scr_dev_iosched = match read_iosched(&self.scr_dev) {
             Ok(v) => {
                 if v != "mq-deadline" {
-                    warn!(
-                        "cfg: iosched on {:?} is {} instead of mq-deadline",
-                        &self.scr_dev, v
+                    self.sr_failed.add(
+                        SysReq::IoSched,
+                        &format!(
+                            "cfg: iosched on {:?} is {} instead of mq-deadline",
+                            &self.scr_dev, v
+                        ),
                     );
-                    self.sr_failed.insert(SysReq::IoSched);
                 }
                 v
             }
             Err(e) => {
-                warn!(
-                    "cfg: Failed to read iosched for {:?} ({})",
-                    &self.scr_dev, &e
+                self.sr_failed.add(
+                    SysReq::IoSched,
+                    &format!("Failed to read iosched for {:?} ({})", &self.scr_dev, &e),
                 );
-                self.sr_failed.insert(SysReq::IoSched);
                 "UNKNOWN".into()
             }
         };
@@ -766,14 +790,18 @@ impl Config {
                 if self.enforce.io {
                     info!("cfg: wbt is enabled on {:?}, disabling", &self.scr_dev);
                     if let Err(e) = write_one_line(&wbt_path, "0") {
-                        warn!("cfg: Failed to disable wbt on {:?} ({})", &self.scr_dev, &e);
-                        self.sr_failed.insert(SysReq::NoWbt);
+                        self.sr_failed.add(
+                            SysReq::NoWbt,
+                            &format!("Failed to disable wbt on {:?} ({})", &self.scr_dev, &e),
+                        );
                     }
                     self.sr_wbt = Some(wbt);
                     self.sr_wbt_path = Some(wbt_path);
                 } else {
-                    warn!("cfg: wbt is enabled on {:?}", &self.scr_dev);
-                    self.sr_failed.insert(SysReq::NoWbt);
+                    self.sr_failed.add(
+                        SysReq::NoWbt,
+                        &format!("wbt is enabled on {:?}", &self.scr_dev),
+                    );
                 }
             }
         }
@@ -791,11 +819,13 @@ impl Config {
                         );
                     }
                 } else {
-                    warn!(
-                        "cfg: Swap backing dev {:?} is different from scratch backing dev {:?}",
-                        &swap_dev, self.scr_dev
+                    self.sr_failed.add(
+                        SysReq::SwapOnScratch,
+                        &format!(
+                            "Swap backing dev {:?} is different from scratch backing dev {:?}",
+                            &swap_dev, self.scr_dev
+                        ),
                     );
-                    self.sr_failed.insert(SysReq::SwapOnScratch);
                 }
             }
         }
@@ -805,20 +835,24 @@ impl Config {
         let swap_avail = swap_total - sys.get_used_swap() as usize * 1024;
 
         if (swap_total as f64) < (total_memory() as f64 * 0.3) {
-            warn!(
-                "cfg: Swap {:.2}G is smaller than 1/3 of memory {:.2}G",
-                to_gb(swap_total),
-                to_gb(total_memory() / 3)
+            self.sr_failed.add(
+                SysReq::Swap,
+                &format!(
+                    "Swap {:.2}G is smaller than 1/3 of memory {:.2}G",
+                    to_gb(swap_total),
+                    to_gb(total_memory() / 3)
+                ),
             );
-            self.sr_failed.insert(SysReq::Swap);
         }
         if (swap_avail as f64) < (total_memory() as f64 * 0.3).min((31 << 30) as f64) {
-            warn!(
-                "cfg: Available swap {:.2}G is smaller than min(1/3 of memory {:.2}G, 32G)",
-                to_gb(swap_avail),
-                to_gb(total_memory() / 3)
+            self.sr_failed.add(
+                SysReq::Swap,
+                &format!(
+                    "Available swap {:.2}G is smaller than min(1/3 of memory {:.2}G, 32G)",
+                    to_gb(swap_avail),
+                    to_gb(total_memory() / 3)
+                ),
             );
-            self.sr_failed.insert(SysReq::Swap);
         }
 
         if let Ok(swappiness) = read_swappiness() {
@@ -832,23 +866,29 @@ impl Config {
                         swappiness
                     );
                     if let Err(e) = write_one_line(SWAPPINESS_PATH, "60") {
-                        warn!("cfg: Failed to update swappiness ({})", &e);
-                        self.sr_failed.insert(SysReq::Swap);
+                        self.sr_failed.add(
+                            SysReq::Swap,
+                            &format!("Failed to update swappiness ({})", &e),
+                        );
                     }
                 } else {
-                    warn!("cfg: Swappiness {} is smaller than default 60", swappiness);
-                    self.sr_failed.insert(SysReq::Swap);
+                    self.sr_failed.add(
+                        SysReq::Swap,
+                        &format!("Swappiness {} is smaller than default 60", swappiness),
+                    );
                 }
             }
         }
 
         // do we have oomd?
         if let Err(e) = &self.oomd_bin {
-            warn!(
-                "cfg: Failed to find oomd ({:?}), see https://github.com/facebookincubator/oomd",
-                &e
+            self.sr_failed.add(
+                SysReq::Oomd,
+                &format!(
+                    "Failed to find oomd ({:?}), see https://github.com/facebookincubator/oomd",
+                    &e
+                ),
             );
-            self.sr_failed.insert(SysReq::Oomd);
         }
 
         // make sure oomd or earlyoom isn't gonna interfere
@@ -880,8 +920,10 @@ impl Config {
                 .unwrap_or_default();
             match exe {
                 "oomd" | "earlyoom" => {
-                    warn!("cfg: {:?} detected (pid {}): disable", &exe, pid);
-                    self.sr_failed.insert(SysReq::NoSysOomd);
+                    self.sr_failed.add(
+                        SysReq::NoSysOomd,
+                        &format!("{:?} detected (pid {}): disable", &exe, pid),
+                    );
                 }
                 _ => {}
             }
@@ -890,8 +932,10 @@ impl Config {
         // support binaries for iocost_coef_gen.py
         for dep in &["python3", "findmnt", "dd", "fio", "stdbuf"] {
             if find_bin(dep, Option::<&str>::None).is_none() {
-                warn!("cfg: iocost_coef_gen.py dependency {:?} is missing", dep);
-                self.sr_failed.insert(SysReq::Dependencies);
+                self.sr_failed.add(
+                    SysReq::Dependencies,
+                    &format!("iocost_coef_gen.py dependency {:?} is missing", dep),
+                );
             }
         }
 
@@ -900,8 +944,8 @@ impl Config {
             if let Err(e) =
                 Self::check_one_hostcritical_service(svc_name, true, self.enforce.crit_mem_prot)
             {
-                warn!("cfg: {}", &e);
-                self.sr_failed.insert(SysReq::HostCriticalServices);
+                self.sr_failed
+                    .add(SysReq::HostCriticalServices, &format!("{}", &e));
             }
         }
 
@@ -910,13 +954,13 @@ impl Config {
             if let Err(e) =
                 Self::check_one_hostcritical_service(svc_name, false, self.enforce.crit_mem_prot)
             {
-                warn!("cfg: {}", &e);
-                self.sr_failed.insert(SysReq::HostCriticalServices);
+                self.sr_failed
+                    .add(SysReq::HostCriticalServices, &format!("{}", &e));
             }
         }
 
         // sideload checks
-        side::startup_checks(&mut self.sr_failed);
+        side::startup_checks(self);
 
         let (scr_dev_model, scr_dev_fwrev, scr_dev_size) =
             match devname_to_model_fwrev_size(&self.scr_dev) {
@@ -929,7 +973,7 @@ impl Config {
             };
 
         SysReqsReport {
-            satisfied: &*ALL_SYSREQS_SET ^ &self.sr_failed,
+            satisfied: &*ALL_SYSREQS_SET ^ &self.sr_failed.map.keys().copied().collect(),
             missed: self.sr_failed.clone(),
             kernel_version: sys
                 .get_kernel_version()
@@ -949,10 +993,13 @@ impl Config {
         }
         .save(&self.sysreqs_path)?;
 
-        if self.sr_failed.is_empty() {
+        if self.sr_failed.map.is_empty() {
             Ok(())
         } else {
-            Err(anyhow!("{} startup checks failed", self.sr_failed.len()))
+            Err(anyhow!(
+                "{} startup checks failed",
+                self.sr_failed.map.len()
+            ))
         }
     }
 
@@ -961,7 +1008,7 @@ impl Config {
     }
 
     pub fn memcg_recursive_prot(&self) -> bool {
-        !self.sr_failed.contains(&SysReq::MemCgRecursiveProt)
+        !self.sr_failed.map.contains_key(&SysReq::MemCgRecursiveProt)
     }
 }
 

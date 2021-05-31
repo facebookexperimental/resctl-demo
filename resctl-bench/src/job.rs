@@ -15,7 +15,7 @@ use util::*;
 use super::base::MemInfo;
 use super::parse_json_value_or_dump;
 use super::run::RunCtx;
-use rd_agent_intf::{EnforceConfig, SysReq, SysReqsReport};
+use rd_agent_intf::{EnforceConfig, MissedSysReqs, SysReq, SysReqsReport};
 use resctl_bench_intf::{JobProps, JobSpec, Mode};
 
 #[derive(Debug, Clone)]
@@ -58,7 +58,7 @@ pub trait Job {
 pub struct SysInfo {
     pub bench_version: String,
     pub sysreqs: BTreeSet<SysReq>,
-    pub sysreqs_missed: BTreeSet<SysReq>,
+    pub sysreqs_missed: MissedSysReqs,
     pub sysreqs_report: Option<SysReqsReport>,
     pub iocost: rd_agent_intf::IoCostReport,
     pub mem: MemInfo,
@@ -179,7 +179,7 @@ impl JobData {
                 out,
                 "         iosched={} wbt={} iocost={} other={}",
                 &rep.scr_dev_iosched,
-                match si.sysreqs_missed.contains(&SysReq::NoWbt) {
+                match si.sysreqs_missed.map.contains_key(&SysReq::NoWbt) {
                     true => "on",
                     false => "off",
                 },
@@ -187,7 +187,11 @@ impl JobData {
                     true => "on",
                     false => "off",
                 },
-                match si.sysreqs_missed.contains(&SysReq::NoOtherIoControllers) {
+                match si
+                    .sysreqs_missed
+                    .map
+                    .contains_key(&SysReq::NoOtherIoControllers)
+                {
                     true => "on",
                     false => "off",
                 },
@@ -224,14 +228,15 @@ impl JobData {
             }
             writeln!(out, "").unwrap();
 
-            if self.sysinfo.sysreqs_missed.len() > 0 {
+            if self.sysinfo.sysreqs_missed.map.len() > 0 {
                 writeln!(
                     out,
                     "Missed requirements: {}\n",
                     &self
                         .sysinfo
                         .sysreqs_missed
-                        .iter()
+                        .map
+                        .keys()
                         .map(|x| format!("{:?}", x))
                         .collect::<Vec<String>>()
                         .join(", ")

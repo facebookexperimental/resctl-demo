@@ -31,7 +31,7 @@ pub use report::{
 };
 pub use side_defs::{SideloadDefs, SideloadSpec};
 pub use slices::{DisableSeqKnobs, MemoryKnob, Slice, SliceConfig, SliceKnobs, ROOT_SLICE};
-pub use sysreqs::{SysReq, SysReqsReport, ALL_SYSREQS_SET};
+pub use sysreqs::{MissedSysReqs, SysReq, SysReqsReport, ALL_SYSREQS_SET};
 
 lazy_static::lazy_static! {
     pub static ref VERSION: &'static str = env!("CARGO_PKG_VERSION");

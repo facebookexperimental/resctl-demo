@@ -1,7 +1,8 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
 use enum_iterator::IntoEnumIterator;
+use log::warn;
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use util::*;
 
 const SYSREQ_DOC: &str = "\
@@ -56,9 +57,27 @@ pub enum SysReq {
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct MissedSysReqs {
+    #[serde(flatten)]
+    pub map: BTreeMap<SysReq, Vec<String>>,
+}
+
+impl MissedSysReqs {
+    pub fn add(&mut self, req: SysReq, msg: &str) {
+        match self.map.get_mut(&req) {
+            Some(msgs) => msgs.push(msg.to_string()),
+            None => {
+                self.map.insert(req, vec![msg.to_string()]);
+            }
+        }
+        warn!("cfg: {}", msg);
+    }
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct SysReqsReport {
     pub satisfied: BTreeSet<SysReq>,
-    pub missed: BTreeSet<SysReq>,
+    pub missed: MissedSysReqs,
     pub kernel_version: String,
     pub agent_version: String,
     pub hashd_version: String,
