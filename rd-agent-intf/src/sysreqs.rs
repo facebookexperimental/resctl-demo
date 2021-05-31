@@ -3,6 +3,7 @@ use enum_iterator::IntoEnumIterator;
 use log::warn;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
+use std::fmt::Write;
 use util::*;
 
 const SYSREQ_DOC: &str = "\
@@ -71,6 +72,26 @@ impl MissedSysReqs {
             }
         }
         warn!("cfg: {}", msg);
+    }
+
+    pub fn format<'a>(&self, out: &mut Box<dyn Write + 'a>) {
+        writeln!(
+            out,
+            "Missed sysreqs: {}",
+            &self
+                .map
+                .keys()
+                .map(|x| format!("{:?}", x))
+                .collect::<Vec<String>>()
+                .join(", ")
+        )
+        .unwrap();
+
+        for (_req, msgs) in self.map.iter() {
+            for msg in msgs.iter() {
+                writeln!(out, "    * {}", msg).unwrap();
+            }
+        }
     }
 }
 

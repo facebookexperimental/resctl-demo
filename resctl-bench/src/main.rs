@@ -142,7 +142,16 @@ impl Program {
             }
         }
 
-        debug!("job_ctxs: nr_to_run={}\n{:#?}", pending.vec.len(), &pending);
+        for jctx in pending.vec.iter() {
+            base.all_sysreqs.extend(jctx.job.as_ref().unwrap().sysreqs());
+        }
+
+        debug!(
+            "job_ctxs: nr_to_run={} all_sysreqs={:?}\n{:#?}",
+            pending.vec.len(),
+            &base.all_sysreqs,
+            &pending
+        );
         self.commit_args();
 
         if pending.vec.len() > 0 && !args.keep_reports {

@@ -579,8 +579,41 @@ impl<'a, 'b> RunCtx<'a, 'b> {
 
         let mut ctx = self.inner.lock().unwrap();
 
-        // Record and warn about missing sysreqs.
+        // It not checked yet, check if sysreqs for any bench is not met and
+        // abort unless forced.
         ctx.sysreqs_rep = Some(Arc::new(ctx.agent_files.sysreqs.data.clone()));
+
+        if !self.base.all_sysreqs_checked {
+            self.base.all_sysreqs_checked = true;
+
+            let mut missed = MissedSysReqs::default();
+            for req in self.base.all_sysreqs.iter() {
+                if let Some(msgs) = ctx.sysreqs_rep.as_ref().unwrap().missed.map.get(req) {
+                    missed.map.insert(*req, msgs.clone());
+                }
+            }
+
+            if missed.map.len() > 0 {
+                let mut buf = String::new();
+                missed.format(&mut (Box::new(&mut buf) as Box<dyn Write>));
+                for line in buf.lines() {
+                    error!("{}", line);
+                }
+                if self.args.force {
+                    warn!(
+                        "Continuing after failing {} system requirements due to --force",
+                        missed.map.len()
+                    );
+                } else {
+                    bail!(
+                        "Failed {} system requirements, use --force to ignore",
+                        missed.map.len()
+                    );
+                }
+            }
+        }
+
+        // Record and warn about missing sysreqs for this bench.
         ctx.missed_sysreqs.map = ctx
             .sysreqs_rep
             .as_ref()
@@ -599,7 +632,7 @@ impl<'a, 'b> RunCtx<'a, 'b> {
 
         if ctx.missed_sysreqs.map.len() > 0 {
             error!(
-                "Failed to meet {} bench system requirements, see help: {}",
+                "Failed {} bench system requirements, see help: {}",
                 ctx.missed_sysreqs.map.len(),
                 ctx.missed_sysreqs
                     .map

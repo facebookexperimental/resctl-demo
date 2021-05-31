@@ -229,19 +229,8 @@ impl JobData {
             writeln!(out, "").unwrap();
 
             if self.sysinfo.sysreqs_missed.map.len() > 0 {
-                writeln!(
-                    out,
-                    "Missed requirements: {}\n",
-                    &self
-                        .sysinfo
-                        .sysreqs_missed
-                        .map
-                        .keys()
-                        .map(|x| format!("{:?}", x))
-                        .collect::<Vec<String>>()
-                        .join(", ")
-                )
-                .unwrap();
+                self.sysinfo.sysreqs_missed.format(out);
+                writeln!(out, "").unwrap();
             }
         }
     }
