@@ -1,5 +1,8 @@
 use super::run::RunCtx;
+use anyhow::Result;
 use util::*;
+
+use rd_agent_intf::IoCostKnobs;
 
 pub use resctl_bench_intf::iocost::*;
 
@@ -71,28 +74,36 @@ impl<'a, 'b> IoCostQoSCfg<'a, 'b> {
         Some(qos)
     }
 
-    /// Set up init function to configure qos after agent startup.
-    pub fn apply(&self, rctx: &mut RunCtx) {
-        let qos = self.calc();
+    pub fn apply(&self, rctx: &mut RunCtx) -> Result<()> {
+        // This should be called before rctx is started.
+        assert!(!rctx.agent_running());
+
+        // Apply the calculated QoS paramters.
+        let enable = match self.calc() {
+            Some(qos) => {
+                rctx.apply_iocost_knobs(
+                    IoCostKnobs {
+                        qos,
+                        ..rctx.bench_knobs().iocost.clone()
+                    },
+                    false,
+                )?;
+                true
+            }
+            None => false,
+        };
+
+        // Setup an init function to enable/disable IO control.
         rctx.add_agent_init_fn(move |rctx| {
             rctx.access_agent_files(|af| {
-                let bench = &mut af.bench.data;
                 let slices = &mut af.slices.data;
                 let rep = &af.report.data;
-                match qos.as_ref() {
-                    Some(qos) => {
-                        slices.disable_seqs.io = 0;
-                        bench.iocost.qos = qos.clone();
-                        af.bench.save().unwrap();
-                        af.slices.save().unwrap();
-                    }
-                    None => {
-                        slices.disable_seqs.io = rep.seq;
-                        af.slices.save().unwrap();
-                    }
-                }
-            });
+                slices.disable_seqs.io = if enable { 0 } else { rep.seq };
+                af.slices.save().unwrap();
+            })
         });
+
+        Ok(())
     }
 
     pub fn format(&self) -> String {

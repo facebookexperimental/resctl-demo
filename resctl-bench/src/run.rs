@@ -130,6 +130,7 @@ struct RunCtxInnerCfg {
 
 #[derive(Default)]
 struct RunCtxCfg {
+    revert_bench: bool,
     extra_args: Vec<String>,
     agent_init_fns: Vec<Box<dyn FnMut(&mut RunCtx)>>,
 }
@@ -351,6 +352,11 @@ impl<'a, 'b> RunCtx<'a, 'b> {
 
     pub fn skip_mem_profile(&mut self) -> &mut Self {
         self.skip_mem_profile = true;
+        self
+    }
+
+    pub fn set_revert_bench(&mut self) -> &mut Self {
+        self.cfg.revert_bench = true;
         self
     }
 
@@ -715,6 +721,10 @@ impl<'a, 'b> RunCtx<'a, 'b> {
         self.stop_agent_keep_cfg();
         self.start_agent(self.cfg.extra_args.clone())
             .context("Restarting agent...")
+    }
+
+    pub fn agent_running(&self) -> bool {
+        self.inner.lock().unwrap().agent_svc.is_some()
     }
 
     pub fn wait_cond<F>(
@@ -1138,6 +1148,10 @@ impl<'a, 'b> RunCtx<'a, 'b> {
 
         res?;
 
+        if self.cfg.revert_bench {
+            self.base.revert_bench_knobs()?;
+        }
+
         jctx.print(
             &FormatOpts {
                 full: false,
@@ -1196,7 +1210,7 @@ impl<'a, 'b> RunCtx<'a, 'b> {
         // Mem avail estimation creates its own rctx. Make sure that
         // rd-agent isn't running for this instance.
         if self.args.mem_profile.is_some() && self.base.mem.avail == 0 {
-            let was_running = self.inner.lock().unwrap().agent_svc.is_some();
+            let was_running = self.agent_running();
             let saved_cfg = self.reset_cfg(None);
             self.stop_agent();
             self.base.estimate_available_memory()?;

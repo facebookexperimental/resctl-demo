@@ -318,7 +318,7 @@ impl IoCostQoSJob {
         let mut tries = 0;
         let rec_json = loop {
             tries += 1;
-            qos_cfg.apply(rctx);
+            qos_cfg.apply(rctx)?;
             let r = sjob.clone().run(rctx);
             rctx.stop_agent();
             match r {
@@ -350,7 +350,7 @@ impl IoCostQoSJob {
 
         // Run the protection bench with the hashd params committed by the
         // storage bench.
-        qos_cfg.apply(rctx);
+        qos_cfg.apply(rctx)?;
         Self::set_prot_size_range(pjob, &stor_rec, &stor_res);
 
         let out = pjob.run(rctx);
@@ -455,6 +455,9 @@ impl Job for IoCostQoSJob {
     }
 
     fn run(&mut self, rctx: &mut RunCtx) -> Result<serde_json::Value> {
+        // We'll be changing bench params mutliples times, revert when done.
+        rctx.set_revert_bench();
+
         // Make sure we have iocost parameters available.
         let mut bench_knobs = rctx.bench_knobs().clone();
         if bench_knobs.iocost_seq == 0 {
