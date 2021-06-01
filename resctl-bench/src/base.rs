@@ -23,6 +23,7 @@ pub struct Base<'a> {
     pub scr_devname: String,
     pub bench_knobs_path: String,
     pub demo_bench_knobs_path: String,
+    pub saved_bench_knobs: BenchKnobs,
     pub bench_knobs: BenchKnobs,
     pub mem: MemInfo,
     pub mem_initialized: bool,
@@ -159,6 +160,7 @@ impl<'a> Base<'a> {
             scr_devname,
             bench_knobs_path: args.bench_knobs_path(),
             demo_bench_knobs_path: args.demo_bench_knobs_path(),
+            saved_bench_knobs: bench_knobs.clone(),
             bench_knobs,
             mem: MemInfo {
                 profile: args.mem_profile.unwrap_or(0),
@@ -177,6 +179,7 @@ impl<'a> Base<'a> {
             scr_devname: "".to_owned(),
             bench_knobs_path: "".to_owned(),
             demo_bench_knobs_path: "".to_owned(),
+            saved_bench_knobs: Default::default(),
             bench_knobs: Default::default(),
             mem: Default::default(),
             mem_initialized: true,
@@ -253,6 +256,10 @@ impl<'a> Base<'a> {
             },
             commit,
         )
+    }
+
+    pub fn revert_bench_knobs(&mut self) -> Result<()> {
+        self.apply_bench_knobs(self.saved_bench_knobs.clone(), false)
     }
 
     pub fn initialize(&self) -> Result<()> {
