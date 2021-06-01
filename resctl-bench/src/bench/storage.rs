@@ -1,6 +1,6 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
 use super::*;
-use rd_agent_intf::{HASHD_BENCH_SVC_NAME, ROOT_SLICE};
+use rd_agent_intf::{HashdKnobs, HASHD_BENCH_SVC_NAME, ROOT_SLICE};
 use std::collections::{BTreeMap, VecDeque};
 
 #[derive(Clone)]
@@ -10,6 +10,7 @@ pub struct StorageJob {
     pub rps_max: u32,
     pub log_bps: u64,
     pub loops: u32,
+    pub commit: bool,
     pub mem_avail_err_max: f64,
     pub mem_avail_inner_retries: u32,
     pub mem_avail_outer_retries: u32,
@@ -30,6 +31,7 @@ impl Default for StorageJob {
             rps_max: RunCtx::BENCH_FAKE_CPU_RPS_MAX,
             log_bps: dfl_params.log_bps,
             loops: 3,
+            commit: false,
             mem_avail_err_max: 0.1,
             mem_avail_inner_retries: 2,
             mem_avail_outer_retries: 2,
@@ -59,6 +61,7 @@ impl Bench for StorageBench {
 pub struct StorageRecord {
     pub period: (u64, u64),
     pub final_mem_probe_periods: Vec<(u64, u64)>,
+    pub base_hashd_knobs: HashdKnobs,
     pub mem: MemInfo,
     pub mem_usages: Vec<f64>,
     pub mem_sizes: Vec<f64>,
@@ -88,6 +91,7 @@ impl StorageJob {
                 "rps-max" => job.rps_max = v.parse::<u32>()?,
                 "log-bps" => job.log_bps = v.parse::<u64>()?,
                 "loops" => job.loops = v.parse::<u32>()?,
+                "commit" => job.commit = v.len() == 0 || v.parse::<bool>()?,
                 "mem-avail-err-max" => job.mem_avail_err_max = v.parse::<f64>()?,
                 "mem-avail-inner-retries" => job.mem_avail_inner_retries = v.parse::<u32>()?,
                 "mem-avail-outer-retries" => job.mem_avail_outer_retries = v.parse::<u32>()?,
@@ -407,6 +411,7 @@ impl Job for StorageJob {
         Ok(serde_json::to_value(&StorageRecord {
             period: (started_at, unix_now()),
             final_mem_probe_periods,
+            base_hashd_knobs: rctx.access_agent_files(|af| af.bench.data.hashd.clone()),
             mem: rctx.mem_info().clone(),
             mem_usages,
             mem_sizes,
@@ -451,7 +456,22 @@ impl Job for StorageJob {
             0.0
         };
 
-        let result = StorageResult {
+        if self.commit {
+            info!(
+                "storage: Committing hashd params (mem_size={})",
+                format_size(mem_size)
+            );
+            rctx.access_agent_files(|af| {
+                af.bench.data.hashd_seq += 1;
+                af.bench.data.hashd = rec.base_hashd_knobs.clone();
+                af.bench.save().unwrap();
+            });
+            rctx.load_bench_knobs()?;
+            rctx.set_hashd_mem_size(mem_size as usize)?;
+            rctx.set_commit_bench();
+        }
+
+        let res = StorageResult {
             mem_offload_factor: mem_size as f64 / mem_usage as f64,
             mem_usage: mem_usage as usize,
             mem_usage_stdev: mem_usage_stdev as usize,
@@ -466,7 +486,7 @@ impl Job for StorageJob {
             nr_reports,
         };
 
-        Ok(serde_json::to_value(&result).unwrap())
+        Ok(serde_json::to_value(&res).unwrap())
     }
 
     fn format<'a>(

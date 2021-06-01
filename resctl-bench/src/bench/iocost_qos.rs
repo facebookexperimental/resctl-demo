@@ -98,7 +98,7 @@ impl IoCostQoSJob {
             "storage",
             None,
             Some(format!("none,{}", spec.passive.as_deref().unwrap_or("")).trim_end_matches(',')),
-            JobSpec::props(&[]),
+            JobSpec::props(&[&[("commit", "")]]),
         );
         let mut prot_spec = JobSpec::new(
             "protection",
@@ -348,15 +348,8 @@ impl IoCostQoSJob {
         )
         .context("Parsing storage result")?;
 
-        // Stash the bench result for the protection runs. This needs to be
-        // done manually because storage bench runs use fake-cpu-load which
-        // don't get committed to the base bench.
-        rctx.load_bench_knobs()?;
-
-        // Run the protection bench. The saved bench result is of the last
-        // run of the storage bench. Update it with the current mean size.
-        rctx.set_hashd_mem_size(stor_res.mem_size)?;
-
+        // Run the protection bench with the hashd params committed by the
+        // storage bench.
         qos_cfg.apply(rctx);
         Self::set_prot_size_range(pjob, &stor_rec, &stor_res);
 
