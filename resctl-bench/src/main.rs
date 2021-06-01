@@ -143,7 +143,8 @@ impl Program {
         }
 
         for jctx in pending.vec.iter() {
-            base.all_sysreqs.extend(jctx.job.as_ref().unwrap().sysreqs());
+            base.all_sysreqs
+                .extend(jctx.job.as_ref().unwrap().sysreqs());
         }
 
         debug!(

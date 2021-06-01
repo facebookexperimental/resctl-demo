@@ -17,9 +17,10 @@ use super::progress::BenchProgress;
 use super::{Program, AGENT_BIN};
 use crate::job::{FormatOpts, JobCtx, JobCtxs, JobData, SysInfo};
 use rd_agent_intf::{
-    AgentFiles, EnforceConfig, MissedSysReqs, ReportIter, ReportPathIter, RunnerState, Slice,
-    SvcStateReport, SysReq, AGENT_SVC_NAME, HASHD_A_SVC_NAME, HASHD_BENCH_SVC_NAME,
-    HASHD_B_SVC_NAME, IOCOST_BENCH_SVC_NAME, SIDELOAD_SVC_PREFIX, SYSLOAD_SVC_PREFIX,
+    AgentFiles, EnforceConfig, HashdKnobs, IoCostKnobs, MissedSysReqs, ReportIter, ReportPathIter,
+    RunnerState, Slice, SvcStateReport, SysReq, AGENT_SVC_NAME, HASHD_A_SVC_NAME,
+    HASHD_BENCH_SVC_NAME, HASHD_B_SVC_NAME, IOCOST_BENCH_SVC_NAME, SIDELOAD_SVC_PREFIX,
+    SYSLOAD_SVC_PREFIX,
 };
 use resctl_bench_intf::{JobSpec, Mode};
 
@@ -129,7 +130,6 @@ struct RunCtxInnerCfg {
 
 #[derive(Default)]
 struct RunCtxCfg {
-    commit_bench: bool,
     extra_args: Vec<String>,
     agent_init_fns: Vec<Box<dyn FnMut(&mut RunCtx)>>,
 }
@@ -351,11 +351,6 @@ impl<'a, 'b> RunCtx<'a, 'b> {
 
     pub fn skip_mem_profile(&mut self) -> &mut Self {
         self.skip_mem_profile = true;
-        self
-    }
-
-    pub fn set_commit_bench(&mut self) -> &mut Self {
-        self.cfg.commit_bench = true;
         self
     }
 
@@ -1143,8 +1138,6 @@ impl<'a, 'b> RunCtx<'a, 'b> {
 
         res?;
 
-        self.base.finish(self.cfg.commit_bench)?;
-
         jctx.print(
             &FormatOpts {
                 full: false,
@@ -1187,12 +1180,16 @@ impl<'a, 'b> RunCtx<'a, 'b> {
         &self.base.bench_knobs
     }
 
-    pub fn load_bench_knobs(&mut self) -> Result<()> {
-        self.base.load_bench_knobs()
+    pub fn apply_hashd_knobs(&mut self, hashd_knobs: HashdKnobs, commit: bool) -> Result<()> {
+        self.base.apply_hashd_knobs(hashd_knobs, commit)
     }
 
-    pub fn set_hashd_mem_size(&mut self, size: usize) -> Result<()> {
-        self.base.set_hashd_mem_size(size)
+    pub fn apply_iocost_knobs(&mut self, iocost_knobs: IoCostKnobs, commit: bool) -> Result<()> {
+        self.base.apply_iocost_knobs(iocost_knobs, commit)
+    }
+
+    pub fn set_hashd_mem_size(&mut self, size: usize, commit: bool) -> Result<()> {
+        self.base.set_hashd_mem_size(size, commit)
     }
 
     pub fn init_mem_profile(&mut self) -> Result<()> {

@@ -98,7 +98,7 @@ impl IoCostQoSJob {
             "storage",
             None,
             Some(format!("none,{}", spec.passive.as_deref().unwrap_or("")).trim_end_matches(',')),
-            JobSpec::props(&[&[("commit", "")]]),
+            JobSpec::props(&[&[("apply", "")]]),
         );
         let mut prot_spec = JobSpec::new(
             "protection",

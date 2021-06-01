@@ -39,8 +39,6 @@ pub struct JobSpec {
     pub props: JobProps,
 }
 
-impl std::cmp::Eq for JobSpec {}
-
 impl JobSpec {
     pub fn props(input: &[&[(&str, &str)]]) -> Vec<BTreeMap<String, String>> {
         if input.len() == 0 {
@@ -65,6 +63,18 @@ impl JobSpec {
             passive: passive.map(Into::into),
             props,
         }
+    }
+
+    pub fn compatible(&self, other: &Self) -> bool {
+        const IGN_PROP_KEYS: &[&'static str] = &["apply", "commit"];
+        let mut left = self.clone();
+        let mut right = other.clone();
+
+        for key in IGN_PROP_KEYS.iter() {
+            left.props[0].remove(*key);
+            right.props[0].remove(*key);
+        }
+        left == right
     }
 }
 
