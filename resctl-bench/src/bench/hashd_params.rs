@@ -6,6 +6,8 @@ use rd_agent_intf::{HASHD_BENCH_SVC_NAME, ROOT_SLICE};
 struct HashdParamsJob {
     log_bps: u64,
     fake_cpu_load: bool,
+    apply: bool,
+    commit: bool,
     hash_size: Option<usize>,
     chunk_pages: Option<usize>,
     rps_max: Option<u32>,
@@ -17,6 +19,8 @@ impl Default for HashdParamsJob {
         Self {
             log_bps: dfl_cmd.hashd[0].log_bps,
             fake_cpu_load: false,
+            apply: true,
+            commit: true,
             hash_size: None,
             chunk_pages: None,
             rps_max: None,
@@ -38,13 +42,17 @@ impl Bench for HashdParamsBench {
             match k.as_str() {
                 "log-bps" => job.log_bps = v.parse::<u64>()?,
                 "fake-cpu-load" => job.fake_cpu_load = v.len() == 0 || v.parse::<bool>()?,
+                "apply" => job.apply = v.len() == 0 || v.parse::<bool>()?,
+                "commit" => job.commit = v.len() == 0 || v.parse::<bool>()?,
                 "hash-size" => job.hash_size = Some(v.parse::<usize>()?),
                 "chunk-pages" => job.chunk_pages = Some(v.parse::<usize>()?),
                 "rps-max" => job.rps_max = Some(v.parse::<u32>()?),
                 k => bail!("unknown property key {:?}", k),
             }
         }
-
+        if job.commit {
+            job.apply = true;
+        }
         Ok(Box::new(job))
     }
 }
@@ -55,7 +63,7 @@ impl Job for HashdParamsJob {
     }
 
     fn run(&mut self, rctx: &mut RunCtx) -> Result<serde_json::Value> {
-        rctx.set_commit_bench().start_agent(vec![])?;
+        rctx.start_agent(vec![])?;
 
         info!("hashd-params: Estimating rd-hashd parameters");
 
@@ -108,6 +116,13 @@ impl Job for HashdParamsJob {
         let result = rctx.access_agent_files(|af| af.bench.data.hashd.clone());
 
         Ok(serde_json::to_value(&result).unwrap())
+    }
+
+    fn study(&self, rctx: &mut RunCtx, rec_json: serde_json::Value) -> Result<serde_json::Value> {
+        if self.apply {
+            rctx.apply_hashd_knobs(parse_json_value_or_dump(rec_json)?, self.commit)?;
+        }
+        Ok(serde_json::Value::Bool(true))
     }
 
     fn format<'a>(

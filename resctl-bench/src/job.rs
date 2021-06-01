@@ -518,7 +518,7 @@ impl JobCtxs {
             if !jctx.used
                 && jctx.data.spec.kind == spec.kind
                 && jctx.data.spec.id == spec.id
-                && (jctx.incremental || &jctx.data.spec == spec)
+                && (jctx.incremental || jctx.data.spec.compatible(spec))
             {
                 return Some(jctx);
             }

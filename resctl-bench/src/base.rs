@@ -1,6 +1,6 @@
 use anyhow::{anyhow, bail, Context, Result};
 use log::{error, info, warn};
-use rd_agent_intf::{BenchKnobs, SysReq, HASHD_BENCH_SVC_NAME};
+use rd_agent_intf::{BenchKnobs, HashdKnobs, IoCostKnobs, SysReq, HASHD_BENCH_SVC_NAME};
 use resctl_bench_intf::Args;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
@@ -23,7 +23,6 @@ pub struct Base<'a> {
     pub scr_devname: String,
     pub bench_knobs_path: String,
     pub demo_bench_knobs_path: String,
-    pub saved_bench_knobs: BenchKnobs,
     pub bench_knobs: BenchKnobs,
     pub mem: MemInfo,
     pub mem_initialized: bool,
@@ -160,7 +159,6 @@ impl<'a> Base<'a> {
             scr_devname,
             bench_knobs_path: args.bench_knobs_path(),
             demo_bench_knobs_path: args.demo_bench_knobs_path(),
-            saved_bench_knobs: bench_knobs.clone(),
             bench_knobs,
             mem: MemInfo {
                 profile: args.mem_profile.unwrap_or(0),
@@ -179,7 +177,6 @@ impl<'a> Base<'a> {
             scr_devname: "".to_owned(),
             bench_knobs_path: "".to_owned(),
             demo_bench_knobs_path: "".to_owned(),
-            saved_bench_knobs: Default::default(),
             bench_knobs: Default::default(),
             mem: Default::default(),
             mem_initialized: true,
@@ -195,10 +192,67 @@ impl<'a> Base<'a> {
             .with_context(|| format!("Saving bench_knobs to {:?}", path))
     }
 
-    pub fn load_bench_knobs(&mut self) -> Result<()> {
-        self.bench_knobs = rd_agent_intf::BenchKnobs::load(&self.bench_knobs_path)
-            .with_context(|| format!("Loading {:?}", &self.bench_knobs_path))?;
+    fn apply_bench_knobs(&mut self, knobs: BenchKnobs, commit: bool) -> Result<()> {
+        self.bench_knobs = knobs;
+        self.save_bench_knobs(&self.bench_knobs_path)?;
+        if commit {
+            self.save_bench_knobs(&self.demo_bench_knobs_path)?;
+        }
         Ok(())
+    }
+
+    pub fn apply_hashd_knobs(&mut self, hashd_knobs: HashdKnobs, commit: bool) -> Result<()> {
+        info!(
+            "base: {} hashd parameters",
+            if commit { "Committing" } else { "Applying" }
+        );
+        info!(
+            "base:   hash_size={} rps_max={} mem_size={} chunk_pages={}{}",
+            hashd_knobs.hash_size,
+            hashd_knobs.rps_max,
+            hashd_knobs.actual_mem_size(),
+            hashd_knobs.chunk_pages,
+            if hashd_knobs.fake_cpu_load {
+                " fake_cpu_load"
+            } else {
+                ""
+            }
+        );
+        self.apply_bench_knobs(
+            BenchKnobs {
+                hashd: hashd_knobs,
+                hashd_seq: self.bench_knobs.hashd_seq + 1,
+                ..self.bench_knobs.clone()
+            },
+            commit,
+        )
+    }
+
+    pub fn apply_iocost_knobs(&mut self, iocost_knobs: IoCostKnobs, commit: bool) -> Result<()> {
+        info!(
+            "base: {} iocost parameters",
+            if commit { "Committing" } else { "Applying" }
+        );
+        info!("base:   model: {}", &iocost_knobs.model);
+        info!("base:   qos: {}", &iocost_knobs.qos);
+        self.apply_bench_knobs(
+            BenchKnobs {
+                iocost: iocost_knobs,
+                iocost_seq: self.bench_knobs.iocost_seq + 1,
+                ..self.bench_knobs.clone()
+            },
+            commit,
+        )
+    }
+
+    pub fn set_hashd_mem_size(&mut self, mem_size: usize, commit: bool) -> Result<()> {
+        self.apply_hashd_knobs(
+            HashdKnobs {
+                mem_frac: mem_size as f64 / self.bench_knobs.hashd.mem_size as f64,
+                ..self.bench_knobs.hashd.clone()
+            },
+            commit,
+        )
     }
 
     pub fn initialize(&self) -> Result<()> {
@@ -207,28 +261,6 @@ impl<'a> Base<'a> {
                 .with_context(|| format!("Saving {:?}", &self.bench_knobs_path))?;
         }
         Ok(())
-    }
-
-    pub fn finish(&mut self, commit: bool) -> Result<()> {
-        if commit {
-            self.load_bench_knobs()?;
-            self.saved_bench_knobs = self.bench_knobs.clone();
-            self.save_bench_knobs(&self.demo_bench_knobs_path)?;
-        } else {
-            self.bench_knobs = self.saved_bench_knobs.clone();
-        }
-        Ok(())
-    }
-
-    pub fn set_hashd_mem_size(&mut self, mem_size: usize) -> Result<()> {
-        let hb = &mut self.bench_knobs.hashd;
-        let old_mem_frac = hb.mem_frac;
-        hb.mem_frac = mem_size as f64 / hb.mem_size as f64;
-        let result = self.save_bench_knobs(&self.bench_knobs_path);
-        if result.is_err() {
-            self.bench_knobs.hashd.mem_frac = old_mem_frac;
-        }
-        result.with_context(|| format!("Updating {:?}", &self.bench_knobs_path))
     }
 
     fn hashd_mem_usage_rep(rep: &rd_agent_intf::Report) -> usize {

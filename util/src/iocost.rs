@@ -17,6 +17,16 @@ pub struct IoCostModelParams {
     pub wrandiops: u64,
 }
 
+impl std::fmt::Display for IoCostModelParams {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "rbps={} rseqiops={} rrandiops={} wbps={} wseqiops={} wrandiops={}",
+            self.rbps, self.rseqiops, self.rrandiops, self.wbps, self.wseqiops, self.wrandiops
+        )
+    }
+}
+
 impl std::ops::Mul<f64> for IoCostModelParams {
     type Output = Self;
 
