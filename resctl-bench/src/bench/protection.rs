@@ -364,6 +364,12 @@ impl Job for ProtectionJob {
         rctx.maybe_run_nested_hashd_params()?;
         rctx.set_prep_testfiles().start_agent(vec![])?;
 
+        // Push up oomd threshold pressure so that the benchmarks don't get
+        // terminated prematurely due to raised pressures.
+        const PSI_THR: u32 = 90;
+        rctx.update_oomd_work_mem_psi_thr(PSI_THR)?;
+        rctx.update_oomd_sys_mem_psi_thr(PSI_THR)?;
+
         let mut scns = vec![];
         for scn in self.scenarios.iter_mut() {
             scns.push(scn.run(rctx)?);
