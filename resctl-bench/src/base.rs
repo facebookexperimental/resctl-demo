@@ -29,6 +29,7 @@ pub struct Base<'a> {
     pub mem_initialized: bool,
     pub all_sysreqs: BTreeSet<SysReq>,
     pub all_sysreqs_checked: bool,
+    pub all_sysreqs_checking: bool,
     args: &'a Args,
 }
 
@@ -170,6 +171,7 @@ impl<'a> Base<'a> {
             mem_initialized: false,
             all_sysreqs: Default::default(),
             all_sysreqs_checked: false,
+            all_sysreqs_checking: false,
             args,
         }
     }
@@ -185,6 +187,7 @@ impl<'a> Base<'a> {
             mem_initialized: true,
             all_sysreqs: Default::default(),
             all_sysreqs_checked: false,
+            all_sysreqs_checking: false,
             args,
         }
     }

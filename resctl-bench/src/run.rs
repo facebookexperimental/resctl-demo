@@ -17,8 +17,8 @@ use super::progress::BenchProgress;
 use super::{Program, AGENT_BIN};
 use crate::job::{FormatOpts, JobCtx, JobCtxs, JobData, SysInfo};
 use rd_agent_intf::{
-    AgentFiles, EnforceConfig, HashdKnobs, IoCostKnobs, MissedSysReqs, ReportIter, ReportPathIter,
-    RunnerState, Slice, SvcStateReport, SysReq, AGENT_SVC_NAME, HASHD_A_SVC_NAME,
+    AgentFiles, EnforceConfig, HashdKnobs, IoCostKnobs, MemoryKnob, MissedSysReqs, ReportIter,
+    ReportPathIter, RunnerState, Slice, SvcStateReport, SysReq, AGENT_SVC_NAME, HASHD_A_SVC_NAME,
     HASHD_BENCH_SVC_NAME, HASHD_B_SVC_NAME, IOCOST_BENCH_SVC_NAME, SIDELOAD_SVC_PREFIX,
     SYSLOAD_SVC_PREFIX,
 };
@@ -130,6 +130,7 @@ struct RunCtxInnerCfg {
 
 #[derive(Default)]
 struct RunCtxCfg {
+    skip_mem_profile: bool,
     revert_bench: bool,
     extra_args: Vec<String>,
     agent_init_fns: Vec<Box<dyn FnMut(&mut RunCtx)>>,
@@ -265,7 +266,6 @@ pub struct RunCtx<'a, 'b> {
     pub sysinfo_forward: Option<SysInfo>,
     result_path: &'a str,
     pub test: bool,
-    skip_mem_profile: bool,
     args: &'a resctl_bench_intf::Args,
     svcs: HashSet<String>,
 }
@@ -302,13 +302,13 @@ impl<'a, 'b> RunCtx<'a, 'b> {
             sysinfo_forward: None,
             result_path: &args.result,
             test: args.test,
-            skip_mem_profile: false,
             args,
             svcs: Default::default(),
         }
     }
 
     pub fn add_sysreqs(&mut self, sysreqs: BTreeSet<SysReq>) -> &mut Self {
+        assert!(!self.agent_running());
         self.inner
             .lock()
             .unwrap()
@@ -321,26 +321,31 @@ impl<'a, 'b> RunCtx<'a, 'b> {
     where
         F: FnMut(&mut RunCtx) + 'static,
     {
+        assert!(!self.agent_running());
         self.cfg.agent_init_fns.push(Box::new(init_fn));
         self
     }
 
     pub fn set_need_linux_tar(&mut self) -> &mut Self {
+        assert!(!self.agent_running());
         self.inner.lock().unwrap().cfg.need_linux_tar = true;
         self
     }
 
     pub fn set_prep_testfiles(&mut self) -> &mut Self {
+        assert!(!self.agent_running());
         self.inner.lock().unwrap().cfg.prep_testfiles = true;
         self
     }
 
     pub fn set_bypass(&mut self) -> &mut Self {
+        assert!(!self.agent_running());
         self.inner.lock().unwrap().cfg.bypass = true;
         self
     }
 
     pub fn set_crit_mem_prot_only(&mut self) -> &mut Self {
+        assert!(!self.agent_running());
         self.inner
             .lock()
             .unwrap()
@@ -351,7 +356,8 @@ impl<'a, 'b> RunCtx<'a, 'b> {
     }
 
     pub fn skip_mem_profile(&mut self) -> &mut Self {
-        self.skip_mem_profile = true;
+        assert!(!self.agent_running());
+        self.cfg.skip_mem_profile = true;
         self
     }
 
@@ -381,6 +387,22 @@ impl<'a, 'b> RunCtx<'a, 'b> {
             Mode::Study | Mode::Solve => true,
             _ => false,
         }
+    }
+
+    pub fn update_oomd_work_mem_psi_thr(&self, thr: u32) -> Result<()> {
+        assert!(self.agent_running());
+        self.access_agent_files(|af| {
+            af.oomd.data.workload.mem_pressure.threshold = thr;
+            af.oomd.save()
+        })
+    }
+
+    pub fn update_oomd_sys_mem_psi_thr(&self, thr: u32) -> Result<()> {
+        assert!(self.agent_running());
+        self.access_agent_files(|af| {
+            af.oomd.data.system.mem_pressure.threshold = thr;
+            af.oomd.save()
+        })
     }
 
     pub fn update_incremental_jctx(&mut self, jctx: &JobCtx) {
@@ -549,7 +571,22 @@ impl<'a, 'b> RunCtx<'a, 'b> {
             bail!("Can't run unfinished benchmarks in study or solve mode");
         }
 
-        if !self.skip_mem_profile {
+        // If this is our first time, we haven't checked all_sysreqs yet. If
+        // so, let's cycle the agent with a clean configuration once to see
+        // whether we can't satisfy any requirements. We need the clean
+        // configuration because e.g. if a passive option is set, rd-agent
+        // won't try to resolve configuration issues in that area and mark
+        // the related dependencies as failed.
+        if !self.base.all_sysreqs_checking && !self.agent_running() {
+            self.base.all_sysreqs_checking = true;
+            let saved_cfg = self.reset_cfg(None);
+            self.skip_mem_profile();
+            self.start_agent(vec![])?;
+            self.stop_agent();
+            self.reset_cfg(Some(saved_cfg));
+        }
+
+        if !self.cfg.skip_mem_profile {
             self.init_mem_profile()?;
         }
 
@@ -647,7 +684,7 @@ impl<'a, 'b> RunCtx<'a, 'b> {
         drop(ctx);
 
         // Configure memory profile.
-        if !self.skip_mem_profile {
+        if !self.cfg.skip_mem_profile {
             let work_mem_low = self.base.workload_mem_low();
             let ballon_ratio = self.base.balloon_size() as f64 / total_memory() as f64;
             info!(
@@ -657,8 +694,7 @@ impl<'a, 'b> RunCtx<'a, 'b> {
             );
 
             self.access_agent_files(|af| {
-                af.slices.data[rd_agent_intf::Slice::Work].mem_low =
-                    rd_agent_intf::MemoryKnob::Bytes(work_mem_low as u64);
+                af.slices.data[Slice::Work].mem_low = MemoryKnob::Bytes(work_mem_low as u64);
                 af.slices.save()?;
 
                 af.cmd.data.balloon_ratio = ballon_ratio;
