@@ -572,6 +572,21 @@ impl<'a, 'b> RunCtx<'a, 'b> {
             bail!("Can't run unfinished benchmarks in study or solve mode");
         }
 
+        // If this is our first time, we haven't checked all_sysreqs yet. If
+        // so, let's cycle the agent with a clean configuration once to see
+        // whether we can't satisfy any requirements. We need the clean
+        // configuration because e.g. if a passive option is set, rd-agent
+        // won't try to resolve configuration issues in that area and mark
+        // the related dependencies as failed.
+        if !self.base.all_sysreqs_checking && !self.agent_running() {
+            self.base.all_sysreqs_checking = true;
+            let saved_cfg = self.reset_cfg(None);
+            self.skip_mem_profile();
+            self.start_agent(vec![])?;
+            self.stop_agent();
+            self.reset_cfg(Some(saved_cfg));
+        }
+
         if !self.skip_mem_profile {
             self.init_mem_profile()?;
         }
