@@ -130,6 +130,7 @@ struct RunCtxInnerCfg {
 
 #[derive(Default)]
 struct RunCtxCfg {
+    skip_mem_profile: bool,
     revert_bench: bool,
     extra_args: Vec<String>,
     agent_init_fns: Vec<Box<dyn FnMut(&mut RunCtx)>>,
@@ -265,7 +266,6 @@ pub struct RunCtx<'a, 'b> {
     pub sysinfo_forward: Option<SysInfo>,
     result_path: &'a str,
     pub test: bool,
-    skip_mem_profile: bool,
     args: &'a resctl_bench_intf::Args,
     svcs: HashSet<String>,
 }
@@ -302,7 +302,6 @@ impl<'a, 'b> RunCtx<'a, 'b> {
             sysinfo_forward: None,
             result_path: &args.result,
             test: args.test,
-            skip_mem_profile: false,
             args,
             svcs: Default::default(),
         }
@@ -358,7 +357,7 @@ impl<'a, 'b> RunCtx<'a, 'b> {
 
     pub fn skip_mem_profile(&mut self) -> &mut Self {
         assert!(!self.agent_running());
-        self.skip_mem_profile = true;
+        self.cfg.skip_mem_profile = true;
         self
     }
 
@@ -587,7 +586,7 @@ impl<'a, 'b> RunCtx<'a, 'b> {
             self.reset_cfg(Some(saved_cfg));
         }
 
-        if !self.skip_mem_profile {
+        if !self.cfg.skip_mem_profile {
             self.init_mem_profile()?;
         }
 
@@ -685,7 +684,7 @@ impl<'a, 'b> RunCtx<'a, 'b> {
         drop(ctx);
 
         // Configure memory profile.
-        if !self.skip_mem_profile {
+        if !self.cfg.skip_mem_profile {
             let work_mem_low = self.base.workload_mem_low();
             let ballon_ratio = self.base.balloon_size() as f64 / total_memory() as f64;
             info!(
