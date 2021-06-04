@@ -212,18 +212,7 @@ impl<'a> Base<'a> {
             "base: {} hashd parameters",
             if commit { "Committing" } else { "Applying" }
         );
-        info!(
-            "base:   hash_size={} rps_max={} mem_size={} chunk_pages={}{}",
-            hashd_knobs.hash_size,
-            hashd_knobs.rps_max,
-            hashd_knobs.actual_mem_size(),
-            hashd_knobs.chunk_pages,
-            if hashd_knobs.fake_cpu_load {
-                " fake_cpu_load"
-            } else {
-                ""
-            }
-        );
+        info!("base:   {}", &hashd_knobs);
         self.apply_bench_knobs(
             BenchKnobs {
                 hashd: hashd_knobs,

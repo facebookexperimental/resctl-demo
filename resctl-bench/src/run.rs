@@ -260,13 +260,14 @@ pub struct RunCtx<'a, 'b> {
     inner: Arc<Mutex<RunCtxInner>>,
     cfg: RunCtxCfg,
     base: &'a mut Base<'b>,
+    args: &'a resctl_bench_intf::Args,
+    result_path: &'a str,
     pub jobs: Arc<Mutex<JobCtxs>>,
     pub uid: u64,
-    run_started_at: u64,
     pub sysinfo_forward: Option<SysInfo>,
-    result_path: &'a str,
     pub test: bool,
-    args: &'a resctl_bench_intf::Args,
+    pub hashd_knobs: Option<HashdKnobs>,
+    run_started_at: u64,
     svcs: HashSet<String>,
 }
 
@@ -296,13 +297,14 @@ impl<'a, 'b> RunCtx<'a, 'b> {
             })),
             cfg: Default::default(),
             base,
+            args,
+            result_path: &args.result,
             jobs,
             uid: 0,
-            run_started_at: 0,
             sysinfo_forward: None,
-            result_path: &args.result,
             test: args.test,
-            args,
+            hashd_knobs: None,
+            run_started_at: 0,
             svcs: Default::default(),
         }
     }
@@ -940,7 +942,13 @@ impl<'a, 'b> RunCtx<'a, 'b> {
             Some(CMD_TIMEOUT),
             None,
         )
-        .context("Waiting for hashd to start")
+        .context("Waiting for hashd to start")?;
+
+        if self.hashd_knobs.is_none() {
+            self.hashd_knobs = Some(self.bench_knobs().hashd.clone());
+        }
+
+        Ok(())
     }
 
     pub fn stabilize_hashd_with_params(

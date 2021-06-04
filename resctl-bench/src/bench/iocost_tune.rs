@@ -658,7 +658,7 @@ impl QoSTarget {
             if mof_max == 0.0 {
                 0.0
             } else {
-                (mof_ds.lines.slope() * (mof_ds.error / mof_ds.lines.right.y) * 400.0).min(0.1)
+                (mof_ds.lines.slope() * (mof_ds.error / mof_ds.lines.right.y) * 800.0).min(0.1)
             }
         };
 
