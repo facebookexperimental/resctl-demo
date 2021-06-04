@@ -37,6 +37,24 @@ pub struct HashdKnobs {
     pub fake_cpu_load: bool,
 }
 
+impl std::fmt::Display for HashdKnobs {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "hash_size={} rps_max={} mem_actual={} chunk_pages={}{}",
+            format_size(self.hash_size),
+            self.rps_max,
+            format_size(self.actual_mem_size()),
+            self.chunk_pages,
+            if self.fake_cpu_load {
+                " fake_cpu_load"
+            } else {
+                ""
+            }
+        )
+    }
+}
+
 impl HashdKnobs {
     pub fn actual_mem_size(&self) -> u64 {
         (self.mem_size as f64 * self.mem_frac).ceil() as u64

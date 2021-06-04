@@ -132,21 +132,9 @@ impl Job for HashdParamsJob {
         _opts: &FormatOpts,
         _props: &JobProps,
     ) -> Result<()> {
-        let result: HashdKnobs = data.parse_record()?;
-
-        writeln!(out, "Params: log_bps={}", format_size(self.log_bps)).unwrap();
-
-        writeln!(
-            out,
-            "\nResult: hash_size={} rps_max={} mem_size={} mem_frac={:.3} chunk_pages={}",
-            format_size(result.hash_size),
-            result.rps_max,
-            format_size(result.mem_size),
-            result.mem_frac,
-            result.chunk_pages
-        )
-        .unwrap();
-
+        let res: HashdKnobs = data.parse_record()?;
+        writeln!(out, "Params: log_bps={}", format_size(self.log_bps))?;
+        writeln!(out, "\nResult: {}", &res)?;
         Ok(())
     }
 }

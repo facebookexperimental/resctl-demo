@@ -61,6 +61,7 @@ pub struct SysInfo {
     pub sysreqs_missed: MissedSysReqs,
     pub sysreqs_report: Option<SysReqsReport>,
     pub iocost: rd_agent_intf::IoCostReport,
+    pub hashd: Option<rd_agent_intf::HashdKnobs>,
     pub mem: MemInfo,
     pub swappiness: u32,
 }
@@ -73,6 +74,7 @@ impl Default for SysInfo {
             sysreqs_missed: Default::default(),
             sysreqs_report: None,
             iocost: Default::default(),
+            hashd: None,
             mem: Default::default(),
             swappiness: 60,
         }
@@ -228,6 +230,10 @@ impl JobData {
             }
             writeln!(out, "").unwrap();
 
+            if let Some(hashd) = self.sysinfo.hashd.as_ref() {
+                writeln!(out, "hashd params: {}\n", &hashd).unwrap();
+            }
+
             if self.sysinfo.sysreqs_missed.map.len() > 0 {
                 self.sysinfo.sysreqs_missed.format(out);
                 writeln!(out, "").unwrap();
@@ -361,6 +367,7 @@ impl JobCtx {
             si.iocost = rep.iocost.clone();
             si.swappiness = rep.swappiness;
         }
+        si.hashd = rctx.hashd_knobs.clone();
         si.mem = rctx.mem_info().clone();
     }
 
