@@ -1299,7 +1299,7 @@ impl<'a, 'b> RunCtx<'a, 'b> {
         ctx.report_sample.clone()
     }
 
-    fn report_path(&self) -> String {
+    pub fn report_path(&self) -> String {
         match AGENT_WAS_ACTIVE.load(Ordering::Relaxed) {
             true => {
                 let ctx = self.inner.lock().unwrap();
