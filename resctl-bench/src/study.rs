@@ -316,7 +316,11 @@ impl<'a> Studies<'a> {
         }
 
         if nr_reps == 0 {
-            bail!("No report found in {}", format_period(period));
+            bail!(
+                "No report found in {:?} for {:?}",
+                run.report_path(),
+                format_period(period)
+            );
         }
 
         Ok((nr_reps, nr_missed))
