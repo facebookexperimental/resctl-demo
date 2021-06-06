@@ -322,7 +322,7 @@ impl JsonArgs for Args {
                     .about("Studies benchmark results, all benchmarks must be complete")
                     .arg(clap::Arg::with_name("reports")
                          .long("reports")
-                         .short("r")
+                         .short("R")
                          .takes_value(true)
                          .help("Study reports in the directory (default: RESULTFILE_BASENAME-report.d/)"),
                     )
