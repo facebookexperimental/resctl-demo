@@ -1,6 +1,7 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
 use anyhow::{anyhow, Result};
 use chrono::prelude::*;
+use log::trace;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::ops;
@@ -538,7 +539,9 @@ impl Iterator for ReportPathIter {
         let front = self.front;
         self.front += 1;
 
-        Some((format!("{}/{}.json", &self.dir, front).into(), front))
+        let path = format!("{}/{}.json", &self.dir, front);
+        trace!("ReportPathIter: {}, {}", &path, front);
+        Some((path.into(), front))
     }
 }
 

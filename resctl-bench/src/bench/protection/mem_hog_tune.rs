@@ -92,12 +92,8 @@ impl MemHogTune {
             3600.0,
             is_done,
         ) {
-            Ok(v) => v,
-            Err(e) => {
-                info!("protection: {} failed, {:#}", desc, &e);
-                rctx.restart_agent()?;
-                return Ok((false, None));
-            }
+            Ok((run, bper)) if run.failed.is_none() => (run, bper),
+            _ => return Ok((false, None)),
         };
         if base_period.0 == base_period.1 {
             *base_period = bper.unwrap();
