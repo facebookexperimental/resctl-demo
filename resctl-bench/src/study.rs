@@ -93,7 +93,7 @@ where
         Self { sel, data: vec![] }
     }
 
-    fn study_data(&mut self, data: &[T]) -> Result<()> {
+    pub fn study_data(&mut self, data: &[T]) -> Result<()> {
         for v in data {
             self.data.push(v.as_());
         }
@@ -169,7 +169,7 @@ where
         }
     }
 
-    fn study_data(&mut self, data: &[T]) -> Result<()> {
+    pub fn study_data(&mut self, data: &[T]) -> Result<()> {
         for v in data {
             self.ckms.insert(v.as_());
             self.data.push(v.as_());

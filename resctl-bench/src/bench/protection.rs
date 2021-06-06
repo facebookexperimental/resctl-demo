@@ -26,7 +26,7 @@ fn baseline_hold(rctx: &mut RunCtx) -> Result<(u64, u64)> {
         .hashd()
         .timeout(Duration::from_secs_f64(BASELINE_HOLD))
         .monitor(rctx)
-        .context("holding")?;
+        .context("holding for baseline")?;
     Ok((started_at, unix_now()))
 }
 

@@ -54,6 +54,7 @@ impl std::fmt::Display for MemHogSpeed {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MemHogRun {
+    pub failed: Option<(f64, f64, String)>, // (target_duration, failed_after, fail_msg)
     pub first_hog_rep: BanditMemHogReport,
     pub last_hog_rep: BanditMemHogReport,
     pub last_hog_mem: usize,
@@ -86,6 +87,41 @@ pub struct MemHogRecord {
     pub result: RefCell<Option<MemHogResult>>,
 }
 
+#[derive(Default)]
+struct FailAcc {
+    target_dur_sum: f64,
+    failed_after_sum: f64,
+    fail_msgs: Vec<String>,
+}
+
+impl FailAcc {
+    fn add(&mut self, run: &MemHogRun) {
+        if let Some((target_dur, failed_after, fail_msg)) = run.failed.as_ref() {
+            self.target_dur_sum += target_dur;
+            self.failed_after_sum += failed_after;
+            self.fail_msgs.push(fail_msg.clone());
+        }
+    }
+
+    fn secs(&self) -> usize {
+        (self.target_dur_sum - self.failed_after_sum)
+            .max(0.0)
+            .ceil() as usize
+    }
+
+    fn ratio(&self) -> f64 {
+        if self.target_dur_sum > 0.0 {
+            ((self.target_dur_sum - self.failed_after_sum) / self.target_dur_sum).clamp(0.0001, 1.0)
+        } else {
+            0.0
+        }
+    }
+
+    fn msgs(self) -> Vec<String> {
+        self.fail_msgs
+    }
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct MemHogResult {
     pub base_rps: f64,
@@ -94,6 +130,8 @@ pub struct MemHogResult {
 
     pub isol: BTreeMap<String, f64>,
     pub lat_imp: BTreeMap<String, f64>,
+    pub fail_ratio: f64,
+    pub fail_msgs: Vec<String>,
     pub work_csv: f64,
     pub iolat: [BTreeMap<String, BTreeMap<String, f64>>; 2],
 
@@ -129,7 +167,7 @@ impl MemHog {
             .with_context(|| format!("failed to read bandit-mem-hog report {:?}", &hog_rep_path))
     }
 
-    pub fn run_one<F>(
+    fn run_one_int<F>(
         rctx: &mut RunCtx,
         run_name: &str,
         hashd_load: f64,
@@ -164,12 +202,13 @@ impl MemHog {
         let hog_svc_name = rd_agent_intf::sysload_svc_name(Self::NAME);
         let mut first_hog_rep = Err(anyhow!("swap usage stayed zero"));
         let mut hog_mem_rec = VecDeque::<usize>::new();
+        let mut failed = None;
 
         // Memory hog is running. Monitor it until it dies or the
         // timeout expires. Record the memory hog report when the swap
         // usage is first seen, which will be used as the baseline for
         // calculating the total amount of needed and performed IOs.
-        WorkloadMon::default()
+        if let Err(e) = WorkloadMon::default()
             .hashd()
             .sysload("mem-hog")
             .timeout(Duration::from_secs_f64(timeout))
@@ -195,7 +234,17 @@ impl MemHog {
                     Ok((done | ws_done, status))
                 },
             )
-            .context("monitoring mem-hog")?;
+        {
+            // This usually happens when IO isolation isn't good enough to
+            // keep the agent and hashd healthy. Rather than failing the
+            // whole run, collect the available data and mark when and how
+            // it failed.
+            failed = Some((
+                timeout,
+                ((unix_now() - hog_started_at) as f64).min(timeout),
+                format!("{}", &e),
+            ));
+        }
 
         // Memory hog is dead. Unwrap the first report and read the last
         // report to calculate delta.
@@ -210,20 +259,67 @@ impl MemHog {
 
         rctx.stop_sysload("mem-hog");
 
-        info!(
-            "protection: Memory hog terminated after {}, {} finished",
-            format_duration((unix_now() - hog_started_at) as f64),
-            run_name,
-        );
+        if failed.is_none() {
+            info!(
+                "protection: Memory hog terminated after {}, {} finished",
+                format_duration((unix_now() - hog_started_at) as f64),
+                run_name,
+            );
+        }
 
         Ok((
             MemHogRun {
+                failed,
                 first_hog_rep,
                 last_hog_rep,
                 last_hog_mem,
             },
             base_period,
         ))
+    }
+
+    pub fn run_one<F>(
+        rctx: &mut RunCtx,
+        run_name: &str,
+        hashd_load: f64,
+        hog_speed: MemHogSpeed,
+        do_base_hold: bool,
+        timeout: f64,
+        is_done: F,
+    ) -> Result<(MemHogRun, Option<(u64, u64)>)>
+    where
+        F: FnMut(&AgentFiles, &rd_agent_intf::UsageReport, &BanditMemHogReport) -> bool,
+    {
+        // mem-hog runs can fail in two ways - either from agent or hashd
+        // not being protected enough or some other failures. This function
+        // wraps run_one_int() to perform failure handling for both cases.
+        match Self::run_one_int(
+            rctx,
+            run_name,
+            hashd_load,
+            hog_speed,
+            do_base_hold,
+            timeout,
+            is_done,
+        ) {
+            Ok((hog_run, bper)) => {
+                if let Some((target_dur, failed_after, fail_msg)) = hog_run.failed.as_ref() {
+                    info!(
+                        "protection: {} failed after {}% ({})",
+                        run_name,
+                        format_pct(failed_after / target_dur),
+                        fail_msg
+                    );
+                    rctx.restart_agent()?;
+                }
+                Ok((hog_run, bper))
+            }
+            Err(e) => {
+                info!("protection: {} failed ({:#})", run_name, &e);
+                rctx.restart_agent()?;
+                Err(e)
+            }
+        }
     }
 
     pub fn run(&mut self, rctx: &mut RunCtx) -> Result<MemHogRecord> {
@@ -326,6 +422,18 @@ impl MemHog {
             },
             None,
         );
+
+        // If the run failed because agent or hashd couldn't be kept healthy
+        // enoungh, consider the rest of the run to have completely failed
+        // isolation - 0% isol, 100% lat-imp.
+        let mut fail_acc = FailAcc::default();
+        for run in rec.runs.iter() {
+            fail_acc.add(run)
+        }
+        for _ in 0..fail_acc.secs() {
+            study_isol.study_data(&[0.0]).unwrap();
+            study_lat_imp.study_data(&[1.0]).unwrap();
+        }
 
         // Collect IO usage and unused budgets which will be used to
         // calculate work conservation factor.
@@ -461,6 +569,8 @@ impl MemHog {
 
             isol,
             lat_imp,
+            fail_ratio: fail_acc.ratio(),
+            fail_msgs: fail_acc.msgs(),
             work_csv,
             iolat,
 
@@ -572,6 +682,22 @@ impl MemHog {
             },
             None,
         );
+
+        // If a run failed because agent or hashd couldn't be kept healthy
+        // enough, consider the rest of the run to have completely failed
+        // isolation - 0% isol, 100% lat-imp.
+        let mut fail_acc = FailAcc::default();
+        for (rec, _) in rrs.iter() {
+            for run in rec.runs.iter() {
+                fail_acc.add(run)
+            }
+        }
+        for _ in 0..fail_acc.secs() {
+            study_isol.study_data(&[0.0]).unwrap();
+            study_lat_imp.study_data(&[1.0]).unwrap();
+        }
+        cmb.fail_ratio = fail_acc.ratio();
+        cmb.fail_msgs = fail_acc.msgs();
 
         let work_rstat_study_ctx = ResourceStatStudyCtx::new();
         let sys_rstat_study_ctx = ResourceStatStudyCtx::new();
@@ -689,9 +815,16 @@ impl MemHog {
         print_pcts_line(out, 8, "isol%", &result.isol, format_pct, None);
         print_pcts_line(out, 8, "lat-imp%", &result.lat_imp, format_pct, None);
 
+        let fail_str = if result.fail_ratio != 0.0 {
+            format!("FAIL={}% ", format_pct(result.fail_ratio))
+        } else {
+            "".to_string()
+        };
+
         writeln!(
             out,
-            "\nResult: isol={}:{}% lat_imp={}%:{} work_csv={}% missing={}%",
+            "\nResult: {}isol={}:{}% lat_imp={}%:{} work_csv={}% missing={}%",
+            &fail_str,
             format_pct(result.isol["mean"]),
             format_pct(result.isol["stdev"]),
             format_pct(result.lat_imp["mean"]),
@@ -700,5 +833,9 @@ impl MemHog {
             format_pct(Studies::reports_missing(result.nr_reports)),
         )
         .unwrap();
+
+        for msg in result.fail_msgs.iter() {
+            writeln!(out, "        [error] {}", &msg).unwrap();
+        }
     }
 }
