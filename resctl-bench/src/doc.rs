@@ -129,4 +129,60 @@ duration of the benchmark.
 The Result File and Incremental Completion
 ------------------------------------------
 
+A given benchmark may take a long time to run and it is often useful to
+string up a series of benchmarks - e.g. run iocost-params and hashd-params
+to detemrine the basic parameters and then iocost-qos. While resctl-bench
+strives for reliability, it is a set of whole system benchmarks which push
+the system to its limits for extended periods of time. Something, even if
+not the benchmark itself, can fail once in a while.
+
+resctl-bench avoids wasting time and ensures forward-progress by
+incrementally updating benchmark results as they complete. The following
+command specifies the above three benchmark sequence. Note that iocost-qos
+will automatically schedule the two pre-requisite benchmarks if the needed
+parameters aren't available. Here, they're specified explicitly for
+demonstration purposes.
+
+ $ resctl-bench -r output.json run iocost-params hashd-params iocost-qos
+
+Let's say the first two benchmarks completed without a hitch but the system
+crashed when it was halfway through the iocost-qos benchmark. If you re-run
+the same command after the system is rebooted, the following will happen:
+
+* resctl-bench recognizes that output.json already contains the results from
+  iocost-params and hashd-params, outputs the summary and apply the result
+  paramters without running the benchmarks again.
+
+* Because iocost-qos benchmark can easily take multiple hours, it implements
+  incremental completion and keeps updating the result file as the bench
+  progresses. iocost-qos will fast-forward to the last checkpoint saved in
+  output.json and continue from there.
+
+The incremental operation means that existing reuslt files have significant
+effects on how resctl-bench behaves. If resctl-bench is behaving in an
+unexpected way or you want to restart a benchmark sequence from a clean
+slate, specify a different result file or delete the existing one.
+
+The result file is in json. The "summary" and "format" subcommands format
+the content into human readable outputs. On the completion of each
+benchmark, the result summary is printed out and the following reproduces
+the same output:
+
+ $ resctl-bench -r output.json summary
+
+For more detailed output:
+
+ $ resctl-bench -r output.json format
+
+By default, all benchmark results in the result file are printed out. You
+can select the target benchmarks using the same syntax as the "run"
+subcommand. To only view the result of the iocost-qos benchmark:
+
+ $ resctl-bench -r output.json format iocost-tune
+
+
+Run and Format Subcommand Properties
+------------------------------------
+
+
 "#;
