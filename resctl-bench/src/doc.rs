@@ -31,7 +31,7 @@ rd-hashd has its own sizing benchmark mode where it tries to figure out
 parameters to saturate all of CPU, memory and IO. It finds the maximum RPS
 that the CPUs can churn out and then figure out the maximum page cache and
 heap footprint that the memory and IO can service. resctl-bench often uses
-this benchmark mode, often with the cpu part faked, to evaluate IO devices.
+this benchmark mode, often with the CPU part faked, to evaluate IO devices.
 
 For more details: `rd-hashd --help`
 
@@ -131,7 +131,7 @@ The Result File and Incremental Completion
 
 A given benchmark may take a long time to run and it is often useful to
 string up a series of benchmarks - e.g. run iocost-params and hashd-params
-to detemrine the basic parameters and then iocost-qos. While resctl-bench
+to determine the basic parameters and then iocost-qos. While resctl-bench
 strives for reliability, it is a set of whole system benchmarks which push
 the system to its limits for extended periods of time. Something, even if
 not the benchmark itself, can fail once in a while.
@@ -139,7 +139,7 @@ not the benchmark itself, can fail once in a while.
 resctl-bench avoids wasting time and ensures forward-progress by
 incrementally updating benchmark results as they complete. The following
 command specifies the above three benchmark sequence. Note that iocost-qos
-will automatically schedule the two pre-requisite benchmarks if the needed
+will automatically schedule the two prerequisite benchmarks if the needed
 parameters aren't available. Here, they're specified explicitly for
 demonstration purposes.
 
@@ -151,14 +151,14 @@ the same command after the system is rebooted, the following will happen:
 
 * resctl-bench recognizes that output.json already contains the results from
   iocost-params and hashd-params, outputs the summary and apply the result
-  paramters without running the benchmarks again.
+  parameters without running the benchmarks again.
 
 * Because iocost-qos benchmark can easily take multiple hours, it implements
   incremental completion and keeps updating the result file as the bench
   progresses. iocost-qos will fast-forward to the last checkpoint saved in
   output.json and continue from there.
 
-The incremental operation means that existing reuslt files have significant
+The incremental operation means that existing result files have significant
 effects on how resctl-bench behaves. If resctl-bench is behaving in an
 unexpected way or you want to restart a benchmark sequence from a clean
 slate, specify a different result file or delete the existing one.
@@ -181,8 +181,54 @@ subcommand. To only view the result of the iocost-qos benchmark:
  $ resctl-bench -r output.json format iocost-tune
 
 
-Run and Format Subcommand Properties
-------------------------------------
+"run" and "format" Subcommand Properties
+----------------------------------------
 
+The "run" and "format" subcommands may take zero, one or multiple property
+sets. Here's a "run" example:
+
+ $ resctl-bench -r output.json run \
+   iocost-qos:id=qos-0,storage-base-loops=1:min=100,max=100:min=75,max=75:min=50,max=50
+
+We're running a iocost-qos benchmark which has three four property groups
+delineated with colons. The properties in the first group apply to the whole
+iocost-qos run.
+
+* id=qos-0
+
+  Specifies the ID of the run. This is useful when there are multiple runs
+  of the same benchmark. Here, we're naming the benchmark "qos-0". This ID
+  can also be used to pick the source results when merging.
+
+  This is one of several properties which are available regardless of the
+  benchmark type. We'll revisit these generic properties soon.
+
+* storage-base-loops=1
+
+  This is an iocost-qos specific property setting the repetition count of
+  the storage sub-bench base (iocost-off) runs. The default is 3 but we want
+  a quick run and are setting it to 1.
+
+  See each bench type's doc page for information on per-type properties.
+
+While there is no strict rule in how the extra property groups should be
+used, they're usually used to specify each stage in multi-stage benchmarks.
+Here, we're telling iocost-qos to probe three different QoS settings - vrate
+100, 75 and lastly 50. Note that an empty group can be specified with two
+consecutive colons:
+
+ $ resctl-bench -r output.json run iocost-qos:::min=75,max=75:min=50,max=50
+
+The triple colons indicate that the first two property groups are empty and
+the command will run an iocost-qos benchmark with the default parameters to
+probe three QoS settings: 1. default without any overrides 2. vrate at 75%
+3. vrate at 50%.
+
+Similarly, the "format" subcommand may accept properties:
+
+ $ resctl-bench -r output.json format iocost-tune:pdf=output.pdf
+
+The above command tells iocost-tune to generate an output pdf file instead
+of producing text output on stdout.
 
 "#;
