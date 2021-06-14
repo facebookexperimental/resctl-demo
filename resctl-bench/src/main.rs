@@ -13,7 +13,6 @@ use resctl_bench_intf::{Args, Mode};
 
 mod base;
 mod bench;
-mod doc;
 mod iocost;
 mod job;
 mod merge;
@@ -330,8 +329,10 @@ impl Program {
     }
 
     pub fn do_doc(subj: &str) -> Result<()> {
+        const COMMON_DOC: &[u8] = include_bytes!("doc/common.md");
+
         if subj == "common" {
-            println!("{}", doc::COMMON_DOC);
+            println!("{}", String::from_utf8_lossy(COMMON_DOC));
         } else {
             let mut buf = String::new();
             let mut out = Box::new(&mut buf) as Box<dyn Write>;
