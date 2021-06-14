@@ -1,5 +1,7 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
-use super::iocost_qos::{IoCostQoSRecord, IoCostQoSRecordRun, IoCostQoSResult, IoCostQoSResultRun};
+use super::iocost_qos::{
+    IoCostQoSJob, IoCostQoSRecord, IoCostQoSRecordRun, IoCostQoSResult, IoCostQoSResultRun,
+};
 use super::protection::MemHog;
 use super::*;
 use statrs::distribution::{Normal, Univariate};
@@ -1877,7 +1879,7 @@ impl IoCostTuneJob {
 
 impl Job for IoCostTuneJob {
     fn sysreqs(&self) -> BTreeSet<SysReq> {
-        Default::default()
+        IoCostQoSJob::default().sysreqs()
     }
 
     fn pre_run(&mut self, rctx: &mut RunCtx) -> Result<()> {
