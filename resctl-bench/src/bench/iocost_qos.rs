@@ -20,7 +20,8 @@ const DFL_RETRIES: u32 = 1;
 // Don't go below 1% of the specified model when applying vrate-intvs.
 const VRATE_INTVS_MIN: f64 = 1.0;
 
-struct IoCostQoSJob {
+#[derive(Default)]
+pub struct IoCostQoSJob {
     stor_base_loops: u32,
     stor_loops: u32,
     isol_pct: String,
@@ -451,7 +452,9 @@ impl IoCostQoSJob {
 
 impl Job for IoCostQoSJob {
     fn sysreqs(&self) -> BTreeSet<SysReq> {
-        StorageJob::default().sysreqs()
+        let mut sysreqs = StorageJob::default().sysreqs();
+        sysreqs.append(&mut ProtectionJob::default().sysreqs());
+        sysreqs
     }
 
     fn run(&mut self, rctx: &mut RunCtx) -> Result<serde_json::Value> {
