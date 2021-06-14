@@ -3,6 +3,7 @@ use anyhow::{bail, Context, Result};
 use log::error;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use std::fmt::Write;
 use std::path::Path;
 use std::process::exit;
 use std::sync::Mutex;
@@ -10,6 +11,66 @@ use util::*;
 
 use super::{IoCostQoSOvr, JobSpec};
 use rd_agent_intf;
+
+const BEFORE_HELP: &'static str = r#"OVERVIEW:
+
+resctl-bench (Resource Control Benchmark) uses rd-hashd and rd-agent to
+perform whole-system benchmarks to evaulate various aspects of resource
+control and system including the storage device.
+
+Each benchmark is composed of the following stages:
+
+    RUN: Benchmark is executed and the result records are written to the
+    result file. Some benchmarks are incremental - the result file is
+    continuously updated and the benchmark can resume after interruptions.
+
+    STUDY: After a benchmark is complete, the study stage walks and analyzes
+    the rd-agent report files to compute the result of the benchmark. The
+    computed result is written to the result file.
+
+    SOLVE: Some benchmarks have an additional solve stage where further
+    result computation is performed. If present, this stage is only allowed
+    to access the data recorded in the result file.
+
+    FORMAT: The result is formatted in a human readable form.
+
+The "run", "study", "solve" and "format" subcommands trigger the respective
+and all the subsequent stages.
+
+A benchmark is specified by a benchmark job spec:
+
+    BENCH_TYPE[:KEY[=VAL][,KEY[=VAL]...]]...
+
+Each job spec is composed of a bench type identifier and property groups.
+
+See the BENCHMARKS section below for the supported benchmark types and use
+the "help" subcommand for per-benchmark details.
+
+A sole KEY or KEY=VAL pair specifies a property. Multiple properties in a
+group are deliminated by a comma and the groups by a semicolon. All
+benchmarks accept the first group. Only some accept multiple groups. The
+following first group properties are always supported:
+
+    id: Optionally specify the ID of the benchmark which can be useful in
+    distinguishing multiple instances of the same benchmark type.
+
+Multiple benchmarks can be specified together and will be processed in the
+specified order.
+
+    resctl-bench -r result.json run \
+        iocost-params \
+        iocost-qos:id=qos-run-0:min=90,max=90:min=50,max=50 \
+        iocost-qos::min=40,max=40:min=25,max=25
+
+The above runs three benchmarks - iocost-params, iocost-qos w/ qos-run-0 as
+ID and another iocost-qos without ID. The iocost-qos benchmark accepts
+multiple property groups and each group after the first one describes the
+QoS configuration to benchmark. In the above, the first iocost-qos instance
+will benchmark vrate at 90% and 50%, and the second 40% and 25%. Note "::"
+in the latter indicating that there are no properties in the first group.
+
+See "help common" for more information on common concepts and options.
+"#;
 
 lazy_static::lazy_static! {
     static ref TOP_ARGS_STR: String = {
@@ -43,14 +104,44 @@ lazy_static::lazy_static! {
         )
     };
     pub static ref AFTER_HELP: Mutex<&'static str> = Mutex::new("");
+    pub static ref DOC_AFTER_HELP: Mutex<&'static str> = Mutex::new("");
 }
 
-pub fn set_bench_list(help: &str) {
-    let help = Box::new(format!(
-        "BENCHMARKS: Use the \"help\" subcommand for more info\n{}",
-        help
-    ));
-    *AFTER_HELP.lock().unwrap() = Box::leak(help);
+fn static_format_bench_list(header: &str, list: &[(String, String)]) -> &'static str {
+    let mut buf = String::new();
+    let kind_width = list.iter().map(|pair| pair.0.len()).max().unwrap_or(0);
+    write!(buf, "{}", header).unwrap();
+    for pair in list.iter() {
+        writeln!(
+            buf,
+            "    {:width$}    {}",
+            &pair.0,
+            &pair.1,
+            width = kind_width
+        )
+        .unwrap();
+    }
+    Box::leak(Box::new(buf))
+}
+
+pub fn set_bench_list(mut list: Vec<(String, String)>) {
+    // Global help
+    *AFTER_HELP.lock().unwrap() = static_format_bench_list(
+        "BENCHMARKS: Use the \"help\" subcommand for more info\n",
+        &list,
+    );
+
+    // Doc help
+    list.insert(
+        0,
+        (
+            "common".to_string(),
+            "Common options and properties".to_string(),
+        ),
+    );
+    *DOC_AFTER_HELP.lock().unwrap() = static_format_bench_list(
+        "SUBJECTS:\n", &list);
+    list.remove(0);
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -111,6 +202,8 @@ pub struct Args {
     pub merge_ignore_sysreqs: bool,
     #[serde(skip)]
     pub merge_multiple: bool,
+    #[serde(skip)]
+    pub doc_subjects: Vec<String>,
 }
 
 impl Default for Args {
@@ -144,6 +237,7 @@ impl Default for Args {
             merge_ignore_versions: false,
             merge_ignore_sysreqs: false,
             merge_multiple: false,
+            doc_subjects: vec![],
         }
     }
 }
@@ -302,7 +396,7 @@ impl JsonArgs for Args {
             .help("Benchmark job file");
         let job_spec_arg = clap::Arg::with_name("spec")
             .multiple(true)
-            .help("Benchmark job spec - \"BENCH_TYPE[:KEY=VAL...]\"");
+            .help("Benchmark job spec - \"BENCH_TYPE[:KEY[=VAL][,KEY[=VAL]...]]...\"");
 
         clap::App::new("resctl-bench")
             .version((*super::FULL_VERSION).as_str())
@@ -310,6 +404,7 @@ impl JsonArgs for Args {
             .about("Facebook Resource Control Benchmarks")
             .setting(clap::AppSettings::UnifiedHelpMessage)
             .setting(clap::AppSettings::DeriveDisplayOrder)
+            .before_help(BEFORE_HELP)
             .args_from_usage(&TOP_ARGS_STR)
             .subcommand(
                 clap::SubCommand::with_name("run")
@@ -392,6 +487,13 @@ impl JsonArgs for Args {
             .subcommand(
                 clap::App::new("doc")
                     .about("Shows documentation")
+                    .arg(
+                        clap::Arg::with_name("SUBJECT")
+                            .multiple(true)
+                            .required(true)
+                            .help("Documentation subject to show")
+                    )
+                    .after_help(*DOC_AFTER_HELP.lock().unwrap())
                 )
             .after_help(*AFTER_HELP.lock().unwrap()).get_matches()
     }
@@ -541,8 +643,13 @@ impl JsonArgs for Args {
                     .collect();
                 false
             }
-            ("doc", Some(_subm)) => {
+            ("doc", Some(subm)) => {
                 self.mode = Mode::Doc;
+                self.doc_subjects = subm
+                    .values_of("SUBJECT")
+                    .unwrap()
+                    .map(|x| x.to_string())
+                    .collect();
                 false
             }
             _ => false,

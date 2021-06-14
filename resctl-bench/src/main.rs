@@ -2,7 +2,8 @@
 use anyhow::{bail, Context, Error, Result};
 use indicatif::{ProgressBar, ProgressStyle};
 use log::{debug, error, info, warn};
-use std::io::Write;
+use std::fmt::Write;
+use std::io::Write as IoWrite;
 use std::path::Path;
 use std::process::{exit, Command};
 use std::sync::{Arc, Mutex};
@@ -327,6 +328,21 @@ impl Program {
         Ok(())
     }
 
+    pub fn do_doc(subj: &str) -> Result<()> {
+        const COMMON_DOC: &[u8] = include_bytes!("doc/common.md");
+
+        if subj == "common" {
+            println!("{}", String::from_utf8_lossy(COMMON_DOC));
+        } else {
+            let mut buf = String::new();
+            let mut out = Box::new(&mut buf) as Box<dyn Write>;
+            bench::show_bench_doc(&mut out, subj)?;
+            drop(out);
+            println!("{}", &buf);
+        }
+        Ok(())
+    }
+
     fn main(mut self) {
         let args = &self.args_file.data;
 
@@ -359,11 +375,17 @@ impl Program {
             Mode::Pack => self.do_pack().unwrap(),
             Mode::Merge => {
                 if let Err(e) = merge::merge(&self.args_file.data) {
-                    error!("Failed to merge ({:?})", &e);
+                    error!("Failed to merge ({:#})", &e);
                     panic!();
                 }
             }
-            Mode::Doc => {}
+            Mode::Doc => {
+                for subj in args.doc_subjects.iter() {
+                    if let Err(e) = Self::do_doc(subj) {
+                        error!("Failed to show {:?} ({:#})", subj, &e);
+                    }
+                }
+            }
         }
     }
 }
@@ -373,7 +395,7 @@ fn main() {
     setup_prog_state();
     bench::init_benchs();
 
-    resctl_bench_intf::set_bench_list(&bench::bench_list());
+    resctl_bench_intf::set_bench_list(bench::bench_list());
     let (args_file, args_updated) = Args::init_args_and_logging_nosave().unwrap_or_else(|e| {
         error!("Failed to process args file ({})", &e);
         panic!();
