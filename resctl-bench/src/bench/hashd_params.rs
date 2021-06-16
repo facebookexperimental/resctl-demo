@@ -4,26 +4,26 @@ use rd_agent_intf::HashdKnobs;
 use rd_agent_intf::{HASHD_BENCH_SVC_NAME, ROOT_SLICE};
 
 struct HashdParamsJob {
-    log_bps: u64,
-    fake_cpu_load: bool,
     apply: bool,
     commit: bool,
+    fake_cpu_load: bool,
+    rps_max: Option<u32>,
     hash_size: Option<usize>,
     chunk_pages: Option<usize>,
-    rps_max: Option<u32>,
+    log_bps: u64,
 }
 
 impl Default for HashdParamsJob {
     fn default() -> Self {
         let dfl_cmd = rd_agent_intf::Cmd::default();
         Self {
-            log_bps: dfl_cmd.hashd[0].log_bps,
-            fake_cpu_load: false,
             apply: true,
             commit: true,
+            fake_cpu_load: false,
+            rps_max: None,
             hash_size: None,
             chunk_pages: None,
-            rps_max: None,
+            log_bps: dfl_cmd.hashd[0].log_bps,
         }
     }
 }
@@ -40,13 +40,13 @@ impl Bench for HashdParamsBench {
 
         for (k, v) in spec.props[0].iter() {
             match k.as_str() {
-                "log-bps" => job.log_bps = v.parse::<u64>()?,
-                "fake-cpu-load" => job.fake_cpu_load = v.len() == 0 || v.parse::<bool>()?,
                 "apply" => job.apply = v.len() == 0 || v.parse::<bool>()?,
                 "commit" => job.commit = v.len() == 0 || v.parse::<bool>()?,
-                "hash-size" => job.hash_size = Some(v.parse::<usize>()?),
-                "chunk-pages" => job.chunk_pages = Some(v.parse::<usize>()?),
+                "fake-cpu-load" => job.fake_cpu_load = v.len() == 0 || v.parse::<bool>()?,
                 "rps-max" => job.rps_max = Some(v.parse::<u32>()?),
+                "hash-size" => job.hash_size = Some(parse_size(v)? as usize),
+                "chunk-pages" => job.chunk_pages = Some(v.parse::<usize>()?),
+                "log-bps" => job.log_bps = parse_size(v)?,
                 k => bail!("unknown property key {:?}", k),
             }
         }
@@ -54,6 +54,12 @@ impl Bench for HashdParamsBench {
             job.apply = true;
         }
         Ok(Box::new(job))
+    }
+
+    fn doc<'a>(&self, out: &mut Box<dyn Write + 'a>) -> Result<()> {
+        const DOC: &[u8] = include_bytes!("../doc/hashd_params.md");
+        write!(out, "{}", String::from_utf8_lossy(DOC))?;
+        Ok(())
     }
 }
 
@@ -70,10 +76,10 @@ impl Job for HashdParamsJob {
         if self.fake_cpu_load {
             let base = HashdFakeCpuBench::base(rctx);
             HashdFakeCpuBench {
-                log_bps: Some(self.log_bps),
+                rps_max: self.rps_max.unwrap_or(base.rps_max),
                 hash_size: self.hash_size.unwrap_or(base.hash_size),
                 chunk_pages: self.chunk_pages.unwrap_or(base.chunk_pages),
-                rps_max: self.rps_max.unwrap_or(base.rps_max),
+                log_bps: Some(self.log_bps),
                 ..base
             }
             .start(rctx)?;
