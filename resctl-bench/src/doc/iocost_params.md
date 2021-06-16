@@ -1,7 +1,8 @@
-# iocost-params Benchmark
+# `iocost-params` Benchmark
 
 This is a wrapper around the naive fio based benchmark available in the
 kernel tree and determines the iocost model and QoS parameters.
+
 
 ## Properties
 
@@ -13,6 +14,7 @@ If `true`, apply the determined parameters to the subsequent benchmarks.
 
 If `true`, commit the determined parameters to
 `/var/lib/resctl-demo/bench.json`. Implies `apply`.
+
 
 ## Limitations
 
