@@ -45,6 +45,27 @@ This benchmark also supports rstat. Format the result with `--rstat`s to see
 detailed resource statistics.
 
 
+## Reading Results
+
+In the `storage` output:
+
+```
+IO BPS: read_final=332M write_final=40.6M read_all=300M write_all=44.0M
+
+Memory offloading: factor=1.559@16 usage_mean/stdev=11.1G/36.5M size_mean/stdev=17.3G/1.7G
+```
+
+The `IO BPS` line shows the measured read and write bandwidths. The `_final`
+suffixed ones are measurements from the final stages of the benchmarks where
+`rd-hashd` was running with the final probed sizes. The `_all` ones are for
+the entire benchmark duration.
+
+In the `Memory offloading` line, `factor` is the `MOF`. `usage_mean/stdev`
+are the average and standard deviation of `rd-hashd`'s memory usages over
+the `loops` iterations. `size_mean/stdev` are the same of `rd-hashd`'s
+memory footprints. The `factor` is `size_mean` divided by `usage_mean`.
+
+
 ## Properties
 
 #### `apply` (bool, default: `false`)
@@ -91,24 +112,3 @@ memory.
 
 The number of times to retry after re-evaluating the amount of available
 memory.
-
-
-## Reading Result
-
-In the `storage` output:
-
-```
-IO BPS: read_final=332M write_final=40.6M read_all=300M write_all=44.0M
-
-Memory offloading: factor=1.559@16 usage_mean/stdev=11.1G/36.5M size_mean/stdev=17.3G/1.7G
-```
-
-The `IO BPS` line shows the measured read and write bandwidths. The `_final`
-suffixed ones are measurements from the final stages of the benchmarks where
-`rd-hashd` was running with the final probed sizes. The `_all` ones are for
-the entire benchmark duration.
-
-In the `Memory offloading` line, `factor` is the `MOF`. `usage_mean/stdev`
-are the average and standard deviation of `rd-hashd`'s memory usages over
-the `loops` iterations. `size_mean/stdev` are the same of `rd-hashd`'s
-memory footprints. The `factor` is `size_mean` divided by `usage_mean`.

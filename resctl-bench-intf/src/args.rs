@@ -44,7 +44,7 @@ A benchmark is specified by a benchmark job spec:
 Each job spec is composed of a bench type identifier and property groups.
 
 See the BENCHMARKS section below for the supported benchmark types and use
-the "help" subcommand for per-benchmark details.
+the "doc" subcommand for per-benchmark details.
 
 A sole KEY or KEY=VAL pair specifies a property. Multiple properties in a
 group are deliminated by a comma and the groups by a semicolon. All
@@ -70,6 +70,16 @@ will benchmark vrate at 90% and 50%, and the second 40% and 25%. Note "::"
 in the latter indicating that there are no properties in the first group.
 
 See "help common" for more information on common concepts and options.
+"#;
+
+const DOC_HELP: &'static str = r#"
+Shows documentation. The pages are in markdown. To convert, e.g., to pdf:
+
+  resctl-bench doc $SUBJECT | pandoc -o common.pdf:
+
+The documentation can also be viewed at:
+
+  https://github.com/facebookexperimental/resctl-demo/tree/master/resctl-bench/src/doc
 "#;
 
 lazy_static::lazy_static! {
@@ -136,11 +146,10 @@ pub fn set_bench_list(mut list: Vec<(String, String)>) {
         0,
         (
             "common".to_string(),
-            "Common options and properties".to_string(),
+            "Overview, Common Concepts and Options".to_string(),
         ),
     );
-    *DOC_AFTER_HELP.lock().unwrap() = static_format_bench_list(
-        "SUBJECTS:\n", &list);
+    *DOC_AFTER_HELP.lock().unwrap() = static_format_bench_list("SUBJECTS:\n", &list);
     list.remove(0);
 }
 
@@ -486,7 +495,7 @@ impl JsonArgs for Args {
             )
             .subcommand(
                 clap::App::new("doc")
-                    .about("Shows documentation")
+                    .about(DOC_HELP)
                     .arg(
                         clap::Arg::with_name("SUBJECT")
                             .multiple(true)
