@@ -25,7 +25,7 @@ benchmarking independent of CPU performance. Useful when IO devices need to
 be compared across different machines and thus used by storage focused
 benchmarks.
 
-#### `rps-max` (integer, default: 2000 when `fake-cpu-load`)
+#### `rps-max` (integer, default: `2000` when `fake-cpu-load`)
 
 Configure the max RPS when faking cpu load.
 
