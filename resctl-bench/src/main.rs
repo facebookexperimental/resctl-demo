@@ -331,6 +331,9 @@ impl Program {
     pub fn do_doc(subj: &str) -> Result<()> {
         const COMMON_DOC: &[u8] = include_bytes!("doc/common.md");
 
+        println!("This documentation can also be viewed at:\n\n  {}\n",
+                 resctl_bench_intf::GITHUB_DOC_LINK);
+
         if subj == "common" {
             println!("{}", String::from_utf8_lossy(COMMON_DOC));
         } else {

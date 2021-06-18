@@ -72,15 +72,8 @@ in the latter indicating that there are no properties in the first group.
 See "help common" for more information on common concepts and options.
 "#;
 
-const DOC_HELP: &'static str = r#"
-Shows documentation. The pages are in markdown. To convert, e.g., to pdf:
-
-  resctl-bench doc $SUBJECT | pandoc -o common.pdf:
-
-The documentation can also be viewed at:
-
-  https://github.com/facebookexperimental/resctl-demo/tree/master/resctl-bench/src/doc
-"#;
+pub const GITHUB_DOC_LINK: &'static str =
+    "https://github.com/facebookexperimental/resctl-demo/tree/master/resctl-bench/src/doc";
 
 lazy_static::lazy_static! {
     static ref TOP_ARGS_STR: String = {
@@ -115,9 +108,19 @@ lazy_static::lazy_static! {
     };
     pub static ref AFTER_HELP: Mutex<&'static str> = Mutex::new("");
     pub static ref DOC_AFTER_HELP: Mutex<&'static str> = Mutex::new("");
+    pub static ref DOC_AFTER_HELP_FOOTER: String = format!(r#"
+The pages are in markdown. To convert, e.g., to pdf:
+
+  resctl-bench doc $SUBJECT | pandoc -o $SUBJECT.pdf:
+
+The documentation can also be viewed at:
+
+  {}
+
+"#, GITHUB_DOC_LINK);
 }
 
-fn static_format_bench_list(header: &str, list: &[(String, String)]) -> &'static str {
+fn static_format_bench_list(header: &str, list: &[(String, String)], footer: &str) -> &'static str {
     let mut buf = String::new();
     let kind_width = list.iter().map(|pair| pair.0.len()).max().unwrap_or(0);
     write!(buf, "{}", header).unwrap();
@@ -131,6 +134,7 @@ fn static_format_bench_list(header: &str, list: &[(String, String)]) -> &'static
         )
         .unwrap();
     }
+    write!(buf, "{}", footer).unwrap();
     Box::leak(Box::new(buf))
 }
 
@@ -139,6 +143,7 @@ pub fn set_bench_list(mut list: Vec<(String, String)>) {
     *AFTER_HELP.lock().unwrap() = static_format_bench_list(
         "BENCHMARKS: Use the \"help\" subcommand for more info\n",
         &list,
+        "",
     );
 
     // Doc help
@@ -149,7 +154,8 @@ pub fn set_bench_list(mut list: Vec<(String, String)>) {
             "Overview, Common Concepts and Options".to_string(),
         ),
     );
-    *DOC_AFTER_HELP.lock().unwrap() = static_format_bench_list("SUBJECTS:\n", &list);
+    *DOC_AFTER_HELP.lock().unwrap() =
+        static_format_bench_list("SUBJECTS:\n", &list, &DOC_AFTER_HELP_FOOTER);
     list.remove(0);
 }
 
@@ -495,7 +501,7 @@ impl JsonArgs for Args {
             )
             .subcommand(
                 clap::App::new("doc")
-                    .about(DOC_HELP)
+                    .about("Shows documentations")
                     .arg(
                         clap::Arg::with_name("SUBJECT")
                             .multiple(true)
