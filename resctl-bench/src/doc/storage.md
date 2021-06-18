@@ -1,4 +1,4 @@
-# `storage` Benchmark
+# `storage` benchmark
 
 Uses `rd-hashd`'s sizing benchmark to measure the performance of the storage
 device.

@@ -1,4 +1,4 @@
-# `iocost-qos` Benchmark
+# `iocost-qos` benchmark
 
 This benchmark utilizes `storage` and `protection:mem-hog-tune` to evaluate
 different iocost QoS configurations. For each QoS configuration,

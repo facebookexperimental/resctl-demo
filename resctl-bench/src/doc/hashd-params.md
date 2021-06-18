@@ -1,4 +1,4 @@
-# `hashd-params` Benchmark
+# `hashd-params` benchmark
 
 This is a wrapper around `rd-hashd`'s benchmark mode which tries to saturate
 all three local resources - CPU, memory and IO. The bench result parameters

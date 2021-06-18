@@ -1,4 +1,4 @@
-# Resource Control Benchmark
+# Overview, Common Concepts and Options
 
 When a system is under resource contention, various operating system
 components and applications interact in complex ways. The interactions can't

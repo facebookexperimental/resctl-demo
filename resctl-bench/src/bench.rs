@@ -220,9 +220,9 @@ mod protection;
 mod storage;
 
 pub fn init_benchs() -> () {
-    register_bench(Box::new(storage::StorageBench {}));
     register_bench(Box::new(iocost_params::IoCostParamsBench {}));
     register_bench(Box::new(hashd_params::HashdParamsBench {}));
+    register_bench(Box::new(storage::StorageBench {}));
     register_bench(Box::new(protection::ProtectionBench {}));
     register_bench(Box::new(iocost_qos::IoCostQoSBench {}));
     register_bench(Box::new(iocost_tune::IoCostTuneBench {}));

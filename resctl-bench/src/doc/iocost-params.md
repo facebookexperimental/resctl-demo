@@ -1,4 +1,4 @@
-# `iocost-params` Benchmark
+# `iocost-params` benchmark
 
 This is a wrapper around the naive fio based benchmark available in the
 kernel tree and determines the iocost model and QoS parameters.
