@@ -1,4 +1,4 @@
-# `iocost-tune` Benchmark
+# `iocost-tune` benchmark
 
 `iocost-tune` analyzes the results of an `iocost-qos` benchmark to identify
 behavior characteristics of the IO device and compute iocost QoS parameter

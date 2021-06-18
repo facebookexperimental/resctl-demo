@@ -1,4 +1,4 @@
-#  `protection` Benchmark
+#  `protection` benchmark
 
 This benchmark is a collection of scenarios that test how well `rd-hashd`
 can be protected against interferences. Currently, the following two
