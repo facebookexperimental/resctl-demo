@@ -229,7 +229,7 @@ impl MemHogTune {
             Some(final_size) => {
                 writeln!(
                     out,
-                    "        hashd memory size {}/{} can be protected at isol-{} <= {}%",
+                    "        hashd memory size {}/{} can be protected at isol-{} >= {}%",
                     format_size(final_size),
                     format_size(self.size_range.1),
                     self.isol_pct,

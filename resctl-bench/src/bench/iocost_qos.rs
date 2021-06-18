@@ -51,6 +51,12 @@ impl Bench for IoCostQoSBench {
     fn parse(&self, spec: &JobSpec, prev_data: Option<&JobData>) -> Result<Box<dyn Job>> {
         Ok(Box::new(IoCostQoSJob::parse(spec, prev_data)?))
     }
+
+    fn doc<'a>(&self, out: &mut Box<dyn Write + 'a>) -> Result<()> {
+        const DOC: &[u8] = include_bytes!("../doc/iocost_qos.md");
+        write!(out, "{}", String::from_utf8_lossy(DOC))?;
+        Ok(())
+    }
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -138,18 +144,18 @@ impl IoCostQoSJob {
                 "vrate-min" => vrate_min = v.parse::<f64>()?,
                 "vrate-max" => vrate_max = v.parse::<f64>()?,
                 "vrate-intvs" => vrate_intvs = v.parse::<u32>()?,
-                "storage-base-loops" => stor_base_loops = v.parse::<u32>()?,
-                "storage-loops" => stor_loops = v.parse::<u32>()?,
-                "isol-pct" => isol_pct = v.to_owned(),
-                "isol-thr" => isol_thr = parse_frac(v)?,
-                "retries" => retries = v.parse::<u32>()?,
-                "allow-fail" => allow_fail = v.parse::<bool>()?,
                 "dither" => {
                     dither = true;
                     if v.len() > 0 {
                         dither_dist = Some(v.parse::<f64>()?);
                     }
                 }
+                "storage-base-loops" => stor_base_loops = v.parse::<u32>()?,
+                "storage-loops" => stor_loops = v.parse::<u32>()?,
+                "isol-pct" => isol_pct = v.to_owned(),
+                "isol-thr" => isol_thr = parse_frac(v)?,
+                "retries" => retries = v.parse::<u32>()?,
+                "allow-fail" => allow_fail = v.parse::<bool>()?,
                 "ignore-min-perf" => ign_min_perf = v.len() == 0 || v.parse::<bool>()?,
                 k if k.starts_with("storage-") => {
                     stor_spec.props[0].insert(k[8..].into(), v.into());
@@ -528,7 +534,7 @@ impl Job for IoCostQoSJob {
         if nr_to_run > 0 {
             if prev_matches || nr_to_run == self.runs.len() {
                 info!(
-                    "iocost-qos: {} storage and protection bench sets to run, isol-{} <= {}%",
+                    "iocost-qos: {} storage and protection bench sets to run, isol-{} >= {}%",
                     nr_to_run,
                     self.isol_pct,
                     format_pct(self.isol_thr),
@@ -725,7 +731,7 @@ impl Job for IoCostQoSJob {
 
                     writeln!(
                         out,
-                        "QoS result: mem_offload_factor={:.3}@{}({:.3}x) vrate={:.2}:{:.2} missing={}%",
+                        "QoS result: MOF={:.3}@{}({:.3}x) vrate={:.2}:{:.2} missing={}%",
                         resr.stor.mem_offload_factor,
                         recr.stor.mem.profile,
                         resr.stor.mem_offload_factor / base_stor_res.mem_offload_factor,
@@ -744,7 +750,7 @@ impl Job for IoCostQoSJob {
 
                         writeln!(
                             out,
-                            "            adjusted_mof={:.3}@{}({:.3}x) isol-{}={}% lat_imp={}%:{} work_csv={}%",
+                            "            aMOF={:.3}@{}({:.3}x) isol-{}={}% lat_imp={}%:{} work_csv={}%",
                             amof,
                             recr.stor.mem.profile,
                             amof / base_stor_res.mem_offload_factor,
@@ -758,7 +764,7 @@ impl Job for IoCostQoSJob {
                     } else {
                         writeln!(
                             out,
-                            "            adjust_mof=FAIL isol=FAIL lat_imp=FAIL work_csv=FAIL"
+                            "            aMOF=FAIL isol=FAIL lat_imp=FAIL work_csv=FAIL"
                         )
                         .unwrap();
                     }

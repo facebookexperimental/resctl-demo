@@ -219,6 +219,12 @@ impl Bench for ProtectionBench {
     fn parse(&self, spec: &JobSpec, _prev_data: Option<&JobData>) -> Result<Box<dyn Job>> {
         Ok(Box::new(ProtectionJob::parse(spec)?))
     }
+
+    fn doc<'a>(&self, out: &mut Box<dyn Write + 'a>) -> Result<()> {
+        const DOC: &[u8] = include_bytes!("../doc/protection.md");
+        write!(out, "{}", String::from_utf8_lossy(DOC))?;
+        Ok(())
+    }
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]

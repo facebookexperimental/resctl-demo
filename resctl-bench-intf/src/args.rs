@@ -44,7 +44,7 @@ A benchmark is specified by a benchmark job spec:
 Each job spec is composed of a bench type identifier and property groups.
 
 See the BENCHMARKS section below for the supported benchmark types and use
-the "help" subcommand for per-benchmark details.
+the "doc" subcommand for per-benchmark details.
 
 A sole KEY or KEY=VAL pair specifies a property. Multiple properties in a
 group are deliminated by a comma and the groups by a semicolon. All
@@ -71,6 +71,9 @@ in the latter indicating that there are no properties in the first group.
 
 See "help common" for more information on common concepts and options.
 "#;
+
+pub const GITHUB_DOC_LINK: &'static str =
+    "https://github.com/facebookexperimental/resctl-demo/tree/master/resctl-bench/src/doc";
 
 lazy_static::lazy_static! {
     static ref TOP_ARGS_STR: String = {
@@ -105,9 +108,19 @@ lazy_static::lazy_static! {
     };
     pub static ref AFTER_HELP: Mutex<&'static str> = Mutex::new("");
     pub static ref DOC_AFTER_HELP: Mutex<&'static str> = Mutex::new("");
+    pub static ref DOC_AFTER_HELP_FOOTER: String = format!(r#"
+The pages are in markdown. To convert, e.g., to pdf:
+
+  resctl-bench doc $SUBJECT | pandoc -o $SUBJECT.pdf:
+
+The documentation can also be viewed at:
+
+  {}
+
+"#, GITHUB_DOC_LINK);
 }
 
-fn static_format_bench_list(header: &str, list: &[(String, String)]) -> &'static str {
+fn static_format_bench_list(header: &str, list: &[(String, String)], footer: &str) -> &'static str {
     let mut buf = String::new();
     let kind_width = list.iter().map(|pair| pair.0.len()).max().unwrap_or(0);
     write!(buf, "{}", header).unwrap();
@@ -121,6 +134,7 @@ fn static_format_bench_list(header: &str, list: &[(String, String)]) -> &'static
         )
         .unwrap();
     }
+    write!(buf, "{}", footer).unwrap();
     Box::leak(Box::new(buf))
 }
 
@@ -129,6 +143,7 @@ pub fn set_bench_list(mut list: Vec<(String, String)>) {
     *AFTER_HELP.lock().unwrap() = static_format_bench_list(
         "BENCHMARKS: Use the \"help\" subcommand for more info\n",
         &list,
+        "",
     );
 
     // Doc help
@@ -136,11 +151,11 @@ pub fn set_bench_list(mut list: Vec<(String, String)>) {
         0,
         (
             "common".to_string(),
-            "Common options and properties".to_string(),
+            "Overview, Common Concepts and Options".to_string(),
         ),
     );
-    *DOC_AFTER_HELP.lock().unwrap() = static_format_bench_list(
-        "SUBJECTS:\n", &list);
+    *DOC_AFTER_HELP.lock().unwrap() =
+        static_format_bench_list("SUBJECTS:\n", &list, &DOC_AFTER_HELP_FOOTER);
     list.remove(0);
 }
 
@@ -486,7 +501,7 @@ impl JsonArgs for Args {
             )
             .subcommand(
                 clap::App::new("doc")
-                    .about("Shows documentation")
+                    .about("Shows documentations")
                     .arg(
                         clap::Arg::with_name("SUBJECT")
                             .multiple(true)

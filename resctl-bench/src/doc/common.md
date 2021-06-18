@@ -10,13 +10,7 @@ with realistic workloads and analyzing system and workload behaviors.
 Many of benchmarks implemented in resctl-bench have detailed explanations in
 resctl-demo. Give it a try.
 
-The doc pages are in markdown. To convert, for example, to pdf:
-
-```
-$ resctl-bench doc | pandoc -o common.pdf
-```
-
-## _Common Concepts_
+## Common Concepts
 
 ### rd-hashd
 
@@ -90,7 +84,7 @@ invocation), `--mem-avail` can be used to skip this step. Some benchmarks
 can detect incorrect `mem_avail` and retry automatically. Those benchmarks
 may fail if the amount of available memory keeps fluctuating.
 
-## _Running Benchmarks_
+## Running Benchmarks
 
 ### The Result File and Incremental Completion
 
@@ -409,7 +403,7 @@ $ resctl-bench -r result.json run storage:apply=true
 Note that the properties default to `true` for some benchmarks
 (`iocost-params` and `hashd-params`).
 
-## _Reading Benchmark Results_
+## Reading Benchmark Results
 
 ### Header
 

@@ -5,13 +5,13 @@ use std::collections::{BTreeMap, VecDeque};
 
 #[derive(Clone)]
 pub struct StorageJob {
-    pub hash_size: usize,
-    pub chunk_pages: usize,
-    pub rps_max: u32,
-    pub log_bps: u64,
-    pub loops: u32,
     pub apply: bool,
     pub commit: bool,
+    pub loops: u32,
+    pub rps_max: u32,
+    pub hash_size: usize,
+    pub chunk_pages: usize,
+    pub log_bps: u64,
     pub mem_avail_err_max: f64,
     pub mem_avail_inner_retries: u32,
     pub mem_avail_outer_retries: u32,
@@ -27,13 +27,13 @@ impl Default for StorageJob {
         let dfl_params = rd_hashd_intf::Params::default();
 
         Self {
-            hash_size: dfl_params.file_size_mean,
-            chunk_pages: dfl_params.chunk_pages,
-            rps_max: RunCtx::BENCH_FAKE_CPU_RPS_MAX,
-            log_bps: dfl_params.log_bps,
-            loops: 3,
             apply: false,
             commit: false,
+            loops: 3,
+            rps_max: RunCtx::BENCH_FAKE_CPU_RPS_MAX,
+            hash_size: dfl_params.file_size_mean,
+            chunk_pages: dfl_params.chunk_pages,
+            log_bps: dfl_params.log_bps,
             mem_avail_err_max: 0.1,
             mem_avail_inner_retries: 2,
             mem_avail_outer_retries: 2,
@@ -56,6 +56,12 @@ impl Bench for StorageBench {
 
     fn parse(&self, spec: &JobSpec, _prev_data: Option<&JobData>) -> Result<Box<dyn Job>> {
         Ok(Box::new(StorageJob::parse(spec)?))
+    }
+
+    fn doc<'a>(&self, out: &mut Box<dyn Write + 'a>) -> Result<()> {
+        const DOC: &[u8] = include_bytes!("../doc/storage.md");
+        write!(out, "{}", String::from_utf8_lossy(DOC))?;
+        Ok(())
     }
 }
 
@@ -88,13 +94,13 @@ impl StorageJob {
 
         for (k, v) in spec.props[0].iter() {
             match k.as_str() {
-                "hash-size" => job.hash_size = v.parse::<usize>()?,
-                "chunk-pages" => job.chunk_pages = v.parse::<usize>()?,
-                "rps-max" => job.rps_max = v.parse::<u32>()?,
-                "log-bps" => job.log_bps = v.parse::<u64>()?,
-                "loops" => job.loops = v.parse::<u32>()?,
                 "apply" => job.apply = v.len() == 0 || v.parse::<bool>()?,
                 "commit" => job.commit = v.len() == 0 || v.parse::<bool>()?,
+                "loops" => job.loops = v.parse::<u32>()?,
+                "rps-max" => job.rps_max = v.parse::<u32>()?,
+                "hash-size" => job.hash_size = parse_size(v)? as usize,
+                "chunk-pages" => job.chunk_pages = v.parse::<usize>()?,
+                "log-bps" => job.log_bps = parse_size(v)?,
                 "mem-avail-err-max" => job.mem_avail_err_max = v.parse::<f64>()?,
                 "mem-avail-inner-retries" => job.mem_avail_inner_retries = v.parse::<u32>()?,
                 "mem-avail-outer-retries" => job.mem_avail_outer_retries = v.parse::<u32>()?,
