@@ -142,15 +142,15 @@ millisecs, and maximum of 15.5 millisecs.
 ## Properties
 ### First group properties (applies to all runs)
 
-#### `vrate-min` (float, default: `0.0`)
+#### `vrate-min` (float, default: 0.0)
 
 See `vrate-intvs`.
 
-#### `vrate-max` (float, default: `100.0`)
+#### `vrate-max` (float, default: 100.0)
 
 See `vrate-intvs`.
 
-#### `vrate-intvs` (integer, default: `0`)
+#### `vrate-intvs` (integer, default: 0)
 
 If non-zero, vrates between `vrate-min` and `vrate-max` are probed in
 `vrate-intvs` steps. See the above overview for an example. This interval
@@ -167,32 +167,32 @@ When `dither` is specified without a value, the maximum dither distance is
 half of interval width. Specifying a value overrides the maximum dither
 distance.
 
-#### `storage-base-loops` (integer, default: `3`)
+#### `storage-base-loops` (integer, default: 3)
 
 `loops` for the baseline (`iocost=off`) `storage` sub-bench.
 
-#### `storage-loops` (integer, default: `1`)
+#### `storage-loops` (integer, default: 1)
 
 `loops` for QoS `storage` sub-benches.
 
-#### `isol-pct` (percentile, default: `01`)
+#### `isol-pct` (percentile, default: 01)
 
 `isol-pct` for protection sub-bench.
 
-#### `isol-thr` (fraction, default: `0.9`)
+#### `isol-thr` (fraction, default: 0.9)
 
 `isol-thr` for protection sub-bench.
 
-#### `retries` (integer, default: `1`)
+#### `retries` (integer, default: 1)
 
 The number of times to retry `storage` sub-bench after a failure.
 
-#### `allow-fail` (boolean, default: `false`)
+#### `allow-fail` (boolean, default: false)
 
 If the `storage` sub-bench fails for a QoS configuration, skip it instead of
 aborting the whole benchmark.
 
-#### `ignore-min-perf` (boolean, default: `false`)
+#### `ignore-min-perf` (boolean, default: false)
 
 `iocost-qos` automatically skips QoS configurations which result in too low
 bandwidth for reliable operation. This property forces benchmarking of all

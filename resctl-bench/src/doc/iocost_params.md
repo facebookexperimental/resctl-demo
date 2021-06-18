@@ -6,13 +6,13 @@ kernel tree and determines the iocost model and QoS parameters.
 
 ## Properties
 
-#### `apply` (bool, default: `true`)
+#### `apply` (bool, default: true)
 
-If `true`, apply the determined parameters to the subsequent benchmarks.
+If true, apply the determined parameters to the subsequent benchmarks.
 
-#### `commit` (bool, default: `true`)
+#### `commit` (bool, default: true)
 
-If `true`, commit the determined parameters to
+If true, commit the determined parameters to
 `/var/lib/resctl-demo/bench.json`. Implies `apply`.
 
 

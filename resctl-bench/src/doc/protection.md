@@ -140,28 +140,28 @@ shows that `isol-01` was 49.4% on the final probe for 9.6G.
 
 ### `mem-hog` Properties
 
-#### `loops` (integer, default: `2`)
+#### `loops` (integer, default: 2)
 
 The number of repetitions.
 
-#### `load` (fraction, default: `1.0`)
+#### `load` (fraction, default: 1.0)
 
-The target load level of `rd-hashd`. `1.0` or `100%` indicates full load.
+The target load level of `rd-hashd`. 1.0 or 100% indicates full load.
 
-#### `speed` (default: `2x`)
+#### `speed` (default: 2x)
 
 The memory hog growth speed expressed in relative terms to the maximum IO
-device write speed according to the iocost model. Should be one of `10%`,
-`25%`, `50%`, `1x` or `2x`.
+device write speed according to the iocost model. Should be one of 10%, 25%,
+50%, 1x or 2x.
 
 
 ### `mem-hog-tune` Properties
 
-#### `load` (fraction, default: `1.0`)
+#### `load` (fraction, default: 1.0)
 
-The target load level of `rd-hashd`. `1.0` or `100%` indicates full load.
+The target load level of `rd-hashd`. 1.0 or 100% indicates full load.
 
-#### `speed`  (default: `2x`)
+#### `speed`  (default: 2x)
 
 The memory hog growth speed expressed in relative terms to the maximum IO
 device write speed according to the iocost model. Should be one of `10%`,
@@ -175,18 +175,18 @@ The minimum `rd-hashd` memory footprint to probe. Must be specified.
 
 The maximum `rd-hashd` memory footprint to probe. Must be specified.
 
-#### `intvs` (integer, `10`)
+#### `intvs` (integer, default: 10)
 
 The number of intervals to probe. Probing starts at `size-max` and decreases
 by `(size-max - size-min) / intvs` until the size reaches `size-min`.
 
-#### `isol-pct` (percentile, default: `01`)
+#### `isol-pct` (percentile, default: 01)
 
 The isolation factor percentile to use when deciding protection success. The
 value should match one of the percentile labels in the `isol%` distribution
 table.
 
-#### `isol-thr` (fraction, default: `0.9`)
+#### `isol-thr` (fraction, default: 0.9)
 
 The isolation factor threshold to use when deciding protection success. The
 `isol-pct`th isolation factor percentile should equal or be greater than
