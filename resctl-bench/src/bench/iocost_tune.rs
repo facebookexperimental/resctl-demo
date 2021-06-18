@@ -434,12 +434,24 @@ impl std::fmt::Display for QoSTarget {
 }
 
 impl QoSTarget {
+    fn parse_vrate_range(input: &str) -> Result<(f64, f64)> {
+        let toks: Vec<&str> = input.split("-").collect();
+        if toks.len() != 2 {
+            bail!("vrate range {:?} is not FLOAT-FLOAT", input);
+        }
+        let (left, right) = (toks[0].parse::<f64>()?, toks[1].parse::<f64>()?);
+        if left <= 0.0 || left > right {
+            bail!("Invalid vrate range {}-{}", left, right);
+        }
+        Ok((left, right))
+    }
+
     fn parse_frac_range(input: &str) -> Result<(f64, f64)> {
         let toks: Vec<&str> = input.split("-").collect();
         if toks.len() != 2 {
             bail!("Frac range {:?} is not FLOAT-FLOAT", input);
         }
-        let (left, right) = (toks[0].parse::<f64>()?, toks[1].parse::<f64>()?);
+        let (left, right) = (parse_frac(toks[0])?, parse_frac(toks[1])?);
         if left < 0.0 || left > right || right > 1.0 {
             bail!("Invalid frac range {}-{}", left, right);
         }
@@ -451,7 +463,7 @@ impl QoSTarget {
             return Ok(Default::default());
         }
         if let Some(v) = props.remove("vrate") {
-            let range = Self::parse_frac_range(&v)?;
+            let range = Self::parse_vrate_range(&v)?;
             let mut ref_pcts = (None, None);
             for (k, v) in props.iter() {
                 match k.as_str() {
