@@ -137,7 +137,7 @@ impl Program {
             match jobs.parse_job_spec_and_link(spec) {
                 Ok(new) => pending.vec.push(new),
                 Err(e) => {
-                    error!("{}: {}", spec, &e);
+                    error!("{}: {:#}", spec, &e);
                     exit(1);
                 }
             }
