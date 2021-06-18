@@ -974,7 +974,7 @@ impl Bench for IoCostTuneBench {
     }
 
     fn doc<'a>(&self, out: &mut Box<dyn Write + 'a>) -> Result<()> {
-        const DOC: &[u8] = include_bytes!("../doc/iocost_tune.md");
+        const DOC: &[u8] = include_bytes!("../doc/iocost-tune.md");
         write!(out, "{}", String::from_utf8_lossy(DOC))?;
         Ok(())
     }

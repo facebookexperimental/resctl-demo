@@ -41,7 +41,7 @@ impl Bench for IoCostParamsBench {
     }
 
     fn doc<'a>(&self, out: &mut Box<dyn Write + 'a>) -> Result<()> {
-        const DOC: &[u8] = include_bytes!("../doc/iocost_params.md");
+        const DOC: &[u8] = include_bytes!("../doc/iocost-params.md");
         write!(out, "{}", String::from_utf8_lossy(DOC))?;
         Ok(())
     }
