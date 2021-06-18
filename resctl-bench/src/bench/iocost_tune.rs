@@ -18,8 +18,8 @@ mod merge;
 const DFL_IOCOST_QOS_VRATE_MAX: f64 = 125.0;
 const DFL_IOCOST_QOS_VRATE_INTVS: u32 = 25;
 const DFL_GRAN: f64 = 0.1;
-const DFL_VRATE_MIN: f64 = 1.0;
-const DFL_VRATE_MAX: f64 = 100.0;
+const DFL_SCALE_MIN: f64 = 1.0;
+const DFL_SCALE_MAX: f64 = 100.0;
 
 lazy_static::lazy_static! {
     static ref DFL_QOS_SPEC_STR: String = format!(
@@ -611,9 +611,9 @@ impl QoSTarget {
     fn solve_lat_range(
         ds: &DataSeries,
         (rel_min, rel_max): (f64, f64),
-        (vrate_min, vrate_max): (f64, f64),
+        (scale_min, scale_max): (f64, f64),
     ) -> Option<(u64, (f64, f64))> {
-        let dl = ds.lines.clamped(vrate_min, vrate_max)?;
+        let dl = ds.lines.clamped(scale_min, scale_max)?;
         let (left, right) = (&dl.left, &dl.right);
 
         // Any slope left?
@@ -627,7 +627,7 @@ impl QoSTarget {
             if rel_max < 1.0 {
                 left.x + dist * rel_max
             } else {
-                vrate_max
+                scale_max
             },
         );
         let lat_target = dl.eval(vrate_range.1);
@@ -638,7 +638,7 @@ impl QoSTarget {
     fn solve(
         &self,
         data: &BTreeMap<DataSel, DataSeries>,
-        (vrate_min, vrate_max): (f64, f64),
+        (scale_min, scale_max): (f64, f64),
     ) -> Result<Option<(IoCostQoSParams, f64)>> {
         let ds = |sel: &DataSel| -> Result<&DataSeries> {
             data.get(sel)
@@ -689,14 +689,14 @@ impl QoSTarget {
             let no_sig_vrate = match no_sig_sel {
                 Some(nssel) => Self::find_max_vrate_at_min_val(
                     ds(nssel)?,
-                    (vrate_min, vrate_max),
+                    (scale_min, scale_max),
                     infl_offset(),
                 ),
                 None => None,
             };
             Ok(Self::find_min_vrate_at_max_val(
                 ds(sel)?,
-                (vrate_min, vrate_max),
+                (scale_min, scale_max),
                 infl_offset(),
                 no_sig_vrate,
             ))
@@ -708,7 +708,7 @@ impl QoSTarget {
                 .map(|mof_max| {
                     Self::find_max_vrate_at_min_val(
                         amof_delta_ds,
-                        (vrate_min, mof_max),
+                        (scale_min, mof_max),
                         infl_offset(),
                     )
                 })
@@ -717,20 +717,20 @@ impl QoSTarget {
         };
 
         Ok(match self {
-            Self::VrateRange((vrate_min, vrate_max), (rpct, wpct)) => {
-                let (rpct, rlat) = Self::solve_vrate_range(*vrate_max, READ, rpct.as_deref(), data);
+            Self::VrateRange((scale_min, scale_max), (rpct, wpct)) => {
+                let (rpct, rlat) = Self::solve_vrate_range(*scale_max, READ, rpct.as_deref(), data);
                 let (wpct, wlat) =
-                    Self::solve_vrate_range(*vrate_max, WRITE, wpct.as_deref(), data);
+                    Self::solve_vrate_range(*scale_max, WRITE, wpct.as_deref(), data);
                 Some((
                     IoCostQoSParams {
                         rpct,
                         rlat,
                         wpct,
                         wlat,
-                        min: *vrate_min,
-                        max: *vrate_max,
+                        min: *scale_min,
+                        max: *scale_max,
                     },
-                    *vrate_max,
+                    *scale_max,
                 ))
             }
             Self::MOFMax => {
@@ -757,7 +757,7 @@ impl QoSTarget {
             Self::Isolation => solve_isolation()?.map(params_at_vrate),
             Self::LatRange(sel, lat_rel_range) => {
                 if let Some((lat_target, vrate_range)) =
-                    Self::solve_lat_range(ds(&sel)?, *lat_rel_range, (vrate_min, vrate_max))
+                    Self::solve_lat_range(ds(&sel)?, *lat_rel_range, (scale_min, scale_max))
                 {
                     Some(match sel {
                         DataSel::RLat(pct, _) => (
@@ -802,8 +802,8 @@ struct QoSRule {
 struct IoCostTuneJob {
     qos_data: Option<JobData>,
     gran: f64,
-    vrate_min: f64,
-    vrate_max: f64,
+    scale_min: f64,
+    scale_max: f64,
     sels: BTreeSet<DataSel>,
     rules: Vec<QoSRule>,
 }
@@ -813,8 +813,8 @@ impl Default for IoCostTuneJob {
         Self {
             qos_data: None,
             gran: DFL_GRAN,
-            vrate_min: DFL_VRATE_MIN,
-            vrate_max: DFL_VRATE_MAX,
+            scale_min: DFL_SCALE_MIN,
+            scale_max: DFL_SCALE_MAX,
             sels: Default::default(),
             rules: Default::default(),
         }
@@ -867,8 +867,8 @@ impl Bench for IoCostTuneBench {
         for (k, v) in spec.props[0].iter() {
             match k.as_str() {
                 "gran" => job.gran = v.parse::<f64>()?,
-                "vrate-min" => job.vrate_min = v.parse::<f64>()?,
-                "vrate-max" => job.vrate_max = v.parse::<f64>()?,
+                "scale-min" => job.scale_min = parse_frac(v)? * 100.0,
+                "scale-max" => job.scale_max = parse_frac(v)? * 100.0,
                 k => {
                     let sel = DataSel::parse(k)?;
                     if v.len() > 0 {
@@ -883,8 +883,8 @@ impl Bench for IoCostTuneBench {
             }
         }
 
-        if job.gran <= 0.0 || job.vrate_min <= 0.0 || job.vrate_min >= job.vrate_max {
-            bail!("`gran`, `vrate_min` and/or `vrate_max` invalid");
+        if job.gran <= 0.0 || job.scale_min <= 0.0 || job.scale_min >= job.scale_max {
+            bail!("`gran`, `scale_min` and/or `scale_max` invalid");
         }
 
         if prop_groups.len() == 0 {
@@ -1574,10 +1574,10 @@ impl IoCostTuneJob {
         let rw_str = if rw == READ { "read" } else { "write" };
 
         let (lat_50_mean_lines, lat_99_mean_lines, lat_99_99_lines, lat_100_100_lines) = match (
-            lat_50_mean.lines.clamped(self.vrate_min, self.vrate_max),
-            lat_99_mean.lines.clamped(self.vrate_min, self.vrate_max),
-            lat_99_99.lines.clamped(self.vrate_min, self.vrate_max),
-            lat_100_100.lines.clamped(self.vrate_min, self.vrate_max),
+            lat_50_mean.lines.clamped(self.scale_min, self.scale_max),
+            lat_99_mean.lines.clamped(self.scale_min, self.scale_max),
+            lat_99_99.lines.clamped(self.scale_min, self.scale_max),
+            lat_100_100.lines.clamped(self.scale_min, self.scale_max),
         ) {
             (Some(v0), Some(v1), Some(v2), Some(v3)) => (v0, v1, v2, v3),
             _ => return vec![format!("Insufficient {} latencies data.", rw_str)],
@@ -1989,7 +1989,7 @@ impl Job for IoCostTuneJob {
         for rule in self.rules.iter() {
             let solution = match rule
                 .target
-                .solve(&res.data, (self.vrate_min, self.vrate_max))
+                .solve(&res.data, (self.scale_min, self.scale_max))
             {
                 Ok(v) => v,
                 Err(e) => {
