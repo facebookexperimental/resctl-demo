@@ -458,6 +458,13 @@ impl QoSTarget {
         Ok((left, right))
     }
 
+    fn is_float_zero(input: &str) -> bool {
+        match input.parse::<f64>() {
+            Ok(v) => v == 0.0,
+            _ => false,
+        }
+    }
+
     fn parse(mut props: BTreeMap<String, String>) -> Result<QoSTarget> {
         if props.len() == 0 {
             return Ok(Default::default());
@@ -465,17 +472,26 @@ impl QoSTarget {
         if let Some(v) = props.remove("vrate") {
             let range = Self::parse_vrate_range(&v)?;
             let mut ref_pcts = (None, None);
+            if let Self::VrateRange(_, dfl_ref_pcts) = QoSTarget::default() {
+                ref_pcts = dfl_ref_pcts;
+            }
             for (k, v) in props.iter() {
                 match k.as_str() {
-                    "rpct" => ref_pcts.0 = Some(v.to_string()),
-                    "wpct" => ref_pcts.1 = Some(v.to_string()),
+                    "rpct" => {
+                        ref_pcts.0 = if Self::is_float_zero(v) {
+                            None
+                        } else {
+                            Some(v.to_string())
+                        }
+                    }
+                    "wpct" => {
+                        ref_pcts.1 = if Self::is_float_zero(v) {
+                            None
+                        } else {
+                            Some(v.to_string())
+                        }
+                    }
                     k => bail!("Invalid vrate target option {:?}", k),
-                }
-            }
-
-            if ref_pcts == (None, None) {
-                if let Self::VrateRange(_, dfl_ref_pcts) = QoSTarget::default() {
-                    ref_pcts = dfl_ref_pcts;
                 }
             }
 
@@ -955,6 +971,12 @@ impl Bench for IoCostTuneBench {
 
     fn merge(&self, srcs: &mut Vec<MergeSrc>) -> Result<JobData> {
         merge::merge(srcs)
+    }
+
+    fn doc<'a>(&self, out: &mut Box<dyn Write + 'a>) -> Result<()> {
+        const DOC: &[u8] = include_bytes!("../doc/iocost_tune.md");
+        write!(out, "{}", String::from_utf8_lossy(DOC))?;
+        Ok(())
     }
 }
 
