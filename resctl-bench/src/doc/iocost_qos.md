@@ -140,7 +140,7 @@ millisecs, and maximum of 15.5 millisecs.
 
 
 ## Properties
-### First group properties (applies to all runs)
+### First group properties (applies to all sub-runs)
 
 #### `vrate-min` (float, default: 0.0)
 
@@ -197,3 +197,27 @@ aborting the whole benchmark.
 `iocost-qos` automatically skips QoS configurations which result in too low
 bandwidth for reliable operation. This property forces benchmarking of all
 specified QoS configurations.
+
+
+### Second+ group properties
+
+Each group specifies the QoS configuration to probe which is composed by
+applying the specified overrides on top of the active QoS parameters.
+
+#### `rpct` and `wpct` (float)
+
+Read and write latency percentiles for dynamic vrate adjustments. See `rlat`
+and `wlat`. If 0, the latency doesn't affect vrate.
+
+#### `rlat` and `wlat` (integer)
+
+Read latency threshold in milliseconds for dynamic vrate adjustments. If
+`rpct`th percentile read completion latency rises above `rlat`, the device
+is considered saturated and vrate is adjusted downwards. The same for
+writes.
+
+#### `min` and `max` (float)
+
+The minimum and maximum bounds for vrate adjustments. The value is in
+percentage where 100.0 means no scaling of the model parameters. If `min` ==
+`max`, vrate is fixed at the value.

@@ -85,7 +85,7 @@ interpreted as:
 * `lat_imp` is the mean and standard deviation of `lat-imp%`.
 
 * `work_csv` is work conservation and measures how much IO bandwidth the
-  kernel is able to preserve while protecting against memory hog. The
+  kernel was able to preserve while protecting against memory hog. The
   lossage is caused by inefficiency in the current implementation of
   anonymous memory throttling and doesn't reflect IO device characteristics.
 
