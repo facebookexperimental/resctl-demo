@@ -4,6 +4,9 @@ name = "resctl-demo"
 version = "1.0.0"
 authors = ["Tejun Heo <tj@kernel.org>"]
 edition = "2018"
+license = "Apache-2.0"
+repository = "https://github.com/facebookexperimental/resctl-demo"
+description = "A guided tour of Linux resource control with live demos"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

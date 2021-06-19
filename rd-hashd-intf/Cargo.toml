@@ -4,6 +4,9 @@ name = "rd-hashd-intf"
 version = "1.0.0"
 authors = ["Tejun Heo <tj@kernel.org>"]
 edition = "2018"
+license = "Apache-2.0"
+repository = "https://github.com/facebookexperimental/resctl-demo"
+description = "Latency-sensitive pseudo workload for resctl-demo (interface library)"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
