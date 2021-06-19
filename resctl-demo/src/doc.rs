@@ -8,7 +8,6 @@ use enum_iterator::IntoEnumIterator;
 use log::{error, info, warn};
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::sync::{Mutex, RwLock};
-use util::*;
 
 mod index;
 mod markup_rd;
@@ -19,6 +18,7 @@ use super::graph::{clear_main_graph, set_main_graph, GraphTag};
 use super::{get_layout, COLOR_ACTIVE, COLOR_ALERT};
 use markup_rd::{RdCmd, RdDoc, RdKnob, RdPara, RdReset, RdSwitch};
 use rd_agent_intf::{Cmd, HashdCmd, SliceConfig, SysReq};
+use rd_util::*;
 
 lazy_static::lazy_static! {
     pub static ref DOCS: BTreeMap<String, &'static str> = load_docs();

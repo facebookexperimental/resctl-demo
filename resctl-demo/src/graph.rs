@@ -18,7 +18,6 @@ use std::process::Command;
 use std::sync::Mutex;
 use std::thread::{spawn, JoinHandle};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use util::*;
 
 use super::report_ring::ReportDataSet;
 use super::{
@@ -26,6 +25,7 @@ use super::{
     COLOR_GRAPH_2, COLOR_GRAPH_3, COLOR_INACTIVE, TEMP_DIR,
 };
 use rd_agent_intf::Report;
+use rd_util::*;
 
 const GRAPH_X_ADJ: usize = 20;
 const GRAPH_INTVS: &[u64] = &[1, 5, 15, 30, 60];

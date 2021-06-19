@@ -14,7 +14,6 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::thread::sleep;
 use std::time::Duration;
-use util::*;
 
 mod agent;
 mod command;
@@ -32,6 +31,7 @@ use rd_agent_intf::{
     IOCOST_BENCH_SVC_NAME, OOMD_SVC_NAME, SIDELOADER_SVC_NAME, SIDELOAD_SVC_PREFIX,
     SYSLOAD_SVC_PREFIX,
 };
+use rd_util::*;
 
 lazy_static::lazy_static! {
     pub static ref VERSION: &'static str = env!("CARGO_PKG_VERSION");

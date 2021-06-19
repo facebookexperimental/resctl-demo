@@ -5,10 +5,10 @@ use std::collections::HashSet;
 use std::io;
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
-use util::*;
 
 use rd_agent_intf::{HashdCmd, HashdKnobs, HashdReport, Slice, HASHD_A_SVC_NAME, HASHD_B_SVC_NAME};
 use rd_hashd_intf;
+use rd_util::*;
 
 use super::Config;
 use super::HashdSel;

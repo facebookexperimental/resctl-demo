@@ -9,7 +9,8 @@ use std::fs;
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::os::unix::io::AsRawFd;
 use std::path::{Path, PathBuf};
-use util::*;
+
+use rd_util::*;
 
 const DFL_PREFIX: &str = "rdh-";
 const FILE_BITS: usize = 28;

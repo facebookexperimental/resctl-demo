@@ -1,10 +1,10 @@
 use anyhow::Result;
 use std::fmt::Write;
-use util::*;
 
 use super::super::job::FormatOpts;
 use super::{SelArg, Study, StudyMeanPcts, StudyMeanPctsTrait, TimePctsMap};
 use rd_agent_intf::IoLatReport;
+use rd_util::*;
 
 pub fn sel_factory_iolat(io_type: &str, pct: &str) -> impl FnMut(&SelArg) -> Vec<f64> {
     let io_type = io_type.to_string();

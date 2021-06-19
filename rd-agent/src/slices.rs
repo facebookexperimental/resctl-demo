@@ -9,14 +9,14 @@ use std::fmt::Write;
 use std::fs;
 use std::io::prelude::*;
 use std::path::Path;
-use util::systemd::UnitState as US;
-use util::*;
 
 use super::Config;
 use rd_agent_intf::{
     DisableSeqKnobs, EnforceConfig, MemoryKnob, MissedSysReqs, Slice, SliceConfig, SliceKnobs,
     SysReq,
 };
+use rd_util::systemd::UnitState as US;
+use rd_util::*;
 
 pub fn check_other_io_controllers(sr_failed: &mut MissedSysReqs) {
     let mut failed = None;

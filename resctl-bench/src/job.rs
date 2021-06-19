@@ -10,12 +10,12 @@ use std::io::{Read, Write as IoWrite};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, UNIX_EPOCH};
-use util::*;
 
 use super::base::MemInfo;
 use super::parse_json_value_or_dump;
 use super::run::RunCtx;
 use rd_agent_intf::{EnforceConfig, MissedSysReqs, SysReq, SysReqsReport};
+use rd_util::*;
 use resctl_bench_intf::{JobProps, JobSpec, Mode};
 
 #[derive(Debug, Clone)]

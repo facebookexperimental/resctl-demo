@@ -17,8 +17,8 @@ use std::thread::{sleep, spawn, JoinHandle};
 use std::time::{Duration, Instant};
 
 use rd_hashd_intf::{Latencies, Params, Stat};
-use util::anon_area::AnonArea;
-use util::*;
+use rd_util::anon_area::AnonArea;
+use rd_util::*;
 
 use super::bench::{Bench, Cfg};
 use super::logger::Logger;

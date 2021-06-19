@@ -5,10 +5,10 @@ use quantiles::ckms::CKMS;
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::fmt::Write;
-use util::*;
 
 use super::run::RunCtx;
 use rd_agent_intf::Report;
+use rd_util::*;
 
 mod iolat;
 mod rstat;

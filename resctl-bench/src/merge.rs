@@ -3,12 +3,12 @@ use log::debug;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
-use util::*;
 
 pub mod info;
 
 use super::job::{FormatOpts, JobCtx, JobCtxs, JobData, SysInfo};
 use info::{MergeEntry, MergeInfo};
+use rd_util::*;
 use resctl_bench_intf::{Args, JobSpec};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]

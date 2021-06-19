@@ -4,12 +4,12 @@ use log::trace;
 use std::fs;
 use std::io;
 use std::io::prelude::*;
-use util::*;
 
 use rd_agent_intf::{
     SideloaderCmd, SideloaderReport, Slice, SliceKnobs, SvcStateReport, SIDELOADER_SVC_NAME,
     SIDELOAD_SVC_PREFIX,
 };
+use rd_util::*;
 
 use super::Config;
 

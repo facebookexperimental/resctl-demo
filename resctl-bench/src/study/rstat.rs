@@ -2,10 +2,10 @@ use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::fmt::Write;
-use util::*;
 
 use super::super::job::FormatOpts;
 use rd_agent_intf::{Report, StatMap, ROOT_SLICE};
+use rd_util::*;
 
 use super::{
     print_pcts_header, print_pcts_line, sel_delta, sel_delta_calc, PctsMap, SelArg, Study,

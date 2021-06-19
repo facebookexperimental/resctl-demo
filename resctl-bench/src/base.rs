@@ -5,11 +5,11 @@ use resctl_bench_intf::Args;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 use std::path::PathBuf;
-use util::*;
 
 use super::bench::HashdFakeCpuBench;
 use super::iocost::IoCostQoSCfg;
 use super::run::RunCtx;
+use rd_util::*;
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct MemInfo {

@@ -4,7 +4,8 @@ use log::warn;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write;
-use util::*;
+
+use rd_util::*;
 
 const SYSREQ_DOC: &str = "\
 //

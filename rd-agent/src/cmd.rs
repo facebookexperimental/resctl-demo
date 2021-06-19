@@ -6,9 +6,9 @@ use std::sync::{Arc, Mutex};
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 use systemd::UnitState as US;
-use util::*;
 
 use rd_agent_intf::{RunnerState, Slice, HASHD_BENCH_SVC_NAME, IOCOST_BENCH_SVC_NAME};
+use rd_util::*;
 
 use super::hashd::HashdSet;
 use super::side::{Balloon, SideRunner, Sideload, Sysload};

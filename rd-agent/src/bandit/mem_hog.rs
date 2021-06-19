@@ -6,8 +6,9 @@ use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, RwLock};
 use std::thread::spawn;
 use std::time::{Duration, SystemTime};
-use util::anon_area::AnonArea;
-use util::*;
+
+use rd_util::anon_area::AnonArea;
+use rd_util::*;
 
 const ANON_SIZE_CLICK: usize = 1 << 30;
 const MAX_WRITE: usize = 1 << 20;

@@ -9,7 +9,7 @@ use std::thread::sleep;
 use std::time::{Duration, Instant, SystemTime};
 
 use rd_hashd_intf::{Args, Params, Phase, Report, Stat};
-use util::*;
+use rd_util::*;
 
 mod bench;
 mod hasher;

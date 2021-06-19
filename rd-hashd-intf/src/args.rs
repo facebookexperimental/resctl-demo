@@ -1,9 +1,9 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
 use clap::{App, AppSettings, ArgMatches};
 use serde::{Deserialize, Serialize};
-use util::*;
 
 use super::Params;
+use rd_util::*;
 
 const HELP_BODY: &str = "\
 Resource-control demo hash daemon.

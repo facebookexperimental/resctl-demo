@@ -1,8 +1,8 @@
 use super::run::RunCtx;
 use anyhow::Result;
-use util::*;
 
 use rd_agent_intf::IoCostKnobs;
+use rd_util::*;
 
 pub use resctl_bench_intf::iocost::*;
 

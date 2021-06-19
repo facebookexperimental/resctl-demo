@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::ops;
 use std::time::UNIX_EPOCH;
 
-use util::*;
+use rd_util::*;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum Phase {

@@ -8,12 +8,12 @@ use std::fs;
 use std::process::Command;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use util::*;
 
 use rd_agent_intf::{
     sideload_svc_name, sysload_svc_name, BenchKnobs, SideloadDefs, SideloadReport, SideloadSpec,
     Slice, SysReq, SysloadReport,
 };
+use rd_util::*;
 
 lazy_static::lazy_static! {
     static ref SIDE_NAME_RE: regex::Regex = regex::Regex::new("^[a-zA-Z0-9_-]+$").unwrap();

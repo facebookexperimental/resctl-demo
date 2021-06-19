@@ -13,7 +13,6 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread::sleep;
 use std::time::Duration;
 use sysinfo::{self, ProcessExt, SystemExt};
-use util::*;
 
 mod bandit;
 mod bench;
@@ -30,6 +29,7 @@ use rd_agent_intf::{
     Args, BenchKnobs, Cmd, CmdAck, EnforceConfig, MissedSysReqs, Report, SideloadDefs, SliceKnobs,
     SvcReport, SvcStateReport, SysReq, SysReqsReport, ALL_SYSREQS_SET, OOMD_SVC_NAME,
 };
+use rd_util::*;
 use report::clear_old_report_files;
 
 lazy_static::lazy_static! {

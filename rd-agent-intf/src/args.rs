@@ -2,7 +2,8 @@
 use anyhow::{bail, Result};
 use serde::{Deserialize, Serialize};
 use std::fmt::Write;
-use util::*;
+
+use rd_util::*;
 
 const HELP_BODY: &str = "\
 Resource-control demo agent.

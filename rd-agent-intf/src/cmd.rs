@@ -1,9 +1,8 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
-use util::*;
 
-use rd_hashd_intf;
+use rd_util::*;
 
 lazy_static::lazy_static! {
     static ref CMD_DOC: String = {

@@ -7,9 +7,9 @@ use std::io;
 use std::iter::Iterator;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
-use util::*;
 
 use rd_agent_intf::Report;
+use rd_util::*;
 
 use super::AGENT_FILES;
 

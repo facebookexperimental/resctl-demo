@@ -12,12 +12,12 @@ use std::collections::VecDeque;
 use std::sync::Mutex;
 use std::thread::sleep;
 use std::time::{Duration, SystemTime};
-use util::journal_tailer::{JournalMsg, JournalTailer};
 
 use rd_agent_intf::{
     AGENT_SVC_NAME, HASHD_BENCH_SVC_NAME, IOCOST_BENCH_SVC_NAME, OOMD_SVC_NAME,
     SIDELOADER_SVC_NAME, SIDELOAD_SVC_PREFIX, SYSLOAD_SVC_PREFIX,
 };
+use rd_util::journal_tailer::{JournalMsg, JournalTailer};
 
 use super::doc::{SIDELOAD_NAMES, SYSLOAD_NAMES};
 use super::{get_layout, COLOR_ALERT, COLOR_DFL, COLOR_INACTIVE, SVC_NAMES, UPDATERS};

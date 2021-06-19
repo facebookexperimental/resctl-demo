@@ -2,7 +2,8 @@
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use log::info;
 use std::thread::{spawn, JoinHandle};
-use util::JournalTailer;
+
+use rd_util::JournalTailer;
 
 pub struct BenchProgress {
     main: Option<MultiProgress>,

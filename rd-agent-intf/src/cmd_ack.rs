@@ -1,6 +1,7 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
 use serde::{Deserialize, Serialize};
-use util::*;
+
+use rd_util::*;
 
 static CMD_ACK_DOC: &str = "\
 //

@@ -17,7 +17,6 @@ use std::panic;
 use std::process::{Child, Command, Stdio};
 use std::thread::{spawn, JoinHandle};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
-use util::*;
 
 use super::cmd::Runner;
 use super::Config;
@@ -25,6 +24,7 @@ use rd_agent_intf::{
     report::StatMap, BenchHashdReport, BenchIoCostReport, HashdReport, IoCostReport, IoLatReport,
     Report, ResCtlReport, Slice, UsageReport, ROOT_SLICE,
 };
+use rd_util::*;
 
 #[derive(Debug, Default)]
 struct Usage {

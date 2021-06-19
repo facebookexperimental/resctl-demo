@@ -6,10 +6,9 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::ops;
 use std::time::UNIX_EPOCH;
-use util::*;
 
 use super::RunnerState;
-use rd_hashd_intf;
+use rd_util::*;
 
 const REPORT_DOC: &str = "\
 //

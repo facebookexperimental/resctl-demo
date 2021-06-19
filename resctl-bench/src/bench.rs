@@ -21,7 +21,7 @@ use super::study::*;
 use rd_agent_intf::{AgentFiles, EnforceConfig, Slice, SysReq, ROOT_SLICE};
 use resctl_bench_intf::{format_job_props, JobProps, JobSpec};
 
-use util::*;
+use rd_util::*;
 
 // Helpers shared by bench implementations.
 lazy_static::lazy_static! {

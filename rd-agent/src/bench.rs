@@ -8,7 +8,7 @@ use std::time::SystemTime;
 
 use rd_agent_intf::{BenchKnobs, IoCostKnobs};
 use rd_hashd_intf;
-use util::*;
+use rd_util::*;
 
 use rd_agent_intf::{Slice, HASHD_BENCH_SVC_NAME, IOCOST_BENCH_SVC_NAME};
 
