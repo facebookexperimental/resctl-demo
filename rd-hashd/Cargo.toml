@@ -6,6 +6,7 @@ authors = ["Tejun Heo <tj@kernel.org>"]
 edition = "2018"
 
 [dependencies]
+rd-util = { path = "../rd-util" }
 rd-hashd-intf = { path = "../rd-hashd-intf" }
 
 anyhow = "^1.0"
@@ -26,4 +27,3 @@ rand = { version = "^0.8", features = ["small_rng"] }
 rand_distr = "^0.4"
 scan_fmt = "^0.2"
 sha1 = "^0.6"
-util = { path = "../util" }

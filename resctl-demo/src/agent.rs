@@ -10,9 +10,9 @@ use log::{debug, error, info};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use util::*;
 
 use rd_agent_intf::{AgentFiles, Slice, AGENT_SVC_NAME};
+use rd_util::*;
 
 use super::journal::JournalViewId;
 use super::{

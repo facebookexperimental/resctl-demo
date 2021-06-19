@@ -1615,13 +1615,13 @@ dependencies = [
  "procfs",
  "rd-agent-intf",
  "rd-hashd-intf",
+ "rd-util",
  "regex",
  "scan_fmt",
  "serde",
  "serde_json",
  "sysinfo 0.16.5",
  "users",
- "util",
 ]
 
 [[package]]
@@ -1636,8 +1636,8 @@ dependencies = [
  "libc",
  "log",
  "rd-hashd-intf",
+ "rd-util",
  "serde",
- "util",
 ]
 
 [[package]]
@@ -1661,9 +1661,9 @@ dependencies = [
  "rand 0.8.4",
  "rand_distr 0.4.1",
  "rd-hashd-intf",
+ "rd-util",
  "scan_fmt",
  "sha1",
- "util",
 ]
 
 [[package]]
@@ -1674,8 +1674,38 @@ dependencies = [
  "chrono",
  "clap",
  "lazy_static",
+ "rd-util",
  "serde",
- "util",
+]
+
+[[package]]
+name = "rd-util"
+version = "1.0.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "clap",
+ "console",
+ "crossbeam 0.8.1",
+ "ctrlc",
+ "env_logger",
+ "glob",
+ "json",
+ "lazy_static",
+ "libc",
+ "log",
+ "num 0.4.0",
+ "num_cpus",
+ "page_size",
+ "proc-mounts",
+ "rand 0.8.4",
+ "rustbus 0.12.0",
+ "scan_fmt",
+ "serde",
+ "serde_json",
+ "simplelog",
+ "sysinfo 0.16.5",
+ "vergen",
 ]
 
 [[package]]
@@ -1751,6 +1781,7 @@ dependencies = [
  "rand 0.8.4",
  "rd-agent-intf",
  "rd-hashd-intf",
+ "rd-util",
  "resctl-bench-intf",
  "scan_fmt",
  "serde",
@@ -1761,7 +1792,6 @@ dependencies = [
  "tempfile",
  "term_size",
  "thiserror",
- "util",
 ]
 
 [[package]]
@@ -1773,8 +1803,8 @@ dependencies = [
  "lazy_static",
  "log",
  "rd-agent-intf",
+ "rd-util",
  "serde",
- "util",
 ]
 
 [[package]]
@@ -1795,8 +1825,8 @@ dependencies = [
  "log",
  "rd-agent-intf",
  "rd-hashd-intf",
+ "rd-util",
  "tempfile",
- "util",
 ]
 
 [[package]]
@@ -2246,36 +2276,6 @@ checksum = "24cc0f6d6f267b73e5a2cadf007ba8f9bc39c6a6f9666f8cf25ea809a153b032"
 dependencies = [
  "libc",
  "log",
-]
-
-[[package]]
-name = "util"
-version = "1.0.0"
-dependencies = [
- "anyhow",
- "chrono",
- "clap",
- "console",
- "crossbeam 0.8.1",
- "ctrlc",
- "env_logger",
- "glob",
- "json",
- "lazy_static",
- "libc",
- "log",
- "num 0.4.0",
- "num_cpus",
- "page_size",
- "proc-mounts",
- "rand 0.8.4",
- "rustbus 0.12.0",
- "scan_fmt",
- "serde",
- "serde_json",
- "simplelog",
- "sysinfo 0.16.5",
- "vergen",
 ]
 
 [[package]]

@@ -13,7 +13,7 @@ use std::time::{Duration, Instant};
 use std::u32;
 
 use rd_hashd_intf::{params, Params, Phase, Report, Stat};
-use util::*;
+use rd_util::*;
 
 use super::hasher;
 use super::testfiles::TestFiles;

@@ -1,7 +1,8 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
 use chrono::{DateTime, Local};
 use serde::{Deserialize, Serialize};
-use util::*;
+
+use rd_util::*;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct BanditMemHogReport {

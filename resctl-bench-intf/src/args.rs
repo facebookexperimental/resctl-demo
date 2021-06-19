@@ -7,10 +7,10 @@ use std::fmt::Write;
 use std::path::Path;
 use std::process::exit;
 use std::sync::Mutex;
-use util::*;
 
 use super::{IoCostQoSOvr, JobSpec};
 use rd_agent_intf;
+use rd_util::*;
 
 const BEFORE_HELP: &'static str = r#"OVERVIEW:
 

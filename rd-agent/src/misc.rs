@@ -2,7 +2,8 @@
 use super::{prepare_bin_file, Config};
 use anyhow::Result;
 use std::process::Command;
-use util::*;
+
+use rd_util::*;
 
 // bcc randomly fails to start occassionally. Give it several tries before
 // giving up.

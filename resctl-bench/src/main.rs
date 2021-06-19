@@ -7,8 +7,8 @@ use std::io::Write as IoWrite;
 use std::path::Path;
 use std::process::{exit, Command};
 use std::sync::{Arc, Mutex};
-use util::*;
 
+use rd_util::*;
 use resctl_bench_intf::{Args, Mode};
 
 mod base;
@@ -331,8 +331,10 @@ impl Program {
     pub fn do_doc(subj: &str) -> Result<()> {
         const COMMON_DOC: &[u8] = include_bytes!("doc/common.md");
 
-        println!("This documentation can also be viewed at:\n\n  {}\n",
-                 resctl_bench_intf::GITHUB_DOC_LINK);
+        println!(
+            "This documentation can also be viewed at:\n\n  {}\n",
+            resctl_bench_intf::GITHUB_DOC_LINK
+        );
 
         if subj == "common" {
             println!("{}", String::from_utf8_lossy(COMMON_DOC));

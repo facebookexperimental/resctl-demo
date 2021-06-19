@@ -4,7 +4,8 @@ use enum_iterator::IntoEnumIterator;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::ops::{Index, IndexMut};
-use util::*;
+
+use rd_util::*;
 
 pub const ROOT_SLICE: &'static str = "-.slice";
 

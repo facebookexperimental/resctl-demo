@@ -1,6 +1,7 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
 use serde::{Deserialize, Serialize};
-use util::*;
+
+use rd_util::*;
 
 const OOMD_DOC: &str = "\
 //

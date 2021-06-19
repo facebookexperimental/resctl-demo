@@ -3,7 +3,8 @@ use anyhow::Result;
 use chrono::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::time::SystemTime;
-use util::*;
+
+use rd_util::*;
 
 pub const BENCH_FILENAME: &str = "bench.json";
 

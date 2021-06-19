@@ -6,10 +6,10 @@ use std::sync::atomic::Ordering;
 use std::sync::Mutex;
 use std::thread::sleep;
 use std::time::{Duration, SystemTime};
-use util::*;
 
 use super::{agent, AGENT_FILES};
 use rd_agent_intf::{Cmd, HashdCmd, MemoryKnob, Slice};
+use rd_util::*;
 
 lazy_static::lazy_static! {
     pub static ref CMD_STATE: Mutex<CmdState> = Mutex::new(CmdState::new());

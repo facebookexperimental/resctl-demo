@@ -15,7 +15,8 @@ use std::sync::atomic::{self, AtomicU64};
 use std::sync::Arc;
 use std::thread::{spawn, JoinHandle};
 use std::time::{SystemTime, UNIX_EPOCH};
-use util::*;
+
+use rd_util::*;
 
 const LOG_FILENAME: &str = "rd-hashd.log";
 

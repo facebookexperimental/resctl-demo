@@ -3,7 +3,8 @@ use anyhow::Result;
 use log::{debug, warn};
 use std::fs;
 use std::io::prelude::*;
-use util::*;
+
+use rd_util::*;
 
 use rd_agent_intf::{
     OomdKnobs, OomdReport, OomdSliceMemPressureKnobs, OomdSliceSenpaiKnobs, Slice, OOMD_SVC_NAME,

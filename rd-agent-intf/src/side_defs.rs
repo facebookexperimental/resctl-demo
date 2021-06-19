@@ -1,7 +1,8 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
-use util::*;
+
+use rd_util::*;
 
 const SIDE_DEF_DOC: &str = "\
 //

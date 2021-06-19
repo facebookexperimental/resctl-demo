@@ -9,12 +9,12 @@ use std::panic;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::thread::{spawn, JoinHandle};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use util::*;
 
 use rd_agent_intf::{
     HashdReport, OomdReport, ResCtlReport, RunnerState, SideloadReport, SideloaderReport,
     SvcStateReport, SysloadReport, UsageReport, HASHD_A_SVC_NAME, HASHD_B_SVC_NAME,
 };
+use rd_util::*;
 
 use super::agent::{refresh_agent_states, AGENT_FILES};
 use super::{get_layout, COLOR_ACTIVE, COLOR_ALERT, COLOR_DFL, COLOR_INACTIVE, STYLE_ALERT};

@@ -10,7 +10,6 @@ use std::sync::{Arc, Mutex};
 use std::thread::{spawn, JoinHandle};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use thiserror::Error;
-use util::*;
 
 use super::base::{Base, MemInfo};
 use super::progress::BenchProgress;
@@ -22,6 +21,7 @@ use rd_agent_intf::{
     HASHD_BENCH_SVC_NAME, HASHD_B_SVC_NAME, IOCOST_BENCH_SVC_NAME, SIDELOAD_SVC_PREFIX,
     SYSLOAD_SVC_PREFIX,
 };
+use rd_util::*;
 use resctl_bench_intf::{JobSpec, Mode};
 
 const MINDER_AGENT_TIMEOUT: Duration = Duration::from_secs(120);

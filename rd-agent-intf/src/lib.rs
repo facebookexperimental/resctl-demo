@@ -2,7 +2,8 @@
 use log::error;
 use serde::{Deserialize, Serialize};
 use std::io;
-use util::*;
+
+use rd_util::*;
 
 pub mod args;
 pub mod bandit_report;
