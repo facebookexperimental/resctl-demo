@@ -66,23 +66,26 @@ impl<'a> Base<'a> {
 
         if bench.iocost_dev_model.len() > 0 && bench.iocost_dev_model != dev_model {
             bail!(
-                "benchfile device model {:?} doesn't match detected {:?}",
+                "benchfile device model {:?} doesn't match detected {:?}, try removing {:?}",
                 &bench.iocost_dev_model,
-                &dev_model
+                &dev_model,
+                &demo_bench_knobs_path,
             );
         }
         if bench.iocost_dev_fwrev.len() > 0 && bench.iocost_dev_fwrev != dev_fwrev {
             bail!(
-                "benchfile device firmware revision {:?} doesn't match detected {:?}",
+                "benchfile device firmware revision {:?} doesn't match detected {:?}, try removing {:?}",
                 &bench.iocost_dev_fwrev,
-                &dev_fwrev
+                &dev_fwrev,
+                &demo_bench_knobs_path,
             );
         }
         if bench.iocost_dev_size > 0 && bench.iocost_dev_size != dev_size {
             bail!(
-                "benchfile device size {} doesn't match detected {}",
+                "benchfile device size {} doesn't match detected {}, try removing {:?}",
                 bench.iocost_dev_size,
-                dev_size
+                dev_size,
+                &demo_bench_knobs_path,
             );
         }
 

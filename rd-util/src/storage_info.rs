@@ -118,17 +118,20 @@ fn read_fwrev(dev_path: &Path) -> Result<String> {
     path.push("firmware_rev");
 
     let mut fwrev = String::new();
+    trace!("trying {:?}", &path);
     if path.exists() {
         let mut f = fs::File::open(&path)?;
         f.read_to_string(&mut fwrev)?;
     } else {
         path.pop();
         path.push("rev");
+        trace!("trying {:?}", &path);
         if path.exists() {
             let mut f = fs::File::open(&path)?;
             f.read_to_string(&mut fwrev)?;
+        } else {
+            bail!("neither \"firmware_dev\" or \"rev\" is found");
         }
-        bail!("neither \"firmware_dev\" or \"rev\" is found");
     }
     Ok(fwrev.trim_end().to_string())
 }
