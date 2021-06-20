@@ -929,11 +929,21 @@ impl Config {
             }
         }
 
-        // support binaries for iocost_coef_gen.py
-        for dep in &["python3", "findmnt", "dd", "fio", "stdbuf"] {
+        // base dependencies
+        for dep in &["python3"] {
             if find_bin(dep, Option::<&str>::None).is_none() {
                 self.sr_failed.add(
-                    SysReq::Dependencies,
+                    SysReq::DepsBase,
+                    &format!("Base dependency {:?} is missing", dep),
+                );
+            }
+        }
+
+        // support binaries for iocost_coef_gen.py
+        for dep in &["findmnt", "dd", "fio", "stdbuf"] {
+            if find_bin(dep, Option::<&str>::None).is_none() {
+                self.sr_failed.add(
+                    SysReq::DepsIoCostCoefGen,
                     &format!("iocost_coef_gen.py dependency {:?} is missing", dep),
                 );
             }

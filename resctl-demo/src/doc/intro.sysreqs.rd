@@ -138,10 +138,16 @@ it's currently unmet:
   changes to take effect, either the machine or services need to be
   restarted.
 
-* %SysReq::Dependencies%: 'python3', 'findmnt', 'dd', 'fio', 'stdbuf',
-  'gcc', 'ld', 'make', 'bison', 'flex', 'pkg-config', 'stress', 'bc',
-  'libssl' and 'libelf' must be available on the system.
+* %SysReq::DepsBase%: 'python3' must be available on the system.
 
-  Install the needed packages.
+* %SysReq::DepsIoCostCoefGen%: 'findmnt', 'dd', 'fio' and 'stdbuf' must be
+  available to generate iocost parameters with iocost_coef_gen.py.
+
+* %SysReq::DepsSide%: 'stress' must be available for some of the
+  side/sysloads.
+
+* %SysReq::DepsLinuxBuild%: 'gcc', 'ld', 'make', 'bison', 'flex',
+  'pkg-config', 'libssl' and 'libelf' must be available for linux build
+  sys/sideloads.
 
 %% jump intro.iocost             : [ Next: Iocost Parameters and Benchmark ]
