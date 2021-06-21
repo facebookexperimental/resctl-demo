@@ -94,20 +94,20 @@ pub fn prepare_linux_tar(cfg: &Config) -> Result<()> {
 }
 
 pub fn startup_checks(cfg: &mut Config) {
-    for bin in &[
-        "gcc",
-        "ld",
-        "make",
-        "bison",
-        "flex",
-        "pkg-config",
-        "stress",
-        "bc",
-    ] {
+    for bin in &["stress"] {
         if find_bin(bin, Option::<&str>::None).is_none() {
             cfg.sr_failed.add(
-                SysReq::Dependencies,
-                &format!("binary dependency {:?} is missing", bin),
+                SysReq::DepsSide,
+                &format!("Side workload dependency {:?} is missing", bin),
+            );
+        }
+    }
+
+    for bin in &["gcc", "ld", "make", "bison", "flex", "pkg-config"] {
+        if find_bin(bin, Option::<&str>::None).is_none() {
+            cfg.sr_failed.add(
+                SysReq::DepsLinuxBuild,
+                &format!("Linux build dependency {:?} is missing", bin),
             );
         }
     }
@@ -117,8 +117,8 @@ pub fn startup_checks(cfg: &mut Config) {
             Ok(v) => v,
             Err(e) => {
                 cfg.sr_failed.add(
-                    SysReq::Dependencies,
-                    &format!("pkg-config failed ({:?})", &e),
+                    SysReq::DepsLinuxBuild,
+                    &format!("pkg-config for linux build failed ({:?})", &e),
                 );
                 continue;
             }
@@ -126,8 +126,8 @@ pub fn startup_checks(cfg: &mut Config) {
 
         if !st.success() {
             cfg.sr_failed.add(
-                SysReq::Dependencies,
-                &format!("devel library dependency {:?} is missing", lib),
+                SysReq::DepsLinuxBuild,
+                &format!("Linux build library dependency {:?} is missing", lib),
             );
         }
     }

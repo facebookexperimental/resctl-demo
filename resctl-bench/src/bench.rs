@@ -28,17 +28,24 @@ lazy_static::lazy_static! {
     pub static ref NO_SYSREQS: BTreeSet<SysReq> = Default::default();
     pub static ref MIN_SYSREQS: BTreeSet<SysReq> =
         vec![
-            SysReq::Dependencies
+            SysReq::DepsBase,
+            SysReq::DepsIoCostCoefGen,
         ].into_iter().collect();
     pub static ref HASHD_SYSREQS: BTreeSet<SysReq> =
         vec![
-            SysReq::Dependencies,
+            SysReq::DepsBase,
+            SysReq::DepsIoCostCoefGen,
             SysReq::AnonBalance,
             SysReq::SwapOnScratch,
             SysReq::Swap,
             SysReq::HostCriticalServices,
         ].into_iter().collect();
     pub static ref ALL_SYSREQS: BTreeSet<SysReq> = rd_agent_intf::ALL_SYSREQS_SET.clone();
+    pub static ref ALL_BUT_LINUX_BUILD_SYSREQS: BTreeSet<SysReq> = {
+        let mut most = ALL_SYSREQS.clone();
+        most.remove(&SysReq::DepsLinuxBuild);
+        most
+    };
 }
 
 pub struct HashdFakeCpuBench {

@@ -55,7 +55,10 @@ pub enum SysReq {
     Oomd,
     NoSysOomd,
     HostCriticalServices,
-    Dependencies,
+    DepsBase,
+    DepsIoCostCoefGen,
+    DepsSide,
+    DepsLinuxBuild,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]

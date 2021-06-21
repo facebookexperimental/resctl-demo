@@ -362,7 +362,7 @@ impl ProtectionJob {
 
 impl Job for ProtectionJob {
     fn sysreqs(&self) -> BTreeSet<SysReq> {
-        ALL_SYSREQS.clone()
+        ALL_BUT_LINUX_BUILD_SYSREQS.clone()
     }
 
     fn run(&mut self, rctx: &mut RunCtx) -> Result<serde_json::Value> {

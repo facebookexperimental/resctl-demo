@@ -1,7 +1,7 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
 use anyhow::Result;
 use crossbeam::channel::{self, select, Receiver, Sender};
-use log::{error, info, warn};
+use log::{debug, error, warn};
 use std::collections::VecDeque;
 use std::os::unix::ffi::OsStrExt;
 use std::process;
@@ -110,7 +110,7 @@ impl JournalTailWorker {
                 },
                 recv(self.term_rx) -> term => {
                     if let Err(e) = term {
-                        info!("journal: Term ({})", &e);
+                        debug!("journal: Term ({})", &e);
                         break;
                     }
                 },

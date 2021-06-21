@@ -568,7 +568,7 @@ impl Unit {
         F: Fn(&US) -> bool,
     {
         let started_at = Instant::now();
-        loop {
+        while !super::prog_exiting() {
             if let Ok(()) = self.refresh() {
                 trace!(
                     "svc: {:?} waiting transitions ({:?})",
