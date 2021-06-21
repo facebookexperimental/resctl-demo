@@ -2,36 +2,9 @@
 use anyhow::{bail, Result};
 use serde::{Deserialize, Serialize};
 use std::fmt::Write;
+use std::sync::Mutex;
 
 use rd_util::*;
-
-const HELP_BODY: &str = "\
-Resource-control demo agent.
-
-rd-agent orchestrates resource control demo end-to-end. It runs benchmarks to
-establish baseline and configure iocost, manages one or two instances of
-rd-hashd as primary workloads and any number of system.slice and sideload.slice
-workloads.
-
-Comprehensive resource control requires a number of components closely working
-together. rd-agent will check all the needed features and try to configure the
-system as necessary, and report all the missing pieces. The following basic
-system configuration is expected.
-
- * Root filesystem must be btrfs and on a physical device (not md or dm).
-
- * Swap must be on the same device as root filesystem larger than half the
-   memory. Swapfile on the root filesystem is preferred.
-
- * Scratch directory must be on the root filesystem.
-
-System configuration check failures can be ignored with --force. However,
-resource isolation may not work as expected.
-
-Configurations, commanding and reporting happen through json files under TOPDIR.
-All files used by workloads are under the scratch directory. See
-TOPDIR/index.json and TOPDIR/cmd.json.
-";
 
 lazy_static::lazy_static! {
     static ref ARGS_STR: String = format!(
@@ -67,6 +40,8 @@ lazy_static::lazy_static! {
          -c, --compressibility=[FRAC] 'Content compressibility (default: 0)
          -p, --report=[PATH]          'Report file path'"
     );
+
+    static ref HELP_BODY: Mutex<&'static str> = Mutex::new("");
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -256,6 +231,10 @@ impl JsonLoad for Args {}
 impl JsonSave for Args {}
 
 impl Args {
+    pub fn set_help_body(help: &'static str) {
+        *HELP_BODY.lock().unwrap() = help;
+    }
+
     fn process_bandit(&mut self, bandit: &str, subm: &clap::ArgMatches) -> bool {
         let mut updated_base = false;
         match bandit {
@@ -305,7 +284,7 @@ impl JsonArgs for Args {
         clap::App::new("rd-agent")
             .version((*super::FULL_VERSION).as_str())
             .author(clap::crate_authors!("\n"))
-            .about(HELP_BODY)
+            .about(*HELP_BODY.lock().unwrap())
             .args_from_usage(&ARGS_STR)
             .subcommand(
                 clap::SubCommand::with_name("bandit-mem-hog")

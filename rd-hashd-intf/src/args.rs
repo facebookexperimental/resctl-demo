@@ -50,7 +50,8 @@ lazy_static::lazy_static! {
             dfl_file_frac=Params::default().file_frac,
             dfl_intv=dfl_args.interval)
     };
-    pub static ref HELP_BODY: Mutex<&'static str> = Mutex::new("");
+
+    static ref HELP_BODY: Mutex<&'static str> = Mutex::new("");
 }
 
 const ARGS_DOC: &str = "\

@@ -1,5 +1,5 @@
 
-# Overview
+# Resource Control Demo Hash Daemon
 
 `rd-hashd` is a workload simulator for `resctl-demo` and `resctl-bench`. Its
 primary goal is simulating a latency-senstive and throttleable primary
@@ -37,7 +37,7 @@ While `rd-hashd` is usually used a part of `resctl-demo` and `resctl-bench`,
 it can be useful as a stand-alone pseudo workload too. For more information
 on the containing projects, visit:
 
- https://github.com/facebookexperimental/resctl-demo
+  https://github.com/facebookexperimental/resctl-demo
 
 
 # Configuration, Report and Log Files
