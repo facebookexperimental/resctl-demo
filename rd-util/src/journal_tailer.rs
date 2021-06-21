@@ -36,12 +36,13 @@ fn parse_journal_msg(line: &str) -> Result<JournalMsg> {
     let unit = parsed["_SYSTEMD_UNIT"].as_str().unwrap_or("UNKNOWN");
 
     let msg = match &parsed["MESSAGE"] {
+        json::JsonValue::Short(v) => v.to_string(),
         json::JsonValue::String(v) => v.to_string(),
         json::JsonValue::Array(ar) => {
             let u8_ar: Vec<u8> = ar.iter().map(|x| x.as_u8().unwrap_or('?' as u8)).collect();
             std::ffi::OsStr::from_bytes(&u8_ar).to_string_lossy().into()
         }
-        _ => "UNKNOWN".to_string(),
+        v => format!("<UNKNOWN> {:?}", &v),
     };
 
     Ok(JournalMsg {
