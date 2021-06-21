@@ -159,6 +159,9 @@ fn create_logger(args: &Args, params: &Params) -> Option<Logger> {
 fn main() {
     assert_eq!(*VERSION, *rd_hashd_intf::VERSION);
 
+    const HELP_BODY: &[u8] = include_bytes!("../README.md");
+    Args::set_help_body(std::str::from_utf8(HELP_BODY).unwrap());
+
     //
     // Parse arguments and set up application logging (not the hash logging).
     //

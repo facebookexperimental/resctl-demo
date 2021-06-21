@@ -7,6 +7,7 @@ edition = "2018"
 license = "Apache-2.0"
 repository = "https://github.com/facebookexperimental/resctl-demo"
 description = "Latency-sensitive pseudo workload for resctl-demo"
+readme = "README.md"
 
 [dependencies]
 rd-util = { path = "../rd-util" }
