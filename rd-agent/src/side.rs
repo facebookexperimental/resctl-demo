@@ -94,9 +94,7 @@ pub fn prepare_linux_tar(cfg: &Config) -> Result<()> {
 }
 
 pub fn startup_checks(cfg: &mut Config) {
-    for bin in &[
-        "stress",
-    ] {
+    for bin in &["stress"] {
         if find_bin(bin, Option::<&str>::None).is_none() {
             cfg.sr_failed.add(
                 SysReq::DepsSide,
@@ -105,14 +103,7 @@ pub fn startup_checks(cfg: &mut Config) {
         }
     }
 
-    for bin in &[
-        "gcc",
-        "ld",
-        "make",
-        "bison",
-        "flex",
-        "pkg-config",
-    ] {
+    for bin in &["gcc", "ld", "make", "bison", "flex", "pkg-config"] {
         if find_bin(bin, Option::<&str>::None).is_none() {
             cfg.sr_failed.add(
                 SysReq::DepsLinuxBuild,

@@ -8,6 +8,7 @@ use std::path::Path;
 use std::process::{exit, Command};
 use std::sync::{Arc, Mutex};
 
+use rd_agent_intf::MissedSysReqs;
 use rd_util::*;
 use resctl_bench_intf::{Args, Mode};
 
@@ -20,6 +21,7 @@ mod progress;
 mod run;
 mod study;
 
+use bench::ALL_BUT_LINUX_BUILD_SYSREQS;
 use job::{FormatOpts, JobCtxs};
 use run::RunCtx;
 
@@ -328,6 +330,40 @@ impl Program {
         Ok(())
     }
 
+    pub fn do_deps(&mut self) -> Result<()> {
+        let mut base = base::Base::dummy(&self.args_file.data);
+        let mut rctx = RunCtx::new(&self.args_file.data, &mut base, self.jobs.clone());
+        rctx.skip_mem_profile().start_agent(vec![])?;
+        let srep = rctx.sysreqs_report().unwrap();
+
+        let satisfied = &srep.satisfied & &ALL_BUT_LINUX_BUILD_SYSREQS;
+
+        print!(
+            "Satisfied sysreqs ({}/{}):",
+            satisfied.len(),
+            ALL_BUT_LINUX_BUILD_SYSREQS.len()
+        );
+        for req in satisfied.iter() {
+            print!(" {:?}", req);
+        }
+        println!("");
+
+        let mut missed = MissedSysReqs::default();
+        for (req, descs) in srep.missed.map.iter() {
+            if ALL_BUT_LINUX_BUILD_SYSREQS.contains(req) {
+                missed.map.insert(req.clone(), descs.clone());
+            }
+        }
+
+        if missed.map.len() > 0 {
+            let mut buf = String::new();
+            missed.format(&mut (Box::new(&mut buf) as Box<dyn Write>));
+            print!("\n{}", buf);
+        }
+
+        Ok(())
+    }
+
     pub fn do_doc(subj: &str) -> Result<()> {
         const COMMON_DOC: &[u8] = include_bytes!("doc/common.md");
 
@@ -381,6 +417,12 @@ impl Program {
             Mode::Merge => {
                 if let Err(e) = merge::merge(&self.args_file.data) {
                     error!("Failed to merge ({:#})", &e);
+                    panic!();
+                }
+            }
+            Mode::Deps => {
+                if let Err(e) = self.do_deps() {
+                    error!("Failed to test dependencies ({:#})", &e);
                     panic!();
                 }
             }

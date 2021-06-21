@@ -168,6 +168,7 @@ pub enum Mode {
     Summary,
     Pack,
     Merge,
+    Deps,
     Doc,
 }
 
@@ -462,7 +463,7 @@ impl JsonArgs for Args {
             )
             .subcommand(
                 clap::SubCommand::with_name("summary")
-                    .about("Benchmark result summaries")
+                    .about("Summarizes benchmark results")
                     .arg(job_file_arg.clone())
                     .arg(job_spec_arg.clone()),
             )
@@ -498,6 +499,10 @@ impl JsonArgs for Args {
                             .long("multiple")
                             .help("Allow more than one result per kind (and optionally id)")
                     )
+            )
+            .subcommand(
+                clap::App::new("deps")
+                    .about("Test all dependencies")
             )
             .subcommand(
                 clap::App::new("doc")
@@ -658,6 +663,10 @@ impl JsonArgs for Args {
                     .collect();
                 false
             }
+            ("deps", Some(_subm)) => {
+                self.mode = Mode::Deps;
+                false
+            }
             ("doc", Some(subm)) => {
                 self.mode = Mode::Doc;
                 self.doc_subjects = subm
@@ -670,7 +679,7 @@ impl JsonArgs for Args {
             _ => false,
         };
 
-        if self.mode != Mode::Doc && self.result.len() == 0 {
+        if self.mode != Mode::Doc && self.mode != Mode::Deps && self.result.len() == 0 {
             error!("{:?} requires --result", &self.mode);
             exit(1);
         }
