@@ -214,6 +214,9 @@ impl RunCtxInner {
         if self.agent_svc.is_some() {
             bail!("Already running");
         }
+        if unsafe { libc::geteuid() } != 0 {
+            warn!("Trying to start rd-agent while running as !root. This is unlikely to work.");
+        }
 
         // Prepare testfiles synchronously for better progress report.
         if self.cfg.prep_testfiles {
@@ -580,12 +583,16 @@ impl<'a, 'b> RunCtx<'a, 'b> {
         // won't try to resolve configuration issues in that area and mark
         // the related dependencies as failed.
         if !self.base.all_sysreqs_checking && !self.agent_running() {
-            self.base.all_sysreqs_checking = true;
-            let saved_cfg = self.reset_cfg(None);
-            self.skip_mem_profile();
-            self.start_agent(vec![])?;
-            self.stop_agent();
-            self.reset_cfg(Some(saved_cfg));
+            if self.base.all_sysreqs.len() > 0 {
+                self.base.all_sysreqs_checking = true;
+                let saved_cfg = self.reset_cfg(None);
+                self.skip_mem_profile();
+                self.start_agent(vec![])?;
+                self.stop_agent();
+                self.reset_cfg(Some(saved_cfg));
+            } else {
+                self.base.all_sysreqs_checked = true;
+            }
         }
 
         if !self.cfg.skip_mem_profile {
@@ -606,12 +613,13 @@ impl<'a, 'b> RunCtx<'a, 'b> {
 
         let started_at = unix_now() as i64;
         if let Err(e) = self.wait_cond(
-            |af, _| {
+            |af, progress| {
+                progress.set_status("Waiting rd-agent to start");
                 let rep = &af.report.data;
                 rep.timestamp.timestamp() > started_at && rep.state == RunnerState::Running
             },
             Some(CMD_TIMEOUT),
-            None,
+            Some(BenchProgress::new().monitor_systemd_unit(AGENT_SVC_NAME)),
         ) {
             self.stop_agent();
             return Err(e.context("Waiting for rd-agent to report back after start-up"));
