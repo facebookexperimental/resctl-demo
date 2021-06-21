@@ -668,7 +668,7 @@ pub fn init_logging(verbosity: u32) {
             )
             .is_err()
         {
-            sl::SimpleLogger::init(sl_level, lcfg.build()).unwrap();
+            sl::WriteLogger::init(sl_level, lcfg.build(), std::io::stderr()).unwrap();
         }
     }
 }
