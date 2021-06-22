@@ -68,47 +68,47 @@ memory footprints. The `factor` is `size_mean` divided by `usage_mean`.
 
 ## Properties
 
-#### `apply` (bool, default: false)
+##### `apply` (bool, default: false)
 
 If true, apply the determined parameters to the subsequent benchmarks.
 
-#### `commit` (bool, default: false)
+##### `commit` (bool, default: false)
 
 If true, commit the determined parameters to
 `/var/lib/resctl-demo/bench.json`. Implies `apply`.
 
-#### `loops` (integer, default: 3)
+##### `loops` (integer, default: 3)
 
 The number of `rd-hashd` benchmark iterations to run. The final result is
 averaged over the iterations.
 
-#### `rps-max` (integer, default: 2000)
+##### `rps-max` (integer, default: 2000)
 
 Configure the max RPS when faking cpu load.
 
-#### `hash-size` (size, default: see `rd-hashd --help`)
+##### `hash-size` (size, default: see `rd-hashd --help`)
 
 Configure the average number of bytes hashed per request.
 
-#### `chunk-pages` (integer, default: see `rd-hashd --help`)
+##### `chunk-pages` (integer, default: see `rd-hashd --help`)
 
 Configure the number of pages to be accessed together.
 
-#### `log-bps` (size, default: see `rd-hashd --help` )
+##### `log-bps` (size, default: see `rd-hashd --help` )
 
 Configure how many log bytes `rd-hashd` will generate per second.
 
-#### `mem-avail-err-max` (fraction, default: 0.1)
+##### `mem-avail-err-max` (fraction, default: 0.1)
 
 If the memory used by `rd-hashd` is off by more than this ratio, declare the
 run to be invalid and retry.
 
-#### `mem-avail-inner-retries` (integer, 2)
+##### `mem-avail-inner-retries` (integer, 2)
 
 The number of times to retry without re-evaluating the amount of available
 memory.
 
-#### `mem-avail-outer-retries` (integer, 2)
+##### `mem-avail-outer-retries` (integer, 2)
 
 The number of times to retry after re-evaluating the amount of available
 memory.

@@ -8,7 +8,10 @@ conditions. resctl-bench solves the problem by exercising the whole system
 with realistic workloads and analyzing system and workload behaviors.
 
 Many of benchmarks implemented in resctl-bench have detailed explanations in
-resctl-demo. Give it a try.
+`resctl-demo`. Give it a try:
+
+  https://github.com/facebookexperimental/resctl-demo
+
 
 ## Common Concepts
 
@@ -33,6 +36,7 @@ and heap footprints that the memory and IO device can service.
 faked, to evaluate IO devices.
 
 For more details: `rd-hashd --help`
+
 
 ### Memory Offloading and Profile
 
@@ -83,6 +87,7 @@ invocation), `--mem-avail` can be used to skip this step. Some benchmarks
 (`storage` and its super benchmarks such as `iocost-qos` and `iocost-tune`)
 can detect incorrect `mem_avail` and retry automatically. Those benchmarks
 may fail if the amount of available memory keeps fluctuating.
+
 
 ## Running Benchmarks
 
@@ -148,11 +153,13 @@ subcommand. To only view the result of the `iocost-qos` benchmark:
  $ resctl-bench -r result.json format iocost-tune
 ```
 
+
 ### The `run`, `study`, `solve` and `format` Stages
 
 A benchmark is executed in the following four stages, each of which can be
 triggered by the matching subcommand. When a stage is triggered, all the
 subsequent stages are triggered together.
+
 
 #### `run`
 
@@ -165,6 +172,7 @@ A `record` is supposed to contain the minimum amount of information needed
 to analyze the benchmark. e.g. it may just contain the relevant time ranges
 so that the following `study` stage can analyze the agent report files in
 `/var/lib/resctl-demo/report.d`.
+
 
 #### `study`
 
@@ -199,6 +207,7 @@ $ resctl-bench -r result.json study \
   --reports /var/lib/resctl-demo/report.d study
 ```
 
+
 #### `solve`
 
 This optional stage post-processes the existing `record` and `result` and
@@ -210,6 +219,7 @@ For example, `iocost-tune` uses the `solve` stage to calculate the QoS
 solutions from the compiled experiment results so that users can calculate
 custom solutions using only the result file.
 
+
 #### `format / summary`
 
 This stage formats the benchmark result into a human readable form. The
@@ -219,6 +229,7 @@ formats (e.g. pdf).
 The `summary` subcommand is a flavor of the `format` stage which generates
 an abbreviated output. This is what gets printed after each benchmark
 completion.
+
 
 ### `run` and `format` Subcommand Properties
 
@@ -234,14 +245,14 @@ We're running an `iocost-qos` benchmark and it has four property groups
 delineated with colons. The properties in the first group apply to the whole
 run.
 
-#### `id=qos-0`
+##### `id=qos-0`
 
 Specifies the identifier of the run. This is useful when there are multiple
 runs of the same benchmark type. Here, we're naming the benchmark `qos-0`.
 
 This is one of several properties which are available for all bench types.
 
-#### `storage-base-loops=1`
+##### `storage-base-loops=1`
 
 This is an `iocost-qos` specific property configuring the repetition count
 of the `storage` sub-bench base runs. The default is 3 but we want a quick
@@ -277,9 +288,10 @@ Similarly, the `format` subcommand may accept properties:
 The above command tells `iocost-tune` to generate an output pdf file instead
 of producing text output on stdout.
 
-### Common Command Options and Bench Properties
 
-#### Common Command Options
+## Common Command Options and Bench Properties
+
+### Common Command Options
 
 Here are explanations on select common command options:
 
@@ -325,7 +337,8 @@ When the sytstem can't be configured correctly or some dependencies are
 missing, `resctl-bench` prints out error messages and exits. This option
 forces `resctl-bench` to continue.
 
-#### Common Bench Properties
+
+### Common Bench Properties
 
 All common properties are for the first property group.
 
@@ -402,6 +415,7 @@ $ resctl-bench -r result.json run storage:apply=true
 
 Note that the properties default to `true` for some benchmarks
 (`iocost-params` and `hashd-params`).
+
 
 ## Reading Benchmark Results
 
