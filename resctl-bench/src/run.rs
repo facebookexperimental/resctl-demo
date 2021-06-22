@@ -373,7 +373,11 @@ impl<'a, 'b> RunCtx<'a, 'b> {
 
     pub fn set_zswap_enabled(&mut self, enabled: Option<bool>) -> &mut Self {
         self.add_agent_init_fn(move |rctx| {
-            rctx.access_agent_files(|af| af.cmd.data.zswap_enabled = enabled)
+            rctx.access_agent_files(|af| {
+                af.cmd.data.cmd_seq += 1;
+                af.cmd.data.zswap_enabled = enabled;
+                af.cmd.save().unwrap();
+            })
         });
         self
     }
@@ -907,7 +911,6 @@ impl<'a, 'b> RunCtx<'a, 'b> {
         let mut next_seq = 0;
         self.access_agent_files(|af| {
             next_seq = af.bench.data.hashd_seq + 1;
-            af.cmd.data = Default::default();
             af.cmd.data.hashd[0].log_bps = log_bps.unwrap_or(dfl_params.log_bps);
             af.cmd.data.bench_hashd_balloon_size = self.base.balloon_size_hashd_bench();
             af.cmd.data.bench_hashd_args = extra_args;
