@@ -1,4 +1,5 @@
-#  `protection` benchmark
+`protection` benchmark
+======================
 
 This benchmark is a collection of scenarios that test how well `rd-hashd`
 can be protected against interferences. Currently, the following two
@@ -33,9 +34,11 @@ This benchmark also supports rstat. Format the result with `--rstat`s to see
 detailed resource statistics.
 
 
-## Reading Results
+Reading Results
+===============
 
-### `mem-hog` Results
+`mem-hog` Results
+-----------------
 
 Here's a snippet from a `mem-hog` result:
 
@@ -94,7 +97,8 @@ interpreted as:
   stays low single digit.
 
 
-### `mem-hog-tune` Results
+`mem-hog-tune` Results
+----------------------
 
 `mem-hog-tune` has an extra line in its `Result` block:
 
@@ -134,11 +138,14 @@ but couldn't find a size which could be successfully protected. The table
 shows that `isol-01` was 49.4% on the final probe for 9.6G.
 
 
-## Properties
+Properties
+==========
 
 `protection` doesn't yet have any first group properties.
 
-### `mem-hog` Properties
+
+`mem-hog` Properties
+--------------------
 
 #### `loops` (integer, default: 2)
 
@@ -155,7 +162,8 @@ device write speed according to the iocost model. Should be one of 10%, 25%,
 50%, 1x or 2x.
 
 
-### `mem-hog-tune` Properties
+`mem-hog-tune` Properties
+-------------------------
 
 #### `load` (fraction, default: 1.0)
 

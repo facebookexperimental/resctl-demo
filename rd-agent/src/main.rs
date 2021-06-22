@@ -1210,6 +1210,8 @@ fn update_index(cfg: &Config) -> Result<()> {
 
 fn main() {
     assert_eq!(*VERSION, *rd_agent_intf::VERSION);
+    Args::set_help_body(std::str::from_utf8(include_bytes!("../README.md")).unwrap());
+
     setup_prog_state();
     unsafe {
         libc::umask(0o002);

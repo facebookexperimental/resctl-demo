@@ -1,4 +1,5 @@
-# `iocost-qos` benchmark
+`iocost-qos` benchmark
+======================
 
 This benchmark utilizes `storage` and `protection:mem-hog-tune` to evaluate
 different iocost QoS configurations. For each QoS configuration,
@@ -69,7 +70,8 @@ the configuration would throttle the device too much.
 The last line is summarizing that there are three bench sets to run.
 
 
-## Reading Results
+Reading Results
+===============
 
 For each run, the QoS configuration is printed, followed by the `storage`
 and `protection:mem-hog-tune` sub-bench results and then the result section
@@ -139,8 +141,11 @@ to have the average of 2.1 millisecs, the standard deviation of 2.1
 millisecs, and maximum of 15.5 millisecs.
 
 
-## Properties
-### First group properties (applies to all sub-runs)
+Properties
+==========
+
+First group properties (applies to all sub-runs)
+------------------------------------------------
 
 #### `vrate-min` (float, default: 0.0)
 
@@ -199,7 +204,8 @@ bandwidth for reliable operation. This property forces benchmarking of all
 specified QoS configurations.
 
 
-### Second+ group properties
+Second+ group properties
+------------------------
 
 Each group specifies the QoS configuration to probe which is composed by
 applying the specified overrides on top of the active QoS parameters.

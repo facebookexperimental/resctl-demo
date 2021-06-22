@@ -1,4 +1,5 @@
-# `hashd-params` benchmark
+`hashd-params` benchmark
+========================
 
 This is a wrapper around `rd-hashd`'s benchmark mode which tries to saturate
 all three local resources - CPU, memory and IO. The bench result parameters
@@ -6,7 +7,8 @@ include hashing size, max RPS and memory footprint and are recorded in
 `/var/lib/resctl-demo/bench.json` if `commit` is `true`.
 
 
-## Properties
+Properties
+==========
 
 #### `apply` (bool, default: true)
 

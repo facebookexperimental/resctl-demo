@@ -1,4 +1,5 @@
-# `iocost-tune` benchmark
+`iocost-tune` benchmark
+=======================
 
 `iocost-tune` analyzes the results of an `iocost-qos` benchmark to identify
 behavior characteristics of the IO device and compute iocost QoS parameter
@@ -9,7 +10,8 @@ solutions. If the specified bench series doesn't include a preceding
 iocost-qos:dither,vrate-max=125.0,vrate-intvs=25
 ```
 
-## Analyzed Metrics
+Analyzed Metrics
+================
 
 By default, `iocost-tune` analyzes how the following metrics change as vrate
 is throttled:
@@ -73,7 +75,8 @@ device characteristics.
 IO read and write completion latencies. See `common` doc for more info.
 
 
-## Solutions
+Solutions
+=========
 
 The following iocost QoS solutions are computed by default. Note that the
 descriptions of the solution logics aren't comprehensive.
@@ -122,7 +125,8 @@ trying out and seeing what would work if the other solutions aren't
 available or adequate.
 
 
-## Reading Results
+Reading Results
+===============
 
 When `format` subcommand is used to print the full result, graphs like the
 followings are printed:
@@ -206,7 +210,8 @@ $ resctl-bench -r result.json format iocost-tune:pdf=result.pdf
 ```
 
 
-## Merging
+Merging
+=======
 
 `iocost-qos` benchmark result can be noisy form SSD behavior inconsistencies
 and other system behavior variances. While `iocost-tune` tries its best to
@@ -258,9 +263,11 @@ benchmark, result.
 ```
 
 
-## Properties
+Properties
+==========
 
-### First group properties (applies to all sub-runs)
+First group properties (applies to all sub-runs)
+------------------------------------------------
 
 #### `gran` (float, default: 0.1)
 
@@ -288,7 +295,8 @@ Specify additional data sets to analyze:
   details.
 
 
-### Second+ group properties
+Second+ group properties
+------------------------
 
 Each group represents one QoS solution to compute. Every group should have
 one `name` property and zero or one of the QoS solution target properties.

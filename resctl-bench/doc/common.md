@@ -1,4 +1,5 @@
-# Overview, Common Concepts and Options
+Overview, Common Concepts and Options
+=====================================
 
 When a system is under resource contention, various operating system
 components and applications interact in complex ways. The interactions can't
@@ -8,11 +9,16 @@ conditions. resctl-bench solves the problem by exercising the whole system
 with realistic workloads and analyzing system and workload behaviors.
 
 Many of benchmarks implemented in resctl-bench have detailed explanations in
-resctl-demo. Give it a try.
+`resctl-demo`. Give it a try:
 
-## Common Concepts
+  https://github.com/facebookexperimental/resctl-demo
 
-### rd-hashd
+
+Common Concepts
+===============
+
+rd-hashd
+--------
 
 `rd-hashd` is a simulated latency-sensitive request-servicing workload with
 realistic system resource usage profile and contention responses. Its page
@@ -34,7 +40,9 @@ faked, to evaluate IO devices.
 
 For more details: `rd-hashd --help`
 
-### Memory Offloading and Profile
+
+Memory Offloading and Profile
+-----------------------------
 
 Not all memory areas are equally hot. If the IO device is performant enough,
 the tail-end of the access distribution can be offloaded without violating
@@ -84,9 +92,12 @@ invocation), `--mem-avail` can be used to skip this step. Some benchmarks
 can detect incorrect `mem_avail` and retry automatically. Those benchmarks
 may fail if the amount of available memory keeps fluctuating.
 
-## Running Benchmarks
 
-### The Result File and Incremental Completion
+Running Benchmarks
+==================
+
+The Result File and Incremental Completion
+------------------------------------------
 
 A benchmark run may take a long time and it is often useful to string up a
 series of benchmarks - e.g. run `iocost-params` and `hashd-params` to
@@ -148,7 +159,9 @@ subcommand. To only view the result of the `iocost-qos` benchmark:
  $ resctl-bench -r result.json format iocost-tune
 ```
 
-### The `run`, `study`, `solve` and `format` Stages
+
+The `run`, `study`, `solve` and `format` Stages
+-----------------------------------------------
 
 A benchmark is executed in the following four stages, each of which can be
 triggered by the matching subcommand. When a stage is triggered, all the
@@ -220,7 +233,9 @@ The `summary` subcommand is a flavor of the `format` stage which generates
 an abbreviated output. This is what gets printed after each benchmark
 completion.
 
-### `run` and `format` Subcommand Properties
+
+`run` and `format` Subcommand Properties
+----------------------------------------
 
 The `run` and `format` subcommands may take zero, one or multiple property
 groups. Here's a `run` example:
@@ -277,20 +292,23 @@ Similarly, the `format` subcommand may accept properties:
 The above command tells `iocost-tune` to generate an output pdf file instead
 of producing text output on stdout.
 
-### Common Command Options and Bench Properties
 
-#### Common Command Options
+Common Command Options and Bench Properties
+===========================================
+
+Common Command Options
+----------------------
 
 Here are explanations on select common command options:
 
-##### `--dir` and `--dev`
+#### `--dir` and `--dev`
 
 By default, `resctl-bench` uses `/var/lib/resctl-demo` for its operation and
 expects swaps to be on the same IO device, which it auto-probes. `--dir` can
 be used to put the operation directory somewhere else and `--dev` overrides
 the underlying IO device detection.
 
-##### `--mem-profile` and `--mem-avail`
+#### `--mem-profile` and `--mem-avail`
 
 For memory-size dependent benchmarks, `--mem-profile` can be used to select
 a custom memory profile other than the default of 16. The memory profiles
@@ -302,7 +320,7 @@ memory profiles which can be time consuming. If the available memory size is
 already known from previous runs, `--mem-avail` can be used to bypass this
 step.
 
-##### `--iocost-from-sys` and `--iocost-qos`
+#### `--iocost-from-sys` and `--iocost-qos`
 
 Unless overridden, `resctl-bench` uses the `iocost` parameters from
 `/var/lib/resctl-demo/bench.json`, which can be updated by `resctl-demo` or
@@ -314,22 +332,24 @@ You can also manually override the iocost QoS parameters with
 `--iocost-qos`. For example, `--iocost-qos min=75,max=75` will confine vrate
 to 75%.
 
-##### `--swappiness`
+#### `--swappiness`
 
 `resctl-bench` configures the default swappiness of 60 while running
 benchmarks unless overridden by this option.
 
-##### `--force`
+#### `--force`
 
 When the sytstem can't be configured correctly or some dependencies are
 missing, `resctl-bench` prints out error messages and exits. This option
 forces `resctl-bench` to continue.
 
-#### Common Bench Properties
+
+Common Bench Properties
+-----------------------
 
 All common properties are for the first property group.
 
-##### `id`
+#### `id`
 
 This gives the benchmark an optional identifier which helps with
 identification if there are multiple instances of the same bench type in the
@@ -347,7 +367,7 @@ However, if IDs are specified, they must be unique for the bench type.
 In addition to helping differntiating bench instances, IDs are used to group
 source results when merging with `--by-id` specified.
 
-##### `passive`
+#### `passive`
 
 `resctl-bench` verifies and changes system configurations so that the
 benchmarks can measure the system behavior in a controlled and expected
@@ -384,7 +404,7 @@ Multiple values can be specified by delineating them with `/`:
 $ resctl-bench -r result.json run iocost-qos:passive=mem/io
 ```
 
-##### `apply` and `commit`
+#### `apply` and `commit`
 
 These two boolean properties are available in benchmarks that produce either
 iocost or hashd parameters. `apply`, when true, makes the benchmark apply
@@ -403,9 +423,12 @@ $ resctl-bench -r result.json run storage:apply=true
 Note that the properties default to `true` for some benchmarks
 (`iocost-params` and `hashd-params`).
 
-## Reading Benchmark Results
 
-### Header
+Reading Benchmark Results
+=========================
+
+Header
+------
 
 When formatted, each benchmark result starts with a header which looks like
 the following:
@@ -439,7 +462,9 @@ parameters, the parameters in the header are not meaningful.
 Additionally, if the benchmark was `--force`'d to run, the missed system
 requirements will be printed as well.
 
-### Nested IO Latency Distribution
+
+Nested IO Latency Distribution
+------------------------------
 
 For benchmarks which care about IO completion latencies,`resctl-bench`
 reports IO them in a table which looks like the following:

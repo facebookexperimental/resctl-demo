@@ -111,7 +111,7 @@ lazy_static::lazy_static! {
     pub static ref DOC_AFTER_HELP_FOOTER: String = format!(r#"
 The pages are in markdown. To convert, e.g., to pdf:
 
-  resctl-bench doc $SUBJECT | pandoc -o $SUBJECT.pdf:
+  resctl-bench doc $SUBJECT | pandoc --toc --toc-depth=3 -o $SUBJECT.pdf
 
 The documentation can also be viewed at:
 

@@ -1,4 +1,5 @@
-# `storage` benchmark
+`storage` benchmark
+===================
 
 Uses `rd-hashd`'s sizing benchmark to measure the performance of the storage
 device.
@@ -45,7 +46,8 @@ This benchmark also supports rstat. Format the result with `--rstat`s to see
 detailed resource statistics.
 
 
-## Reading Results
+Reading Results
+===============
 
 In the `storage` output:
 
@@ -66,7 +68,8 @@ the `loops` iterations. `size_mean/stdev` are the same of `rd-hashd`'s
 memory footprints. The `factor` is `size_mean` divided by `usage_mean`.
 
 
-## Properties
+Properties
+==========
 
 #### `apply` (bool, default: false)
 

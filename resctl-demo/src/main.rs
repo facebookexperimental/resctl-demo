@@ -485,7 +485,7 @@ fn main() {
     let matches = clap::App::new("resctl-demo")
         .version((*FULL_VERSION).as_str())
         .author(clap::crate_authors!("\n"))
-        .about("Facebook Resource Control Demo")
+        .about(std::str::from_utf8(include_bytes!("../README.md")).unwrap())
         .args_from_usage(&ARGS_STR)
         .setting(clap::AppSettings::UnifiedHelpMessage)
         .setting(clap::AppSettings::DeriveDisplayOrder)
