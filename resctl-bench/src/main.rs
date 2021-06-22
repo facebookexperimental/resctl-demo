@@ -365,7 +365,7 @@ impl Program {
     }
 
     pub fn do_doc(subj: &str) -> Result<()> {
-        const COMMON_DOC: &[u8] = include_bytes!("doc/common.md");
+        const COMMON_DOC: &[u8] = include_bytes!("../doc/common.md");
 
         println!(
             "This documentation can also be viewed at:\n\n  {}\n",
