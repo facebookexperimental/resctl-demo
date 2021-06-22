@@ -145,6 +145,26 @@ pub fn read_swappiness() -> Result<u32> {
         .context("Parsing swappiness")?)
 }
 
+pub const ZSWAP_ENABLED_PATH: &str = "/sys/module/zswap/parameters/enabled";
+
+pub fn read_zswap_enabled() -> Result<bool> {
+    if !Path::new(ZSWAP_ENABLED_PATH).exists() {
+        return Ok(false);
+    }
+    Ok(
+        if let Some(ch) = read_one_line(ZSWAP_ENABLED_PATH)
+            .context("Reading zswap enabled")?
+            .trim()
+            .chars()
+            .next()
+        {
+            ch == 'y' || ch == 'Y' || ch == '1'
+        } else {
+            bail!("{:?} read empty", ZSWAP_ENABLED_PATH);
+        },
+    )
+}
+
 pub fn override_system_configuration(
     total_memory: Option<usize>,
     total_swap: Option<usize>,

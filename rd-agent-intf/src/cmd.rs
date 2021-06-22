@@ -49,6 +49,9 @@ lazy_static::lazy_static! {
 //  hashd[].weight: Relative weight between the two hashd instances
 //  sysloads{{}}: \"NAME\": \"DEF_ID\" pairs for active sysloads
 //  sideloads{{}}: \"NAME\": \"DEF_ID\" pairs for active sideloads
+//  swappiness: /proc/sys/vm/swappiness, null to leave as-is
+//  zswap_enabled: zswap enable flag, null to leave as-is
+//  balloon_ratio: Memory balloon size given as a ratio to total memory, default 0.0
 //
 ",
                 dfl_bench_balloon = Cmd::default().bench_hashd_balloon_size,
@@ -112,6 +115,7 @@ pub struct Cmd {
     pub sysloads: BTreeMap<String, String>,
     pub sideloads: BTreeMap<String, String>,
     pub swappiness: Option<u32>,
+    pub zswap_enabled: Option<bool>,
     pub balloon_ratio: f64,
 }
 
@@ -134,6 +138,7 @@ impl Default for Cmd {
             sysloads: BTreeMap::new(),
             sideloads: BTreeMap::new(),
             swappiness: None,
+            zswap_enabled: None,
             balloon_ratio: 0.0,
         }
     }

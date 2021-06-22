@@ -185,6 +185,7 @@ pub struct Config {
     sr_wbt: Option<u64>,
     sr_wbt_path: Option<String>,
     sr_swappiness: Option<u32>,
+    sr_zswap_enabled: Option<bool>,
     sr_oomd_sys_svc: Option<systemd::Unit>,
 }
 
@@ -446,6 +447,7 @@ impl Config {
             sr_wbt: None,
             sr_wbt_path: None,
             sr_swappiness: None,
+            sr_zswap_enabled: None,
             sr_oomd_sys_svc: None,
         }
     }
@@ -880,6 +882,12 @@ impl Config {
             }
         }
 
+        if let Ok(zswap_enabled) = read_zswap_enabled() {
+            if self.enforce.mem {
+                self.sr_zswap_enabled = Some(zswap_enabled);
+            }
+        }
+
         // do we have oomd?
         if let Err(e) = &self.oomd_bin {
             self.sr_failed.add(
@@ -1035,6 +1043,15 @@ impl Drop for Config {
             info!("cfg: Restoring swappiness to {}", swappiness);
             if let Err(e) = write_one_line(SWAPPINESS_PATH, &format!("{}", swappiness)) {
                 error!("cfg: Failed to restore swappiness ({:?})", &e);
+            }
+        }
+        if let Some(enabled) = self.sr_zswap_enabled {
+            info!("cfg: Restoring zswap enabled to {}", enabled);
+            if let Err(e) = write_one_line(
+                ZSWAP_ENABLED_PATH,
+                &format!("{}", if enabled { "Y" } else { "N" }),
+            ) {
+                error!("cfg: Failed to restore zswap enabled ({:?})", &e);
             }
         }
         if let Some(svc) = &mut self.sr_oomd_sys_svc {

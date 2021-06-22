@@ -355,7 +355,9 @@ impl Job for StorageJob {
     }
 
     fn run(&mut self, rctx: &mut RunCtx) -> Result<serde_json::Value> {
-        rctx.set_prep_testfiles().start_agent(vec![])?;
+        rctx.set_prep_testfiles()
+            .disable_zswap()
+            .start_agent(vec![])?;
 
         // Depending on mem-profile, we might be using a large balloon which
         // can push down available memory below workload's memory.low

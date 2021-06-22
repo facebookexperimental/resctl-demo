@@ -206,6 +206,19 @@ impl RunnerData {
         Ok(())
     }
 
+    fn apply_zswap_enabled(&self, enabled: Option<bool>) -> Result<()> {
+        if !self.cfg.enforce.mem {
+            return Ok(());
+        }
+        let cur = read_zswap_enabled()?;
+        let target = enabled.unwrap_or(self.cfg.sr_zswap_enabled.unwrap());
+        if cur != target {
+            write_one_line(ZSWAP_ENABLED_PATH, if target { "Y" } else { "N" })
+                .context("Updating zswap enable")?;
+        }
+        Ok(())
+    }
+
     fn apply_workloads(&mut self) -> Result<()> {
         let cmd = &self.sobjs.cmd_file.data;
         let bench = &self.sobjs.bench_file.data;
@@ -235,6 +248,7 @@ impl RunnerData {
         }
 
         self.apply_swappiness(cmd.swappiness)?;
+        self.apply_zswap_enabled(cmd.zswap_enabled)?;
 
         match self.state {
             Idle => {

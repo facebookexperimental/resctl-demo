@@ -807,6 +807,7 @@ impl ReportWorker {
             iolat_cum: self.iolat_cum.clone(),
             iocost: IoCostReport::read(self.iocost_devnr)?,
             swappiness: read_swappiness()?,
+            zswap_enabled: read_zswap_enabled()?,
             ..Default::default()
         })
     }

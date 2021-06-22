@@ -326,7 +326,7 @@ impl IoCostQoSJob {
         let rec_json = loop {
             tries += 1;
             qos_cfg.apply(rctx)?;
-            let r = sjob.clone().run(rctx);
+            let r = sjob.clone().run(rctx.disable_zswap());
             rctx.stop_agent();
             match r {
                 Ok(r) => break r,
@@ -360,7 +360,7 @@ impl IoCostQoSJob {
         qos_cfg.apply(rctx)?;
         Self::set_prot_size_range(pjob, &stor_rec, &stor_res);
 
-        let out = pjob.run(rctx);
+        let out = pjob.run(rctx.disable_zswap());
         rctx.stop_agent();
 
         let prot_rec = match out {
