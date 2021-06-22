@@ -1,22 +1,25 @@
-# `iocost-params` benchmark
+`iocost-params` benchmark
+=========================
 
 This is a wrapper around the naive fio based benchmark available in the
 kernel tree and determines the iocost model and QoS parameters.
 
 
-## Properties
+Properties
+==========
 
-##### `apply` (bool, default: true)
+#### `apply` (bool, default: true)
 
 If true, apply the determined parameters to the subsequent benchmarks.
 
-##### `commit` (bool, default: true)
+#### `commit` (bool, default: true)
 
 If true, commit the determined parameters to
 `/var/lib/resctl-demo/bench.json`. Implies `apply`.
 
 
-## Limitations
+Limitations
+===========
 
 The benchmark runs six simple benchmarks to determine the six iocost model
 parameters and then another two to determine the QoS latency targets. The

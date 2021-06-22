@@ -1,4 +1,5 @@
-# `iocost-tune` benchmark
+`iocost-tune` benchmark
+=======================
 
 `iocost-tune` analyzes the results of an `iocost-qos` benchmark to identify
 behavior characteristics of the IO device and compute iocost QoS parameter
@@ -9,18 +10,19 @@ solutions. If the specified bench series doesn't include a preceding
 iocost-qos:dither,vrate-max=125.0,vrate-intvs=25
 ```
 
-## Analyzed Metrics
+Analyzed Metrics
+================
 
 By default, `iocost-tune` analyzes how the following metrics change as vrate
 is throttled:
 
-##### MOF (Memory Offloading Factor)
+#### MOF (Memory Offloading Factor)
 
 How much of `rd-hashd` memory footprint can be offloaded to the IO device.
 This is a latency-limited bandwidth performance metric. See the `common` doc
 and `resctl-demo` for more information on memory offloading.
 
-##### aMOF (Adjusted Memory Offloading Factor)
+#### aMOF (Adjusted Memory Offloading Factor)
 
 How much of `rd-hashd` memory footprint can be offloaded to the IO device
 while being able to protect `rd-hashd` against interferences. This is always
@@ -28,13 +30,13 @@ equal to or less than `MOF` for the same vrate. For latency critical use
 cases, this is the memory footprint that can be supported safely by the IO
 device.
 
-##### aMOF-delta (Adjusted Memory Offloading Factor Delta)
+#### aMOF-delta (Adjusted Memory Offloading Factor Delta)
 
 The difference between `MOF` and `aMOF-delta`. The wider the delta, the more
 difficult it is to size the workload for protection as a size which
 saturates the machine will be too big to protect.
 
-##### isol-01 (Isolation Factor)
+#### isol-01 (Isolation Factor)
 
 Isolation factor is defined as
 
@@ -51,7 +53,7 @@ value for a given vrate is lower than the threshold, it indicates that
 sufficient protection couldn't be achieved even at the smallest workload
 size.
 
-##### `lat-imp` (Latency Impact)
+#### `lat-imp` (Latency Impact)
 
 Latency impact is defined as
 
@@ -61,30 +63,31 @@ Latency impact is defined as
 
 where latency is the end-to-end `rd-hashd` request completion latency.
 
-##### `work-csv` (Work Conservation)
+#### `work-csv` (Work Conservation)
 
 Measures how much IO bandwidth the kernel was able to preserve while
 protecting against memory hog. The lossage is caused by inefficiency in the
 current implementation of anonymous memory throttling and doesn't reflect IO
 device characteristics.
 
-##### `rlat-XX-YY` and `wlat-XX-YY` (Read and Write Latencies)
+#### `rlat-XX-YY` and `wlat-XX-YY` (Read and Write Latencies)
 
 IO read and write completion latencies. See `common` doc for more info.
 
 
-## Solutions
+Solutions
+=========
 
 The following iocost QoS solutions are computed by default. Note that the
 descriptions of the solution logics aren't comprehensive.
 
-##### `naive`
+#### `naive`
 
 It targets 100% of what the model parameters describe (`fio` measured
 maximum). vrate will be throttled down to 75% based on the p99 read and
 write latencies.
 
-##### `bandwidth`
+#### `bandwidth`
 
 This targets the minimum vrate which renders the maximum `MOF. Going higher
 deteriorates control quality without increasing supportable memory
@@ -96,7 +99,7 @@ popular facebook production workload under memory and IO pressures. While
 it's arguable whether this is the exact point we wanna settle on, it's good
 at steering away from configurations which are clearly out of bounds.
 
-##### `isolated-bandwidth` 
+#### `isolated-bandwidth` 
 
 This targets the minimum vrate which renders the maximum aMOF. Going higher
 deteriorates control quality without increasing memory footprint which can
@@ -107,13 +110,13 @@ than the `isolation` solution, `isolated-bandwidth` uses the `isolation`
 solution instead, so `isolated-bandwidth` is guaranteed to be throttled
 equally to or less than `isolation`.
 
-##### `isolation`
+#### `isolation`
 
 This targets the maximum vrate which renders the minimum aMOF-delta. This is
 the point where a workload sized for saturation is most likely to be
 isolatable.
 
-##### `rlat-99-q[1-4]`
+#### `rlat-99-q[1-4]`
 
 Each of these solutions targets a quarter of the 99th percentile read
 latency spread. `q1` targets 100% vrate and modulates it down to 75% point,
@@ -122,7 +125,8 @@ trying out and seeing what would work if the other solutions aren't
 available or adequate.
 
 
-## Reading Results
+Reading Results
+===============
 
 When `format` subcommand is used to print the full result, graphs like the
 followings are printed:
@@ -206,7 +210,8 @@ $ resctl-bench -r result.json format iocost-tune:pdf=result.pdf
 ```
 
 
-## Merging
+Merging
+=======
 
 `iocost-qos` benchmark result can be noisy form SSD behavior inconsistencies
 and other system behavior variances. While `iocost-tune` tries its best to
@@ -258,25 +263,27 @@ benchmark, result.
 ```
 
 
-## Properties
+Properties
+==========
 
-### First group properties (applies to all sub-runs)
+First group properties (applies to all sub-runs)
+------------------------------------------------
 
-##### `gran` (float, default: 0.1)
+#### `gran` (float, default: 0.1)
 
 The granularity used when fitting lines to data points. The finer the
 granularity, the more cycles are needed.
 
-##### `scale-min` (fraction, default: 0.01)
+#### `scale-min` (fraction, default: 0.01)
 
 The minimum scale factor. No solution will scale below. See `scale-max`.
 
-##### `scale-max` (fraction, default: 1.0)
+#### `scale-max` (fraction, default: 1.0)
 
 The maximum scale factor. No solution will scale above. 1.0 means that the
 solution won't ever scale up the model parameters.
 
-##### Additional data set selector
+#### Additional data set selector
 
 Specify additional data sets to analyze:
 
@@ -288,17 +295,18 @@ Specify additional data sets to analyze:
   details.
 
 
-### Second+ group properties
+Second+ group properties
+------------------------
 
 Each group represents one QoS solution to compute. Every group should have
 one `name` property and zero or one of the QoS solution target properties.
 If no QoS solution target is specified, the `naive` solution is computed.
 
-##### `name` (string)
+#### `name` (string)
 
 The name of the solution.
 
-##### `vrate` (vrate range), `rpct` (latency percentile), `wpct` (latency_percentile)
+#### `vrate` (vrate range), `rpct` (latency percentile), `wpct` (latency_percentile)
 
 Manual vrate range with `rpct` and/or `wpct` based dynamic adjustment. For
 example:
@@ -319,7 +327,7 @@ latency between 75% and 100%:
   qos: rpct=50.00 rlat=225 wpct=0.00 wlat=0 min=75.00 max=100.00
 ```
 
-##### `rlat-LAT_PCT` and `wlat-LAT_PCT` (fraction range or q[1-4])
+#### `rlat-LAT_PCT` and `wlat-LAT_PCT` (fraction range or q[1-4])
 
 vrate range which maps to the specified segment of the latency slope. For
 example:
@@ -346,11 +354,11 @@ and produces
   qos: rpct=99.00 rlat=3265 wpct=0.00 wlat=0 min=75.45 max=100.00
 ```
 
-##### `mof=max` and `amof=max`
+#### `mof=max` and `amof=max`
 
 The minimum vrate point where the specified MOF is at maximum.
 
-##### `isolated-bandwidth` and `isolation`
+#### `isolated-bandwidth` and `isolation`
 
 Solves for the `isolated bandwidth` and `isolation` solution described above
 respectively.

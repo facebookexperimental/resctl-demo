@@ -1,4 +1,5 @@
-# `iocost-qos` benchmark
+`iocost-qos` benchmark
+======================
 
 This benchmark utilizes `storage` and `protection:mem-hog-tune` to evaluate
 different iocost QoS configurations. For each QoS configuration,
@@ -69,7 +70,8 @@ the configuration would throttle the device too much.
 The last line is summarizing that there are three bench sets to run.
 
 
-## Reading Results
+Reading Results
+===============
 
 For each run, the QoS configuration is printed, followed by the `storage`
 and `protection:mem-hog-tune` sub-bench results and then the result section
@@ -139,24 +141,27 @@ to have the average of 2.1 millisecs, the standard deviation of 2.1
 millisecs, and maximum of 15.5 millisecs.
 
 
-## Properties
-### First group properties (applies to all sub-runs)
+Properties
+==========
 
-##### `vrate-min` (float, default: 0.0)
+First group properties (applies to all sub-runs)
+------------------------------------------------
+
+#### `vrate-min` (float, default: 0.0)
 
 See `vrate-intvs`.
 
-##### `vrate-max` (float, default: 100.0)
+#### `vrate-max` (float, default: 100.0)
 
 See `vrate-intvs`.
 
-##### `vrate-intvs` (integer, default: 0)
+#### `vrate-intvs` (integer, default: 0)
 
 If non-zero, vrates between `vrate-min` and `vrate-max` are probed in
 `vrate-intvs` steps. See the above overview for an example. This interval
 based probing can be used together with direct QoS specifications.
 
-##### `dither` (none or float)
+#### `dither` (none or float)
 
 Enables interval dithering. This offsets the `vrate-intvs` intervals by a
 random amount so that the intervals don't fall on the exact same boundaries
@@ -167,56 +172,57 @@ When `dither` is specified without a value, the maximum dither distance is
 half of interval width. Specifying a value overrides the maximum dither
 distance.
 
-##### `storage-base-loops` (integer, default: 3)
+#### `storage-base-loops` (integer, default: 3)
 
 `loops` for the baseline (`iocost=off`) `storage` sub-bench.
 
-##### `storage-loops` (integer, default: 1)
+#### `storage-loops` (integer, default: 1)
 
 `loops` for QoS `storage` sub-benches.
 
-##### `isol-pct` (percentile, default: 01)
+#### `isol-pct` (percentile, default: 01)
 
 `isol-pct` for protection sub-bench.
 
-##### `isol-thr` (fraction, default: 0.9)
+#### `isol-thr` (fraction, default: 0.9)
 
 `isol-thr` for protection sub-bench.
 
-##### `retries` (integer, default: 1)
+#### `retries` (integer, default: 1)
 
 The number of times to retry `storage` sub-bench after a failure.
 
-##### `allow-fail` (boolean, default: false)
+#### `allow-fail` (boolean, default: false)
 
 If the `storage` sub-bench fails for a QoS configuration, skip it instead of
 aborting the whole benchmark.
 
-##### `ignore-min-perf` (boolean, default: false)
+#### `ignore-min-perf` (boolean, default: false)
 
 `iocost-qos` automatically skips QoS configurations which result in too low
 bandwidth for reliable operation. This property forces benchmarking of all
 specified QoS configurations.
 
 
-### Second+ group properties
+Second+ group properties
+------------------------
 
 Each group specifies the QoS configuration to probe which is composed by
 applying the specified overrides on top of the active QoS parameters.
 
-##### `rpct` and `wpct` (float)
+#### `rpct` and `wpct` (float)
 
 Read and write latency percentiles for dynamic vrate adjustments. See `rlat`
 and `wlat`. If 0, the latency doesn't affect vrate.
 
-##### `rlat` and `wlat` (integer)
+#### `rlat` and `wlat` (integer)
 
 Read latency threshold in milliseconds for dynamic vrate adjustments. If
 `rpct`th percentile read completion latency rises above `rlat`, the device
 is considered saturated and vrate is adjusted downwards. The same for
 writes.
 
-##### `min` and `max` (float)
+#### `min` and `max` (float)
 
 The minimum and maximum bounds for vrate adjustments. The value is in
 percentage where 100.0 means no scaling of the model parameters. If `min` ==

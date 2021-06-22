@@ -1,4 +1,5 @@
-#  `protection` benchmark
+`protection` benchmark
+======================
 
 This benchmark is a collection of scenarios that test how well `rd-hashd`
 can be protected against interferences. Currently, the following two
@@ -33,9 +34,11 @@ This benchmark also supports rstat. Format the result with `--rstat`s to see
 detailed resource statistics.
 
 
-## Reading Results
+Reading Results
+===============
 
-### `mem-hog` Results
+`mem-hog` Results
+-----------------
 
 Here's a snippet from a `mem-hog` result:
 
@@ -49,7 +52,7 @@ lat-imp%        0     0     0     0     0  0.91  4.50 111.9 271.8 867.5  2848 48
 Result: isol=80.81:23.76% lat_imp=48.72%:205.3 work_csv=52.89% missing=0.11%
 ```
 
-##### `isol%` distribution
+#### `isol%` distribution
 
 This is the percentiles, mean and standard deviation of the isolation factor
 which is measured every second and defined as:
@@ -63,7 +66,7 @@ interpreted as:
 
 > Every 100 seconds, the RPS dropped down to 1/10th of the target.
 
-##### `lat-imp%` distribution
+#### `lat-imp%` distribution
 
 This is the percentiles, mean and standard deviation of the latency impact
 which is measured every second and defined as the ratio which the request
@@ -78,7 +81,7 @@ interpreted as:
 
 > Every 10 seconds, the latency spikes over twice the baseline.
 
-##### The `Result` block
+#### The `Result` block
 
 * `isol` is the mean and standard deviation of `isol%`.
 
@@ -94,7 +97,8 @@ interpreted as:
   stays low single digit.
 
 
-### `mem-hog-tune` Results
+`mem-hog-tune` Results
+----------------------
 
 `mem-hog-tune` has an extra line in its `Result` block:
 
@@ -134,59 +138,63 @@ but couldn't find a size which could be successfully protected. The table
 shows that `isol-01` was 49.4% on the final probe for 9.6G.
 
 
-## Properties
+Properties
+==========
 
 `protection` doesn't yet have any first group properties.
 
-### `mem-hog` Properties
 
-##### `loops` (integer, default: 2)
+`mem-hog` Properties
+--------------------
+
+#### `loops` (integer, default: 2)
 
 The number of repetitions.
 
-##### `load` (fraction, default: 1.0)
+#### `load` (fraction, default: 1.0)
 
 The target load level of `rd-hashd`. 1.0 or 100% indicates full load.
 
-##### `speed` (default: 2x)
+#### `speed` (default: 2x)
 
 The memory hog growth speed expressed in relative terms to the maximum IO
 device write speed according to the iocost model. Should be one of 10%, 25%,
 50%, 1x or 2x.
 
 
-### `mem-hog-tune` Properties
+`mem-hog-tune` Properties
+-------------------------
 
-##### `load` (fraction, default: 1.0)
+#### `load` (fraction, default: 1.0)
 
 The target load level of `rd-hashd`. 1.0 or 100% indicates full load.
 
-##### `speed`  (default: 2x)
+#### `speed`  (default: 2x)
 
 The memory hog growth speed expressed in relative terms to the maximum IO
 device write speed according to the iocost model. Should be one of `10%`,
 `25%`, `50%`, `1x` or `2x`.
 
-##### `size-min` (size)
+#### `size-min` (size)
 
 The minimum `rd-hashd` memory footprint to probe. Must be specified.
 
-##### `size-max` (size)
+#### `size-max` (size)
 
 The maximum `rd-hashd` memory footprint to probe. Must be specified.
 
-##### `intvs` (integer, default: 10)
+#### `intvs` (integer, default: 10)
 
 The number of intervals to probe. Probing starts at `size-max` and decreases
 by `(size-max - size-min) / intvs` until the size reaches `size-min`.
 
-##### `isol-pct` (percentile, default: 01)
+#### `isol-pct` (percentile, default: 01)
 
 The isolation factor percentile to use when deciding protection success. The
 value should match one of the percentile labels in the `isol%` distribution
 table.
 
-##### `isol-thr` (fraction, default: 0.9)
+#### `isol-thr` (fraction, default: 0.9)
 
 The isolation factor threshold to use when deciding protection success. The
 `isol-pct`th isolation factor percentile should equal or be greater than

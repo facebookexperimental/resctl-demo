@@ -1,8 +1,10 @@
-# `resctl-bench` documentation
+`resctl-bench` documentation
+============================
 
 * [Overview, Common Concepts and Options](common.md)
 
-## The benchmarks
+The benchmarks
+==============
 
 * [iocost-params](iocost-params.md): Benchmark io.cost model parameters
 * [hashd-params](hashd-params.md): Benchmark rd-hashd parameters
