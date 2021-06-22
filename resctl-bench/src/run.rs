@@ -371,6 +371,18 @@ impl<'a, 'b> RunCtx<'a, 'b> {
         self
     }
 
+    pub fn set_zswap_enabled(&mut self, enabled: Option<bool>) -> &mut Self {
+        self.add_agent_init_fn(move |rctx| {
+            rctx.access_agent_files(|af| af.cmd.data.zswap_enabled = enabled)
+        });
+        self
+    }
+
+    pub fn disable_zswap(&mut self) -> &mut Self {
+        self.set_zswap_enabled(Some(false));
+        self
+    }
+
     pub fn reset_cfg(&mut self, saved_cfg: Option<RunCtxCfgSave>) -> RunCtxCfgSave {
         let saved = saved_cfg.unwrap_or_default();
         let (mut inner_cfg, mut cfg) = (saved.inner_cfg, saved.cfg);

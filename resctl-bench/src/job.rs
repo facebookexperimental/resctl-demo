@@ -64,6 +64,7 @@ pub struct SysInfo {
     pub hashd: Option<rd_agent_intf::HashdKnobs>,
     pub mem: MemInfo,
     pub swappiness: u32,
+    pub zswap_enabled: bool,
 }
 
 impl Default for SysInfo {
@@ -77,6 +78,7 @@ impl Default for SysInfo {
             hashd: None,
             mem: Default::default(),
             swappiness: 60,
+            zswap_enabled: false,
         }
     }
 }
@@ -142,11 +144,12 @@ impl JobData {
             writeln!(out, "System info: kernel={:?}", &rep.kernel_version).unwrap();
             writeln!(
                 out,
-                "             nr_cpus={} memory={} swap={} swappiness={}",
+                "             nr_cpus={} memory={} swap={} swappiness={} zswap={}",
                 rep.nr_cpus,
                 format_size(rep.total_memory),
                 format_size(rep.total_swap),
-                si.swappiness
+                si.swappiness,
+                si.zswap_enabled,
             )
             .unwrap();
             if si.mem.profile > 0 {
@@ -366,6 +369,7 @@ impl JobCtx {
         if let Some(rep) = rctx.report_sample() {
             si.iocost = rep.iocost.clone();
             si.swappiness = rep.swappiness;
+            si.zswap_enabled = rep.zswap_enabled;
         }
         si.hashd = rctx.hashd_knobs.clone();
         si.mem = rctx.mem_info().clone();
