@@ -41,6 +41,7 @@ pub enum SysReq {
     Controllers,
     Freezer,
     MemCgRecursiveProt,
+    MemShadowInodeProt, // Enforced only by resctl-bench
     IoCost,
     IoCostVer,
     NoOtherIoControllers,
@@ -68,13 +69,17 @@ pub struct MissedSysReqs {
 }
 
 impl MissedSysReqs {
-    pub fn add(&mut self, req: SysReq, msg: &str) {
+    pub fn add_quiet(&mut self, req: SysReq, msg: &str) {
         match self.map.get_mut(&req) {
             Some(msgs) => msgs.push(msg.to_string()),
             None => {
                 self.map.insert(req, vec![msg.to_string()]);
             }
         }
+    }
+
+    pub fn add(&mut self, req: SysReq, msg: &str) {
+        self.add_quiet(req, msg);
         warn!("cfg: {}", msg);
     }
 

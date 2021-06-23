@@ -175,6 +175,13 @@ impl Default for SideloadDefs {
                         frozen_exp: 30,
                     },
                 ),
+                (
+                    "inodesteal-test".into(),
+                    SideloadSpec {
+                        args: vec!["inodesteal-test.py".into()],
+                        frozen_exp: 30,
+                    },
+                ),
             ]
             .iter()
             .cloned()
