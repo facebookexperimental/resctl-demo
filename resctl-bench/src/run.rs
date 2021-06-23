@@ -11,7 +11,7 @@ use std::thread::{spawn, JoinHandle};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use thiserror::Error;
 
-use super::base::{Base, MemInfo};
+use super::base::{AllSysReqsState, Base, MemInfo};
 use super::progress::BenchProgress;
 use super::{Program, AGENT_BIN};
 use crate::job::{FormatOpts, JobCtx, JobCtxs, JobData, SysInfo};
@@ -598,17 +598,23 @@ impl<'a, 'b> RunCtx<'a, 'b> {
         // configuration because e.g. if a passive option is set, rd-agent
         // won't try to resolve configuration issues in that area and mark
         // the related dependencies as failed.
-        if !self.base.all_sysreqs_checking && !self.agent_running() {
+        if self.base.all_sysreqs_state == AllSysReqsState::Init {
+            assert!(!self.agent_running());
             if self.base.all_sysreqs.len() > 0 {
-                self.base.all_sysreqs_checking = true;
                 let saved_cfg = self.reset_cfg(None);
-                self.skip_mem_profile();
-                self.start_agent(vec![])?;
+
+                if self.base.all_sysreqs.contains(&SysReq::MemShadowInodeProt) {
+                    self.base.all_sysreqs_state = AllSysReqsState::TestInodeSteal;
+                    self.base.test_inodesteal()?;
+                }
+
+                self.base.all_sysreqs_state = AllSysReqsState::Check;
+                self.skip_mem_profile().start_agent(vec![])?;
                 self.stop_agent();
+
                 self.reset_cfg(Some(saved_cfg));
-            } else {
-                self.base.all_sysreqs_checked = true;
             }
+            self.base.all_sysreqs_state = AllSysReqsState::Done;
         }
 
         if !self.cfg.skip_mem_profile {
@@ -643,13 +649,19 @@ impl<'a, 'b> RunCtx<'a, 'b> {
 
         let mut ctx = self.inner.lock().unwrap();
 
-        // It not checked yet, check if sysreqs for any bench is not met and
+        // If not checked yet, check if sysreqs for any bench is not met and
         // abort unless forced.
-        ctx.sysreqs_rep = Some(Arc::new(ctx.agent_files.sysreqs.data.clone()));
+        let mut sysreqs_rep = ctx.agent_files.sysreqs.data.clone();
+        if !self.base.shadow_inode_protected {
+            sysreqs_rep.satisfied.remove(&SysReq::MemShadowInodeProt);
+            sysreqs_rep.missed.add_quiet(
+                SysReq::MemShadowInodeProt,
+                "inode shadow entries are not protected, see `resctl-bench doc shadow-inode`",
+            );
+        }
+        ctx.sysreqs_rep = Some(Arc::new(sysreqs_rep));
 
-        if !self.base.all_sysreqs_checked {
-            self.base.all_sysreqs_checked = true;
-
+        if self.base.all_sysreqs_state == AllSysReqsState::Check {
             let mut missed = MissedSysReqs::default();
             for req in self.base.all_sysreqs.iter() {
                 if let Some(msgs) = ctx.sysreqs_rep.as_ref().unwrap().missed.map.get(req) {
@@ -665,10 +677,11 @@ impl<'a, 'b> RunCtx<'a, 'b> {
                 }
                 if self.args.force {
                     warn!(
-                        "Continuing after failing {} system requirements due to --force",
+                        "Continuing after failing {} system requirements because of --force",
                         missed.map.len()
                     );
                 } else {
+                    set_prog_exiting(); // no retries, please
                     bail!(
                         "Failed {} system requirements, use --force to ignore",
                         missed.map.len()

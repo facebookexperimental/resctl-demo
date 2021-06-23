@@ -365,21 +365,25 @@ impl Program {
     }
 
     pub fn do_doc(subj: &str) -> Result<()> {
-        const COMMON_DOC: &[u8] = include_bytes!("../doc/common.md");
-
         println!(
             "This documentation can also be viewed at:\n\n  {}\n",
             resctl_bench_intf::GITHUB_DOC_LINK
         );
 
-        if subj == "common" {
-            println!("{}", String::from_utf8_lossy(COMMON_DOC));
-        } else {
-            let mut buf = String::new();
-            let mut out = Box::new(&mut buf) as Box<dyn Write>;
-            bench::show_bench_doc(&mut out, subj)?;
-            drop(out);
-            println!("{}", &buf);
+        match subj {
+            "common" => std::io::stdout()
+                .write_all(include_bytes!("../doc/common.md"))
+                .unwrap(),
+            "shadow-inode" => std::io::stdout()
+                .write_all(include_bytes!("../doc/shadow-inode.md"))
+                .unwrap(),
+            subj => {
+                let mut buf = String::new();
+                let mut out = Box::new(&mut buf) as Box<dyn Write>;
+                bench::show_bench_doc(&mut out, subj)?;
+                drop(out);
+                println!("{}", &buf);
+            }
         }
         Ok(())
     }

@@ -649,6 +649,10 @@ pub fn unix_now() -> u64 {
     UNIX_EPOCH.elapsed().unwrap().as_secs()
 }
 
+pub fn unix_now_f64() -> f64 {
+    UNIX_EPOCH.elapsed().unwrap().as_secs_f64()
+}
+
 pub fn format_unix_time(time: u64) -> String {
     DateTime::<Local>::from(UNIX_EPOCH + Duration::from_secs(time))
         .format("%x %T")

@@ -1,6 +1,8 @@
 use anyhow::{anyhow, bail, Context, Result};
 use log::{error, info, warn};
-use rd_agent_intf::{BenchKnobs, HashdKnobs, IoCostKnobs, SysReq, HASHD_BENCH_SVC_NAME};
+use rd_agent_intf::{
+    BenchKnobs, HashdKnobs, IoCostKnobs, SvcStateReport, SysReq, HASHD_BENCH_SVC_NAME,
+};
 use resctl_bench_intf::Args;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
@@ -8,8 +10,10 @@ use std::path::PathBuf;
 
 use super::bench::HashdFakeCpuBench;
 use super::iocost::IoCostQoSCfg;
-use super::run::RunCtx;
+use super::run::{RunCtx, WorkloadMon};
 use rd_util::*;
+
+const INODESTEAL_TEST: &'static str = "inodesteal-test";
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct MemInfo {
@@ -17,6 +21,14 @@ pub struct MemInfo {
     pub avail: usize,
     pub share: usize,
     pub target: usize,
+}
+
+#[derive(PartialEq, Eq)]
+pub enum AllSysReqsState {
+    Init,
+    TestInodeSteal,
+    Check,
+    Done,
 }
 
 pub struct Base<'a> {
@@ -28,8 +40,8 @@ pub struct Base<'a> {
     pub mem: MemInfo,
     pub mem_initialized: bool,
     pub all_sysreqs: BTreeSet<SysReq>,
-    pub all_sysreqs_checked: bool,
-    pub all_sysreqs_checking: bool,
+    pub all_sysreqs_state: AllSysReqsState,
+    pub shadow_inode_protected: bool,
     args: &'a Args,
 }
 
@@ -173,8 +185,8 @@ impl<'a> Base<'a> {
             },
             mem_initialized: false,
             all_sysreqs: Default::default(),
-            all_sysreqs_checked: false,
-            all_sysreqs_checking: false,
+            all_sysreqs_state: AllSysReqsState::Init,
+            shadow_inode_protected: false,
             args,
         }
     }
@@ -189,8 +201,8 @@ impl<'a> Base<'a> {
             mem: Default::default(),
             mem_initialized: true,
             all_sysreqs: Default::default(),
-            all_sysreqs_checked: false,
-            all_sysreqs_checking: false,
+            all_sysreqs_state: AllSysReqsState::Init,
+            shadow_inode_protected: false,
             args,
         }
     }
@@ -406,5 +418,33 @@ impl<'a> Base<'a> {
     // measurement, FB prod or not doens't make difference.
     pub fn balloon_size(&self) -> usize {
         self.mem.avail.saturating_sub(self.mem.share)
+    }
+
+    pub fn test_inodesteal(&mut self) -> Result<()> {
+        let mut rctx = RunCtx::new(self.args, self, Default::default());
+        rctx.skip_mem_profile()
+            .set_crit_mem_prot_only()
+            .start_agent(vec![])?;
+
+        rctx.start_sysload(INODESTEAL_TEST, INODESTEAL_TEST)?;
+        WorkloadMon::default()
+            .sysload(INODESTEAL_TEST)
+            .monitor_with_status(&rctx, |_mon, _af| {
+                Ok((false, "base: Testing shadow inode protection...".into()))
+            })?;
+
+        let protected = rctx.access_agent_files(|af| {
+            match af.report.data.sysloads.get(INODESTEAL_TEST.into()) {
+                Some(rep) => Ok(rep.svc.state == SvcStateReport::Exited),
+                None => Err(anyhow!(
+                    "base: Can't find {} service after testing",
+                    INODESTEAL_TEST
+                )),
+            }
+        });
+        drop(rctx);
+
+        self.shadow_inode_protected = protected?;
+        Ok(())
     }
 }

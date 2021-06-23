@@ -35,6 +35,7 @@ lazy_static::lazy_static! {
         vec![
             SysReq::DepsBase,
             SysReq::DepsIoCostCoefGen,
+            SysReq::MemShadowInodeProt,
             SysReq::AnonBalance,
             SysReq::SwapOnScratch,
             SysReq::Swap,

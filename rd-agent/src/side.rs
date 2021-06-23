@@ -21,7 +21,7 @@ lazy_static::lazy_static! {
 
 const LINUX_TAR_XZ_URL: &str = "https://cdn.kernel.org/pub/linux/kernel/v5.x/linux-5.8.11.tar.xz";
 
-const SIDE_BINS: [(&str, &[u8]); 5] = [
+const SIDE_BINS: [(&str, &[u8]); 6] = [
     ("build-linux.sh", include_bytes!("side/build-linux.sh")),
     ("mem-hog.sh", include_bytes!("side/mem-hog.sh")),
     (
@@ -30,6 +30,10 @@ const SIDE_BINS: [(&str, &[u8]); 5] = [
     ),
     ("read-bomb.py", include_bytes!("side/read-bomb.py")),
     ("burn-cpus.sh", include_bytes!("side/burn-cpus.sh")),
+    (
+        "inodesteal-test.py",
+        include_bytes!("side/inodesteal-test.py"),
+    ),
 ];
 
 pub fn prepare_side_bins(cfg: &Config) -> Result<()> {
