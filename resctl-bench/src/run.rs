@@ -681,6 +681,7 @@ impl<'a, 'b> RunCtx<'a, 'b> {
                         missed.map.len()
                     );
                 } else {
+                    set_prog_exiting(); // no retries, please
                     bail!(
                         "Failed {} system requirements, use --force to ignore",
                         missed.map.len()
