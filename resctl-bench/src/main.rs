@@ -453,6 +453,8 @@ fn main() {
         panic!();
     });
 
+    verify_agent_and_hashd(&FULL_VERSION);
+
     if args_file.data.test {
         warn!("Test mode enabled, results will be bogus");
     }

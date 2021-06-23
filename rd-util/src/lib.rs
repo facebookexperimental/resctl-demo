@@ -3,7 +3,7 @@ use anyhow::{anyhow, bail, Context, Result};
 use chrono::{DateTime, Local};
 use crossbeam::channel::Sender;
 use glob::glob;
-use log::{info, warn};
+use log::{error, info, warn};
 use scan_fmt::scan_fmt;
 use simplelog as sl;
 use std::cell::RefCell;
@@ -137,6 +137,26 @@ pub fn parse_version(ver: &str) -> (&str, &str, &str) {
     let (rest, tag) = ver.split_once(' ').unwrap_or((ver, ""));
     let (sem, git) = split_git_version(rest);
     (sem, git, tag)
+}
+
+fn verify_bin(target: &str) -> bool {
+    match find_bin(target, exe_dir().ok()) {
+        Some(_) => return true,
+        None => {
+            error!(
+                "Failed to find {:?}, install with `cargo install {}`",
+                target, target
+            );
+            return false;
+        }
+    };
+}
+
+pub fn verify_agent_and_hashd(_ver: &str) -> bool {
+    let mut res = true;
+    res &= verify_bin("rd-hashd");
+    res &= verify_bin("rd-agent");
+    res
 }
 
 pub fn total_memory() -> usize {
