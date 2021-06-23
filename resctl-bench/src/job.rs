@@ -144,12 +144,12 @@ impl JobData {
             writeln!(out, "System info: kernel={:?}", &rep.kernel_version).unwrap();
             writeln!(
                 out,
-                "             nr_cpus={} memory={} swap={} swappiness={} zswap={}",
+                "             nr_cpus={} memory={} swap={} swappiness={}{}",
                 rep.nr_cpus,
                 format_size(rep.total_memory),
                 format_size(rep.total_swap),
                 si.swappiness,
-                si.zswap_enabled,
+                if si.zswap_enabled { " zswap" } else { "" },
             )
             .unwrap();
             if si.mem.profile > 0 {
