@@ -53,10 +53,7 @@ const VERGEN_HOST_TRIPLE: &'static str = env!("VERGEN_RUSTC_HOST_TRIPLE");
 
 lazy_static::lazy_static! {
     static ref GIT_VERSION: &'static str = {
-        VERGEN_GIT_SEMVER
-            .split_once('-')
-            .map(|(_, suffix)| suffix)
-            .unwrap_or("")
+        split_git_version(VERGEN_GIT_SEMVER).1
     };
     static ref BUILD_TAG: String = {
         let mut tag = VERGEN_HOST_TRIPLE.to_string();
@@ -108,9 +105,37 @@ pub fn full_version(semver: &str) -> String {
     ver
 }
 
+fn split_git_version(ver: &str) -> (&str, &str) {
+    let comps = ver.split('-').collect::<Vec<&str>>();
+    let mut git_len = 0;
+    let mut discard_len = 0;
+    let mut idx = comps.len() - 1;
+
+    if idx > 0 && comps[idx] == "dirty" {
+        git_len += comps[idx].len() + 1;
+        idx -= 1;
+    }
+    if idx > 0 && &comps[idx][0..1] == "g" && u64::from_str_radix(&comps[idx][1..], 16).is_ok() {
+        git_len += comps[idx].len() + 1;
+        idx -= 1;
+        if idx > 0 && comps[idx].parse::<u32>().is_ok() {
+            discard_len = comps[idx].len() + 1;
+        }
+    }
+
+    if git_len == 0 {
+        (ver, "")
+    } else {
+        (
+            &ver[0..ver.len() - discard_len - git_len],
+            &ver[ver.len() - git_len + 1..],
+        )
+    }
+}
+
 pub fn parse_version(ver: &str) -> (&str, &str, &str) {
     let (rest, tag) = ver.split_once(' ').unwrap_or((ver, ""));
-    let (sem, git) = rest.split_once('-').unwrap_or((rest, ""));
+    let (sem, git) = split_git_version(rest);
     (sem, git, tag)
 }
 
