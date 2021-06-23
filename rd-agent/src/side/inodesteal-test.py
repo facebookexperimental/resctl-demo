@@ -59,7 +59,7 @@ def one_round(inodesteal_target, prefix):
 
     # Add some inactive page cache.
     with open(TF_DIR + "/inactive", "w+") as f:
-        f.truncate(target_swap)
+        f.truncate(2 * target_swap)
         f.read()
 
     # Balloon up in 256M increments until swap_free falls below target_swap_free.
