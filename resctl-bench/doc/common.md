@@ -63,7 +63,7 @@ offloadedto the underlying IO device as the primary IO performance metric.
 It's usually reported as MOF (Memory Offloading Factor) whose definition is:
 
 ```
-  SUPPORTABLE_MEMORY_FOOTPRINT / MEMORY_SIZE
+   SUPPORTABLE_MEMORY_FOOTPRINT / MEMORY_SIZE
 ```
 
 For example, the MOF of 1.2 means that the IO device can offload 20% of
@@ -113,7 +113,7 @@ two prerequisite benchmarks if the needed parameters are missing. Here,
 they're specified explicitly for demonstration purposes.
 
 ```
- $ resctl-bench -r result.json run iocost-params hashd-params iocost-qos
+   $ resctl-bench -r result.json run iocost-params hashd-params iocost-qos
 ```
 
 Let's say the first two benchmarks completed without a hitch but the system
@@ -142,13 +142,13 @@ benchmark, the result summary is printed out which can be reproduced with
 the following:
 
 ```
- $ resctl-bench -r result.json summary
+   $ resctl-bench -r result.json summary
 ```
 
 For more detailed output:
 
 ```
- $ resctl-bench -r result.json format
+   $ resctl-bench -r result.json format
 ```
 
 By default, all benchmark results in the result file are printed out. You
@@ -156,7 +156,7 @@ can select the target benchmarks using the same syntax as the `run`
 subcommand. To only view the result of the `iocost-qos` benchmark:
 
 ```
- $ resctl-bench -r result.json format iocost-tune
+   $ resctl-bench -r result.json format iocost-tune
 ```
 
 
@@ -193,14 +193,14 @@ re-running the entire benchmark which may take multiple hours.
 containing the result file and the relevant report files:
 
 ```
-$ resctl-bench -r result.json pack
+   $ resctl-bench -r result.json pack
 ```
 
 The resulting tarball can be extracted on any machine and studied:
 
 ```
-$ tar xvf output.tar.gz
-$ resctl-bench -r result.json study
+   $ tar xvf output.tar.gz
+   $ resctl-bench -r result.json study
 ```
 
 The above usage is recommended as the report files in their original
@@ -208,8 +208,8 @@ location expire after some time. If you want to study the report files in
 place:
 
 ```
-$ resctl-bench -r result.json study \
-  --reports /var/lib/resctl-demo/report.d study
+   $ resctl-bench -r result.json study \
+     --reports /var/lib/resctl-demo/report.d study
 ```
 
 #### `solve`
@@ -241,8 +241,8 @@ The `run` and `format` subcommands may take zero, one or multiple property
 groups. Here's a `run` example:
 
 ```
- $ resctl-bench -r result.json run \
-   iocost-qos:id=qos-0,storage-base-loops=1:min=100,max=100:min=75,max=75:min=50,max=50
+   $ resctl-bench -r result.json run \
+     iocost-qos:id=qos-0,storage-base-loops=1:min=100,max=100:min=75,max=75:min=50,max=50
 ```
 
 We're running an `iocost-qos` benchmark and it has four property groups
@@ -270,7 +270,7 @@ telling `iocost-qos` to probe three different QoS settings - vrate at 100,
 consecutive colons:
 
 ```
- $ resctl-bench -r result.json run iocost-qos:::min=75,max=75:min=50,max=50
+   $ resctl-bench -r result.json run iocost-qos:::min=75,max=75:min=50,max=50
 ```
 
 The triple colons indicate that the first two property groups are empty and
@@ -286,7 +286,7 @@ to probe three QoS settings:
 Similarly, the `format` subcommand may accept properties:
 
 ```
- $ resctl-bench -r result.json format iocost-tune:pdf=output.pdf
+   $ resctl-bench -r result.json format iocost-tune:pdf=output.pdf
 ```
 
 The above command tells `iocost-tune` to generate an output pdf file instead
@@ -357,9 +357,9 @@ series. `resctl-bench` doesn't mind multiple instances of the same bench
 type without IDs:
 
 ```
-$ resctl-bench -r result.json run \
-  iocost-qos \
-  iocost-qos::min=50,max=50:min=75,max=75
+   $ resctl-bench -r result.json run \
+     iocost-qos \
+     iocost-qos::min=50,max=50:min=75,max=75
 ```
 
 However, if IDs are specified, they must be unique for the bench type.
@@ -401,7 +401,7 @@ system configurations as-are. The following values are accepted:
 Multiple values can be specified by delineating them with `/`:
 
 ```
-$ resctl-bench -r result.json run iocost-qos:passive=mem/io
+   $ resctl-bench -r result.json run iocost-qos:passive=mem/io
 ```
 
 #### `apply` and `commit`
@@ -416,8 +416,8 @@ The parameters can be specified without value to indicate `true`. IOW, the
 followings are equivalent:
 
 ```
-$ resctl-bench -r result.json run storage:apply
-$ resctl-bench -r result.json run storage:apply=true
+   $ resctl-bench -r result.json run storage:apply
+   $ resctl-bench -r result.json run storage:apply=true
 ```
 
 Note that the properties default to `true` for some benchmarks
@@ -434,17 +434,17 @@ When formatted, each benchmark result starts with a header which looks like
 the following:
 
 ```
-[iocost-tune result] 2021-05-08 11:06:38 - 04:16:25
+   [iocost-tune result] 2021-05-08 11:06:38 - 04:16:25
 
-System info: kernel="5.12.0-work+"
-             nr_cpus=16 memory=32.0G swap=16.4G swappiness=60
-             mem_profile=16 (avail=30.1G share=12.0G target=11.0G)
+   System info: kernel="5.12.0-work+"
+                nr_cpus=16 memory=32.0G swap=16.4G swappiness=60
+                mem_profile=16 (avail=30.1G share=12.0G target=11.0G)
 
-IO info: dev=nvme0n1(259:5) model="Samsung SSD 970 PRO 512GB" size=477G
-         iosched=mq-deadline wbt=off iocost=on other=off
-         iocost model: rbps=2992129542 rseqiops=337745 rrandiops=370705
-                       wbps=2232405244 wseqiops=260917 wrandiops=256225
-         iocost QoS: rpct=95.00 rlat=11649 wpct=95.00 wlat=12681 min=8.83 max=8.83
+   IO info: dev=nvme0n1(259:5) model="Samsung SSD 970 PRO 512GB" size=477G
+            iosched=mq-deadline wbt=off iocost=on other=off
+            iocost model: rbps=2992129542 rseqiops=337745 rrandiops=370705
+                          wbps=2232405244 wseqiops=260917 wrandiops=256225
+            iocost QoS: rpct=95.00 rlat=11649 wpct=95.00 wlat=12681 min=8.83 max=8.83
 ```
 
 The first line shows the bench type, ID if available, and time duration of
@@ -470,21 +470,21 @@ For benchmarks which care about IO completion latencies,`resctl-bench`
 reports IO them in a table which looks like the following:
 
 ```
-  READ      min   p25   p50   p75   p90   p95   p99 p99.9   max   cum  mean  stdev
-  min      5.0u  5.0u  5.0u 35.0u 45.0u 55.0u 75.0u  155u  165u  5.0u 21.1u  20.4u
-  p01      5.0u 45.0u 75.0u 85.0u 95.0u 95.0u  115u  185u  205u  5.0u 66.1u  30.3u
-  p05      5.0u 85.0u 85.0u 95.0u  105u  115u  185u  595u  725u  5.0u 90.3u  45.8u
-  p10      5.0u 95.0u 95.0u  105u  125u  145u  315u  705u  975u  5.0u  106u  62.9u
-  p25      5.0u  115u  125u  145u  205u  245u  795u  955u  985u  105u  146u  95.3u
-  p50      5.0u  145u  195u  275u  425u  585u  1.5m  2.5m  2.5m  205u  256u   217u
-  p75      5.0u  255u  395u  615u  995u  1.5m  2.5m  5.5m  7.5m  575u  554u   569u
-  p90      5.0u  485u  815u  1.5m  2.5m  3.5m  5.5m 12.5m 14.5m  2.5m  1.1m   1.2m
-  p95      5.0u  715u  1.5m  2.5m  3.5m  4.5m  8.5m 19.5m 21.5m  4.5m  1.8m   1.8m
-  p99      5.0u  1.5m  2.5m  4.5m  7.5m  9.5m 19.5m 56.5m 72.5m 10.5m  3.7m   4.2m
-  p99.9   95.0u  2.5m  4.5m  6.5m  9.5m 13.5m 40.5m 71.5m 93.5m 28.5m  5.6m   6.9m
-  p99.99   105u  3.5m  5.5m  8.5m 11.5m 15.5m 43.5m 74.5m  250m 59.5m  6.9m   8.9m
-  p99.999  115u  4.5m  6.5m  9.5m 12.5m 17.5m 45.5m  150m  350m 84.5m  7.9m  10.5m
-  max      125u  5.5m  7.5m 10.5m 14.5m 18.5m 49.5m  250m  450m  250m  9.1m  13.1m
+   READ      min   p25   p50   p75   p90   p95   p99 p99.9   max   cum  mean  stdev
+   min      5.0u  5.0u  5.0u 35.0u 45.0u 55.0u 75.0u  155u  165u  5.0u 21.1u  20.4u
+   p01      5.0u 45.0u 75.0u 85.0u 95.0u 95.0u  115u  185u  205u  5.0u 66.1u  30.3u
+   p05      5.0u 85.0u 85.0u 95.0u  105u  115u  185u  595u  725u  5.0u 90.3u  45.8u
+   p10      5.0u 95.0u 95.0u  105u  125u  145u  315u  705u  975u  5.0u  106u  62.9u
+   p25      5.0u  115u  125u  145u  205u  245u  795u  955u  985u  105u  146u  95.3u
+   p50      5.0u  145u  195u  275u  425u  585u  1.5m  2.5m  2.5m  205u  256u   217u
+   p75      5.0u  255u  395u  615u  995u  1.5m  2.5m  5.5m  7.5m  575u  554u   569u
+   p90      5.0u  485u  815u  1.5m  2.5m  3.5m  5.5m 12.5m 14.5m  2.5m  1.1m   1.2m
+   p95      5.0u  715u  1.5m  2.5m  3.5m  4.5m  8.5m 19.5m 21.5m  4.5m  1.8m   1.8m
+   p99      5.0u  1.5m  2.5m  4.5m  7.5m  9.5m 19.5m 56.5m 72.5m 10.5m  3.7m   4.2m
+   p99.9   95.0u  2.5m  4.5m  6.5m  9.5m 13.5m 40.5m 71.5m 93.5m 28.5m  5.6m   6.9m
+   p99.99   105u  3.5m  5.5m  8.5m 11.5m 15.5m 43.5m 74.5m  250m 59.5m  6.9m   8.9m
+   p99.999  115u  4.5m  6.5m  9.5m 12.5m 17.5m 45.5m  150m  350m 84.5m  7.9m  10.5m
+   max      125u  5.5m  7.5m 10.5m 14.5m 18.5m 49.5m  250m  450m  250m  9.1m  13.1m
 ```
 
 The `cum`ulative column shows the usual overall latency percentiles. For

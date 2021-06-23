@@ -443,6 +443,7 @@ impl Program {
 
 fn main() {
     assert_eq!(*VERSION, *resctl_bench_intf::VERSION);
+    Args::set_help_body(std::str::from_utf8(include_bytes!("../README.md")).unwrap());
     setup_prog_state();
     bench::init_benchs();
 

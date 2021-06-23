@@ -253,7 +253,7 @@ impl ProtectionJob {
         }
 
         if job.scenarios.len() == 0 {
-            info!("protection: Using default scenario set");
+            debug!("protection: Using default scenario set");
             job.scenarios.push(
                 Scenario::parse(
                     [

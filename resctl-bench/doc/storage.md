@@ -18,7 +18,7 @@ This latency-limited bandwidth measurement is encoded as MOF (Memory
 Offloading Factor) which is defined as:
 
 ```
-SUPPORTABLE_MEMORY_FOOTPRINT / PHYSICAL_MEMORY_USED
+   SUPPORTABLE_MEMORY_FOOTPRINT / PHYSICAL_MEMORY_USED
 ```
 
 For memory offloading, the IO accesses are determined by how memory is
@@ -52,9 +52,9 @@ Reading Results
 In the `storage` output:
 
 ```
-IO BPS: read_final=332M write_final=40.6M read_all=300M write_all=44.0M
+   IO BPS: read_final=332M write_final=40.6M read_all=300M write_all=44.0M
 
-Memory offloading: factor=1.559@16 usage_mean/stdev=11.1G/36.5M size_mean/stdev=17.3G/1.7G
+   Memory offloading: factor=1.559@16 usage_mean/stdev=11.1G/36.5M size_mean/stdev=17.3G/1.7G
 ```
 
 The `IO BPS` line shows the measured read and write bandwidths. The `_final`
