@@ -85,12 +85,12 @@ sideloads this way.
 
 rd-hashd should already be running at 60% load. Once it's warmed up, start a
 Linux build job with 1x CPU count concurrency. Depending on the hardware and
-kernel configurations, rd-hashd may fail to hold the RPS with the usual
-100ms latency target, so let's relax the latency target to 200ms too. Pay
+kernel configurations, rd-hashd may fail to hold the RPS with the usual 75ms
+latency target, so let's relax the latency target to 150ms too. Pay
 attention to how the latency in the left graph pane changes:
 
 %% (                             : [ Relax rd-hashd latency target and start linux build job ]
-%% knob hashd-lat-target 0.2
+%% knob hashd-lat-target 0.15
 %% on sysload compile-job build-linux-1x
 %% )
 

@@ -69,12 +69,12 @@ determine the following, so that it can saturate all local resources:
 * Memory footprint: With the above parameters, CPU is fully saturated and IO
   is lightly loaded. rd-hashd finds the saturation point for memory and IO
   by bisecting for the memory footprint where the system struggles to
-  service more than 90% of max RPS while maintaining 90th percentile
-  completion latency under 100ms.
+  service more than 90% of max RPS while maintaining 95th percentile
+  completion latency under 75ms.
 
 With the resulting configurations, rd-hashd should closely saturate CPU and
-memory and use some amount of IO when running with the target p90 latency
-100ms. Its memory (and thus IO) usage will be sensitive to RPS, so that any
+memory and use some amount of IO when running with the target p95 latency
+75ms. Its memory (and thus IO) usage will be sensitive to RPS, so that any
 stalls or resource shortages will lead to lowered RPS.
 
 For both page cache and anonymous memory, the access pattern follows

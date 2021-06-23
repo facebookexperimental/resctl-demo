@@ -128,7 +128,7 @@ pressure, and the full and some stats for memory and IO, in their respective
 pressure graphs. Full memory and IO pressure should be around 10% reflecting
 the bandwidth loss, while some pressures chart further raised lines. The
 workload is functioning at a lowered bandwidth with raised latency - from
-~60ms to ~100ms. The former is captured by full pressures, the latter some.
+~50ms to ~75ms. The former is captured by full pressures, the latter some.
 
 
 ___*Read on*___
