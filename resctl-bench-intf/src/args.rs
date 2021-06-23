@@ -73,7 +73,7 @@ See "help common" for more information on common concepts and options.
 "#;
 
 pub const GITHUB_DOC_LINK: &'static str =
-    "https://github.com/facebookexperimental/resctl-demo/tree/master/resctl-bench/src/doc";
+    "https://github.com/facebookexperimental/resctl-demo/tree/master/resctl-bench/doc";
 
 lazy_static::lazy_static! {
     static ref TOP_ARGS_STR: String = {
