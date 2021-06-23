@@ -9,10 +9,10 @@ using realistic simulated workloads.
 Comprehensive resource control involves the whole system - kernel subsystems
 such as cgroup2, memory management, file system and block layer, userspace
 system components and even the SSD. Furthermore, testing resource control
-end-to-end requires scenarios involving multiple realistic workloads and
-monitoring their interactions. The combination makes benchmarking resource
-control challenging and error-prone. It's easy to slip up on a configuration
-and testing with real workloads can be tedious and unreliable.
+end-to-end requires scenarios involving realistic workloads and monitoring
+their interactions. The combination makes benchmarking resource control
+challenging and error-prone. It's easy to slip up on a configuration and
+testing with real workloads can be tedious and unreliable.
 
 `resctl-bench` encapsulates the whole process so that resource control
 benchmarks can be performed easily and reliably. It verifies and updates
@@ -30,8 +30,8 @@ more information on `resctl-demo`, visit:
   https://github.com/facebookexperimental/resctl-demo
 
 
-Getting Started
-===============
+Premade System Images
+=====================
 
 Comprehensive resource control has many requirements, some of which can be
 difficult to configure on an existing system. `resctl-demo` provides premade
