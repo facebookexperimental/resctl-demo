@@ -34,12 +34,12 @@ pub fn set_systemd_timeout(timeout: f64) {
     SYSTEMD_TIMEOUT_MS.store((timeout * 1000.0).round() as u64, Ordering::Relaxed);
 }
 
-fn systemd_timeout() -> Duration {
-    Duration::from_millis(SYSTEMD_TIMEOUT_MS.load(Ordering::Relaxed))
+fn systemd_timeout() -> f64 {
+    SYSTEMD_TIMEOUT_MS.load(Ordering::Relaxed) as f64 / 1000.0
 }
 
 fn systemd_conn_timeout() -> rustbus::connection::Timeout {
-    rustbus::connection::Timeout::Duration(systemd_timeout())
+    rustbus::connection::Timeout::Duration(Duration::from_secs_f64(systemd_timeout()))
 }
 
 fn wrap_rustbus_result<T>(r: RbResult<T>) -> Result<T> {
@@ -563,12 +563,12 @@ impl Unit {
         self.refresh()
     }
 
-    fn wait_transition<F>(&mut self, wait_till: F, timeout: Duration)
+    fn wait_transition<F>(&mut self, wait_till: F, timeout: f64, exiting_timeout: f64)
     where
         F: Fn(&US) -> bool,
     {
         let started_at = Instant::now();
-        while !super::prog_exiting() {
+        loop {
             if let Ok(()) = self.refresh() {
                 trace!(
                     "svc: {:?} waiting transitions ({:?})",
@@ -582,7 +582,11 @@ impl Unit {
                 }
             }
 
-            if Instant::now().duration_since(started_at) >= timeout {
+            let dur = Duration::from_secs_f64(match super::prog_exiting() {
+                false => timeout,
+                true => exiting_timeout,
+            });
+            if Instant::now().duration_since(started_at) >= dur {
                 trace!("svc: {:?} waiting transitions timed out", &self.name);
                 return;
             }
@@ -605,7 +609,13 @@ impl Unit {
 
         self.sd_bus()
             .with(|s| s.borrow_mut().stop_unit(&self.name))?;
-        self.wait_transition(|x| *x != US::Running, systemd_timeout());
+        // We're used from exit paths. Force a bit of wait so that we
+        // can shut down gracefully in most cases.
+        self.wait_transition(
+            |x| *x != US::Running,
+            systemd_timeout(),
+            systemd_timeout() / 5.0,
+        );
         if !self.quiet {
             info!("svc: {:?} stopped ({:?})", &self.name, &self.state);
         }
@@ -620,7 +630,13 @@ impl Unit {
         if let US::Failed(_) = self.state {
             self.sd_bus()
                 .with(|s| s.borrow_mut().reset_failed_unit(&self.name))?;
-            self.wait_transition(|x| *x == US::NotFound, systemd_timeout());
+            // We're used from exit paths. Force a bit of wait so that we
+            // can shut down gracefully in most cases.
+            self.wait_transition(
+                |x| *x == US::NotFound,
+                systemd_timeout(),
+                systemd_timeout() / 5.0,
+            );
         }
         match self.state {
             US::NotFound => Ok(()),
@@ -646,6 +662,7 @@ impl Unit {
                 _ => false,
             },
             systemd_timeout(),
+            0.0,
         );
         if !self.quiet {
             info!("svc: {:?} started ({:?})", &self.name, &self.state);
@@ -777,6 +794,7 @@ impl TransientService {
                 _ => false,
             },
             systemd_timeout(),
+            0.0,
         );
         if !self.unit.quiet {
             info!(
