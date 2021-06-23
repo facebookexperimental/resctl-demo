@@ -194,7 +194,7 @@ impl Config {
         debug!("creating dir {:?}", &path);
 
         if let Err(e) = fs::create_dir_all(&path) {
-            error!("cfg: Failed to create directory {:?} ({:?})", &path, &e);
+            error!("cfg: Failed to create directory {:?} ({:#})", &path, &e);
             panic!();
         }
         fs::canonicalize(path)
@@ -249,13 +249,13 @@ impl Config {
 
         let ver_str = match Command::new(&bin).arg("--version").output() {
             Ok(v) => String::from_utf8(v.stdout).unwrap(),
-            Err(e) => bail!("can't determine version ({:?})", &e),
+            Err(e) => bail!("can't determine version ({:#})", &e),
         };
 
         let (maj, min, rel) =
             match scan_fmt!(&ver_str, "{*/[v]/}{}.{}.{/([0-9]+).*/}", u32, u32, u32) {
                 Ok(v) => v,
-                Err(e) => bail!("invalid version string {:?} ({:?})", ver_str.trim(), &e),
+                Err(e) => bail!("invalid version string {:?} ({:#})", ver_str.trim(), &e),
             };
 
         if maj == 0 && min < 3 {
@@ -280,7 +280,7 @@ impl Config {
         let top_path = Self::prep_dir(&args.dir);
         if let Err(e) = Self::sgid_top(&top_path, args_file.path.as_ref()) {
             info!(
-                "cfg: Failed to set group ownership on {:?} ({:?})",
+                "cfg: Failed to set group ownership on {:?} ({:#})",
                 &top_path, &e
             );
         }
@@ -362,7 +362,7 @@ impl Config {
         {
             if let Err(e) = fs::remove_file(&path) {
                 error!(
-                    "cfg: Failed to remove stale sideloader job {:?} ({:?})",
+                    "cfg: Failed to remove stale sideloader job {:?} ({:#})",
                     &path, &e
                 );
                 panic!();
@@ -473,7 +473,7 @@ impl Config {
         if let Err(e) = bench::iocost_on_off(true, &self) {
             self.sr_failed.add(
                 SysReq::IoCost,
-                &format!("failed to enable cgroup2 iocost controller ({:?})", &e),
+                &format!("failed to enable cgroup2 iocost controller ({:#})", &e),
             );
             return;
         }
@@ -492,7 +492,7 @@ impl Config {
             Err(e) => {
                 self.sr_failed.add(
                     SysReq::IoCostVer,
-                    &format!("failed to read /sys/fs/cgroup/io.stat ({:?})", &e),
+                    &format!("failed to read /sys/fs/cgroup/io.stat ({:#})", &e),
                 );
             }
         }
@@ -589,7 +589,7 @@ impl Config {
 
         if let Err(e) = write_unit_configlet(svc_name, "slice", slice_cfg) {
             bail!(
-                "{} is not in hostcritical.slice, failed to override ({:?})",
+                "{} is not in hostcritical.slice, failed to override ({:#})",
                 svc_name,
                 &e
             );
@@ -681,7 +681,7 @@ impl Config {
             Err(e) => {
                 self.sr_failed.add(
                     SysReq::Controllers,
-                    &format!("failed to obtain mountinfo for /sys/fs/cgroup ({:?})", &e),
+                    &format!("failed to obtain mountinfo for /sys/fs/cgroup ({:#})", &e),
                 );
             }
         }
@@ -720,7 +720,7 @@ impl Config {
             Err(e) => {
                 self.sr_failed.add(
                     SysReq::AnonBalance,
-                    &format!("failed to read /proc/vmstat ({:?})", &e),
+                    &format!("failed to read /proc/vmstat ({:#})", &e),
                 );
             }
         }
@@ -893,7 +893,7 @@ impl Config {
             self.sr_failed.add(
                 SysReq::Oomd,
                 &format!(
-                    "Failed to find oomd ({:?}), see https://github.com/facebookincubator/oomd",
+                    "Failed to find oomd ({:#}), see https://github.com/facebookincubator/oomd",
                     &e
                 ),
             );
@@ -1036,13 +1036,13 @@ impl Drop for Config {
             let path = self.sr_wbt_path.as_ref().unwrap();
             info!("cfg: Restoring {:?} to {}", path, wbt);
             if let Err(e) = write_one_line(path, &format!("{}", wbt)) {
-                error!("cfg: Failed to restore {:?} ({:?})", &path, &e);
+                error!("cfg: Failed to restore {:?} ({:#})", &path, &e);
             }
         }
         if let Some(swappiness) = self.sr_swappiness {
             info!("cfg: Restoring swappiness to {}", swappiness);
             if let Err(e) = write_one_line(SWAPPINESS_PATH, &format!("{}", swappiness)) {
-                error!("cfg: Failed to restore swappiness ({:?})", &e);
+                error!("cfg: Failed to restore swappiness ({:#})", &e);
             }
         }
         if let Some(enabled) = self.sr_zswap_enabled {
@@ -1051,13 +1051,13 @@ impl Drop for Config {
                 ZSWAP_ENABLED_PATH,
                 &format!("{}", if enabled { "Y" } else { "N" }),
             ) {
-                error!("cfg: Failed to restore zswap enabled ({:?})", &e);
+                error!("cfg: Failed to restore zswap enabled ({:#})", &e);
             }
         }
         if let Some(svc) = &mut self.sr_oomd_sys_svc {
             info!("cfg: Restoring {:?}", &svc.name);
             if let Err(e) = svc.try_start() {
-                error!("cfg: Failed to restore {:?} ({:?})", &svc.name, &e);
+                error!("cfg: Failed to restore {:?} ({:#})", &svc.name, &e);
             }
         }
     }
@@ -1106,17 +1106,17 @@ fn reset_agent_states(cfg: &Config) {
                 Ok(files) => {
                     for file in files.filter_map(|r| r.ok()).map(|e| e.path()) {
                         if let Err(e) = fs::remove_file(&file) {
-                            warn!("cfg: Failed to remove {:?} ({:?})", &file, &e);
+                            warn!("cfg: Failed to remove {:?} ({:#})", &file, &e);
                         }
                     }
                 }
                 Err(e) => {
-                    warn!("cfg: Failed to read dir {:?} ({:?})", &path, &e);
+                    warn!("cfg: Failed to read dir {:?} ({:#})", &path, &e);
                 }
             }
         } else {
             if let Err(e) = fs::remove_file(&path) {
-                warn!("cfg: Failed to remove {:?} ({:?})", &path, &e);
+                warn!("cfg: Failed to remove {:?} ({:#})", &path, &e);
             }
         }
     }
@@ -1189,7 +1189,7 @@ impl Drop for SysObjs {
     fn drop(&mut self) {
         debug!("cfg: Clearing slice configurations");
         if let Err(e) = slices::clear_slices(&self.enforce_cfg) {
-            warn!("cfg: Failed to clear slice configurations ({:?})", &e);
+            warn!("cfg: Failed to clear slice configurations ({:#})", &e);
         }
     }
 }
@@ -1235,7 +1235,7 @@ fn main() {
     }
 
     let args_file = Args::init_args_and_logging().unwrap_or_else(|e| {
-        error!("cfg: Failed to process args file ({:?})", &e);
+        error!("cfg: Failed to process args file ({:#})", &e);
         panic!();
     });
 
@@ -1253,17 +1253,17 @@ fn main() {
     }
 
     if let Err(e) = update_index(&cfg) {
-        error!("cfg: Failed to update {:?} ({:?})", &cfg.index_path, &e);
+        error!("cfg: Failed to update {:?} ({:#})", &cfg.index_path, &e);
         panic!();
     }
 
     if let Err(e) = misc::prepare_misc_bins(&cfg, args_file.data.prepare) {
-        error!("cfg: Failed to prepare misc support binaries ({:?})", &e);
+        error!("cfg: Failed to prepare misc support binaries ({:#})", &e);
         panic!();
     }
 
     if let Err(e) = side::prepare_side_bins(&cfg) {
-        error!("cfg: Failed to prepare sideload binaries ({:?})", &e);
+        error!("cfg: Failed to prepare sideload binaries ({:#})", &e);
         panic!();
     }
 
@@ -1271,7 +1271,7 @@ fn main() {
         Some("__SKIP__") => {}
         _ => {
             if let Err(e) = side::prepare_linux_tar(&cfg) {
-                error!("cfg: Failed to prepare linux tarball ({:?})", &e);
+                error!("cfg: Failed to prepare linux tarball ({:#})", &e);
                 panic!();
             }
         }
@@ -1300,14 +1300,14 @@ fn main() {
 
         if let Err(e) = clear_old_report_files(&cfg.report_d_path, cfg.rep_retention, now) {
             warn!(
-                "report: Failed to clear stale per-second report files ({:?})",
+                "report: Failed to clear stale per-second report files ({:#})",
                 &e
             );
         }
         if let Err(e) = clear_old_report_files(&cfg.report_1min_d_path, cfg.rep_1min_retention, now)
         {
             warn!(
-                "report: Failed to clear stale per-minute report files ({:?})",
+                "report: Failed to clear stale per-minute report files ({:#})",
                 &e
             );
         }
@@ -1319,7 +1319,7 @@ fn main() {
 
     if let Err(e) = bench::apply_iocost(&sobjs.bench_file.data, &cfg) {
         error!(
-            "cfg: Failed to configure iocost controller on {:?} ({:?})",
+            "cfg: Failed to configure iocost controller on {:?} ({:#})",
             cfg.scr_dev, &e
         );
         panic!();
@@ -1329,13 +1329,13 @@ fn main() {
     let workload_senpai = sobjs.oomd.workload_senpai_enabled();
 
     if let Err(e) = slices::apply_slices(&mut sobjs.slice_file.data, mem_size, &cfg) {
-        error!("cfg: Failed to apply slice configurations ({:?})", &e);
+        error!("cfg: Failed to apply slice configurations ({:#})", &e);
         panic!();
     }
 
     if let Err(e) = slices::verify_and_fix_slices(&sobjs.slice_file.data, workload_senpai, &cfg) {
         error!(
-            "cfg: Failed to verify and fix slice configurations ({:?})",
+            "cfg: Failed to verify and fix slice configurations ({:#})",
             &e
         );
         panic!();
@@ -1344,7 +1344,7 @@ fn main() {
     if !cfg.enforce.oomd {
         info!("cfg: Enforcement off, not starting oomd");
     } else if let Err(e) = sobjs.oomd.apply() {
-        error!("cfg: Failed to initialize oomd ({:?})", &e);
+        error!("cfg: Failed to initialize oomd ({:#})", &e);
         panic!();
     }
 
@@ -1354,7 +1354,7 @@ fn main() {
         let sideloader_cmd = &sobjs.cmd_file.data.sideloader;
         let slice_knobs = &sobjs.slice_file.data;
         if let Err(e) = sobjs.sideloader.apply(sideloader_cmd, slice_knobs) {
-            error!("cfg: Failed to initialize sideloader ({:?})", &e);
+            error!("cfg: Failed to initialize sideloader ({:#})", &e);
             panic!();
         }
     }

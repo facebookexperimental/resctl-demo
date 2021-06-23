@@ -1,5 +1,5 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
-use anyhow::Result;
+use anyhow::{Context, Result};
 use enum_iterator::IntoEnumIterator;
 use glob::glob;
 use log::{debug, error, info, trace, warn};
@@ -430,7 +430,10 @@ fn fix_overrides(dseqs: &DisableSeqKnobs, cfg: &Config) -> Result<()> {
     }
 
     if enable.len() > 0 {
-        write_one_line("/sys/fs/cgroup/cgroup.subtree_control", &enable)?;
+        write_one_line("/sys/fs/cgroup/cgroup.subtree_control", &enable).context(format!(
+            "Writing {:?} to /sys/fs/cgroup/cgroup.subtree_control",
+            &enable
+        ))?;
     }
 
     Ok(())
