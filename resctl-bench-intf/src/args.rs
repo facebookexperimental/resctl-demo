@@ -154,6 +154,10 @@ pub fn set_bench_list(mut list: Vec<(String, String)>) {
             "Overview, Common Concepts and Options".to_string(),
         ),
     );
+    list.push((
+        "shadow-inode".to_string(),
+        "Information on inode shadow entry protection".to_string(),
+    ));
     *DOC_AFTER_HELP.lock().unwrap() =
         static_format_bench_list("SUBJECTS:\n", &list, &DOC_AFTER_HELP_FOOTER);
     list.remove(0);

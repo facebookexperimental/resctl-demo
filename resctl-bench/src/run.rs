@@ -656,7 +656,7 @@ impl<'a, 'b> RunCtx<'a, 'b> {
             sysreqs_rep.satisfied.remove(&SysReq::MemShadowInodeProt);
             sysreqs_rep.missed.add_quiet(
                 SysReq::MemShadowInodeProt,
-                "inode shadow entries are not protected",
+                "inode shadow entries are not protected, see `resctl-bench doc shadow-inode`",
             );
         }
         ctx.sysreqs_rep = Some(Arc::new(sysreqs_rep));

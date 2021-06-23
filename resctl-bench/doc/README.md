@@ -3,6 +3,7 @@
 
 * [Overview, Common Concepts and Options](common.md)
 
+
 The benchmarks
 ==============
 
@@ -12,3 +13,9 @@ The benchmarks
 * [protection](protection.md): Benchmark resource protection
 * [iocost-qos](iocost-qos.md): Benchmark IO isolation with different io.cost QoS configurations
 * [iocost-tune](iocost-tune.md): Benchmark storage device to determine io.cost QoS solutions
+
+
+Other Notes
+===========
+
+* [shadow-inode](shadow-inode.md): Information on inode shadow entry protection
