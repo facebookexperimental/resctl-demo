@@ -49,7 +49,7 @@ def one_round(inodesteal_target, prefix):
     target_swap_free = swap_free - target_swap
 
     print(f"{prefix}mem_free={mem_free/GIG:.2f}G swap_free={swap_free/GIG:.2f}G target_swap={target_swap/GIG:.2f}G",
-          file=sys.stderr)
+          file=sys.stderr, flush=True)
 
     # Instantiate inode cache and revisit to activate.
     for i in range(2):
@@ -75,11 +75,11 @@ def one_round(inodesteal_target, prefix):
             break
         if time.time() >= last_at + 1:
             print(f"{prefix}Allocated {len(mms) * NR_MMS_TO_GIGS:.2f}G swap_free={mi['SwapFree'] / GIG:.2f}G",
-                  file=sys.stderr)
+                  file=sys.stderr, flush=True)
             last_at = time.time()
 
     print(f"{prefix}Finished allocating {len(mms) * NR_MMS_TO_GIGS:.2f}G swap_free={mi['SwapFree'] / GIG:.2f}G",
-          file=sys.stderr)
+          file=sys.stderr, flush=True)
 
     # Give some of the mmapped pages a round of read. We just wanna dip into
     # swap a bit. Read half of the target swap usage.
@@ -92,7 +92,7 @@ def one_round(inodesteal_target, prefix):
             return True
         if time.time() >= last_at + 1:
             print(f"{prefix}Accessed {i * NR_MMS_TO_GIGS:.2f}G",
-                  file=sys.stderr)
+                  file=sys.stderr, flush=True)
 
     return False
 
