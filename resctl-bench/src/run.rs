@@ -741,8 +741,12 @@ impl<'a, 'b> RunCtx<'a, 'b> {
             })?;
         }
 
-        // Congure swappiness.
-        self.access_agent_files(|af| af.cmd.data.swappiness = self.args.swappiness_ovr);
+        // Configure swappiness.
+        self.access_agent_files(|af| {
+            af.cmd.data.cmd_seq += 1;
+            af.cmd.data.swappiness = self.args.swappiness_ovr;
+            af.cmd.save().unwrap();
+        });
 
         // Run init functions.
         if self.cfg.agent_init_fns.len() > 0 {

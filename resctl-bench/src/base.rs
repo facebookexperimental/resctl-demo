@@ -1,7 +1,8 @@
 use anyhow::{anyhow, bail, Context, Result};
 use log::{error, info, warn};
 use rd_agent_intf::{
-    BenchKnobs, HashdKnobs, IoCostKnobs, SvcStateReport, SysReq, HASHD_BENCH_SVC_NAME,
+    BenchKnobs, HashdKnobs, IoCostKnobs, MemoryKnob, Slice, SvcStateReport, SysReq,
+    HASHD_BENCH_SVC_NAME,
 };
 use resctl_bench_intf::Args;
 use serde::{Deserialize, Serialize};
@@ -422,9 +423,17 @@ impl<'a> Base<'a> {
 
     pub fn test_inodesteal(&mut self) -> Result<()> {
         let mut rctx = RunCtx::new(self.args, self, Default::default());
-        rctx.skip_mem_profile()
-            .set_crit_mem_prot_only()
-            .start_agent(vec![])?;
+        rctx.skip_mem_profile().start_agent(vec![])?;
+
+        // Running the test script with memory protection produces false
+        // negatives. Let's disable all resource control.
+        rctx.access_agent_files(|af| {
+            af.slices.data.disable_seqs.mem = af.report.data.seq;
+            af.slices.data.disable_seqs.io = af.report.data.seq;
+            af.slices.data.disable_seqs.cpu = af.report.data.seq;
+            af.slices.data[Slice::Host].mem_min = MemoryKnob::None;
+            af.slices.save().unwrap();
+        });
 
         rctx.start_sysload(INODESTEAL_TEST, INODESTEAL_TEST)?;
         WorkloadMon::default()
