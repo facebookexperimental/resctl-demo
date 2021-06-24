@@ -48,15 +48,15 @@ pub const MSEC: f64 = 1.0 / 1000.0;
 pub const READ: usize = 0;
 pub const WRITE: usize = 1;
 
-const VERGEN_GIT_SEMVER: &'static str = env!("VERGEN_GIT_SEMVER_LIGHTWEIGHT");
-const VERGEN_HOST_TRIPLE: &'static str = env!("VERGEN_RUSTC_HOST_TRIPLE");
-
 lazy_static::lazy_static! {
     static ref GIT_VERSION: &'static str = {
-        split_git_version(VERGEN_GIT_SEMVER).1
+        match option_env!("VERGEN_GIT_SEMVER_LIGHTWEIGHT") {
+            Some(v) => split_git_version(v).1,
+            None => ""
+        }
     };
     static ref BUILD_TAG: String = {
-        let mut tag = VERGEN_HOST_TRIPLE.to_string();
+        let mut tag = env!("VERGEN_RUSTC_HOST_TRIPLE").to_string();
         if cfg!(debug_assertions) {
             write!(tag, "/debug").unwrap();
         }
