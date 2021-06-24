@@ -3,7 +3,7 @@ Resource Control Benchmarks
 
 Resource control aims to control compute resource distribution to improve
 reliability and utilization of a system. `resctl-bench` is a collection of
-whole-system benchmarks to evalute resource control and hardware behaviors
+whole-system benchmarks to evaluate resource control and hardware behaviors
 using realistic simulated workloads.
 
 Comprehensive resource control involves the whole system - kernel subsystems
