@@ -52,26 +52,49 @@ images to help getting started. Visit the following page for details:
 Installation
 ============
 
-resctl-demo and resctl-bench can be installed using `cargo install`. Don't
-forget to install rd-hashd and rd-agent.
+resctl-demo and resctl-bench can be installed using cargo which is the
+package manager for rust. cargo can be installed with rustup:
+
+  https://rustup.rs/
+
+For distro-specific way to install cargo, see the distro sub-sections.
+
+Once cargo is available, run the following command to install resctl-bench
+and resctl-demo. Don't forget to install rd-hashd and rd-agent.
 
 ```
 cargo install rd-hashd rd-agent resctl-demo resctl-bench
 ```
 
-The followings are commands to install other dependencies on different
-distros.
+cargo installs under `$HOME/.cargo/bin` by default. Feel free to copy them
+elsewhere as convenient. For example:
+
+```
+cd ~/.cargo/bin
+cp rd-hashd rd-agent resctl-demo resctl-bench /usr/local/bin
+```
+
+Information on installing cargo and other dependencies on different distros
+follows.
 
 
-arch
+Arch
 ----
 
-The common dependencies:
+Installing cargo:
+
 ```
-pacman -S --needed coreutils util-linux python python-bcc fio
+pacman -S --needed rust
+```
+
+The common dependencies:
+
+```
+pacman -S --needed coreutils util-linux python python-bcc fio stress
 ```
 
 oomd is available through AUR:
+
 ```
 git clone https://aur.archlinux.org/oomd-git.git oomd-git
 cd oomd-git
@@ -80,26 +103,36 @@ makepkg -si
 
 resctl-demo needs the followings to plot graphs and run linux build job as
 one of the workloads:
+
 ```
-pacman -S --needed gnuplot gcc binutils make bison flex pkgconf stress openssl libelf
+pacman -S --needed gnuplot gcc binutils make bison flex pkgconf openssl libelf
 ```
 
 
-fedora
+Fedora
 ------
 
-The common dependencies:
+Installing cargo:
+
 ```
-yum install coreutils util-linux python3 python3-bcc fio oomd
+yum install cargo
+```
+
+The common dependencies:
+
+```
+yum install coreutils util-linux python3 python3-bcc fio stress oomd
 ```
 
 resctl-demo needs the followings to plot graphs and run linux build job as
 one of the workloads:
+
 ```
-yum install gnuplot gcc binutils make bison flex pkgconf stress openssl-devel elfutils-devel
+yum install gnuplot gcc binutils make bison flex pkgconf openssl-devel elfutils-devel
 ```
 
 Disable zram based swap:
+
 ```
 touch /etc/systemd/zram-generator.conf
 systemctl stop dev-zram0.swap
@@ -107,6 +140,29 @@ systemctl stop dev-zram0.swap
 
 If `journalctl -u rd-agent` shows EXEC failures, disable selinux by setting
 `SELINUX=disabled` in `/etc/selinux/config` and rebooting.
+
+
+ubuntu
+======
+
+Installing cargo:
+
+```
+apt install cargo
+```
+
+The common dependencies:
+
+```
+apt install coreutils util-linux python3 fio stress oomd
+```
+
+resctl-demo needs the followings to plot graphs and run linux build job as
+one of the workloads:
+
+```
+apt install gnuplot gcc binutils make bison flex pkgconf libssl-dev libelf-dev
+```
 
 
 Building and Installing Manually
