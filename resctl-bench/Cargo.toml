@@ -1,6 +1,6 @@
 [package]
 name = "resctl-bench"
-version = "2.0.0-alpha"
+version = "2.0.0-beta"
 authors = ["Tejun Heo <tj@kernel.org>"]
 edition = "2018"
 license = "Apache-2.0"
@@ -10,10 +10,10 @@ description = "Whole system resource control benchmarks with realistic scenarios
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-rd-util = { path = "../rd-util", version = "2.0.0-alpha" }
-rd-hashd-intf = { path = "../rd-hashd-intf", version = "2.0.0-alpha" }
-rd-agent-intf = { path = "../rd-agent-intf", version = "2.0.0-alpha" }
-resctl-bench-intf = { path = "../resctl-bench-intf", version = "2.0.0-alpha" }
+rd-util = { path = "../rd-util", version = "2.0.0-beta" }
+rd-hashd-intf = { path = "../rd-hashd-intf", version = "2.0.0-beta" }
+rd-agent-intf = { path = "../rd-agent-intf", version = "2.0.0-beta" }
+resctl-bench-intf = { path = "../resctl-bench-intf", version = "2.0.0-beta" }
 
 anyhow = "^1.0"
 chrono = "^0.4"
