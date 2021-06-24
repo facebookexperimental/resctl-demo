@@ -57,7 +57,8 @@ package manager for rust. cargo can be installed with rustup:
 
   https://rustup.rs/
 
-For distro-specific way to install cargo, see the distro sub-sections.
+For distro-specific way to install cargo, see the distro sub-sections. Note
+that the distro packaged version might not be recent enough.
 
 Once cargo is available, run the following command to install resctl-bench
 and resctl-demo. Don't forget to install rd-hashd and rd-agent.
