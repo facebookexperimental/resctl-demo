@@ -132,6 +132,7 @@ struct RunCtxInnerCfg {
 struct RunCtxCfg {
     skip_mem_profile: bool,
     revert_bench: bool,
+    all_sysreqs_quiet: bool,
     extra_args: Vec<String>,
     agent_init_fns: Vec<Box<dyn FnMut(&mut RunCtx)>>,
 }
@@ -368,6 +369,11 @@ impl<'a, 'b> RunCtx<'a, 'b> {
 
     pub fn set_revert_bench(&mut self) -> &mut Self {
         self.cfg.revert_bench = true;
+        self
+    }
+
+    pub fn set_all_sysreqs_quiet(&mut self) -> &mut Self {
+        self.cfg.all_sysreqs_quiet = true;
         self
     }
 
@@ -609,6 +615,7 @@ impl<'a, 'b> RunCtx<'a, 'b> {
                 }
 
                 self.base.all_sysreqs_state = AllSysReqsState::Check;
+                self.cfg.all_sysreqs_quiet = saved_cfg.cfg.all_sysreqs_quiet;
                 self.skip_mem_profile().start_agent(vec![])?;
                 self.stop_agent();
 
@@ -672,14 +679,20 @@ impl<'a, 'b> RunCtx<'a, 'b> {
             if missed.map.len() > 0 {
                 let mut buf = String::new();
                 missed.format(&mut (Box::new(&mut buf) as Box<dyn Write>));
-                for line in buf.lines() {
-                    error!("{}", line);
+
+                if !self.cfg.all_sysreqs_quiet {
+                    for line in buf.lines() {
+                        error!("{}", line);
+                    }
                 }
+
                 if self.args.force {
-                    warn!(
-                        "Continuing after failing {} system requirements because of --force",
-                        missed.map.len()
-                    );
+                    if !self.cfg.all_sysreqs_quiet {
+                        warn!(
+                            "Continuing after failing {} system requirements because of --force",
+                            missed.map.len()
+                        );
+                    }
                 } else {
                     set_prog_exiting(); // no retries, please
                     bail!(
