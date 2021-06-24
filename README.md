@@ -19,7 +19,7 @@ using self-contained workloads in guided scenarios.
 resctl-bench
 ------------
 
-resctl-bench is a collection of whole-system benchmarks to evalute resource
+resctl-bench is a collection of whole-system benchmarks to evaluate resource
 control and hardware behaviors using realistic simulated workloads.
 
 Comprehensive resource control involves the whole system. Furthermore,
