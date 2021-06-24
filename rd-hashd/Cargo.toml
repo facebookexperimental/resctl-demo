@@ -1,7 +1,7 @@
 # Copyright (c) Facebook, Inc. and its affiliates
 [package]
 name = "rd-hashd"
-version = "2.0.0-beta"
+version = "2.0.0"
 authors = ["Tejun Heo <tj@kernel.org>"]
 edition = "2018"
 license = "Apache-2.0"
@@ -10,8 +10,8 @@ description = "Latency-sensitive pseudo workload for resctl-demo"
 readme = "README.md"
 
 [dependencies]
-rd-util = { path = "../rd-util", version = "2.0.0-beta" }
-rd-hashd-intf = { path = "../rd-hashd-intf", version = "2.0.0-beta" }
+rd-util = { path = "../rd-util", version = "^2.0" }
+rd-hashd-intf = { path = "../rd-hashd-intf", version = "^2.0" }
 
 anyhow = "^1.0"
 chrono = { version = "^0.4", features = ["serde"] }
