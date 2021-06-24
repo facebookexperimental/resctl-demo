@@ -68,12 +68,11 @@ arch
 
 The common dependencies:
 ```
-sudo pacman -S --needed coreutils util-linux python python-bcc fio
+pacman -S --needed coreutils util-linux python python-bcc fio
 ```
 
 oomd is available through AUR:
 ```
-sudo pacman -S --needed fakeroot
 git clone https://aur.archlinux.org/oomd-git.git oomd-git
 cd oomd-git
 makepkg -si
@@ -82,7 +81,7 @@ makepkg -si
 resctl-demo needs the followings to plot graphs and run linux build job as
 one of the workloads:
 ```
-sudo pacman -S --needed gnuplot gcc binutils make bison flex pkgconf stress openssl libelf
+pacman -S --needed gnuplot gcc binutils make bison flex pkgconf stress openssl libelf
 ```
 
 
