@@ -116,20 +116,20 @@ Fedora
 Installing cargo:
 
 ```
-yum install cargo
+dnf install cargo
 ```
 
 The common dependencies:
 
 ```
-yum install coreutils util-linux python3 python3-bcc fio stress oomd
+dnf install coreutils util-linux python3 python3-bcc fio stress oomd
 ```
 
 resctl-demo needs the followings to plot graphs and run linux build job as
 one of the workloads:
 
 ```
-yum install gnuplot gcc binutils make bison flex pkgconf openssl-devel elfutils-devel
+dnf install gnuplot gcc binutils make bison flex pkgconf openssl-devel elfutils-devel
 ```
 
 Disable zram based swap:
