@@ -1598,7 +1598,7 @@ dependencies = [
 
 [[package]]
 name = "rd-agent"
-version = "2.0.0-alpha"
+version = "2.0.0-beta"
 dependencies = [
  "anyhow",
  "chrono",
@@ -1626,7 +1626,7 @@ dependencies = [
 
 [[package]]
 name = "rd-agent-intf"
-version = "2.0.0-alpha"
+version = "2.0.0-beta"
 dependencies = [
  "anyhow",
  "chrono",
@@ -1642,7 +1642,7 @@ dependencies = [
 
 [[package]]
 name = "rd-hashd"
-version = "2.0.0-alpha"
+version = "2.0.0-beta"
 dependencies = [
  "anyhow",
  "chrono",
@@ -1668,7 +1668,7 @@ dependencies = [
 
 [[package]]
 name = "rd-hashd-intf"
-version = "2.0.0-alpha"
+version = "2.0.0-beta"
 dependencies = [
  "anyhow",
  "chrono",
@@ -1680,7 +1680,7 @@ dependencies = [
 
 [[package]]
 name = "rd-util"
-version = "2.0.0-alpha"
+version = "2.0.0-beta"
 dependencies = [
  "anyhow",
  "chrono",
@@ -1763,7 +1763,7 @@ dependencies = [
 
 [[package]]
 name = "resctl-bench"
-version = "2.0.0-alpha"
+version = "2.0.0-beta"
 dependencies = [
  "anyhow",
  "chrono",
@@ -1796,7 +1796,7 @@ dependencies = [
 
 [[package]]
 name = "resctl-bench-intf"
-version = "2.0.0-alpha"
+version = "2.0.0-beta"
 dependencies = [
  "anyhow",
  "clap",
@@ -1809,7 +1809,7 @@ dependencies = [
 
 [[package]]
 name = "resctl-demo"
-version = "2.0.0-alpha"
+version = "2.0.0-beta"
 dependencies = [
  "anyhow",
  "chrono",
