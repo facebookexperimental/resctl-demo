@@ -1,6 +1,8 @@
 `resctl-bench` documentation
 ============================
 
+For introduction, see the [resctl-bench README](../README.md).
+
 * [Overview, Common Concepts and Options](common.md)
 
 
