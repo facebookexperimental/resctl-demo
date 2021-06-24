@@ -71,12 +71,6 @@ The common dependencies:
 sudo pacman -S --needed coreutils util-linux python fio
 ```
 
-resctl-demo needs the followings to plot graphs and run linux build job as
-one of the workloads:
-```
-sudo pacman -S --needed gnuplot gcc binutils make bison flex pkgconf stress openssl libelf
-```
-
 oomd is available through AUR:
 ```
 sudo pacman -S --needed fakeroot
@@ -85,9 +79,26 @@ cd oomd-git
 makepkg -si
 ```
 
+resctl-demo needs the followings to plot graphs and run linux build job as
+one of the workloads:
+```
+sudo pacman -S --needed gnuplot gcc binutils make bison flex pkgconf stress openssl libelf
+```
+
 
 fedora
 ------
+
+The common dependencies:
+```
+yum install coreutils util-linux python3 fio oomd
+```
+
+resctl-demo needs the followings to plot graphs and run linux build job as
+one of the workloads:
+```
+yum install gnuplot gcc binutils make bison flex pkgconf stress openssl-devel elfutils-devel
+```
 
 
 Building and Installing Manually
@@ -159,8 +170,8 @@ achieve workload protection and stacking.
 * Swap file on btrfs at least as large as 1/3 of physical memory
 * systemd
 * oomd
-* python3, gnuplot, findmnt, dd, fio, stdbuf, gcc, ld, make, bison, flex,
-  pkg-config, stress, libssl, libelf
+* dd, stdbuf, findmnt, python3, fio, stress, gnuplot, gcc, ld, make, bison,
+  flex, pkg-config, libssl, libelf
 
 
 License
