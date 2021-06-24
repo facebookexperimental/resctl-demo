@@ -380,6 +380,13 @@ impl Drop for ExitGuard {
 fn startup_checks() -> Result<()> {
     let mut nr_failed = 0;
 
+    if !verify_agent_and_hashd(&FULL_VERSION) {
+        eprintln!(
+            "Error: Failed to verify rd-agent and/or rd-hashd, install with \"cargo install\""
+        );
+        nr_failed += 1;
+    }
+
     let euid = unsafe { libc::geteuid() };
     if euid != 0 {
         eprintln!("Error: must be run as root");

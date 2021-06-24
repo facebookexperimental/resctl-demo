@@ -5,5 +5,11 @@ fn main() -> anyhow::Result<()> {
     let mut config = Config::default();
     *config.git_mut().semver_kind_mut() = SemverKind::Lightweight;
     *config.git_mut().semver_dirty_mut() = Some("-dirty");
-    vergen(config)
+    match vergen(config) {
+        Ok(()) => Ok(()),
+        Err(_) => {
+            *config.git_mut().enabled_mut() = false;
+            vergen(config)
+        }
+    }
 }

@@ -98,11 +98,11 @@ depending on the hardware and kernel configurations, so let's instead watch
 how effectively the CPU controller can protect the latency.
 
 rd-hashd is running targeting 90% load and the latency target has been
-relaxed from 100ms to 1s - we're asking rd-hashd to meet 90% load regardless
+relaxed from 75ms to 1s - we're asking rd-hashd to meet 90% load regardless
 of how much latency deteriorates. Also, ___system___'s CPU weight is reduced
 to 1/100th of ___workload___ to make the experiment clearer.
 
-Once hashd is warmed up and the latency is stable below 100ms, let's start a
+Once hashd is warmed up and the latency is stable below 75ms, let's start a
 CPU hog which keeps calculating sqrt() with concurrency of twice the number
 of CPU threads.
 

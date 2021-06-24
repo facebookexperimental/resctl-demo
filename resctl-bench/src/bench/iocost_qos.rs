@@ -595,10 +595,10 @@ impl Job for IoCostQoSJob {
                     }
                     Err(e) => {
                         if !self.allow_fail || prog_exiting() {
-                            error!("iocost-qos[{:02}]: Failed ({:?}), giving up...", i, &e);
+                            error!("iocost-qos[{:02}]: Failed ({:#}), giving up...", i, &e);
                             return Err(e);
                         }
-                        error!("iocost-qos[{:02}]: Failed ({:?}), skipping...", i, &e);
+                        error!("iocost-qos[{:02}]: Failed ({:#}), skipping...", i, &e);
                         runs.push(None);
                     }
                 }
