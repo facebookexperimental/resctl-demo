@@ -331,9 +331,17 @@ impl Program {
     }
 
     pub fn do_deps(&mut self) -> Result<()> {
-        let mut base = base::Base::dummy(&self.args_file.data);
-        let mut rctx = RunCtx::new(&self.args_file.data, &mut base, self.jobs.clone());
-        rctx.skip_mem_profile().start_agent(vec![])?;
+        let args = Args {
+            force: true,
+            ..self.args_file.data.clone()
+        };
+        let mut base = base::Base::dummy(&args);
+        base.all_sysreqs.extend(&*ALL_BUT_LINUX_BUILD_SYSREQS);
+
+        let mut rctx = RunCtx::new(&args, &mut base, self.jobs.clone());
+        rctx.skip_mem_profile()
+            .set_all_sysreqs_quiet()
+            .start_agent(vec![])?;
         let srep = rctx.sysreqs_report().unwrap();
 
         let satisfied = &srep.satisfied & &ALL_BUT_LINUX_BUILD_SYSREQS;

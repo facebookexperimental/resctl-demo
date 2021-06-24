@@ -1,6 +1,6 @@
 [package]
 name = "rd-util"
-version = "2.0.0-beta"
+version = "2.0.0"
 authors = ["Tejun Heo <tj@kernel.org>"]
 edition = "2018"
 license = "Apache-2.0"

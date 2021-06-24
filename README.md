@@ -68,7 +68,7 @@ arch
 
 The common dependencies:
 ```
-sudo pacman -S --needed coreutils util-linux python fio
+sudo pacman -S --needed coreutils util-linux python python-bcc fio
 ```
 
 oomd is available through AUR:
@@ -91,7 +91,7 @@ fedora
 
 The common dependencies:
 ```
-yum install coreutils util-linux python3 fio oomd
+yum install coreutils util-linux python3 python3-bcc fio oomd
 ```
 
 resctl-demo needs the followings to plot graphs and run linux build job as
@@ -99,6 +99,15 @@ one of the workloads:
 ```
 yum install gnuplot gcc binutils make bison flex pkgconf stress openssl-devel elfutils-devel
 ```
+
+Disable zram based swap:
+```
+touch /etc/systemd/zram-generator.conf
+systemctl stop dev-zram0.swap
+```
+
+If `journalctl -u rd-agent` shows EXEC failures, disable selinux by setting
+`SELINUX=disabled` in `/etc/selinux/config` and rebooting.
 
 
 Building and Installing Manually
