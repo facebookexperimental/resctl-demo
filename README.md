@@ -155,7 +155,7 @@ apt install cargo
 The common dependencies:
 
 ```
-apt install coreutils util-linux python3 fio stress oomd
+apt install coreutils util-linux python3 python3-bpfcc fio stress oomd
 ```
 
 resctl-demo needs the followings to plot graphs and run linux build job as
