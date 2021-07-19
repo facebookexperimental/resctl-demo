@@ -471,15 +471,17 @@ impl Runner {
                     warn!("cmd: Health check failed ({:?})", &e);
                 }
 
-                let iosched = match data.state {
-                    BenchIoCost => "none",
-                    _ => "mq-deadline",
-                };
-                if let Err(e) = super::set_iosched(&data.cfg.scr_dev, iosched) {
-                    error!(
-                        "cfg: Failed to set {:?} iosched on {:?} ({})",
-                        iosched, &data.cfg.scr_dev, &e
-                    );
+                if data.cfg.enforce.io {
+                    let iosched = match data.state {
+                        BenchIoCost => "none",
+                        _ => "mq-deadline",
+                    };
+                    if let Err(e) = super::set_iosched(&data.cfg.scr_dev, iosched) {
+                        error!(
+                            "cfg: Failed to set {:?} iosched on {:?} ({})",
+                            iosched, &data.cfg.scr_dev, &e
+                        );
+                    }
                 }
 
                 last_health_check_at = now;
