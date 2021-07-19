@@ -182,6 +182,7 @@ pub struct Config {
     pub enforce: EnforceConfig,
 
     pub sr_failed: MissedSysReqs,
+    sr_iosched: Option<String>,
     sr_wbt: Option<u64>,
     sr_wbt_path: Option<String>,
     sr_swappiness: Option<u32>,
@@ -444,6 +445,7 @@ impl Config {
             enforce: args.enforce.clone(),
 
             sr_failed: Default::default(),
+            sr_iosched: None,
             sr_wbt: None,
             sr_wbt_path: None,
             sr_swappiness: None,
@@ -751,6 +753,9 @@ impl Config {
 
         // mq-deadline scheduler
         if self.enforce.io {
+            if let Ok(v) = read_iosched(&self.scr_dev) {
+                self.sr_iosched = Some(v);
+            }
             if let Err(e) = set_iosched(&self.scr_dev, "mq-deadline") {
                 self.sr_failed.add(
                     SysReq::IoSched,
@@ -1032,6 +1037,11 @@ impl Config {
 
 impl Drop for Config {
     fn drop(&mut self) {
+        if let Some(iosched) = self.sr_iosched.as_ref() {
+            if let Err(e) = set_iosched(&self.scr_dev, iosched) {
+                error!("cfg: Failed to restore iosched to {:?} ({:#})", iosched, &e);
+            }
+        }
         if let Some(wbt) = self.sr_wbt {
             let path = self.sr_wbt_path.as_ref().unwrap();
             info!("cfg: Restoring {:?} to {}", path, wbt);
