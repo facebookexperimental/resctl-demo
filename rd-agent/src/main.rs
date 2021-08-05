@@ -839,7 +839,7 @@ impl Config {
 
         // swap configuration check
         let swap_total = total_swap();
-        let swap_avail = swap_total - sys.get_used_swap() as usize * 1024;
+        let swap_avail = swap_total - sys.used_swap() as usize * 1024;
 
         if (swap_total as f64) < (total_memory() as f64 * 0.3) {
             self.sr_failed.add(
@@ -923,7 +923,7 @@ impl Config {
         // Gotta re-read sysinfo to avoid reading cached oomd pid from
         // before stopping it.
         let sys = sysinfo::System::new();
-        let procs = sys.get_processes();
+        let procs = sys.processes();
         for (pid, proc) in procs {
             let exe = proc
                 .exe()
@@ -999,7 +999,7 @@ impl Config {
             satisfied: &*ALL_SYSREQS_SET ^ &self.sr_failed.map.keys().copied().collect(),
             missed: self.sr_failed.clone(),
             kernel_version: sys
-                .get_kernel_version()
+                .kernel_version()
                 .expect("Failed to read kernel version"),
             agent_version: FULL_VERSION.to_string(),
             hashd_version,

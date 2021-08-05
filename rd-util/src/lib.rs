@@ -66,12 +66,12 @@ lazy_static::lazy_static! {
     pub static ref TOTAL_SYSTEM_MEMORY: usize = {
         let mut sys = sysinfo::System::new();
         sys.refresh_memory();
-        sys.get_total_memory() as usize * 1024
+        sys.total_memory() as usize * 1024
     };
     pub static ref TOTAL_SYSTEM_SWAP: usize = {
         let mut sys = sysinfo::System::new();
         sys.refresh_memory();
-        sys.get_total_swap() as usize * 1024
+        sys.total_swap() as usize * 1024
     };
     pub static ref NR_SYSTEM_CPUS: usize = ::num_cpus::get();
     static ref TOTAL_MEMORY: atomic::AtomicUsize = atomic::AtomicUsize::new(0);
