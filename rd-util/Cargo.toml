@@ -29,7 +29,7 @@ num_cpus = "^1.13"
 page_size = "^0.4"
 proc-mounts = "^0.2"
 rand = { version = "^0.8", features = ["small_rng"] }
-rustbus = "^0.12"
+rustbus = "^0.17"
 scan_fmt = "^0.2"
 serde = { version = "^1.0", features = ["derive"] }
 serde_json = "^1.0"
@@ -38,4 +38,4 @@ sysinfo = "^0.19"
 
 [build-dependencies]
 anyhow = "^1.0"
-vergen = "^5.1"
+vergen = "^5.1.14"

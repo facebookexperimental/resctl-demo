@@ -835,9 +835,9 @@ checksum = "e2abad23fbc42b3700f2f279844dc832adb2b2eb069b2df918f455c4e18cc646"
 
 [[package]]
 name = "libc"
-version = "0.2.97"
+version = "0.2.98"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "12b8adadd720df158f4d70dfe7ccc6adb0472d7c55ca83445f6a5ab3e36f8fb6"
+checksum = "320cfe77175da3a483efed4bc0adc1968ca050b098ce4f2f1c13a56626128790"
 
 [[package]]
 name = "libflate"
@@ -989,19 +989,6 @@ dependencies = [
 
 [[package]]
 name = "nix"
-version = "0.17.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "50e4785f2c3b7589a0d0c1dd60285e1188adac4006e8abd6dd578e1567027363"
-dependencies = [
- "bitflags",
- "cc",
- "cfg-if 0.1.10",
- "libc",
- "void",
-]
-
-[[package]]
-name = "nix"
 version = "0.20.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fa9b4819da1bc61c0ea48b63b7bc8604064dd43013e7cc325df098d49cd7c18a"
@@ -1010,6 +997,19 @@ dependencies = [
  "cc",
  "cfg-if 1.0.0",
  "libc",
+]
+
+[[package]]
+name = "nix"
+version = "0.22.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cf1e25ee6b412c2a1e3fcb6a4499a5c1bfe7f43e014bdce9a6b6666e5aa2d187"
+dependencies = [
+ "bitflags",
+ "cc",
+ "cfg-if 1.0.0",
+ "libc",
+ "memoffset 0.6.4",
 ]
 
 [[package]]
@@ -1620,7 +1620,7 @@ dependencies = [
  "scan_fmt",
  "serde",
  "serde_json",
- "sysinfo 0.19.2",
+ "sysinfo",
  "users",
 ]
 
@@ -1699,12 +1699,12 @@ dependencies = [
  "page_size",
  "proc-mounts",
  "rand 0.8.4",
- "rustbus 0.12.0",
+ "rustbus",
  "scan_fmt",
  "serde",
  "serde_json",
  "simplelog",
- "sysinfo 0.19.2",
+ "sysinfo",
  "vergen",
 ]
 
@@ -1837,32 +1837,22 @@ checksum = "cabe4fa914dec5870285fa7f71f602645da47c486e68486d2b4ceb4a343e90ac"
 
 [[package]]
 name = "rustbus"
-version = "0.11.0"
+version = "0.17.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1bf29f2ae158e3ac991186dfc2cd072678330a0b7a8905b7c1d8a98ded2ace7d"
+checksum = "d96c675c757f5622c9261beb7a484d7247cc26c0a5a3de5798095afc9d998542"
 dependencies = [
- "nix 0.17.0",
-]
-
-[[package]]
-name = "rustbus"
-version = "0.12.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a4267986512a167e219f5231d10bbb0f8d1936be336c87fb481b0a77c6d2d350"
-dependencies = [
- "nix 0.17.0",
+ "nix 0.22.0",
  "rustbus_derive",
 ]
 
 [[package]]
 name = "rustbus_derive"
-version = "0.1.2"
+version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4ca9006ede21db554964f7941df2e563f49f36c995a0a90f706c348e99c64fca"
+checksum = "392f6e36718bb3fe5bba60bc07930138377534596398fde528567d58fddc1241"
 dependencies = [
  "proc-macro2",
  "quote",
- "rustbus 0.11.0",
  "syn",
 ]
 
@@ -2052,21 +2042,6 @@ dependencies = [
  "quote",
  "syn",
  "unicode-xid",
-]
-
-[[package]]
-name = "sysinfo"
-version = "0.18.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d404aefa651a24a7f2a1190fec9fb6380ba84ac511a6fefad79eb0e63d39a97d"
-dependencies = [
- "cfg-if 1.0.0",
- "core-foundation-sys",
- "doc-comment",
- "libc",
- "ntapi",
- "once_cell",
- "winapi",
 ]
 
 [[package]]
@@ -2292,9 +2267,9 @@ checksum = "f1bddf1187be692e79c5ffeab891132dfb0f236ed36a43c7ed39f1165ee20191"
 
 [[package]]
 name = "vergen"
-version = "5.1.9"
+version = "5.1.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f989a8a6dca13ecebbd7b892b69069f4321d19999f1a7e15a308f05ef4f5dbcd"
+checksum = "265455aab08c55a1ab13f07c8d5e25c7d46900f4484dd7cbd682e77171f93f3c"
 dependencies = [
  "anyhow",
  "cfg-if 1.0.0",
@@ -2304,7 +2279,7 @@ dependencies = [
  "git2",
  "rustc_version",
  "rustversion",
- "sysinfo 0.18.2",
+ "sysinfo",
  "thiserror",
 ]
 
@@ -2313,12 +2288,6 @@ name = "version_check"
 version = "0.9.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5fecdca9a5291cc2b8dcf7dc02453fee791a280f3743cb0905f8822ae463b3fe"
-
-[[package]]
-name = "void"
-version = "1.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6a02e4885ed3bc0f2de90ea6dd45ebcbb66dacffe03547fadbb0eeae2770887d"
 
 [[package]]
 name = "wasi"
