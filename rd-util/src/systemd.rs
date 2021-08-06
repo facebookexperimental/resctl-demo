@@ -96,19 +96,19 @@ fn systemd_unit_call(method: &str, intf: &str, name: &str) -> MarshalledMessage 
     let path = SD1_PATH.to_string() + "/unit/" + &escape_name(&name);
 
     message_builder::MessageBuilder::new()
-        .call(method.into())
-        .with_interface(intf.into())
+        .call(method)
+        .with_interface(intf)
         .on(path)
-        .at(SD1_DST.into())
+        .at(SD1_DST)
         .build()
 }
 
 fn systemd_sd1_call(method: &str) -> MarshalledMessage {
     message_builder::MessageBuilder::new()
-        .call(method.into())
-        .with_interface("org.freedesktop.systemd1.Manager".into())
-        .on(SD1_PATH.into())
-        .at(SD1_DST.into())
+        .call(method)
+        .with_interface("org.freedesktop.systemd1.Manager")
+        .on(SD1_PATH)
+        .at(SD1_DST)
         .build()
 }
 
