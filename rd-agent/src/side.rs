@@ -5,7 +5,7 @@ use log::{debug, error, info, warn};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashSet};
 use std::fs;
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -20,6 +20,8 @@ lazy_static::lazy_static! {
 }
 
 const LINUX_TAR_XZ_URL: &str = "https://cdn.kernel.org/pub/linux/kernel/v5.x/linux-5.8.11.tar.xz";
+const LINUX_TAR_PRELOAD: &str = "/usr/share/resctl-demo/linux.tar";
+const LINUX_TAR_XZ_PRELOAD: &str = "/usr/share/resctl-demo/linux.tar.xz";
 
 const SIDE_BINS: [(&str, &[u8]); 6] = [
     ("build-linux.sh", include_bytes!("side/build-linux.sh")),
@@ -50,6 +52,21 @@ fn verify_linux_tar(path: &str) -> bool {
     }
 }
 
+fn decompress_xz(src_path: &str, dst_path: &str) -> Result<()> {
+    info!("side: Decompressing {:?}", &src_path);
+    let output = std::fs::File::create(dst_path)?;
+
+    Command::new("xz")
+        .arg("--stdout")
+        .arg("--decompress")
+        .arg(&src_path)
+        .stdout(Stdio::from(output))
+        .spawn()?
+        .wait_with_output()?;
+
+    Ok(())
+}
+
 pub fn prepare_linux_tar(cfg: &Config) -> Result<()> {
     let tar_path = cfg.scr_path.clone() + "/linux.tar";
 
@@ -57,8 +74,14 @@ pub fn prepare_linux_tar(cfg: &Config) -> Result<()> {
         if !verify_linux_tar(path) {
             bail!("{:?} is not a valid tarball", path);
         }
-        info!("side: Copying ${:?} to ${:?}", path, &tar_path);
-        fs::copy(path, &tar_path)?;
+        if str::ends_with(path, ".xz") {
+            if decompress_xz(&path, &tar_path).is_err() {
+                bail!("failed to decompress linux tarball");
+            }
+        } else {
+            info!("side: Copying ${:?} to ${:?}", path, &tar_path);
+            fs::copy(path, &tar_path)?;
+        }
         return Ok(());
     }
 
@@ -67,9 +90,21 @@ pub fn prepare_linux_tar(cfg: &Config) -> Result<()> {
         return Ok(());
     }
 
-    info!("side: Downloading linux tarball, you can specify local file with --linux-tar");
-    let tmp_path = cfg.scr_path.clone() + "/linux.tar.tmp";
+    if verify_linux_tar(&LINUX_TAR_PRELOAD) {
+        info!("side: Copying ${:?} to ${:?}", LINUX_TAR_PRELOAD, &tar_path);
+        fs::copy(LINUX_TAR_PRELOAD, &tar_path)?;
+        return Ok(());
+    }
+
+    if verify_linux_tar(&LINUX_TAR_XZ_PRELOAD) {
+        if decompress_xz(&LINUX_TAR_XZ_PRELOAD, &tar_path).is_err() {
+            bail!("failed to decompress linux tarball");
+        }
+        return Ok(());
+    }
+
     let xz_path = cfg.scr_path.clone() + "/linux.tar.tmp.xz";
+    info!("side: Downloading linux tarball, you can specify local file with --linux-tar");
     if !Command::new("wget")
         .arg("--progress=dot:mega")
         .arg(LINUX_TAR_XZ_URL)
@@ -83,16 +118,11 @@ pub fn prepare_linux_tar(cfg: &Config) -> Result<()> {
     }
 
     info!("side: Decompressing linux tarball");
-    if !Command::new("xz")
-        .arg("--decompress")
-        .arg(&xz_path)
-        .status()?
-        .success()
-    {
+    if decompress_xz(&xz_path, &tar_path).is_err() {
         bail!("failed to decompress linux tarball");
     }
 
-    fs::rename(&tmp_path, &tar_path)?;
+    fs::remove_file(xz_path)?;
 
     Ok(())
 }
