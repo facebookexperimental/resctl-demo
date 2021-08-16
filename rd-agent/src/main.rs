@@ -998,9 +998,7 @@ impl Config {
         SysReqsReport {
             satisfied: &*ALL_SYSREQS_SET ^ &self.sr_failed.map.keys().copied().collect(),
             missed: self.sr_failed.clone(),
-            kernel_version: sys
-                .kernel_version()
-                .expect("Failed to read kernel version"),
+            kernel_version: sys.kernel_version().expect("Failed to read kernel version"),
             agent_version: FULL_VERSION.to_string(),
             hashd_version,
             nr_cpus: nr_cpus(),

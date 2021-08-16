@@ -3,7 +3,7 @@ use anyhow::{bail, Result};
 use cursive::theme::{Effect, Style};
 use cursive::utils::markup::StyledString;
 use log::debug;
-use std::collections::HashMap;
+use std::collections::HashSet;
 use std::io::prelude::*;
 use std::io::BufReader;
 use std::mem::swap;
@@ -110,7 +110,7 @@ struct RdCmdParsed {
 #[derive(Debug)]
 pub enum RdPara {
     Text(Option<String>, StyledString),
-    Prompt(String, RdCmd, u32),
+    Prompt(String, RdCmd),
 }
 
 #[derive(Default, Debug)]
@@ -120,8 +120,8 @@ pub struct RdDoc {
     pub pre_cmds: Vec<RdCmd>,
     pub body: Vec<RdPara>,
     pub post_cmds: Vec<RdCmd>,
-    pub toggle_cnt: HashMap<RdSwitch, u32>,
-    pub knob_cnt: HashMap<RdKnob, u32>,
+    pub toggles: HashSet<RdSwitch>,
+    pub knobs: HashSet<RdKnob>,
 }
 
 fn markup_text_next_tok(chars: &mut std::iter::Peekable<std::str::Chars>) -> (String, bool) {
@@ -554,29 +554,17 @@ impl RdDoc {
                         doc.id = id;
                         doc.desc = parsed.prompt.unwrap_or("".into());
                     } else if let Some(prompt) = parsed.prompt {
-                        let mut idx: u32 = 0;
-
                         match &parsed.cmd {
                             RdCmd::Toggle(sw) => {
-                                if let Some(cnt) = doc.toggle_cnt.get_mut(sw) {
-                                    idx = *cnt;
-                                    *cnt += 1;
-                                } else {
-                                    doc.toggle_cnt.insert(sw.clone(), 1);
-                                }
+                                doc.toggles.insert(sw.clone());
                             }
                             RdCmd::Knob(knob, _) => {
-                                if let Some(cnt) = doc.knob_cnt.get_mut(knob) {
-                                    idx = *cnt;
-                                    *cnt += 1;
-                                } else {
-                                    doc.knob_cnt.insert(knob.clone(), 1);
-                                }
+                                doc.knobs.insert(knob.clone());
                             }
                             _ => {}
                         }
 
-                        doc.body.push(RdPara::Prompt(prompt, parsed.cmd, idx));
+                        doc.body.push(RdPara::Prompt(prompt, parsed.cmd));
                     } else if parsed.post {
                         doc.post_cmds.push(parsed.cmd);
                     } else {
@@ -591,7 +579,7 @@ impl RdDoc {
                     let gprompt = cur_group_prompt.take().unwrap();
                     let gcmd = RdCmd::Group(cur_group.take().unwrap());
                     if cur_group_visible {
-                        doc.body.push(RdPara::Prompt(gprompt, gcmd, 0));
+                        doc.body.push(RdPara::Prompt(gprompt, gcmd));
                     }
                 } else {
                     // appending to group

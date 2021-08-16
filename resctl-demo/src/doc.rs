@@ -69,7 +69,7 @@ fn load_docs() -> BTreeMap<String, &'static str> {
             .pre_cmds
             .iter()
             .chain(doc.body.iter().filter_map(|para| {
-                if let RdPara::Prompt(_, cmd, _) = para {
+                if let RdPara::Prompt(_, cmd) = para {
                     Some(cmd)
                 } else {
                     None
@@ -453,7 +453,7 @@ fn format_knob_val(knob: &RdKnob, ratio: f64) -> String {
 fn exec_knob(siv: &mut Cursive, cmd: &RdCmd, val: usize, range: usize) {
     if let RdCmd::Knob(knob, _) = cmd {
         let ratio = val as f64 / (range - 1) as f64;
-        siv.call_on_name(&format!("{:?}-digit", knob), |t: &mut TextView| {
+        siv.call_on_all_named(&format!("{:?}-digit", knob), |t: &mut TextView| {
             t.set_content(format_knob_val(knob, ratio))
         });
         let new_cmd = RdCmd::Knob(knob.clone(), ratio);
@@ -464,7 +464,7 @@ fn exec_knob(siv: &mut Cursive, cmd: &RdCmd, val: usize, range: usize) {
 }
 
 fn refresh_toggles(siv: &mut Cursive, doc: &RdDoc, cs: &CmdState) {
-    for (sw, cnt) in doc.toggle_cnt.iter() {
+    for sw in doc.toggles.iter() {
         let val = match sw {
             RdSwitch::BenchHashd => cs.bench_hashd_next > cs.bench_hashd_cur,
             RdSwitch::BenchHashdLoop => cs.bench_hashd_next == std::u64::MAX,
@@ -484,38 +484,32 @@ fn refresh_toggles(siv: &mut Cursive, doc: &RdDoc, cs: &CmdState) {
             RdSwitch::OomdSysSenpai => cs.oomd_sys_senpai,
         };
 
-        for idx in 0..*cnt {
-            let name = match sw {
-                RdSwitch::Sideload(tag, _) => {
-                    format!("{:?}[{}]", RdSwitch::Sideload(tag.into(), "ID".into()), idx)
-                }
-                RdSwitch::Sysload(tag, _) => {
-                    format!("{:?}[{}]", RdSwitch::Sysload(tag.into(), "ID".into()), idx)
-                }
-                _ => format!("{:?}[{}]", sw, idx),
-            };
+        let name = match sw {
+            RdSwitch::Sideload(tag, _) => {
+                format!("{:?}", RdSwitch::Sideload(tag.into(), "ID".into()))
+            }
+            RdSwitch::Sysload(tag, _) => {
+                format!("{:?}", RdSwitch::Sysload(tag.into(), "ID".into()))
+            }
+            _ => format!("{:?}", sw),
+        };
 
-            siv.call_on_name(&name, |c: &mut Checkbox| c.set_checked(val));
-        }
+        siv.call_on_all_named(&name, |c: &mut Checkbox| {
+            c.set_checked(val);
+        });
     }
 }
 
-fn refresh_one_knob(siv: &mut Cursive, knob: &RdKnob, cnt: u32, mut val: f64) {
+fn refresh_one_knob(siv: &mut Cursive, knob: &RdKnob, mut val: f64) {
     val = val.max(0.0).min(1.0);
-    for idx in 0..cnt {
-        siv.call_on_name(
-            &format!("{:?}[{}]-digit", &knob, idx),
-            |t: &mut TextView| t.set_content(format_knob_val(&knob, val)),
-        );
-        siv.call_on_name(
-            &format!("{:?}[{}]-slider", &knob, idx),
-            |s: &mut SliderView| {
-                let range = s.get_max_value();
-                let slot = (val * (range - 1) as f64).round() as usize;
-                s.set_value(slot);
-            },
-        );
-    }
+    siv.call_on_all_named(&format!("{:?}-digit", &knob), |t: &mut TextView| {
+        t.set_content(format_knob_val(&knob, val))
+    });
+    siv.call_on_all_named(&format!("{:?}-slider", &knob), |s: &mut SliderView| {
+        let range = s.get_max_value();
+        let slot = (val * (range - 1) as f64).round() as usize;
+        s.set_value(slot);
+    });
 }
 
 fn hmem_ratio(knob: Option<f64>) -> f64 {
@@ -544,7 +538,7 @@ fn hashd_cmd_anon_addr_stdev(hashd: &HashdCmd) -> f64 {
 fn refresh_knobs(siv: &mut Cursive, doc: &RdDoc, cs: &CmdState) {
     let wbps = AGENT_FILES.bench().iocost.model.wbps as f64;
 
-    for (knob, cnt) in doc.knob_cnt.iter() {
+    for knob in doc.knobs.iter() {
         let val = match knob {
             RdKnob::HashdALoad => cs.hashd[0].rps_target_ratio,
             RdKnob::HashdBLoad => cs.hashd[1].rps_target_ratio,
@@ -573,7 +567,7 @@ fn refresh_knobs(siv: &mut Cursive, doc: &RdDoc, cs: &CmdState) {
             RdKnob::CpuHeadroom => cs.cpu_headroom,
         };
 
-        refresh_one_knob(siv, knob, *cnt, val);
+        refresh_one_knob(siv, knob, val);
     }
 }
 
@@ -638,7 +632,7 @@ where
         .child(Button::new_raw(trimmed, cb))
 }
 
-fn render_cmd(prompt: &str, cmd: &RdCmd, idx: u32) -> impl View {
+fn render_cmd(prompt: &str, cmd: &RdCmd) -> impl View {
     let width = get_layout().doc.x - 2;
     let mut view = LinearLayout::horizontal();
     let cmdc = cmd.clone();
@@ -650,12 +644,12 @@ fn render_cmd(prompt: &str, cmd: &RdCmd, idx: u32) -> impl View {
         RdCmd::Toggle(sw) => {
             let name = match sw {
                 RdSwitch::Sideload(tag, _id) => {
-                    format!("{:?}[{}]", RdSwitch::Sideload(tag.into(), "ID".into()), idx)
+                    format!("{:?}", RdSwitch::Sideload(tag.into(), "ID".into()))
                 }
                 RdSwitch::Sysload(tag, _id) => {
-                    format!("{:?}[{}]", RdSwitch::Sysload(tag.into(), "ID".into()), idx)
+                    format!("{:?}", RdSwitch::Sysload(tag.into(), "ID".into()))
                 }
-                _ => format!("{:?}[{}]", sw, idx),
+                _ => format!("{:?}", sw),
             };
 
             view = view.child(
@@ -671,8 +665,8 @@ fn render_cmd(prompt: &str, cmd: &RdCmd, idx: u32) -> impl View {
         }
         RdCmd::Knob(knob, val) => {
             if *val < 0.0 {
-                let digit_name = format!("{:?}[{}]-digit", knob, idx);
-                let slider_name = format!("{:?}[{}]-slider", knob, idx);
+                let digit_name = format!("{:?}-digit", knob);
+                let slider_name = format!("{:?}-slider", knob);
                 let range = (width as i32 - prompt.len() as i32 - 13).max(5) as usize;
                 view = view.child(
                     LinearLayout::horizontal()
@@ -727,11 +721,11 @@ fn render_doc(doc: &RdDoc) -> impl View {
                 };
                 prev_was_text = !text.is_empty();
             }
-            RdPara::Prompt(prompt, cmd, idx) => {
+            RdPara::Prompt(prompt, cmd) => {
                 if prev_was_text {
                     view = view.child(DummyView);
                 }
-                view = view.child(render_cmd(prompt, cmd, *idx));
+                view = view.child(render_cmd(prompt, cmd));
                 prev_was_text = false;
             }
         }
