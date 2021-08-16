@@ -33,10 +33,8 @@ systemd_root_override_file = (
 )
 
 description = """
-Resource control side-workload manager. See the following for details.
-
-   https://fb.quip.com/qYC2Ay7SyyO7
-
+Resource control side-workload manager. Visit the Sideloading section in
+resctl-demo for more information.
 """
 
 parser = argparse.ArgumentParser(
