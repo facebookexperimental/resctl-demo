@@ -444,7 +444,7 @@ fn format_knob_val(knob: &RdKnob, ratio: f64) -> String {
         }
         RdKnob::MemMargin => format_size(ratio * total_memory() as f64),
         RdKnob::Balloon => format_size(ratio * total_memory() as f64),
-        _ => format_pct(ratio) + "%",
+        _ => format4_pct(ratio) + "%",
     };
 
     format!("{:>5}", &v)
