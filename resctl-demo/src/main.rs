@@ -82,7 +82,7 @@ lazy_static::lazy_static! {
     static ref ZOOMED_VIEW: Mutex<Vec<ZoomedView>> = Mutex::new(Vec::new());
     pub static ref STYLE_ALERT: Style = Style {
         effects: Effect::Bold | Effect::Reverse,
-        color: Some((*COLOR_ALERT).into()),
+        color: (*COLOR_ALERT).into(),
     };
     pub static ref SVC_NAMES: Vec<String> = {
         // trigger DOCS init so that SIDELOAD/SYSLOAD_NAMES get initialized
@@ -276,25 +276,26 @@ fn refresh_layout(siv: &mut Cursive, layout: &Layout) {
     graph::post_layout(siv);
 }
 
-pub fn kick_refresh(siv: &mut Cursive) {
+pub fn kick_refresh() {
     prog_kick();
     for (_id, upds) in UPDATERS.lock().unwrap().journal.iter() {
         for upd in upds.iter() {
-            upd.refresh(siv);
+            upd.refresh();
         }
     }
 }
 
 fn refresh_layout_and_kick(siv: &mut Cursive) {
     let mut layout = get_layout();
-    let scr = siv.screen_size();
+    let (x, y) = term_size::dimensions().unwrap_or((80, 24));
+    let scr = cursive::XY { x, y };
     if scr != layout.screen {
         *LAYOUT.lock().unwrap() = Layout::new(scr);
         layout = get_layout();
         info!("Resized: {:?} Layout: {:?}", scr, &layout);
         refresh_layout(siv, &layout);
     }
-    kick_refresh(siv);
+    kick_refresh();
 }
 
 fn update_agent_zoomed_view(siv: &mut Cursive) {
@@ -323,7 +324,7 @@ fn update_agent_zoomed_view(siv: &mut Cursive) {
         }
     }
     add_zoomed_layer(siv);
-    kick_refresh(siv);
+    kick_refresh();
 }
 
 fn toggle_zoomed_view(siv: &mut Cursive, target: Option<ZoomedView>) {
@@ -360,7 +361,7 @@ fn toggle_zoomed_view(siv: &mut Cursive, target: Option<ZoomedView>) {
     drop(zv);
 
     add_zoomed_layer(siv);
-    kick_refresh(siv);
+    kick_refresh();
 }
 
 struct ExitGuard {}
@@ -530,15 +531,7 @@ fn main() {
     info!("TEMP_DIR: {:?}", TEMP_DIR.path());
     touch_units();
 
-    // Use the termion backend so that resctl-demo can be built without
-    // external dependencies. The buffered backend wrapping is necessary to
-    // avoid flickering, see https://github.com/gyscos/cursive/issues/525.
-    let mut siv = Cursive::new(|| {
-        let termion_backend = cursive::backends::termion::Backend::init().unwrap();
-        Box::new(cursive_buffered_backend::BufferedBackend::new(
-            termion_backend,
-        ))
-    });
+    let mut siv = Cursive::default();
     set_cursive_theme(&mut siv);
 
     let _exit_guard = ExitGuard {};
@@ -575,7 +568,6 @@ fn main() {
     });
     siv.add_global_callback(event::Event::CtrlChar('l'), |siv| {
         siv.clear();
-        siv.refresh();
     });
     siv.add_global_callback(event::Event::Key(event::Key::Esc), |siv| {
         AGENT_ZV_REQ.store(false, Ordering::Relaxed);
@@ -591,13 +583,13 @@ fn main() {
     siv.add_global_callback('l', |siv| {
         toggle_zoomed_view(siv, Some(ZoomedView::Journals))
     });
-    siv.add_global_callback('t', |siv| {
+    siv.add_global_callback('t', |_siv| {
         graph::graph_intv_next();
-        kick_refresh(siv);
+        kick_refresh();
     });
-    siv.add_global_callback('T', |siv| {
+    siv.add_global_callback('T', |_siv| {
         graph::graph_intv_prev();
-        kick_refresh(siv);
+        kick_refresh();
     });
 
     siv.set_global_callback(event::Event::WindowResize, move |siv| {
@@ -620,6 +612,14 @@ fn main() {
     refresh_layout_and_kick(&mut siv);
     update_agent_zoomed_view(&mut siv);
 
-    // Run the event loop
-    siv.run();
+    // Run the event loop. Use the termion backend so that resctl-demo can
+    // be built without external dependencies. The buffered backend wrapping
+    // is necessary to avoid flickering, see
+    // https://github.com/gyscos/cursive/issues/525.
+    siv.run_with(|| {
+        let termion_backend = cursive::backends::termion::Backend::init().unwrap();
+        Box::new(cursive_buffered_backend::BufferedBackend::new(
+            termion_backend,
+        ))
+    })
 }

@@ -30,6 +30,7 @@ use rd_util::*;
 const GRAPH_X_ADJ: usize = 20;
 const GRAPH_INTVS: &[u64] = &[1, 5, 15, 30, 60];
 const GRAPH_NR_TABS: usize = 4;
+const GRAPH_TAB_NAMES: &[&'static str] = &["rps/psi", "utilization", "IO", "iocost/psi-some"];
 
 lazy_static::lazy_static! {
     static ref GRAPH_INTV_IDX: Mutex<usize> = Mutex::new(0);
@@ -68,18 +69,22 @@ fn refresh_main_graph_title(siv: &mut Cursive) {
 pub fn set_main_graph(siv: &mut Cursive, tag: GraphTag) {
     *GRAPH_MAIN_TAG.lock().unwrap() = tag;
     refresh_main_graph_title(siv);
-    kick_refresh(siv);
+    kick_refresh();
 }
 
 pub fn clear_main_graph(siv: &mut Cursive) {
     *GRAPH_MAIN_TAG.lock().unwrap() = GraphTag::HashdA;
     refresh_main_graph_title(siv);
-    kick_refresh(siv);
+    kick_refresh();
+}
+
+fn graph_tab_id(pos: usize) -> String {
+    format!("graph-tab-{}", GRAPH_TAB_NAMES[pos])
 }
 
 fn graph_tab_focus(siv: &mut Cursive, idx: usize) {
-    siv.call_on_name("graph-tabs", |v: &mut TabView<usize>| {
-        let _ = v.set_active_tab(idx);
+    siv.call_on_name("graph-tabs", |v: &mut TabView| {
+        let _ = v.set_active_tab(&graph_tab_id(idx));
     });
 }
 
@@ -882,22 +887,14 @@ pub fn layout_factory(id: GraphSetId) -> Box<dyn View> {
 
     fn graph_tab_title(focus: usize) -> impl View {
         let mut buf = StyledString::new();
-        let mut titles: [String; GRAPH_NR_TABS] = [
-            " rps/psi ".into(),
-            " utilization ".into(),
-            " IO ".into(),
-            " iocost/psi-some ".into(),
-        ];
         let mut styles: [Style; GRAPH_NR_TABS] = [(*COLOR_INACTIVE).into(); GRAPH_NR_TABS];
-
-        titles[focus] = format!("[{}]", titles[focus].trim());
         styles[focus] = (*COLOR_ACTIVE).into();
 
         for i in 0..graph_nr_active_tabs() {
             if i > 0 {
                 buf.append_plain(" | ");
             }
-            buf.append_styled(&titles[i], styles[i]);
+            buf.append_styled(&format!(" {} ", GRAPH_TAB_NAMES[i]), styles[i]);
         }
 
         LinearLayout::vertical()
@@ -923,7 +920,6 @@ pub fn layout_factory(id: GraphSetId) -> Box<dyn View> {
             let mut tabs = TabView::new();
 
             tabs.add_tab(
-                0,
                 LinearLayout::vertical()
                     .child(graph_tab_title(0))
                     .child(
@@ -935,10 +931,10 @@ pub fn layout_factory(id: GraphSetId) -> Box<dyn View> {
                         horiz_or_vert()
                             .child(graph(GraphTag::CpuPsiSome))
                             .child(graph(GraphTag::IoPsiFull)),
-                    ),
+                    )
+                    .with_name(graph_tab_id(0)),
             );
             tabs.add_tab(
-                1,
                 LinearLayout::vertical()
                     .child(graph_tab_title(1))
                     .child(
@@ -950,10 +946,10 @@ pub fn layout_factory(id: GraphSetId) -> Box<dyn View> {
                         horiz_or_vert()
                             .child(graph(GraphTag::CpuUtil))
                             .child(graph(GraphTag::IoUtil)),
-                    ),
+                    )
+                    .with_name(graph_tab_id(1)),
             );
             tabs.add_tab(
-                2,
                 LinearLayout::vertical()
                     .child(graph_tab_title(2))
                     .child(
@@ -965,10 +961,10 @@ pub fn layout_factory(id: GraphSetId) -> Box<dyn View> {
                         horiz_or_vert()
                             .child(graph(GraphTag::ReadLat))
                             .child(graph(GraphTag::WriteLat)),
-                    ),
+                    )
+                    .with_name(graph_tab_id(2)),
             );
             tabs.add_tab(
-                3,
                 LinearLayout::vertical()
                     .child(graph_tab_title(3))
                     .child(
@@ -980,10 +976,11 @@ pub fn layout_factory(id: GraphSetId) -> Box<dyn View> {
                         horiz_or_vert()
                             .child(graph(GraphTag::CpuPsiSome2))
                             .child(graph(GraphTag::IoPsiSome)),
-                    ),
+                    )
+                    .with_name(graph_tab_id(3)),
             );
 
-            let _ = tabs.set_active_tab(*GRAPH_TAB_IDX.lock().unwrap());
+            let _ = tabs.set_active_tab(&graph_tab_id(*GRAPH_TAB_IDX.lock().unwrap()));
 
             Box::new(
                 LinearLayout::vertical()

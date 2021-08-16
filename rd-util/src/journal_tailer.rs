@@ -13,6 +13,7 @@ use super::child_reader_thread;
 
 #[derive(Debug)]
 pub struct JournalMsg {
+    pub seq: u64,
     pub at: SystemTime,
     pub priority: u32,
     pub unit: String,
@@ -21,7 +22,7 @@ pub struct JournalMsg {
 
 type JournalNotifyFn = Box<dyn FnMut(&VecDeque<JournalMsg>, bool) + Send>;
 
-fn parse_journal_msg(line: &str) -> Result<JournalMsg> {
+fn parse_journal_msg(line: &str, seq: u64) -> Result<JournalMsg> {
     let parsed = json::parse(line)?;
     let at_us: u64 = parsed["__REALTIME_TIMESTAMP"]
         .as_str()
@@ -46,6 +47,7 @@ fn parse_journal_msg(line: &str) -> Result<JournalMsg> {
     };
 
     Ok(JournalMsg {
+        seq,
         at: UNIX_EPOCH + Duration::from_micros(at_us),
         priority,
         unit: unit.to_string(),
@@ -58,6 +60,7 @@ struct JournalTailWorker {
     notify: JournalNotifyFn,
     msgs: Arc<Mutex<VecDeque<JournalMsg>>>,
     term_rx: Receiver<()>,
+    seq_cursor: u64,
 }
 
 impl JournalTailWorker {
@@ -72,11 +75,12 @@ impl JournalTailWorker {
             notify,
             msgs,
             term_rx,
+            seq_cursor: 1,
         }
     }
 
     fn process(&mut self, line: String, flush: bool) {
-        let msg = match parse_journal_msg(&line) {
+        let msg = match parse_journal_msg(&line, self.seq_cursor) {
             Ok(v) => v,
             Err(e) => {
                 error!(
@@ -86,6 +90,7 @@ impl JournalTailWorker {
                 return;
             }
         };
+        self.seq_cursor += 1;
         let mut msgs = self.msgs.lock().unwrap();
         msgs.push_front(msg);
         (self.notify)(&*msgs, flush);
