@@ -24,12 +24,19 @@ can make the kernel lose this information prematurely:
   reality, is under extreme memory pressure, completely voiding memory
   protection through memory.low and memor.min.
 
-There is a proposed solution:
+There is a pending solution which is scheduled to be merged for v5.15:
 
   https://lore.kernel.org/linux-fsdevel/20210614211904.14420-4-hannes@cmpxchg.org/
 
-but it needs a bit more work to be merged upstream. The following git branch
-contains v5.13-rc7 + the proposed patches which can be used in the meantime:
+The following git branch contains v5.14-rc6 + the proposed patches which can
+be used in the meantime:
 
-  https://git.kernel.org/pub/scm/linux/kernel/git/tj/misc.git resctl-demo-v5.13-rc7
+  https://git.kernel.org/pub/scm/linux/kernel/git/tj/misc.git resctl-demo-v5.14-rc6
 
+Note that the above branch contains a patch which tags the kernel as having
+shadow inode protection. Without the tagging, on kernels < v5.15,
+resctl-bench doesn't have a quick and reliable way to tell whether shadow
+inodes are protected and tries to test inode protection with a benchmark
+which can take several minutes. Unfortunately, the test isn't completely
+reliable and may occasionally produce incorrect results. It is recommended
+to upgrade to the kernel >= v5.15 or apply the tagging patch.

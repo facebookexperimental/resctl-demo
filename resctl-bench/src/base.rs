@@ -1,13 +1,15 @@
 use anyhow::{anyhow, bail, Context, Result};
-use log::{error, info, warn};
+use log::{debug, error, info, warn};
 use rd_agent_intf::{
     BenchKnobs, HashdKnobs, IoCostKnobs, MemoryKnob, Slice, SvcStateReport, SysReq,
     HASHD_BENCH_SVC_NAME,
 };
 use resctl_bench_intf::Args;
+use scan_fmt::scan_fmt;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use sysinfo::SystemExt;
 
 use super::bench::HashdFakeCpuBench;
 use super::iocost::IoCostQoSCfg;
@@ -421,7 +423,54 @@ impl<'a> Base<'a> {
         self.mem.avail.saturating_sub(self.mem.share)
     }
 
+    fn kernel_version_has_shadow_inode_protection() -> bool {
+        let kver = sysinfo::System::new()
+            .kernel_version()
+            .expect("Failed to read kernel version");
+
+        let ver = match kver.split_once("-") {
+            Some((ver, tag)) => {
+                // fbks have had this patched since forever.
+                if tag.contains("fbk") {
+                    debug!("base: fbk detected, assuming shadow inode prot");
+                    return true;
+                }
+                ver
+            }
+            None => &kver,
+        };
+
+        if Path::new("/sys/module/inode/parameters/__SHADOW_INODE_PROT_MARKER__").exists() {
+            debug!("base: found __SHADOW_INODE_PROT_MARKER__, assuming shadow inode prot");
+            return true;
+        }
+
+        if let Ok((ver, patch, _)) = scan_fmt!(&ver, "{}.{}.{}", u32, u32, u32) {
+            if ver > 5 || (ver == 5 && patch >= 15) {
+                debug!(
+                    "base: kernel {}.{} >= 5.15, assuming shadow inode prot",
+                    ver, patch
+                );
+                true
+            } else {
+                info!(
+                    "base: Kernel {}.{} (< 5.15) might not have shadow inode protection",
+                    ver, patch
+                );
+                false
+            }
+        } else {
+            warn!("base: Failed to parse kernel version string {}", &kver);
+            false
+        }
+    }
+
     pub fn test_inodesteal(&mut self) -> Result<()> {
+        if Self::kernel_version_has_shadow_inode_protection() {
+            self.shadow_inode_protected = true;
+            return Ok(());
+        }
+
         let mut rctx = RunCtx::new(self.args, self, Default::default());
         rctx.skip_mem_profile().start_agent(vec![])?;
 

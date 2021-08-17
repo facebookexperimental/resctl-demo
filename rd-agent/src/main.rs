@@ -12,7 +12,7 @@ use std::process::Command;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread::sleep;
 use std::time::Duration;
-use sysinfo::{self, ProcessExt, SystemExt};
+use sysinfo::{ProcessExt, SystemExt};
 
 mod bandit;
 mod bench;
