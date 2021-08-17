@@ -1,6 +1,6 @@
 use super::super::*;
 use super::{DataSel, DataSeries, IoCostTuneBench, IoCostTuneRecord, IoCostTuneResult};
-use statrs::distribution::{Normal, ContinuousCDF};
+use statrs::distribution::{ContinuousCDF, Normal};
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 fn model_to_array(model: &IoCostModelParams) -> [f64; 6] {

@@ -4,7 +4,7 @@ use super::iocost_qos::{
 };
 use super::protection::MemHog;
 use super::*;
-use statrs::distribution::{Normal, ContinuousCDF};
+use statrs::distribution::{ContinuousCDF, Normal};
 use std::cell::RefCell;
 use std::cmp::{Ordering, PartialOrd};
 use std::collections::{BTreeMap, BTreeSet};

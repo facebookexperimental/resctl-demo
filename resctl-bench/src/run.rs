@@ -643,7 +643,7 @@ impl<'a, 'b> RunCtx<'a, 'b> {
         let started_at = unix_now() as i64;
         if let Err(e) = self.wait_cond(
             |af, progress| {
-                progress.set_status("Waiting rd-agent to start");
+                progress.set_status("Waiting for rd-agent to start");
                 let rep = &af.report.data;
                 rep.timestamp.timestamp() > started_at && rep.state == RunnerState::Running
             },

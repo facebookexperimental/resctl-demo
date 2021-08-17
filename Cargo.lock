@@ -1591,6 +1591,7 @@ dependencies = [
  "serde_json",
  "statistical",
  "statrs",
+ "sysinfo",
  "tar",
  "tempfile",
  "term_size",
