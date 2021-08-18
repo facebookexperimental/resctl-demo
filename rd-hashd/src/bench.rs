@@ -657,7 +657,7 @@ impl Bench {
             let path = tf.path((i / chunks_per_unit) as u64);
             let off = ((i % chunks_per_unit) * params.chunk_pages) as u64;
 
-            hasher.load(&path, off, chunk_size).expect(&format!(
+            hasher.load(&path, off, chunk_size, false).expect(&format!(
                 "failed to load chunk {}, chunk_size={} chunks_per_unit={} path={:?} off={}",
                 i, chunk_size, chunks_per_unit, &path, off
             ));
