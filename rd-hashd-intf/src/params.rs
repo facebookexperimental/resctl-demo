@@ -58,6 +58,7 @@ const PARAMS_DOC: &str = "\
 //  file_size_stdev_ratio: Standard deviation of file access sizes
 //  file_addr_stdev_ratio: Standard deviation of file access addresses
 //  file_addr_rps_base_frac: Memory scaling starting point for file accesses
+//  file_write_frac: The proportion of writes in file accesses
 //  anon_size_ratio: Anon access size average - 1.0 means equal as file accesses
 //  anon_size_stdev_ratio: Standard deviation of anon access sizes
 //  anon_addr_stdev_ratio: Standard deviation of anon access addresses
@@ -91,6 +92,7 @@ pub struct Params {
     pub file_size_stdev_ratio: f64,
     pub file_addr_stdev_ratio: f64,
     pub file_addr_rps_base_frac: f64,
+    pub file_write_frac: f64,
     pub anon_size_ratio: f64,
     pub anon_size_stdev_ratio: f64,
     pub anon_addr_stdev_ratio: f64,
@@ -134,6 +136,7 @@ impl Default for Params {
             file_size_stdev_ratio: 0.45,
             file_addr_stdev_ratio: 0.215,
             file_addr_rps_base_frac: 0.5,
+            file_write_frac: 0.0,
             anon_size_ratio: 2.3,
             anon_size_stdev_ratio: 0.45,
             anon_addr_stdev_ratio: 0.235,

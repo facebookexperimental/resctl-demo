@@ -9,7 +9,8 @@ use rand::rngs::SmallRng;
 use rand::SeedableRng;
 use rand_distr::{Distribution, Normal, Uniform};
 use sha1::{Digest, Sha1};
-use std::fs::File;
+use std::convert::TryInto;
+use std::fs::OpenOptions;
 use std::io::{prelude::*, SeekFrom};
 use std::path::Path;
 use std::sync::{Arc, RwLock};
@@ -48,23 +49,41 @@ impl Hasher {
         path: P,
         input_off: u64,
         mut input_size: usize,
+        is_write: bool,
     ) -> Result<usize> {
-        let mut f = File::open(path)?;
+        let mut opts = OpenOptions::new();
+        opts.read(true);
+        if is_write {
+            opts.write(true);
+        }
+        let mut f = opts.open(path)?;
         input_size = input_size.min((f.metadata()?.len() - input_off) as usize);
 
         let len = self.off + input_size;
         self.buf.resize(len, 0);
 
-        if self.fake_cpu_load_time_per_byte > 0.0 {
-            for idx in 0..((input_size + *PAGE_SIZE - 1) / *PAGE_SIZE) {
-                let off = idx * *PAGE_SIZE;
-                f.seek(SeekFrom::Start(input_off + off as u64))?;
-                f.read_exact(&mut self.buf[self.off + off..self.off + off + 1])?;
-            }
+        let bytes_per_page = if self.fake_cpu_load_time_per_byte == 0.0 {
+            *PAGE_SIZE // load the whole page
         } else {
-            f.seek(SeekFrom::Start(input_off))?;
-            f.read_exact(&mut self.buf[self.off..len])?;
+            8 // faking CPU load, load just the leading 8 bytes
+        };
+
+        for idx in 0..((input_size + *PAGE_SIZE - 1) / *PAGE_SIZE) {
+            let off = idx * *PAGE_SIZE;
+            f.seek(SeekFrom::Start(input_off + off as u64))?;
+            f.read_exact(&mut self.buf[self.off + off..self.off + off + bytes_per_page])?;
+
+            if is_write {
+                let val = u64::from_ne_bytes(
+                    self.buf[self.off + off..self.off + off + 8]
+                        .try_into()
+                        .unwrap(),
+                );
+                f.seek(SeekFrom::Start(input_off + off as u64))?;
+                f.write_all(&(val + 1).to_ne_bytes())?;
+            }
         }
+
         self.off = len;
         Ok(input_size)
     }
@@ -171,6 +190,7 @@ struct HasherThread {
     file_nr_chunks: usize,
     file_addr_stdev_ratio: f64,
     file_addr_frac: f64,
+    file_write_frac: f64,
 
     anon_area: Arc<RwLock<AnonArea>>,
     anon_nr_chunks: usize,
@@ -241,6 +261,8 @@ impl HasherThread {
         file_dist.resize(self.file_dist_slots, 0);
         anon_dist.resize(self.anon_dist_slots, 0);
 
+        let rw_uniform = Uniform::new_inclusive(0.0, 1.0);
+
         // Load hash input files.
         let file_addr_normal = ClampedNormal::new(0.0, self.file_addr_stdev_ratio, -1.0, 1.0);
 
@@ -251,8 +273,10 @@ impl HasherThread {
             let page = self.rel_to_file_page(rel);
             let (file_idx, file_off) = self.file_page_to_idx_off(page);
             let path = self.tf.path(file_idx);
+            let is_write =
+                self.file_write_frac != 0.0 && rw_uniform.sample(&mut rng) <= self.file_write_frac;
 
-            match rdh.load(&path, file_off, *PAGE_SIZE * self.chunk_pages) {
+            match rdh.load(&path, file_off, *PAGE_SIZE * self.chunk_pages, is_write) {
                 Ok(size) => Self::file_dist_count(
                     &mut file_dist,
                     page,
@@ -267,13 +291,13 @@ impl HasherThread {
         // Generate anonymous accesses.
         let aa = self.anon_area.read().unwrap();
         let anon_addr_normal = ClampedNormal::new(0.0, self.anon_addr_stdev_ratio, -1.0, 1.0);
-        let rw_uniform = Uniform::new_inclusive(0.0, 1.0);
 
         for _ in 0..self.anon_nr_chunks {
             let rel = anon_addr_normal.sample(&mut rng) * self.anon_addr_frac;
             let page_base =
                 AnonArea::rel_to_page_idx(rel, aa.size() - (self.chunk_pages - 1) * *PAGE_SIZE);
-            let is_write = rw_uniform.sample(&mut rng) <= self.anon_write_frac;
+            let is_write =
+                self.anon_write_frac != 0.0 && rw_uniform.sample(&mut rng) <= self.anon_write_frac;
 
             for page_idx in page_base..page_base + self.chunk_pages {
                 let page: &mut [u64] = aa.access_page(page_idx);
@@ -570,6 +594,7 @@ impl DispatchThread {
                 file_nr_chunks,
                 file_addr_stdev_ratio: self.params.file_addr_stdev_ratio,
                 file_addr_frac: self.file_addr_frac,
+                file_write_frac: self.params.file_write_frac,
 
                 anon_area: self.anon_area.clone(),
                 anon_nr_chunks,
