@@ -61,15 +61,22 @@ pub struct HashdFakeCpuBench {
 
 impl HashdFakeCpuBench {
     pub fn base(rctx: &RunCtx) -> Self {
-        let dfl_args = rd_hashd_intf::Args::with_mem_size(rctx.mem_info().share);
+        let mem_share = rctx.mem_info().share;
+        let dfl_args = rd_hashd_intf::Args::with_mem_size(mem_share);
         let dfl_params = rd_hashd_intf::Params::default();
+
+        // Scale max RPS to memory share so that larger memory profile also
+        // implies stronger CPUs. RPS_MAX_PER_GB is picked so that 16G
+        // memory profile with 12G mem_share ends up with ~2000 RPS.
+        const RPS_MAX_PER_GB: f64 = 166.67;
+        let rps_max = (mem_share as f64 / (1 << 30) as f64 * RPS_MAX_PER_GB).round() as u32;
 
         Self {
             size: dfl_args.size,
             log_bps: dfl_params.log_bps,
             hash_size: dfl_params.file_size_mean,
             chunk_pages: dfl_params.chunk_pages,
-            rps_max: RunCtx::BENCH_FAKE_CPU_RPS_MAX,
+            rps_max,
             grain_factor: 1.0,
         }
     }

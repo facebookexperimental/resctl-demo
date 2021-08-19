@@ -300,6 +300,7 @@ impl<'a> Base<'a> {
         // rd-hashd benchmark.
         HashdFakeCpuBench {
             size: rd_hashd_intf::Args::DFL_SIZE_MULT * total_memory() as u64,
+            rps_max: 2000,
             grain_factor: 2.0,
             ..HashdFakeCpuBench::base(&rctx)
         }

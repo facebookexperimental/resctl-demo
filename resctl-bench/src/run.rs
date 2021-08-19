@@ -913,8 +913,6 @@ impl<'a, 'b> RunCtx<'a, 'b> {
         Ok(())
     }
 
-    pub const BENCH_FAKE_CPU_RPS_MAX: u32 = 2000;
-
     pub fn start_hashd_bench(
         &mut self,
         log_bps: Option<u64>,
