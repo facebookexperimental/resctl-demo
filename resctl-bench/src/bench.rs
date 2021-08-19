@@ -49,9 +49,10 @@ lazy_static::lazy_static! {
     };
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct HashdFakeCpuBench {
     pub size: u64,
-    pub log_bps: Option<u64>,
+    pub log_bps: u64,
     pub hash_size: usize,
     pub chunk_pages: usize,
     pub rps_max: u32,
@@ -65,7 +66,7 @@ impl HashdFakeCpuBench {
 
         Self {
             size: dfl_args.size,
-            log_bps: None,
+            log_bps: dfl_params.log_bps,
             hash_size: dfl_params.file_size_mean,
             chunk_pages: dfl_params.chunk_pages,
             rps_max: RunCtx::BENCH_FAKE_CPU_RPS_MAX,
@@ -75,7 +76,7 @@ impl HashdFakeCpuBench {
 
     pub fn start(&self, rctx: &mut RunCtx) -> Result<()> {
         rctx.start_hashd_bench(
-            self.log_bps,
+            Some(self.log_bps),
             // We should specify all the total_memory() dependent values in
             // rd_hashd_intf::Args so that the behavior stays the same for
             // the same mem_profile.

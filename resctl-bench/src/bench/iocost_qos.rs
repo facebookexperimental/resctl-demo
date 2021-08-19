@@ -59,7 +59,7 @@ impl Bench for IoCostQoSBench {
     }
 }
 
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct IoCostQoSRecordRun {
     pub period: (u64, u64),
     pub ovr: IoCostQoSOvr,
