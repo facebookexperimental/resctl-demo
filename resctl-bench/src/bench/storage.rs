@@ -69,7 +69,6 @@ impl Bench for StorageBench {
 pub struct StorageRecord {
     pub period: (u64, u64),
     pub final_mem_probe_periods: Vec<(u64, u64)>,
-    pub fake_cpu_bench: HashdFakeCpuBench,
     pub base_hashd_knobs: HashdKnobs,
     pub mem: MemInfo,
     pub mem_usages: Vec<f64>,
@@ -252,9 +251,9 @@ impl StorageJob {
         write!(
             out,
             "Params: hash_size={} rps_max={} log_bps={}",
-            format_size(rec.fake_cpu_bench.hash_size),
-            self.rps_max.unwrap_or(rec.fake_cpu_bench.rps_max),
-            format_size(rec.fake_cpu_bench.log_bps)
+            format_size(rec.base_hashd_knobs.hash_size),
+            self.rps_max.unwrap_or(rec.base_hashd_knobs.rps_max),
+            format_size(self.log_bps)
         )
         .unwrap();
 
@@ -434,7 +433,6 @@ impl Job for StorageJob {
         Ok(serde_json::to_value(&StorageRecord {
             period: (started_at, unix_now()),
             final_mem_probe_periods,
-            fake_cpu_bench,
             base_hashd_knobs: rctx.access_agent_files(|af| af.bench.data.hashd.clone()),
             mem: rctx.mem_info().clone(),
             mem_usages,
