@@ -37,6 +37,8 @@ lazy_static::lazy_static! {
                  --keep-reports           'Prevents deleting expired report files'
                  --clear-reports          'Removes existing report files'
                  --force                  'Ignore missing system requirements and proceed'
+                 --force-shadow-inode-prot-test 'Force shadow inode protection test'
+                 --skip-shadow-inode-prot-test 'Assume shadow inodes are protected without testing'
                  --test                   'Test mode for development'
              -v...                        'Sets the level of verbosity'",
             dfl_dir = dfl_args.dir,
@@ -148,6 +150,10 @@ pub struct Args {
     #[serde(skip)]
     pub force: bool,
     #[serde(skip)]
+    pub force_shadow_inode_prot_test: bool,
+    #[serde(skip)]
+    pub skip_shadow_inode_prot_test: bool,
+    #[serde(skip)]
     pub test: bool,
     #[serde(skip)]
     pub verbosity: u32,
@@ -190,6 +196,8 @@ impl Default for Args {
             keep_reports: false,
             clear_reports: false,
             force: false,
+            force_shadow_inode_prot_test: false,
+            skip_shadow_inode_prot_test: false,
             test: false,
             verbosity: 0,
             rstat: 0,
@@ -586,6 +594,8 @@ impl JsonArgs for Args {
         self.keep_reports = matches.is_present("keep-reports");
         self.clear_reports = matches.is_present("clear-reports");
         self.force = matches.is_present("force");
+        self.force_shadow_inode_prot_test = matches.is_present("force-shadow-inode-prot-test");
+        self.skip_shadow_inode_prot_test = matches.is_present("skip-shadow-inode-prot-test");
         self.test = matches.is_present("test");
         self.verbosity = Self::verbosity(matches);
 
