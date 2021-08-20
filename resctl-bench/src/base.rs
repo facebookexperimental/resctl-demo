@@ -467,7 +467,10 @@ impl<'a> Base<'a> {
     }
 
     pub fn test_inodesteal(&mut self) -> Result<()> {
-        if Self::kernel_version_has_shadow_inode_protection() {
+        if !self.args.force_shadow_inode_prot_test
+            && (self.args.skip_shadow_inode_prot_test
+                || Self::kernel_version_has_shadow_inode_protection())
+        {
             self.shadow_inode_protected = true;
             return Ok(());
         }
@@ -483,6 +486,10 @@ impl<'a> Base<'a> {
             af.slices.data.disable_seqs.cpu = af.report.data.seq;
             af.slices.data[Slice::Host].mem_min = MemoryKnob::None;
             af.slices.save().unwrap();
+
+            // Oomd sometimes triggers during the test. Disable it too.
+            af.oomd.data.disable_seq = af.report.data.seq;
+            af.oomd.save().unwrap();
         });
 
         rctx.start_sysload(INODESTEAL_TEST, INODESTEAL_TEST)?;
