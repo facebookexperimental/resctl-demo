@@ -10,12 +10,11 @@ struct HashdParamsJob {
     rps_max: Option<u32>,
     hash_size: Option<usize>,
     chunk_pages: Option<usize>,
-    log_bps: u64,
+    log_bps: Option<u64>,
 }
 
 impl Default for HashdParamsJob {
     fn default() -> Self {
-        let dfl_cmd = rd_agent_intf::Cmd::default();
         Self {
             apply: true,
             commit: true,
@@ -23,7 +22,7 @@ impl Default for HashdParamsJob {
             rps_max: None,
             hash_size: None,
             chunk_pages: None,
-            log_bps: dfl_cmd.hashd[0].log_bps,
+            log_bps: None,
         }
     }
 }
@@ -46,7 +45,7 @@ impl Bench for HashdParamsBench {
                 "rps-max" => job.rps_max = Some(v.parse::<u32>()?),
                 "hash-size" => job.hash_size = Some(parse_size(v)? as usize),
                 "chunk-pages" => job.chunk_pages = Some(v.parse::<usize>()?),
-                "log-bps" => job.log_bps = parse_size(v)?,
+                "log-bps" => job.log_bps = Some(parse_size(v)?),
                 k => bail!("unknown property key {:?}", k),
             }
         }
@@ -79,7 +78,7 @@ impl Job for HashdParamsJob {
                 rps_max: self.rps_max.unwrap_or(base.rps_max),
                 hash_size: self.hash_size.unwrap_or(base.hash_size),
                 chunk_pages: self.chunk_pages.unwrap_or(base.chunk_pages),
-                log_bps: Some(self.log_bps),
+                log_bps: self.log_bps.unwrap_or(base.log_bps),
                 ..base
             }
             .start(rctx)?;
@@ -94,7 +93,7 @@ impl Job for HashdParamsJob {
             if let Some(v) = self.rps_max {
                 extra_args.push(format!("--bench-rps-max={}", v));
             }
-            rctx.start_hashd_bench(Some(self.log_bps), extra_args)?;
+            rctx.start_hashd_bench(self.log_bps, extra_args)?;
         }
         rctx.wait_cond(
             |af, progress| {
@@ -139,7 +138,6 @@ impl Job for HashdParamsJob {
         _props: &JobProps,
     ) -> Result<()> {
         let res: HashdKnobs = data.parse_record()?;
-        writeln!(out, "Params: log_bps={}", format_size(self.log_bps))?;
         writeln!(out, "\nResult: {}", &res)?;
         Ok(())
     }

@@ -8,9 +8,9 @@ pub struct StorageJob {
     pub apply: bool,
     pub commit: bool,
     pub loops: u32,
-    pub rps_max: u32,
-    pub hash_size: usize,
-    pub chunk_pages: usize,
+    pub rps_max: Option<u32>,
+    pub hash_size: Option<usize>,
+    pub chunk_pages: Option<usize>,
     pub log_bps: u64,
     pub mem_avail_err_max: f64,
     pub mem_avail_inner_retries: u32,
@@ -30,9 +30,9 @@ impl Default for StorageJob {
             apply: false,
             commit: false,
             loops: 3,
-            rps_max: RunCtx::BENCH_FAKE_CPU_RPS_MAX,
-            hash_size: dfl_params.file_size_mean,
-            chunk_pages: dfl_params.chunk_pages,
+            rps_max: None,
+            hash_size: None,
+            chunk_pages: None,
             log_bps: dfl_params.log_bps,
             mem_avail_err_max: 0.1,
             mem_avail_inner_retries: 2,
@@ -65,10 +65,11 @@ impl Bench for StorageBench {
     }
 }
 
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct StorageRecord {
     pub period: (u64, u64),
     pub final_mem_probe_periods: Vec<(u64, u64)>,
+    pub fake_cpu_bench: HashdFakeCpuBench,
     pub base_hashd_knobs: HashdKnobs,
     pub mem: MemInfo,
     pub mem_usages: Vec<f64>,
@@ -97,9 +98,9 @@ impl StorageJob {
                 "apply" => job.apply = v.len() == 0 || v.parse::<bool>()?,
                 "commit" => job.commit = v.len() == 0 || v.parse::<bool>()?,
                 "loops" => job.loops = v.parse::<u32>()?,
-                "rps-max" => job.rps_max = v.parse::<u32>()?,
-                "hash-size" => job.hash_size = parse_size(v)? as usize,
-                "chunk-pages" => job.chunk_pages = v.parse::<usize>()?,
+                "rps-max" => job.rps_max = Some(v.parse::<u32>()?),
+                "hash-size" => job.hash_size = Some(parse_size(v)? as usize),
+                "chunk-pages" => job.chunk_pages = Some(v.parse::<usize>()?),
                 "log-bps" => job.log_bps = parse_size(v)?,
                 "mem-avail-err-max" => job.mem_avail_err_max = v.parse::<f64>()?,
                 "mem-avail-inner-retries" => job.mem_avail_inner_retries = v.parse::<u32>()?,
@@ -120,15 +121,12 @@ impl StorageJob {
         }
     }
 
-    fn measure_supportable_memory_size(&mut self, rctx: &mut RunCtx) -> Result<(usize, f64)> {
-        HashdFakeCpuBench {
-            log_bps: Some(self.log_bps),
-            hash_size: self.hash_size,
-            chunk_pages: self.chunk_pages,
-            rps_max: self.rps_max,
-            ..HashdFakeCpuBench::base(rctx)
-        }
-        .start(rctx)?;
+    fn measure_supportable_memory_size(
+        &mut self,
+        rctx: &mut RunCtx,
+        fake_cpu_bench: &HashdFakeCpuBench,
+    ) -> Result<(usize, f64)> {
+        fake_cpu_bench.start(rctx)?;
 
         const NR_MEM_USAGES: usize = 10;
         let mut mem_usages = VecDeque::<usize>::new();
@@ -247,16 +245,16 @@ impl StorageJob {
     pub fn format_header<'a>(
         &self,
         out: &mut Box<dyn Write + 'a>,
-        _rec: &StorageRecord,
+        rec: &StorageRecord,
         _res: &StorageResult,
         include_loops: bool,
     ) {
         write!(
             out,
             "Params: hash_size={} rps_max={} log_bps={}",
-            format_size(self.hash_size),
-            self.rps_max,
-            format_size(self.log_bps)
+            format_size(rec.fake_cpu_bench.hash_size),
+            self.rps_max.unwrap_or(rec.fake_cpu_bench.rps_max),
+            format_size(rec.fake_cpu_bench.log_bps)
         )
         .unwrap();
 
@@ -374,6 +372,7 @@ impl Job for StorageJob {
         let mut final_mem_probe_periods = vec![];
         let mut mem_usages = vec![];
         let mut mem_sizes = vec![];
+        let mut fake_cpu_bench;
 
         'outer: loop {
             final_mem_probe_periods.clear();
@@ -382,6 +381,15 @@ impl Job for StorageJob {
             self.mem_avail_inner_retries = saved_mem_avail_inner_retries;
             started_at = unix_now();
 
+            let base = HashdFakeCpuBench::base(rctx);
+            fake_cpu_bench = HashdFakeCpuBench {
+                rps_max: self.rps_max.unwrap_or(base.rps_max),
+                hash_size: self.hash_size.unwrap_or(base.hash_size),
+                chunk_pages: self.chunk_pages.unwrap_or(base.chunk_pages),
+                log_bps: self.log_bps,
+                ..base
+            };
+
             // We now know all the parameters. Let's run the actual benchmark.
             'inner: loop {
                 info!(
@@ -389,7 +397,8 @@ impl Job for StorageJob {
                     mem_sizes.len() + 1,
                     self.loops
                 );
-                let (mem_size, mem_avail_err) = self.measure_supportable_memory_size(rctx)?;
+                let (mem_size, mem_avail_err) =
+                    self.measure_supportable_memory_size(rctx, &fake_cpu_bench)?;
 
                 // check for both going over and under, see the above function
                 if mem_avail_err.abs() > self.mem_avail_err_max && !rctx.test {
@@ -425,6 +434,7 @@ impl Job for StorageJob {
         Ok(serde_json::to_value(&StorageRecord {
             period: (started_at, unix_now()),
             final_mem_probe_periods,
+            fake_cpu_bench,
             base_hashd_knobs: rctx.access_agent_files(|af| af.bench.data.hashd.clone()),
             mem: rctx.mem_info().clone(),
             mem_usages,
