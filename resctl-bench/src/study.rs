@@ -1,5 +1,6 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
 use anyhow::{bail, Result};
+use log::trace;
 use num_traits::cast::AsPrimitive;
 use quantiles::ckms::CKMS;
 use std::cell::RefCell;
@@ -284,7 +285,7 @@ impl<'a> Studies<'a> {
 
         let mut last_at_ms = None;
         let mut cnt = 0;
-        for (rep, _) in run.report_iter(period) {
+        for (rep, at) in run.report_iter(period) {
             cnt += 1;
             match rep {
                 Ok(rep) => {
@@ -308,7 +309,10 @@ impl<'a> Studies<'a> {
                     nr_reps += 1;
                     cnt = 0;
                 }
-                Err(_) => nr_missed += 1,
+                Err(e) => {
+                    trace!("failed to load {} ({:#})", at, &e);
+                    nr_missed += 1;
+                }
             }
             if prog_exiting() {
                 bail!("Program exiting");
