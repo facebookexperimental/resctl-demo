@@ -382,6 +382,7 @@ enum QoSTarget {
     VrateRange((f64, f64), (Option<String>, Option<String>)),
     MOFMax,
     AMOFMax,
+    AMOFMaxVrate,
     IsolatedBandwidth,
     Isolation,
     LatRange(DataSel, (f64, f64)),
@@ -415,8 +416,9 @@ impl std::fmt::Display for QoSTarget {
             }
             Self::MOFMax => write!(f, "MOF=max").unwrap(),
             Self::AMOFMax => write!(f, "aMOF=max").unwrap(),
+            Self::AMOFMaxVrate => write!(f, "aMOF=max-vrate").unwrap(),
             Self::IsolatedBandwidth => {
-                write!(f, "isolated-bandwidth (max(isolation, aMOF=MAX))").unwrap()
+                write!(f, "isolated-bandwidth (max(isolation, aMOF=max))").unwrap()
             }
             Self::Isolation => write!(f, "isolation (aMOF-delta=min)").unwrap(),
             Self::LatRange(sel, (low, high)) => match sel {
@@ -511,16 +513,15 @@ impl QoSTarget {
             k => {
                 let sel = DataSel::parse(k)?;
                 match &sel {
-                    DataSel::MOF | DataSel::AMOF => {
-                        if v != "max" {
-                            bail!("Invalid {:?} value {:?}", &sel, &v);
-                        }
-                        if sel == DataSel::MOF {
-                            Ok(Self::MOFMax)
-                        } else {
-                            Ok(Self::AMOFMax)
-                        }
-                    }
+                    DataSel::MOF => match v.as_str() {
+                        "max" => Ok(Self::MOFMax),
+                        v => bail!("Invalid {:?} value {:?}", &sel, &v),
+                    },
+                    DataSel::AMOF => match v.as_str() {
+                        "max" => Ok(Self::AMOFMax),
+                        "max-vrate" => Ok(Self::AMOFMaxVrate),
+                        v => bail!("Invalid {:?} value {:?}", &sel, &v),
+                    },
                     DataSel::RLat(_, time_pct) | DataSel::WLat(_, time_pct) => {
                         if time_pct != "mean" {
                             bail!("Latency range target should have \"mean\" for time percentile");
@@ -562,6 +563,7 @@ impl QoSTarget {
             }
             Self::MOFMax => vec![DataSel::MOF, DataSel::LatImp],
             Self::AMOFMax => vec![DataSel::AMOF, DataSel::LatImp],
+            Self::AMOFMaxVrate => vec![DataSel::AMOF],
             Self::IsolatedBandwidth => vec![
                 DataSel::MOF,
                 DataSel::AMOF,
@@ -730,6 +732,13 @@ impl QoSTarget {
             ))
         };
 
+        let solve_max_vrate = |sel| -> Result<Option<f64>> {
+            Ok(ds(sel)?
+                .lines
+                .clamped(scale_min, scale_max)
+                .map(|dl| dl.range.1))
+        };
+
         let solve_isolation = || -> Result<Option<f64>> {
             let amof_delta_ds = ds(&DataSel::AMOFDelta)?;
             Ok(solve_mof_max(&DataSel::MOF, Some(&DataSel::LatImp))?
@@ -761,12 +770,22 @@ impl QoSTarget {
                     *scale_max,
                 ))
             }
+
+            // Min vrate still at max MOF. If MOF is flat, max vrate at min
+            // LatImp.
             Self::MOFMax => {
                 solve_mof_max(&DataSel::MOF, Some(&DataSel::LatImp))?.map(params_at_vrate)
             }
+
+            // Min vrate still at max aMOF. If MOF is flat, max vrate at min
+            // LatImp.
             Self::AMOFMax => {
                 solve_mof_max(&DataSel::AMOF, Some(&DataSel::LatImp))?.map(params_at_vrate)
             }
+
+            // Rightmost vrate with valid aMOF.
+            Self::AMOFMaxVrate => solve_max_vrate(&DataSel::AMOF)?.map(params_at_vrate),
+
             Self::IsolatedBandwidth => {
                 // Isolation if it has the maximum aMOF; otherwise, the
                 // lowest vrate which maps to max aMOF. Note that we don't
@@ -782,7 +801,9 @@ impl QoSTarget {
                 }
                 .map(params_at_vrate)
             }
+
             Self::Isolation => solve_isolation()?.map(params_at_vrate),
+
             Self::LatRange(sel, lat_rel_range) => {
                 if let Some((lat_target, vrate_range)) =
                     Self::solve_lat_range(ds(&sel)?, *lat_rel_range, (scale_min, scale_max))
@@ -926,7 +947,7 @@ impl Bench for IoCostTuneBench {
             };
 
             push_props(&[("name", "naive")]);
-            push_props(&[("name", "bandwidth"), ("mof", "max")]);
+            push_props(&[("name", "bandwidth"), ("amof", "max-vrate")]);
             push_props(&[("name", "isolated-bandwidth"), ("isolated-bandwidth", "")]);
             push_props(&[("name", "isolation"), ("isolation", "")]);
             push_props(&[("name", "rlat-99-q1"), ("rlat-99", "q1")]);
