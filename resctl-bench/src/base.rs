@@ -218,9 +218,12 @@ impl<'a> Base<'a> {
 
     fn apply_bench_knobs(&mut self, knobs: BenchKnobs, commit: bool) -> Result<()> {
         self.bench_knobs = knobs;
-        self.save_bench_knobs(&self.bench_knobs_path)?;
-        if commit {
-            self.save_bench_knobs(&self.demo_bench_knobs_path)?;
+        // bench_knobs_path is not set in study mode. Ignore.
+        if self.bench_knobs_path.len() > 0 {
+            self.save_bench_knobs(&self.bench_knobs_path)?;
+            if commit {
+                self.save_bench_knobs(&self.demo_bench_knobs_path)?;
+            }
         }
         Ok(())
     }
