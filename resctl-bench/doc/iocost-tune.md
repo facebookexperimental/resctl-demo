@@ -89,32 +89,22 @@ write latencies.
 
 #### `bandwidth`
 
-This targets the minimum vrate which renders the maximum `MOF. Going higher
-deteriorates control quality without increasing supportable memory
-footprint.
-
-While using `rd-hashd`'s behavior as the standard is somewhat arbitrary, we
-have to set the bar somewhere and `rd-hashd` is tuned to behave similar to a
-popular facebook production workload under memory and IO pressures. While
-it's arguable whether this is the exact point we wanna settle on, it's good
-at steering away from configurations which are clearly out of bounds.
+This targets the maximum vrate at which `rd-hashd` can be isolated
+sufficiently - isol-01 >= 90%. Sizing memory footprint may be challenging
+with this solution - a workload sized for saturation may be too big for
+isolation.
 
 #### `isolated-bandwidth` 
 
-This targets the minimum vrate which renders the maximum aMOF. Going higher
-deteriorates control quality without increasing memory footprint which can
-be protected.
-
-In the unlikely case that the vrate at the aMOF inflection point is lower
-than the `isolation` solution, `isolated-bandwidth` uses the `isolation`
-solution instead, so `isolated-bandwidth` is guaranteed to be throttled
-equally to or less than `isolation`.
+This targets the maximum vrate which provides the lowest latency impact,
+clamped between the `isolation` and `bandwidth` solutions. This is the vrate
+below which the isolation quality doesn't improve.
 
 #### `isolation`
 
-This targets the maximum vrate which renders the minimum aMOF-delta. This is
-the point where a workload sized for saturation is most likely to be
-isolatable.
+This targets the maximum vrate which renders the minimum aMOF-delta. Sizing
+for isolation is the easiest with this solution - a workload sized for
+saturation is as close to be isolable as possible on the device.
 
 #### `rlat-99-q[1-4]`
 
