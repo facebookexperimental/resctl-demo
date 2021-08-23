@@ -419,7 +419,7 @@ impl std::fmt::Display for QoSTarget {
             Self::AMOFMaxVrate => write!(f, "aMOF=max-vrate").unwrap(),
             Self::AMOFDeltaMin => write!(f, "aMOF-delta=min").unwrap(),
             Self::IsolatedBandwidth => {
-                write!(f, "isolated-bandwidth (max(isolation, aMOF=max))").unwrap()
+                write!(f, "(lat-imp=min).clamp(isolation, bandwidth)").unwrap()
             }
             Self::LatRange(sel, (low, high)) => match sel {
                 DataSel::RLat(lat_pct, _) => {
@@ -568,12 +568,7 @@ impl QoSTarget {
             Self::AMOFMax => vec![DataSel::AMOF, DataSel::LatImp],
             Self::AMOFMaxVrate => vec![DataSel::AMOF],
             Self::AMOFDeltaMin => vec![DataSel::AMOFDelta],
-            Self::IsolatedBandwidth => vec![
-                DataSel::MOF,
-                DataSel::AMOF,
-                DataSel::LatImp,
-                DataSel::AMOFDelta,
-            ],
+            Self::IsolatedBandwidth => vec![DataSel::LatImp, DataSel::AMOF, DataSel::AMOFDelta],
             Self::LatRange(sel, _) => vec![sel.clone()],
         }
     }
@@ -774,9 +769,7 @@ impl QoSTarget {
 
             // Min vrate still at max MOF. If MOF is flat, max vrate at min
             // LatImp.
-            Self::MOFMax => {
-                solve_max(&DataSel::MOF, Some(&DataSel::LatImp))?.map(params_at_vrate)
-            }
+            Self::MOFMax => solve_max(&DataSel::MOF, Some(&DataSel::LatImp))?.map(params_at_vrate),
 
             // Min vrate still at max aMOF. If MOF is flat, max vrate at min
             // LatImp.
@@ -787,21 +780,16 @@ impl QoSTarget {
             // Rightmost vrate with valid aMOF.
             Self::AMOFMaxVrate => solve_max_vrate(&DataSel::AMOF)?.map(params_at_vrate),
 
-            Self::IsolatedBandwidth => {
-                // Isolation if it has the maximum aMOF; otherwise, the
-                // lowest vrate which maps to max aMOF. Note that we don't
-                // want to consider LatImp when determining aMOF maximum
-                // point here - we're already pushing higher than the
-                // Isolation solution and don't want to go any higher than
-                // needed for reaching the aMOF max point.
-                match (solve_max(&DataSel::AMOF, None)?, solve_min(&DataSel::AMOFDelta)?) {
-                    (None, None) => None,
-                    (amof_max, isolation) => {
-                        Some(amof_max.unwrap_or(0.0).max(isolation.unwrap_or(0.0)))
-                    }
+            // clamp(max vrate at min LatImp, isolation, bandwidth)
+            Self::IsolatedBandwidth => match (
+                solve_min(&DataSel::AMOFDelta)?,
+                solve_max_vrate(&DataSel::AMOF)?,
+            ) {
+                (Some(min), Some(max)) => {
+                    solve_min(&DataSel::LatImp)?.map(|v| params_at_vrate(v.clamp(min, max)))
                 }
-                .map(params_at_vrate)
-            }
+                _ => None,
+            },
 
             Self::AMOFDeltaMin => solve_min(&DataSel::AMOFDelta)?.map(params_at_vrate),
 
@@ -1716,7 +1704,9 @@ impl IoCostTuneJob {
         // Remark on aMOF-delta.
         for (name, sol) in res.solutions.iter() {
             match &sol.target {
-                QoSTarget::AMOFMaxVrate | QoSTarget::AMOFDeltaMin | QoSTarget::IsolatedBandwidth => {
+                QoSTarget::AMOFMaxVrate
+                | QoSTarget::AMOFDeltaMin
+                | QoSTarget::IsolatedBandwidth => {
                     let err = sol.adjusted_mem_offload_delta / sol.mem_offload_factor;
                     if err >= 0.05 {
                         remarks.push(format!(
