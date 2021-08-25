@@ -687,7 +687,7 @@ $$ off hashd
                         )
                         .child(DummyView);
                 }
-                RdPara::Prompt(prompt, cmd, _) => {
+                RdPara::Prompt(prompt, cmd) => {
                     view = view
                         .child(
                             LinearLayout::horizontal()

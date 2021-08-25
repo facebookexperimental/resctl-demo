@@ -184,10 +184,7 @@ pub fn merge(srcs: &mut Vec<MergeSrc>) -> Result<JobData> {
 
 #[cfg(test)]
 mod tests {
-    use super::{IoCostModelParams, JobData, MergeSrc};
-    use crate::bench::find_bench;
-    use crate::job::SysInfo;
-    use rd_agent_intf::IoCostModelReport;
+    use super::IoCostModelParams;
     use std::collections::HashSet;
 
     #[test]
