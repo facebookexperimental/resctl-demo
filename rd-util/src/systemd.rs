@@ -855,6 +855,7 @@ mod tests {
     //#[test]
     // TODO: This test is not hermetic as it has an implicit dependency
     // on the systemd session bus; it should be spinning up its own bus instead.
+    #[allow(dead_code)]
     fn test_transient_service() {
         let _ = ::env_logger::try_init();
         let name = "test-transient.service";
