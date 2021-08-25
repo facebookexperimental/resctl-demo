@@ -344,6 +344,10 @@ impl Args {
                     self.job_specs = job_specs;
                     updated = true;
                 }
+                if self.job_specs.len() == 0 {
+                    error!("{:?} requires job specs", &mode);
+                    exit(1);
+                }
             }
             Err(e) => {
                 error!("{}", &e);
