@@ -102,10 +102,7 @@ pub fn merge(args: &Args) -> Result<()> {
                 let nr_missed = src
                     .data
                     .sysinfo
-                    .sysreqs_report
-                    .as_ref()
-                    .unwrap()
-                    .missed
+                    .sysreqs_missed
                     .map
                     .len();
                 if nr_missed > 0 {
