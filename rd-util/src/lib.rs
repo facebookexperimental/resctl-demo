@@ -139,6 +139,23 @@ pub fn parse_version(ver: &str) -> (&str, &str, &str) {
     (sem, git, tag)
 }
 
+pub fn parse_semver(sem: &str) -> (u32, u32, u32) {
+    let mut vers: [u32; 3] = [0, 0, 0];
+    let mut idx = 0;
+
+    for part in sem.split('.') {
+        match part.parse::<u32>() {
+            Ok(v) => vers[idx] = v,
+            _ => {}
+        }
+        idx += 1;
+        if idx == 3 {
+            break;
+        }
+    }
+    return (vers[0], vers[1], vers[2]);
+}
+
 fn verify_bin(target: &str) -> bool {
     match find_bin(target, exe_dir().ok()) {
         Some(_) => return true,

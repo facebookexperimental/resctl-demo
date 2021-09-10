@@ -48,9 +48,11 @@ impl MergeSrc {
             .as_ref()
             .expect("sysreqs_report missing in result");
 
-        let sem_tag = |ver: &str| {
-            let (sem, _, tag) = parse_version(&ver);
-            format!("{} {}", &sem, &tag)
+        let maj_min = |ver: &str| {
+            let (sem, _, _) = parse_version(&ver);
+            let (maj, min, _) = parse_semver(sem);
+            // We only care about maj.min.
+            format!("{}.{}", maj, min)
         };
 
         MergeId {
@@ -61,9 +63,9 @@ impl MergeSrc {
             },
             versions: match args.merge_ignore_versions {
                 false => Some((
-                    sem_tag(&si.bench_version),
-                    sem_tag(&srep.agent_version),
-                    sem_tag(&srep.hashd_version),
+                    maj_min(&si.bench_version),
+                    maj_min(&srep.agent_version),
+                    maj_min(&srep.hashd_version),
                 )),
                 true => None,
             },
