@@ -1,7 +1,7 @@
 # Copyright (c) Facebook, Inc. and its affiliates
 [package]
 name = "resctl-demo"
-version = "2.1.1"
+version = "2.1.2"
 authors = ["Tejun Heo <tj@kernel.org>"]
 edition = "2018"
 license = "Apache-2.0"
