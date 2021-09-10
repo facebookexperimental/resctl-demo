@@ -2,6 +2,7 @@ use anyhow::Result;
 use log::debug;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
+use std::fmt::Write;
 use std::sync::Arc;
 
 pub mod info;
@@ -47,9 +48,11 @@ impl MergeSrc {
             .as_ref()
             .expect("sysreqs_report missing in result");
 
-        let sem_tag = |ver: &str| {
-            let (sem, _, tag) = parse_version(&ver);
-            format!("{} {}", &sem, &tag)
+        let maj_min = |ver: &str| {
+            let (sem, _, _) = parse_version(&ver);
+            let (maj, min, _) = parse_semver(sem);
+            // We only care about maj.min.
+            format!("{}.{}", maj, min)
         };
 
         MergeId {
@@ -60,9 +63,9 @@ impl MergeSrc {
             },
             versions: match args.merge_ignore_versions {
                 false => Some((
-                    sem_tag(&si.bench_version),
-                    sem_tag(&srep.agent_version),
-                    sem_tag(&srep.hashd_version),
+                    maj_min(&si.bench_version),
+                    maj_min(&srep.agent_version),
+                    maj_min(&srep.hashd_version),
                 )),
                 true => None,
             },
@@ -74,6 +77,12 @@ impl MergeSrc {
             classifier: self.bench.merge_classifier(&self.data),
         }
     }
+}
+
+fn dump_srcs(mid: &MergeId, srcs: &[MergeSrc]) {
+    let mut buf = String::new();
+    MergeEntry::from_srcs(mid, srcs).format(&mut (Box::new(&mut buf) as Box<dyn Write>), None);
+    print!("{}", buf);
 }
 
 pub fn merge(args: &Args) -> Result<()> {
@@ -95,10 +104,7 @@ pub fn merge(args: &Args) -> Result<()> {
                 let nr_missed = src
                     .data
                     .sysinfo
-                    .sysreqs_report
-                    .as_ref()
-                    .unwrap()
-                    .missed
+                    .sysreqs_missed
                     .map
                     .len();
                 if nr_missed > 0 {
@@ -124,7 +130,15 @@ pub fn merge(args: &Args) -> Result<()> {
     for (mid, srcs) in src_sets.iter_mut() {
         let bench = srcs[0].bench.clone();
         debug!("merging {:?} from {:?}", &mid, &srcs);
-        merged.insert(mid.clone(), (bench.merge(srcs)?, Default::default()));
+        match bench.merge(srcs) {
+            Ok(res) => {
+                merged.insert(mid.clone(), (res, Default::default()));
+            }
+            Err(e) => {
+                dump_srcs(mid, srcs);
+                return Err(e);
+            }
+        }
     }
 
     // If !multiple, pick the one with the most number of unrejected sources

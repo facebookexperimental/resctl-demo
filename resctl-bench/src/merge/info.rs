@@ -60,7 +60,7 @@ impl MergeEntry {
         self.dropped.push(Self::from_srcs(mid, srcs));
     }
 
-    fn format<'a>(&self, out: &mut Box<dyn Write + 'a>, seq: Option<usize>) {
+    pub fn format<'a>(&self, out: &mut Box<dyn Write + 'a>, seq: Option<usize>) {
         match seq {
             Some(seq) => write!(out, "[{}] ", seq).unwrap(),
             None => write!(out, "[-] ").unwrap(),
