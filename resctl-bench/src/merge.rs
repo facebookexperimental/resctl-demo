@@ -2,6 +2,7 @@ use anyhow::Result;
 use log::debug;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
+use std::fmt::Write;
 use std::sync::Arc;
 
 pub mod info;
@@ -76,6 +77,12 @@ impl MergeSrc {
     }
 }
 
+fn dump_srcs(mid: &MergeId, srcs: &[MergeSrc]) {
+    let mut buf = String::new();
+    MergeEntry::from_srcs(mid, srcs).format(&mut (Box::new(&mut buf) as Box<dyn Write>), None);
+    print!("{}", buf);
+}
+
 pub fn merge(args: &Args) -> Result<()> {
     let mut src_sets = BTreeMap::<MergeId, Vec<MergeSrc>>::new();
     for file in args.merge_srcs.iter() {
@@ -124,7 +131,15 @@ pub fn merge(args: &Args) -> Result<()> {
     for (mid, srcs) in src_sets.iter_mut() {
         let bench = srcs[0].bench.clone();
         debug!("merging {:?} from {:?}", &mid, &srcs);
-        merged.insert(mid.clone(), (bench.merge(srcs)?, Default::default()));
+        match bench.merge(srcs) {
+            Ok(res) => {
+                merged.insert(mid.clone(), (res, Default::default()));
+            }
+            Err(e) => {
+                dump_srcs(mid, srcs);
+                return Err(e);
+            }
+        }
     }
 
     // If !multiple, pick the one with the most number of unrejected sources
