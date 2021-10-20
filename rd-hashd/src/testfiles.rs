@@ -4,6 +4,7 @@ use log::{debug, trace, warn};
 use num::Integer;
 use rand::rngs::SmallRng;
 use rand::SeedableRng;
+use std::convert::TryInto;
 use std::ffi::OsStr;
 use std::fs;
 use std::io::{Read, Seek, SeekFrom, Write};
@@ -177,7 +178,7 @@ impl TestFiles {
                         libc::posix_fadvise(
                             f.as_raw_fd(),
                             0,
-                            self.unit_size as i64,
+                            self.unit_size.try_into().unwrap(),
                             libc::POSIX_FADV_DONTNEED,
                         )
                     };
