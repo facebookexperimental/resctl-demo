@@ -48,9 +48,29 @@ images to help getting started. Visit the following page for details:
 
   https://facebookmicrosites.github.io/resctl-demo-website
 
-
 Installation
 ============
+
+`resctl-demo` and `resctl-bench` are packaged in Fedora as of Fedora 34 and
+in EPEL as of EPEL 8. They can be installed with:
+
+```
+sudo dnf install resctl-demo resctl-bench
+```
+
+which will pull in any other dependencies that might be required. On Fedora,
+you will also want to disable zram based swap:
+
+```
+touch /etc/systemd/zram-generator.conf
+systemctl stop dev-zram0.swap
+```
+
+For other distributions, please follow the next sections to install from
+cargo or from source.
+
+Installation with cargo
+=======================
 
 resctl-demo and resctl-bench can be installed using cargo which is the
 package manager for rust. cargo can be installed with rustup:
@@ -139,12 +159,12 @@ touch /etc/systemd/zram-generator.conf
 systemctl stop dev-zram0.swap
 ```
 
-If `journalctl -u rd-agent` shows EXEC failures, disable selinux by setting
-`SELINUX=disabled` in `/etc/selinux/config` and rebooting.
+If `journalctl -u rd-agent` shows EXEC failures, put SELinux in permissive mode
+by setting `SELINUX=permissive` in `/etc/selinux/config` and rebooting.
 
 
-ubuntu
-======
+Ubuntu
+------
 
 Installing cargo:
 
