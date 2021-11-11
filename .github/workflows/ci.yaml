@@ -1,0 +1,30 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  ci:
+    name: "CI"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+
+      - name: Check code formatting
+        # Only check code formatting on pull requests
+        if: "github.event_name == 'pull_request'"
+        run: cargo fmt -- --check
+
+      - name: Cargo build
+        run: cargo build
+
+      - name: Cargo test
+        run: cargo test

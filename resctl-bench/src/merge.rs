@@ -101,12 +101,7 @@ pub fn merge(args: &Args) -> Result<()> {
             };
 
             if !args.merge_ignore_sysreqs {
-                let nr_missed = src
-                    .data
-                    .sysinfo
-                    .sysreqs_missed
-                    .map
-                    .len();
+                let nr_missed = src.data.sysinfo.sysreqs_missed.map.len();
                 if nr_missed > 0 {
                     src.rejected = Some(format!("{} missed sysreqs", nr_missed));
                 }
