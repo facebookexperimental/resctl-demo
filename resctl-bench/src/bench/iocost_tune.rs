@@ -1891,7 +1891,8 @@ impl IoCostTuneJob {
                 ])
                 .arg(&text_arg)
                 .arg(&cover_pdf),
-            "are imagemagick and adobe-source-code-pro font available?",
+            "Are imagemagick and adobe-source-code-pro font available? \
+             Also, see https://github.com/facebookexperimental/resctl-demo/issues/256",
         )?;
 
         // Draw the graphs.
