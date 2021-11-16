@@ -146,7 +146,8 @@ pub fn devname_to_model_fwrev_size<D: AsRef<OsStr>>(name_in: D) -> Result<(Strin
         Ok(v) => v,
         Err(e) => {
             warn!(
-                "storage_info: Failed to read model string for {:?} ({:#})",
+                "storage_info: Failed to read model string for {:?} ({:#}), \
+                 dm / md devices are not supported",
                 &dev_path, &e
             );
             unknown.to_string()
@@ -157,7 +158,8 @@ pub fn devname_to_model_fwrev_size<D: AsRef<OsStr>>(name_in: D) -> Result<(Strin
         Ok(v) => v,
         Err(e) => {
             warn!(
-                "storage_info: Failed to read firmware revision for {:?} ({:#})",
+                "storage_info: Failed to read firmware revision for {:?} ({:#}), \
+                 dm / md devices are not supported",
                 &dev_path, &e
             );
             unknown.to_string()
