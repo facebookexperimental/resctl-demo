@@ -76,8 +76,8 @@ maps to:
 
 Here are the example outputs:
 
-* Summary:  https://github.com/facebookexperimental/resctl-demo/blob/master/resctl-bench/examples/prot-iocost-off-on-summary.txt
-* Format: https://github.com/facebookexperimental/resctl-demo/blob/master/resctl-bench/examples/prot-iocost-off-on-format.txt
+* Summary:  https://github.com/facebookexperimental/resctl-demo/blob/main/resctl-bench/examples/prot-iocost-off-on-summary.txt
+* Format: https://github.com/facebookexperimental/resctl-demo/blob/main/resctl-bench/examples/prot-iocost-off-on-format.txt
 
 Let's look at the result of the first benchmark - `hashd-params`.
 
@@ -148,7 +148,7 @@ main workload's RPS halved while the system was experiencing memory
 shortage. For more information on the output format:
 
 * `$ resctl-bench doc protection`
-* https://github.com/facebookexperimental/resctl-demo/blob/master/resctl-bench/doc/protection.md
+* https://github.com/facebookexperimental/resctl-demo/blob/main/resctl-bench/doc/protection.md
 
 So, we now know that without `iocost`, the protection isn't great. The next
 `iocost-params` benchmark determines the parameters so that we can enable
@@ -204,4 +204,4 @@ that exercise every layer of the tall stack realistically is easy and
 reliable with `resctl-bench`. For more information, explore the doc pages:
 
 * `$ resctl-bench doc --help`
-* https://github.com/facebookexperimental/resctl-demo/tree/master/resctl-bench/doc
+* https://github.com/facebookexperimental/resctl-demo/tree/main/resctl-bench/doc
