@@ -113,6 +113,8 @@ pub enum Mode {
     Solve,
     Format,
     Summary,
+    #[cfg(feature = "lambda")]
+    Lambda,
     Pack,
     Merge,
     Deps,
@@ -380,7 +382,7 @@ impl JsonArgs for Args {
             .multiple(true)
             .help("Benchmark job spec - \"BENCH_TYPE[:KEY[=VAL][,KEY[=VAL]...]]...\"");
 
-        clap::App::new("resctl-bench")
+        let mut app = clap::App::new("resctl-bench")
             .version((*super::FULL_VERSION).as_str())
             .author(clap::crate_authors!("\n"))
             .about("Facebook Resource Control Benchmarks")
@@ -480,8 +482,16 @@ impl JsonArgs for Args {
                             .help("Documentation subject to show")
                     )
                     .after_help(*DOC_AFTER_HELP.lock().unwrap())
-                )
-            .after_help(*AFTER_HELP.lock().unwrap()).get_matches()
+                );
+
+        if cfg!(feature = "lambda") {
+            app = app.subcommand(
+                clap::SubCommand::with_name("lambda")
+                    .about("AWS lambda function that handles automated submission of results"),
+            );
+        }
+
+        app.after_help(*AFTER_HELP.lock().unwrap()).get_matches()
     }
 
     fn verbosity(matches: &clap::ArgMatches) -> u32 {
@@ -614,6 +624,8 @@ impl JsonArgs for Args {
             ("solve", Some(subm)) => self.process_subcommand(Mode::Solve, subm),
             ("format", Some(subm)) => self.process_subcommand(Mode::Format, subm),
             ("summary", Some(subm)) => self.process_subcommand(Mode::Summary, subm),
+            #[cfg(feature = "lambda")]
+            ("lambda", Some(subm)) => self.process_subcommand(Mode::Lambda, subm),
             ("pack", Some(_subm)) => {
                 self.mode = Mode::Pack;
                 false

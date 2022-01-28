@@ -16,6 +16,8 @@ mod base;
 mod bench;
 mod iocost;
 mod job;
+#[cfg(feature = "lambda")]
+mod lambda;
 mod merge;
 mod progress;
 mod run;
@@ -425,6 +427,8 @@ impl Program {
                 full: false,
                 rstat: 0,
             }),
+            #[cfg(feature = "lambda")]
+            Mode::Lambda => lambda::run().unwrap(),
             Mode::Pack => self.do_pack().unwrap(),
             Mode::Merge => {
                 if let Err(e) = merge::merge(&self.args_file.data) {
@@ -451,6 +455,10 @@ impl Program {
 
 fn main() {
     assert_eq!(*VERSION, *resctl_bench_intf::VERSION);
+
+    #[cfg(feature = "lambda")]
+    lambda::init_lambda();
+
     Args::set_help_body(std::str::from_utf8(include_bytes!("../README.md")).unwrap());
     setup_prog_state();
     bench::init_benchs();

@@ -9,11 +9,24 @@ description = "Whole system resource control benchmarks with realistic scenarios
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[features]
+lambda = ["resctl-bench-intf/lambda", "aws-config", "aws-sdk-s3", "aws-sdk-ssm", "base64", "octocrab", "lambda_runtime", "md5", "tokio"]
+
 [dependencies]
 rd-util = { path = "../rd-util", version = "^2.1" }
 rd-hashd-intf = { path = "../rd-hashd-intf", version = "^2.1" }
 rd-agent-intf = { path = "../rd-agent-intf", version = "^2.1" }
 resctl-bench-intf = { path = "../resctl-bench-intf", version = "^2.1" }
+
+# For the lambda feature. We prefer rustls for all the crates we use to avoid incompatibilities.
+aws-config = { version = "0.6", optional = true, features = ["rustls", "rt-tokio"], default-features = false  }
+aws-sdk-s3 = { version = "0.6", optional = true, features = ["rustls", "rt-tokio"], default-features = false  }
+aws-sdk-ssm = { version = "0.6", optional = true, features = ["rustls", "rt-tokio"], default-features = false  }
+base64 = { version = "0.13", optional = true  }
+lambda_runtime = { version = "0.4", optional = true  }
+md5 = { version = "0.7", optional = true  }
+octocrab = { version = "0.15", optional = true, features = ["rustls"], default-features = false }
+tokio = { version = "1.6", optional = true }
 
 anyhow = "^1.0"
 chrono = "^0.4"

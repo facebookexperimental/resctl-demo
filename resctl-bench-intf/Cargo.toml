@@ -10,6 +10,8 @@ description = "Whole system resource control benchmarks with realistic scenarios
 readme = "README.md"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[features]
+lambda = []
 
 [dependencies]
 rd-util = { path = "../rd-util", version = "^2.1" }
