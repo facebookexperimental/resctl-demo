@@ -33,7 +33,7 @@ rustbus = "^0.17"
 scan_fmt = "^0.2"
 serde = { version = "^1.0", features = ["derive"] }
 serde_json = "^1.0"
-simplelog = "^0.10"
+simplelog = "^0.11"
 sysinfo = "^0.19"
 
 [build-dependencies]
