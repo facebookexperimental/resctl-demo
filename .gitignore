@@ -1,2 +1,5 @@
 /target
 **/*.rs.bk
+/rust-resctl-demo-*.tar.gz
+/rust-resctl-demo-*.src.rpm
+/rust-resctl-demo.spec
