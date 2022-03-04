@@ -38,4 +38,4 @@ sysinfo = "^0.19"
 
 [build-dependencies]
 anyhow = "^1.0"
-vergen = "^5.1.14"
+vergen = "^5.1"
