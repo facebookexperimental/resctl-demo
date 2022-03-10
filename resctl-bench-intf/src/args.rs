@@ -84,7 +84,7 @@ fn static_format_bench_list(header: &str, list: &[(String, String)], footer: &st
 pub fn set_bench_list(mut list: Vec<(String, String)>) {
     // Global help
     *AFTER_HELP.lock().unwrap() = static_format_bench_list(
-        "BENCHMARKS: Use the \"help\" subcommand for more info\n",
+        "BENCHMARKS: Use the \"doc\" subcommand for more info\n",
         &list,
         "",
     );
