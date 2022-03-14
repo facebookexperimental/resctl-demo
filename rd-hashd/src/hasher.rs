@@ -8,7 +8,7 @@ use quantiles::ckms::CKMS;
 use rand::rngs::SmallRng;
 use rand::SeedableRng;
 use rand_distr::{Distribution, Normal, Uniform};
-use sha1::{Digest, Sha1};
+use sha1_smol::{Digest, Sha1};
 use std::convert::TryInto;
 use std::fs::OpenOptions;
 use std::io::{prelude::*, SeekFrom};
