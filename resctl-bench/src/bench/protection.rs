@@ -3,7 +3,7 @@ use super::*;
 use std::collections::BTreeMap;
 
 mod mem_hog;
-mod mem_hog_tune;
+pub mod mem_hog_tune;
 pub use mem_hog::{MemHog, MemHogRecord, MemHogResult, MemHogSpeed};
 pub use mem_hog_tune::{MemHogTune, MemHogTuneRecord, MemHogTuneResult};
 

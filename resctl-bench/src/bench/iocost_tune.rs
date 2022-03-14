@@ -3,6 +3,7 @@ use super::iocost_qos::{
     IoCostQoSJob, IoCostQoSRecord, IoCostQoSRecordRun, IoCostQoSResult, IoCostQoSResultRun,
 };
 use super::protection::MemHog;
+use super::protection::mem_hog_tune::{DFL_ISOL_PCT, DFL_ISOL_THR};
 use super::*;
 use statrs::distribution::{ContinuousCDF, Normal};
 use std::cell::RefCell;
@@ -1977,7 +1978,7 @@ impl Job for IoCostTuneJob {
                 let tune = recr.prot.scenarios[0].as_mem_hog_tune().unwrap();
                 (tune.isol_pct.clone(), tune.isol_thr)
             }
-            _ => ("01".to_string(), 0.9),
+            _ => (DFL_ISOL_PCT.to_string(), DFL_ISOL_THR),
         };
 
         for sel in self.sels.iter() {

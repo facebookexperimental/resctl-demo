@@ -2,6 +2,9 @@
 use super::super::*;
 use super::mem_hog::{MemHog, MemHogRecord, MemHogResult, MemHogSpeed};
 
+pub const DFL_ISOL_PCT: &'static str = "05";
+pub const DFL_ISOL_THR: f64 = 0.9;
+
 #[derive(Clone, Debug)]
 pub struct MemHogTune {
     pub load: f64,
@@ -21,8 +24,8 @@ impl Default for MemHogTune {
             speed: dfl_hog.speed,
             size_range: (0, 0),
             intvs: 10,
-            isol_pct: "01".to_owned(),
-            isol_thr: 0.9,
+            isol_pct: DFL_ISOL_PCT.to_owned(),
+            isol_thr: DFL_ISOL_THR,
             dur: 200.0,
         }
     }
