@@ -96,7 +96,7 @@ impl TestFilesProgressBar {
         if pos < self.size {
             if let Some(greet) = self.greet.take() {
                 if self.log {
-                    self.bar.set_message(&greet)
+                    self.bar.set_message(greet)
                 } else {
                     info!("{}", &greet);
                 }

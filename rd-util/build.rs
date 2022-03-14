@@ -8,6 +8,7 @@ fn main() -> anyhow::Result<()> {
     match vergen(config) {
         Ok(()) => Ok(()),
         Err(_) => {
+            let mut config = Config::default();
             *config.git_mut().enabled_mut() = false;
             vergen(config)
         }

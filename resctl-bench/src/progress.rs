@@ -41,7 +41,7 @@ impl BenchProgress {
 
         let bar = self.main.as_ref().unwrap().add(ProgressBar::new(0));
         let prefix = unit.rsplitn(2, '.').last().unwrap();
-        bar.set_prefix(prefix);
+        bar.set_prefix(prefix.to_string());
         bar.set_style(ProgressStyle::default_bar().template("    {prefix:.green} {msg}"));
         bar.tick();
         self.bars.push(bar.clone());
@@ -53,7 +53,7 @@ impl BenchProgress {
             Box::new(move |msgs, flush| {
                 if flush {
                     let msg: String = msgs[0].msg.chars().take(msg_width).collect();
-                    bar.set_message(&msg);
+                    bar.set_message(msg);
                 }
             }),
         ));
@@ -67,7 +67,7 @@ impl BenchProgress {
             }));
         }
         if console::user_attended_stderr() {
-            self.bars[0].set_message(status);
+            self.bars[0].set_message(status.to_string());
         } else {
             if self.intv_cnt % Self::LOG_INTV == 0 {
                 info!("{}", status);
