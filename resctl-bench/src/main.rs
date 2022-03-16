@@ -3,7 +3,7 @@ use anyhow::{bail, Context, Error, Result};
 use indicatif::{ProgressBar, ProgressStyle};
 use log::{debug, error, info, warn};
 use std::fmt::Write;
-use std::io::Write as IoWrite;
+use std::io::{Read, Write as IoWrite};
 use std::path::Path;
 use std::process::{exit, Command};
 use std::sync::{Arc, Mutex};
@@ -232,6 +232,55 @@ impl Program {
         self.commit_args();
     }
 
+    fn do_upload(&mut self) -> Result<()> {
+        let args = &self.args_file.data;
+        let path = Path::new(&args.result)
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .to_string();
+
+        let mut data = Vec::<u8>::new();
+        let mut f = std::fs::OpenOptions::new().read(true).open(&path)?;
+        f.read_to_end(&mut data)?;
+
+        if !path.ends_with(".gz") {
+            let deflated = std::mem::take(&mut data);
+            let mut encoder = libflate::gzip::Encoder::new(&mut data)?;
+            encoder.write_all(&deflated).context("Compressing file")?;
+            encoder
+                .finish()
+                .into_result()
+                .context("Finishing compressed file")?;
+        }
+
+        let request = LambdaRequest {
+            data: base64::encode(&data),
+            email: args.upload_email.clone(),
+            github: args.upload_github.clone(),
+        };
+
+        let response = minreq::post(args.upload_url.as_ref().unwrap())
+            .with_json(&request)?
+            .send()?;
+
+        let response: LambdaResponse = serde_json::from_str(response.as_str()?)?;
+        if response.issue.is_none() {
+            if let Some(error_message) = response.error_message {
+                error!("Failed to submit benchmark: {}", error_message);
+            } else {
+                error!("Submission failed for an unknown reason...");
+            }
+            std::process::exit(1);
+        }
+
+        println!(
+            "Benchmark submitted successfuly!\nGitHub issue created: {}",
+            response.issue.as_ref().unwrap()
+        );
+        Ok(())
+    }
+
     fn do_pack(&mut self) -> Result<()> {
         let args = &self.args_file.data;
         let fname = Path::new(&args.result)
@@ -429,6 +478,7 @@ impl Program {
             }),
             #[cfg(feature = "lambda")]
             Mode::Lambda => lambda::run().unwrap(),
+            Mode::Upload => self.do_upload().unwrap(),
             Mode::Pack => self.do_pack().unwrap(),
             Mode::Merge => {
                 if let Err(e) = merge::merge(&self.args_file.data) {

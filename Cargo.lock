@@ -1543,6 +1543,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "minreq"
+version = "2.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4c785bc6027fd359756e538541c8624012ba3776d3d3fe123885643092ed4132"
+dependencies = [
+ "lazy_static",
+ "log",
+ "rustls 0.20.4",
+ "serde",
+ "serde_json",
+ "webpki 0.22.0",
+ "webpki-roots",
+]
+
+[[package]]
 name = "mio"
 version = "0.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2460,6 +2475,7 @@ dependencies = [
  "linreg",
  "log",
  "md5",
+ "minreq",
  "num-traits",
  "octocrab",
  "plotlib",
