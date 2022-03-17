@@ -227,3 +227,13 @@ writes.
 The minimum and maximum bounds for vrate adjustments. The value is in
 percentage where 100.0 means no scaling of the model parameters. If `min` ==
 `max`, vrate is fixed at the value.
+
+
+Format properties
+-----------------
+
+#### `sub-full` (boolean, default: false)
+
+By default, `iocost-qos` formats only the summaries of the storage and
+protection sub-benches. When `sub-full` is specified, each sub-bench will
+format the full result including resource and memory stats.
