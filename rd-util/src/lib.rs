@@ -5,6 +5,7 @@ use crossbeam::channel::Sender;
 use glob::glob;
 use log::{error, info, warn};
 use scan_fmt::scan_fmt;
+use serde::{Deserialize, Serialize};
 use simplelog as sl;
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -920,6 +921,21 @@ pub fn wait_prog_state(dur: Duration) -> ProgState {
             return ProgState::Running;
         }
     }
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct LambdaRequest {
+    pub data: String,
+    pub email: Option<String>,
+    pub github: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LambdaResponse {
+    pub issue: Option<String>,
+    pub error_type: Option<String>,
+    pub error_message: Option<String>,
 }
 
 #[cfg(test)]

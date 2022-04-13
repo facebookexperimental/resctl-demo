@@ -115,6 +115,7 @@ pub enum Mode {
     Summary,
     #[cfg(feature = "lambda")]
     Lambda,
+    Upload,
     Pack,
     Merge,
     Deps,
@@ -172,6 +173,12 @@ pub struct Args {
     #[serde(skip)]
     pub merge_multiple: bool,
     #[serde(skip)]
+    pub upload_email: Option<String>,
+    #[serde(skip)]
+    pub upload_github: Option<String>,
+    #[serde(skip)]
+    pub upload_url: Option<String>,
+    #[serde(skip)]
     pub doc_subjects: Vec<String>,
 }
 
@@ -208,6 +215,9 @@ impl Default for Args {
             merge_ignore_versions: false,
             merge_ignore_sysreqs: false,
             merge_multiple: false,
+            upload_email: None,
+            upload_github: None,
+            upload_url: None,
             doc_subjects: vec![],
         }
     }
@@ -469,6 +479,33 @@ impl JsonArgs for Args {
                     )
             )
             .subcommand(
+                clap::App::new("upload")
+                    .about("Upload results to community database")
+                    .arg(
+                        clap::Arg::with_name("upload-url")
+                        .long("upload-url")
+                        .takes_value(true)
+                        .number_of_values(1)
+                        .env("RESCTL_BENCH_UPLOAD_URL")
+                        .required(true)
+                        .help("The URL where the lambda function is accessible")
+                    )
+                    .arg(
+                        clap::Arg::with_name("my-email")
+                            .long("my-email")
+                            .takes_value(true)
+                            .number_of_values(1)
+                            .help("Include your email address on your submission")
+                    )
+                    .arg(
+                        clap::Arg::with_name("my-github")
+                            .long("my-github")
+                            .takes_value(true)
+                            .number_of_values(1)
+                            .help("Include your github username on your submission")
+                    )
+            )
+            .subcommand(
                 clap::App::new("deps")
                     .about("Test all dependencies")
             )
@@ -626,6 +663,13 @@ impl JsonArgs for Args {
             ("summary", Some(subm)) => self.process_subcommand(Mode::Summary, subm),
             #[cfg(feature = "lambda")]
             ("lambda", Some(subm)) => self.process_subcommand(Mode::Lambda, subm),
+            ("upload", Some(subm)) => {
+                self.mode = Mode::Upload;
+                self.upload_email = subm.value_of("my-email").map(|s| s.into());
+                self.upload_github = subm.value_of("my-github").map(|s| s.into());
+                self.upload_url = subm.value_of("upload-url").map(|s| s.into());
+                false
+            }
             ("pack", Some(_subm)) => {
                 self.mode = Mode::Pack;
                 false
