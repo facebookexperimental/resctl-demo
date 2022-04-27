@@ -274,6 +274,7 @@ pub struct ResourceStat {
     pub cpu_util: PctsMap,
     pub cpu_sys: PctsMap,
     pub mem_bytes: PctsMap,
+    pub swap_bytes: PctsMap,
     pub io_util: PctsMap,
     pub io_bps: (PctsMap, PctsMap),
     pub psi_cpu: PctsMap,
@@ -348,6 +349,7 @@ impl ResourceStat {
         print_pcts_line(out, fn_len, "cpu%", &self.cpu_util, format_pct, None);
         print_pcts_line(out, fn_len, "sys%", &self.cpu_sys, format_pct, None);
         print_pcts_line(out, fn_len, "mem", &self.mem_bytes, format_size, None);
+        print_pcts_line(out, fn_len, "swap", &self.swap_bytes, format_size, None);
         print_pcts_line(out, fn_len, "io%", &self.io_util, format_pct, None);
         print_pcts_line(out, fn_len, "rbps", &self.io_bps.0, format_size, None);
         print_pcts_line(out, fn_len, "wbps", &self.io_bps.1, format_size, None);
@@ -432,6 +434,7 @@ pub struct ResourceStatStudy<'a> {
     cpu_util_study: Box<dyn StudyMeanPctsTrait + 'a>,
     cpu_sys_study: Box<dyn StudyMeanPctsTrait + 'a>,
     mem_bytes_study: Box<dyn StudyMeanPctsTrait + 'a>,
+    swap_bytes_study: Box<dyn StudyMeanPctsTrait + 'a>,
     io_util_study: Box<dyn StudyMeanPctsTrait + 'a>,
     io_bps_studies: (
         Box<dyn StudyMeanPctsTrait + 'a>,
@@ -523,6 +526,10 @@ impl<'a> ResourceStatStudy<'a> {
             )),
             mem_bytes_study: Box::new(StudyMeanPcts::new(
                 move |arg| [arg.rep.usages[name].mem_bytes].repeat(arg.cnt),
+                None,
+            )),
+            swap_bytes_study: Box::new(StudyMeanPcts::new(
+                move |arg| [arg.rep.usages[name].swap_bytes].repeat(arg.cnt),
                 None,
             )),
             io_util_study: Box::new(StudyMeanPcts::new(
@@ -617,6 +624,7 @@ impl<'a> ResourceStatStudy<'a> {
             self.cpu_util_study.as_study_mut(),
             self.cpu_sys_study.as_study_mut(),
             self.mem_bytes_study.as_study_mut(),
+            self.swap_bytes_study.as_study_mut(),
             self.io_util_study.as_study_mut(),
             self.io_bps_studies.0.as_study_mut(),
             self.io_bps_studies.1.as_study_mut(),
@@ -642,6 +650,7 @@ impl<'a> ResourceStatStudy<'a> {
             cpu_util: self.cpu_util_study.result(pcts),
             cpu_sys: self.cpu_sys_study.result(pcts),
             mem_bytes: self.mem_bytes_study.result(pcts),
+            swap_bytes: self.swap_bytes_study.result(pcts),
             io_util: self.io_util_study.result(pcts),
             io_bps: (
                 self.io_bps_studies.0.result(pcts),
