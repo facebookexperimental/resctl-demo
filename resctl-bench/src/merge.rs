@@ -210,6 +210,7 @@ pub fn merge(args: &Args) -> Result<()> {
             &FormatOpts {
                 full: true,
                 rstat: 0,
+                result_path: &args.result,
             },
             &vec![Default::default()],
         )

@@ -196,7 +196,7 @@ scales the model parameters so that the QoS `max` always ends up 100%.
 `iocost-tune` can also generate a pdf file containing all the results:
 
 ```
-   $ resctl-bench -r result.json format iocost-tune:pdf=result.pdf
+   $ resctl-bench -r result.json format iocost-tune:pdf
 ```
 
 
@@ -352,3 +352,13 @@ The minimum vrate point where the specified MOF is at maximum.
 
 Solves for the `isolated bandwidth` and `isolation` solution described above
 respectively.
+
+
+Format properties
+-----------------
+
+#### `pdf` (String)
+
+Generate a pdf file containing the result summary and graphs. If no value is
+specified, `RESULT_PATH_STEM.pdf` is used where `RESULT_PATH_STEM` is the
+file stem of the global `--result` path.

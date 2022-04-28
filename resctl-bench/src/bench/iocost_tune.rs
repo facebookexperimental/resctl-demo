@@ -2,8 +2,8 @@
 use super::iocost_qos::{
     IoCostQoSJob, IoCostQoSRecord, IoCostQoSRecordRun, IoCostQoSResult, IoCostQoSResultRun,
 };
-use super::protection::MemHog;
 use super::protection::mem_hog_tune::{DFL_ISOL_PCT, DFL_ISOL_THR};
+use super::protection::MemHog;
 use super::*;
 use statrs::distribution::{ContinuousCDF, Normal};
 use std::cell::RefCell;
@@ -2089,9 +2089,16 @@ impl Job for IoCostTuneJob {
         for (k, v) in props[0].iter() {
             match k.as_ref() {
                 "pdf" => {
-                    if v.len() > 0 {
-                        pdf_path = Some(v.to_owned());
-                    }
+                    pdf_path = Some(if v.len() > 0 {
+                        v.to_owned()
+                    } else {
+                        Path::new(opts.result_path)
+                            .file_stem()
+                            .unwrap()
+                            .to_string_lossy()
+                            .to_string()
+                            + ".pdf"
+                    });
                 }
                 "pdf-keep" => pdf_keep = v.len() == 0 || v.parse::<bool>()?,
                 k => bail!("unknown format parameter {:?}", k),
