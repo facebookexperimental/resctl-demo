@@ -66,28 +66,25 @@ impl<'a, 'b> Grapher<'a, 'b> {
         };
         let ymax = (val_max * 1.1).max((ymin) + 0.000001);
 
-        let (range, left, right) = (
-            series.lines.range,
-            series.lines.left.unwrap(),
-            series.lines.right.unwrap(),
-        );
+        let range = series.lines.range;
         let mut xlabel = format!("vrate {:.1}-{:.1} (", range.0, range.1);
-        if left.y == right.y {
-            xlabel += &format!("mean={:.3} ", left.y * yscale)
+
+        let (min, max) = series.lines.min_max();
+        if min == max {
+            xlabel += &format!("mean={:.3}", min * yscale);
         } else {
-            xlabel += &format!(
-                "min={:.3} max={:.3} ",
-                left.y.min(right.y) * yscale,
-                left.y.max(right.y) * yscale
-            )
+            xlabel += &format!("min={:.3} max={:.3}", min * yscale, max * yscale);
         }
-        if left.x > range.0 {
-            xlabel += &format!("L-infl={:.1} ", left.x);
+
+        let points = &series.lines.points;
+        if points.len() > 2 {
+            xlabel += " infls=";
+            for i in 1..points.len() - 1 {
+                xlabel += &format!("{:.1},", points[i].x);
+            }
+            xlabel.pop();
         }
-        if right.x < range.1 {
-            xlabel += &format!("R-infl={:.1} ", right.x);
-        }
-        xlabel += &format!("err={:.3})", series.error * yscale);
+        xlabel += &format!(" err={:.3})", series.error * yscale);
 
         let mut ylabel = match sel {
             DataSel::MOF | DataSel::AMOF | DataSel::AMOFDelta => format!("{}@{}", sel, mem_profile),
@@ -187,20 +184,12 @@ impl<'a, 'b> Grapher<'a, 'b> {
             ),
         );
 
-        let (range, left, right) = (
-            series.lines.range,
-            series.lines.left.unwrap(),
-            series.lines.right.unwrap(),
-        );
-        let mut segments = vec![];
-        if range.0 < left.x {
-            segments.push((range.0, left.y * yscale));
-        }
-        segments.push((left.x, left.y * yscale));
-        segments.push((right.x, right.y * yscale));
-        if range.1 > right.x {
-            segments.push((range.1, right.y * yscale));
-        }
+        let segments: Vec<(f64, f64)> = series
+            .lines
+            .points
+            .iter()
+            .map(|pt| (pt.x, pt.y * yscale))
+            .collect();
 
         let view = view.add(Plot::new(segments).line_style(LineStyle::new().colour("#3749e6")));
 

@@ -1192,6 +1192,20 @@ impl DataLines {
 
         Ok(clamped)
     }
+
+    fn min_max(&self) -> (f64, f64) {
+        self.points
+            .iter()
+            .fold((std::f64::MAX, std::f64::MIN), |mut min_max, pt| {
+                if pt.y < min_max.0 {
+                    min_max.0 = pt.y;
+                }
+                if pt.y > min_max.1 {
+                    min_max.1 = pt.y;
+                }
+                min_max
+            })
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
