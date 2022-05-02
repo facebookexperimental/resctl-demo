@@ -5,10 +5,11 @@ use super::iocost_qos::{
 use super::protection::mem_hog_tune::{DFL_ISOL_PCT, DFL_ISOL_THR};
 use super::protection::MemHog;
 use super::*;
+use log::debug;
 use statrs::distribution::{ContinuousCDF, Normal};
 use std::cell::RefCell;
 use std::cmp::{Ordering, PartialOrd};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::io::Write as IoWrite;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -581,9 +582,8 @@ impl QoSTarget {
         infl_margin: f64,
         no_sig_vrate: Option<f64>,
     ) -> Option<f64> {
-        ds.lines.clamped(range.0, range.1).map(|dl| {
-            let left = &dl.left;
-            let right = &dl.right;
+        ds.lines.clamped(range).ok().map(|dl| {
+            let (left, right) = (dl.left.unwrap(), dl.right.unwrap());
 
             if left.y < right.y {
                 (right.x * (1.0 + infl_margin)).min(range.1)
@@ -601,9 +601,8 @@ impl QoSTarget {
         range: (f64, f64),
         infl_margin: f64,
     ) -> Option<f64> {
-        ds.lines.clamped(range.0, range.1).map(|dl| {
-            let left = &dl.left;
-            let right = &dl.right;
+        ds.lines.clamped(range).ok().map(|dl| {
+            let (left, right) = (dl.left.unwrap(), dl.right.unwrap());
 
             if left.y < right.y {
                 (left.x * (1.0 - infl_margin)).max(range.0)
@@ -642,8 +641,8 @@ impl QoSTarget {
         (rel_min, rel_max): (f64, f64),
         (scale_min, scale_max): (f64, f64),
     ) -> Option<(u64, (f64, f64))> {
-        let dl = ds.lines.clamped(scale_min, scale_max)?;
-        let (left, right) = (&dl.left, &dl.right);
+        let dl = ds.lines.clamped((scale_min, scale_max)).ok()?;
+        let (left, right) = (dl.left.unwrap(), dl.right.unwrap());
 
         // Any slope left?
         if left.y == right.y {
@@ -685,11 +684,12 @@ impl QoSTarget {
         // offset amount.
         let mof_ds = ds(&DataSel::MOF)?;
         let infl_offset = || {
-            let mof_max = mof_ds.lines.right.y;
+            let (slope, right) = (mof_ds.lines.slope.unwrap(), mof_ds.lines.right.unwrap());
+            let mof_max = right.y;
             if mof_max == 0.0 {
                 0.0
             } else {
-                (mof_ds.lines.slope() * (mof_ds.error / mof_ds.lines.right.y) * 800.0).min(0.1)
+                (slope * (mof_ds.error / right.y) * 800.0).min(0.1)
             }
         };
 
@@ -746,7 +746,8 @@ impl QoSTarget {
         let solve_max_vrate = |sel| -> Result<Option<f64>> {
             Ok(ds(sel)?
                 .lines
-                .clamped(scale_min, scale_max)
+                .clamped((scale_min, scale_max))
+                .ok()
                 .map(|dl| dl.range.1))
         };
 
@@ -1005,73 +1006,191 @@ impl DataPoint {
 }
 
 //
-//       val
-//        ^
-//        |
-// dright +.................------
-//        |                /.
-//        |              /  .
-//        |      slope /    .
-//        |          /      .
-//  dleft +--------/        .
-//        |        .        .
-//        +--------+--------+------> vrate
-//              vleft    vright
+//    Y
+//    ^
+//    |
+//    |                         *
+//    |                        /. \
+//    |                       / .   \
+//    |                      /  .     *
+//    |                     /   .     .
+//    |                    *    .     .
+//    |                 /  .    .     .
+//    |              /     .    .     .
+//    |    *-------*       .    .     .
+//    |    .       .       .    .     .
+//    +----+-------+-------+----+-----+----> X
+//      points[0] [1]     [2]  [3]   [4]
 //
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
 struct DataLines {
+    points: Vec<DataPoint>,
+
+    // for compatibility
     range: (f64, f64),
-    left: DataPoint,
-    right: DataPoint,
+    left: Option<DataPoint>,
+    right: Option<DataPoint>,
+    slope: Option<f64>,
 }
 
 impl DataLines {
-    fn slope(&self) -> f64 {
-        if self.left.x != self.right.x {
-            (self.right.y - self.left.y) / (self.right.x - self.left.x)
-        } else {
-            0.0
-        }
-    }
-
-    fn eval(&self, vrate: f64) -> f64 {
-        if vrate < self.left.x {
-            self.left.y
-        } else if vrate > self.right.x {
-            self.right.y
-        } else {
-            self.left.y + self.slope() * (vrate - self.left.x)
-        }
-    }
-
-    fn clamped(&self, vmin: f64, vmax: f64) -> Option<Self> {
-        let vmin = vmin.max(self.range.0);
-        let vmax = vmax.min(self.range.1);
-        if vmin > vmax {
-            return None;
+    fn new(input: &[DataPoint]) -> Result<Self> {
+        if input.is_empty() {
+            return Ok(Default::default());
         }
 
-        let at_vmin = DataPoint::new(vmin, self.eval(vmin));
-        let at_vmax = DataPoint::new(vmax, self.eval(vmax));
-        let (mut left, mut right) = (self.left, self.right);
-
-        if left.x > vmax || right.x < vmin {
-            left = at_vmin;
-            right = at_vmax;
-        } else {
-            if left.x < vmin {
-                left = at_vmin;
-            }
-            if right.x > vmax {
-                right = at_vmax;
+        let mut points = vec![];
+        match input.len() {
+            0 => {}
+            1 => points.push(input[0]),
+            len => {
+                points.push(input[0]);
+                for i in 0..(len - 1) {
+                    let (a, b) = (input[i], input[i + 1]);
+                    if a.x >= b.x {
+                        bail!("invalid input order ({:?}, {:?})", a, b);
+                    }
+                    points.push(b);
+                }
             }
         }
 
-        Some(Self {
-            range: (vmin, vmax),
-            left,
-            right,
+        let range = (
+            input.first().map(|p| p.x).unwrap_or(0.0),
+            input.last().map(|p| p.x).unwrap_or(0.0),
+        );
+
+        // DataLines used to be composed of X range and the left and right
+        // data points which can represent either a dot, a slope, a flat
+        // line and a slope, or a slope surrounded by tw flat lines. Emulate
+        // the old data format to ease transition.
+        let with_slope = |left, right, points| Self {
+            points,
+            range,
+            left: Some(left),
+            right: Some(right),
+            slope: Some(if left.x != right.x && left.y != right.y {
+                (right.y - left.y) / (right.x - left.x)
+            } else {
+                0.0
+            }),
+        };
+
+        match points.len() {
+            // A dot or slope.
+            1 | 2 => {
+                return Ok(with_slope(
+                    *points.first().unwrap(),
+                    *points.last().unwrap(),
+                    points,
+                ));
+            }
+            // A flat line and a slope.
+            3 => {
+                if points[0].y == points[1].y {
+                    return Ok(with_slope(points[1], points[2], points));
+                } else if points[1].y == points[2].y {
+                    return Ok(with_slope(points[0], points[1], points));
+                }
+            }
+            // A slope surrounded by two flat lines.
+            4 => {
+                if points[0].y == points[1].y && points[2].y == points[3].y {
+                    return Ok(with_slope(points[1], points[2], points));
+                }
+            }
+            _ => {}
+        }
+
+        // No left/right representation possible.
+        Ok(Self {
+            points,
+            range,
+            ..Default::default()
         })
+    }
+
+    /// Determine the Y value at X of @x. @x doesn't have to be inside the
+    /// range of the data lines.
+    fn eval(&self, x: f64) -> f64 {
+        let mut seg = None;
+        for pair in self.points.windows(2) {
+            seg = Some((pair[0], pair[1]));
+            if x <= pair[1].x {
+                break;
+            }
+        }
+
+        if let Some((a, b)) = seg {
+            // We use equality tests to detect flat lines. Preserve values
+            // on exact matches.
+            if x == a.x || a.y == b.y {
+                return a.y;
+            }
+            if x == b.x {
+                return b.y;
+            }
+            a.y + (x - a.x) * (b.y - a.y) / (b.x - a.x)
+        } else {
+            self.points.first().map(|pt| pt.y).unwrap_or(0.0)
+        }
+    }
+
+    /// Create a new DataLines which is based on @self but with X range
+    /// adjusted to @range. @range can stretch outside @self's range.
+    fn clamped(&self, range: (f64, f64)) -> Result<Self> {
+        if range.0 > range.1 {
+            bail!("invalid range [{}, {}]", range.0, range.1);
+        }
+
+        match self.points.len() {
+            0 => bail!("no data to be clamped"),
+            1 => {
+                return Self::new(&[
+                    DataPoint::new(range.0, self.points[0].y),
+                    DataPoint::new(range.1, self.points[0].y),
+                ])
+            }
+            _ => {}
+        }
+
+        let (start_y, end_y) = (self.eval(range.0), self.eval(range.1));
+        let mut pts = VecDeque::from(self.points.clone());
+
+        // The start and end points are gonna be replaced with points at
+        // range.0 and range.1 respectively. Pop them off.
+        pts.pop_front();
+        pts.pop_back();
+
+        // Remove all points which are at or before range.0 and then insert
+        // (range.0, start_y) at the front.
+        while let Some(pt) = pts.front() {
+            if pt.x > range.0 {
+                break;
+            }
+            pts.pop_front();
+        }
+        pts.push_front(DataPoint::new(range.0, start_y));
+
+        // Do the equivalent from the back.
+        while let Some(pt) = pts.back() {
+            if pt.x < range.1 {
+                break;
+            }
+            pts.pop_back();
+        }
+        pts.push_back(DataPoint::new(range.1, end_y));
+
+        let clamped = Self::new(&Vec::from(pts))?;
+
+        if self.slope.is_some() && clamped.slope.is_none() {
+            panic!(
+                "Clamped {:?} to {:?} and lost slope {:?}",
+                self, range, &clamped
+            );
+        }
+
+        Ok(clamped)
     }
 }
 
@@ -1106,7 +1225,7 @@ impl DataSeries {
         (&points[0..idx], &points[idx..])
     }
 
-    fn vrange(points: &[DataPoint]) -> (f64, f64) {
+    fn range(points: &[DataPoint]) -> (f64, f64) {
         (
             points.iter().next().unwrap_or(&DataPoint::new(0.0, 0.0)).x,
             points.iter().last().unwrap_or(&DataPoint::new(0.0, 0.0)).x,
@@ -1121,12 +1240,12 @@ impl DataSeries {
                 .collect::<Vec<(f64, f64)>>(),
         )
         .unwrap();
-        let range = Self::vrange(points);
-        DataLines {
-            range,
-            left: DataPoint::new(range.0, slope * range.0 + y_intcp),
-            right: DataPoint::new(range.1, slope * range.1 + y_intcp),
-        }
+        let range = Self::range(points);
+        DataLines::new(&[
+            DataPoint::new(range.0, slope * range.0 + y_intcp),
+            DataPoint::new(range.1, slope * range.1 + y_intcp),
+        ])
+        .unwrap()
     }
 
     /// Find y s.t. minimize (y1-y)^2 + (y2-y)^2 + ...
@@ -1159,12 +1278,13 @@ impl DataSeries {
             return None;
         }
 
-        let range = Self::vrange(points);
-        Some(DataLines {
-            range,
+        let range = Self::range(points);
+        DataLines::new(&[
+            DataPoint::new(range.0, left.y),
             left,
-            right: DataPoint::new(range.1, left.y + slope * (range.1 - left.x)),
-        })
+            DataPoint::new(range.1, left.y + slope * (range.1 - left.x)),
+        ])
+        .ok()
     }
 
     fn fit_slope_with_vright(points: &[DataPoint], vright: f64) -> Option<DataLines> {
@@ -1175,12 +1295,13 @@ impl DataSeries {
             return None;
         }
 
-        let range = Self::vrange(points);
-        Some(DataLines {
-            range,
-            left: DataPoint::new(range.0, right.y - slope * (right.x - range.0)),
+        let range = Self::range(points);
+        DataLines::new(&[
+            DataPoint::new(range.0, right.y - slope * (right.x - range.0)),
             right,
-        })
+            DataPoint::new(range.1, right.y),
+        ])
+        .ok()
     }
 
     fn fit_slope_with_vleft_and_vright(
@@ -1191,11 +1312,17 @@ impl DataSeries {
         let (left, center) = Self::split_at(points, vleft);
         let (_, right) = Self::split_at(center, vright);
 
-        Some(DataLines {
-            range: Self::vrange(points),
-            left: DataPoint::new(vleft, Self::calc_height(left)),
-            right: DataPoint::new(vright, Self::calc_height(right)),
-        })
+        let left = DataPoint::new(vleft, Self::calc_height(left));
+        let right = DataPoint::new(vright, Self::calc_height(right));
+
+        let range = Self::range(points);
+        DataLines::new(&[
+            DataPoint::new(range.0, left.y),
+            left,
+            right,
+            DataPoint::new(range.1, right.y),
+        ])
+        .ok()
     }
 
     fn calc_error<'a, I>(points: I, lines: &DataLines) -> f64
@@ -1233,12 +1360,10 @@ impl DataSeries {
 
         // Start with mean flat line which is acceptable for both dirs.
         let mean = statistical::mean(&self.points.iter().map(|p| p.y).collect::<Vec<f64>>());
-        let range = Self::vrange(&self.points);
-        let mut best_lines = DataLines {
-            range,
-            left: DataPoint::new(range.0, mean),
-            right: DataPoint::new(range.1, mean),
-        };
+        let range = Self::range(&self.points);
+        let mut best_lines =
+            DataLines::new(&[DataPoint::new(range.0, mean), DataPoint::new(range.1, mean)])
+                .unwrap();
 
         let best_error =
             RefCell::new(Self::calc_error(self.points.iter(), &best_lines) * ERROR_DISCOUNT);
@@ -1248,18 +1373,19 @@ impl DataSeries {
                 bail!("Program exiting");
             }
             if let Some(lines) = fit() {
-                if lines.left.y <= 0.0 || lines.right.y <= 0.0 {
+                let (left, right) = (lines.left.unwrap(), lines.right.unwrap());
+                if left.y <= 0.0 || right.y <= 0.0 {
                     return Ok(false);
                 }
                 match dir {
                     DataShape::Any => {}
                     DataShape::Inc => {
-                        if lines.left.y > lines.right.y {
+                        if left.y > right.y {
                             return Ok(false);
                         }
                     }
                     DataShape::Dec => {
-                        if lines.left.y < lines.right.y {
+                        if left.y < right.y {
                             return Ok(false);
                         }
                     }
@@ -1269,10 +1395,10 @@ impl DataSeries {
                     trace!(
                         "fit-best: ({:.3}, {:.3}) - ({:.3}, {:.3}) \
                          start={:.3} end={:.3} MIN_SEG_DIST={:.3}",
-                        lines.left.x,
-                        lines.left.y,
-                        lines.right.x,
-                        lines.right.y,
+                        left.x,
+                        left.y,
+                        right.x,
+                        right.y,
                         start,
                         end,
                         MIN_SEG_DIST
@@ -1377,23 +1503,6 @@ impl DataSeries {
         } else {
             self.points = points;
         }
-    }
-
-    fn fill_vrate_range(&mut self, range: (f64, f64)) {
-        if self.lines == Default::default() {
-            return;
-        }
-        let (vmin, vmax) = Self::vrange(&self.points);
-        let slope = self.lines.slope();
-        if self.lines.left.x == vmin && vmin > range.0 {
-            self.lines.left.y -= slope * (vmin - range.0);
-            self.lines.left.x = range.0;
-        }
-        if self.lines.right.x == vmax && vmax < range.1 {
-            self.lines.right.y += slope * (range.1 - vmax);
-            self.lines.right.x = range.1;
-        }
-        self.lines.range = range;
     }
 }
 
@@ -1565,10 +1674,9 @@ impl IoCostTuneJob {
                     &DataSel::Isol
                 ))
                 .lines;
-            let slope = dl.slope();
-            if slope != 0.0 && dl.right.y < isol_thr {
-                let intcp =
-                    (dl.right.x - (dl.right.y - isol_thr) / slope).clamp(dl.range.0, dl.range.1);
+            let (slope, right) = (dl.slope.unwrap(), dl.right.unwrap());
+            if slope != 0.0 && right.y < isol_thr {
+                let intcp = (right.x - (right.y - isol_thr) / slope).clamp(dl.range.0, dl.range.1);
                 series.filter_beyond(intcp);
                 fill_upto = Some(intcp);
             }
@@ -1577,7 +1685,10 @@ impl IoCostTuneJob {
         series.fit_lines(self.gran, dir)?;
 
         if let Some(fill_upto) = fill_upto {
-            series.fill_vrate_range((series.lines.range.0, fill_upto));
+            series.lines = series
+                .lines
+                .clamped((series.lines.range.0, fill_upto))
+                .unwrap();
         }
 
         if filter_outliers {
@@ -1591,7 +1702,7 @@ impl IoCostTuneJob {
             );
             let range = series.lines.range;
             series.fit_lines(self.gran, dir)?;
-            series.fill_vrate_range(range);
+            series.lines = series.lines.clamped(range).unwrap();
         }
 
         // For some data series, we fit the lines excluding the outliers
@@ -1618,18 +1729,19 @@ impl IoCostTuneJob {
         let mut remarks = vec![];
         let rw_str = if rw == READ { "read" } else { "write" };
 
+        let range = (self.scale_min, self.scale_max);
         let (lat_50_mean_lines, lat_99_mean_lines, lat_99_99_lines, lat_100_100_lines) = match (
-            lat_50_mean.lines.clamped(self.scale_min, self.scale_max),
-            lat_99_mean.lines.clamped(self.scale_min, self.scale_max),
-            lat_99_99.lines.clamped(self.scale_min, self.scale_max),
-            lat_100_100.lines.clamped(self.scale_min, self.scale_max),
+            lat_50_mean.lines.clamped(range),
+            lat_99_mean.lines.clamped(range),
+            lat_99_99.lines.clamped(range),
+            lat_100_100.lines.clamped(range),
         ) {
-            (Some(v0), Some(v1), Some(v2), Some(v3)) => (v0, v1, v2, v3),
+            (Ok(v0), Ok(v1), Ok(v2), Ok(v3)) => (v0, v1, v2, v3),
             _ => return vec![format!("Insufficient {} latencies data.", rw_str)],
         };
 
-        if lat_50_mean_lines.left.y == lat_50_mean_lines.right.y
-            && lat_99_mean_lines.left.y == lat_99_mean_lines.right.y
+        if lat_50_mean_lines.left.unwrap().y == lat_50_mean_lines.right.unwrap().y
+            && lat_99_mean_lines.left.unwrap().y == lat_99_mean_lines.right.unwrap().y
         {
             remarks.push(format!(
                 "Mean {} latencies cannot be modulated with throttling.",
@@ -1637,19 +1749,19 @@ impl IoCostTuneJob {
             ));
         }
 
-        if lat_99_99_lines.left.y >= 500.0 * MSEC {
+        if lat_99_99_lines.left.unwrap().y >= 500.0 * MSEC {
             remarks.push(format!(
                 "Minimum p99 {} latencies spike above {} every 100s.",
                 rw_str,
-                format_duration(lat_99_99_lines.left.y)
+                format_duration(lat_99_99_lines.left.unwrap().y)
             ));
         }
 
-        if lat_100_100_lines.left.y >= 1000.0 * MSEC {
+        if lat_100_100_lines.left.unwrap().y >= 1000.0 * MSEC {
             remarks.push(format!(
                 "Minimum {} tail latencies spike above {}.",
                 rw_str,
-                format_duration(lat_100_100_lines.left.y)
+                format_duration(lat_100_100_lines.left.unwrap().y)
             ));
         }
 
@@ -2142,7 +2254,7 @@ impl Job for IoCostTuneJob {
 
 #[cfg(test)]
 mod tests {
-    use super::DataSel;
+    use super::{DataLines, DataPoint, DataSel};
 
     #[test]
     fn test_bench_iocost_tune_datasel_sort_and_group() {
@@ -2211,5 +2323,83 @@ mod tests {
                 vec![DataSel::WLat("99".to_owned(), "99".to_owned()),],
             ]
         );
+    }
+
+    #[test]
+    fn test_data_lines_vleft() {
+        let dl = DataLines::new(&[
+            DataPoint::new(1.0, 1.0),
+            DataPoint::new(2.0, 1.0),
+            DataPoint::new(3.0, 2.0),
+        ])
+        .unwrap();
+
+        println!("dl_vleft={:#?}", &dl);
+
+        assert_eq!(dl.range, (1.0, 3.0));
+        assert_eq!(dl.left, Some(DataPoint::new(2.0, 1.0)));
+        assert_eq!(dl.right, Some(DataPoint::new(3.0, 2.0)));
+        assert_eq!(dl.slope, Some(1.0));
+
+        assert_eq!(dl.eval(0.5), 1.0);
+        assert_eq!(dl.eval(1.0), 1.0);
+        assert_eq!(dl.eval(1.5), 1.0);
+        assert_eq!(dl.eval(2.0), 1.0);
+        assert_eq!(dl.eval(2.5), 1.5);
+        assert_eq!(dl.eval(3.0), 2.0);
+        assert_eq!(dl.eval(3.5), 2.5);
+    }
+
+    #[test]
+    fn test_data_lines_vright() {
+        let dl = DataLines::new(&[
+            DataPoint::new(2.0, 1.0),
+            DataPoint::new(3.0, 2.0),
+            DataPoint::new(4.0, 2.0),
+        ])
+        .unwrap();
+
+        println!("dl_vright={:#?}", &dl);
+
+        assert_eq!(dl.range, (2.0, 4.0));
+        assert_eq!(dl.left, Some(DataPoint::new(2.0, 1.0)));
+        assert_eq!(dl.right, Some(DataPoint::new(3.0, 2.0)));
+        assert_eq!(dl.slope, Some(1.0));
+
+        assert_eq!(dl.eval(1.5), 0.5);
+        assert_eq!(dl.eval(2.0), 1.0);
+        assert_eq!(dl.eval(2.5), 1.5);
+        assert_eq!(dl.eval(3.0), 2.0);
+        assert_eq!(dl.eval(3.5), 2.0);
+        assert_eq!(dl.eval(4.0), 2.0);
+        assert_eq!(dl.eval(4.5), 2.0);
+    }
+
+    #[test]
+    fn test_data_lines_vleft_vright() {
+        let dl = DataLines::new(&[
+            DataPoint::new(1.0, 1.0),
+            DataPoint::new(2.0, 1.0),
+            DataPoint::new(3.0, 2.0),
+            DataPoint::new(4.0, 2.0),
+        ])
+        .unwrap();
+
+        println!("dl_vleft_vright={:#?}", &dl);
+
+        assert_eq!(dl.range, (1.0, 4.0));
+        assert_eq!(dl.left, Some(DataPoint::new(2.0, 1.0)));
+        assert_eq!(dl.right, Some(DataPoint::new(3.0, 2.0)));
+        assert_eq!(dl.slope, Some(1.0));
+
+        assert_eq!(dl.eval(0.5), 1.0);
+        assert_eq!(dl.eval(1.0), 1.0);
+        assert_eq!(dl.eval(1.5), 1.0);
+        assert_eq!(dl.eval(2.0), 1.0);
+        assert_eq!(dl.eval(2.5), 1.5);
+        assert_eq!(dl.eval(3.0), 2.0);
+        assert_eq!(dl.eval(3.5), 2.0);
+        assert_eq!(dl.eval(4.0), 2.0);
+        assert_eq!(dl.eval(4.5), 2.0);
     }
 }

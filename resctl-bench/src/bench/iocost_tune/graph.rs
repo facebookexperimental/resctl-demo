@@ -66,25 +66,26 @@ impl<'a, 'b> Grapher<'a, 'b> {
         };
         let ymax = (val_max * 1.1).max((ymin) + 0.000001);
 
-        let lines = &series.lines;
-        let mut xlabel = format!(
-            "vrate {:.1}-{:.1} (",
-            series.lines.range.0, series.lines.range.1
+        let (range, left, right) = (
+            series.lines.range,
+            series.lines.left.unwrap(),
+            series.lines.right.unwrap(),
         );
-        if lines.left.y == lines.right.y {
-            xlabel += &format!("mean={:.3} ", lines.left.y * yscale)
+        let mut xlabel = format!("vrate {:.1}-{:.1} (", range.0, range.1);
+        if left.y == right.y {
+            xlabel += &format!("mean={:.3} ", left.y * yscale)
         } else {
             xlabel += &format!(
                 "min={:.3} max={:.3} ",
-                lines.left.y.min(lines.right.y) * yscale,
-                lines.left.y.max(lines.right.y) * yscale
+                left.y.min(right.y) * yscale,
+                left.y.max(right.y) * yscale
             )
         }
-        if lines.left.x > series.lines.range.0 {
-            xlabel += &format!("L-infl={:.1} ", lines.left.x);
+        if left.x > range.0 {
+            xlabel += &format!("L-infl={:.1} ", left.x);
         }
-        if lines.right.x < series.lines.range.1 {
-            xlabel += &format!("R-infl={:.1} ", lines.right.x);
+        if right.x < range.1 {
+            xlabel += &format!("R-infl={:.1} ", right.x);
         }
         xlabel += &format!("err={:.3})", series.error * yscale);
 
@@ -186,15 +187,19 @@ impl<'a, 'b> Grapher<'a, 'b> {
             ),
         );
 
-        let lines = &series.lines;
+        let (range, left, right) = (
+            series.lines.range,
+            series.lines.left.unwrap(),
+            series.lines.right.unwrap(),
+        );
         let mut segments = vec![];
-        if series.lines.range.0 < lines.left.x {
-            segments.push((series.lines.range.0, lines.left.y * yscale));
+        if range.0 < left.x {
+            segments.push((range.0, left.y * yscale));
         }
-        segments.push((lines.left.x, lines.left.y * yscale));
-        segments.push((lines.right.x, lines.right.y * yscale));
-        if series.lines.range.1 > lines.right.x {
-            segments.push((series.lines.range.1, lines.right.y * yscale));
+        segments.push((left.x, left.y * yscale));
+        segments.push((right.x, right.y * yscale));
+        if range.1 > right.x {
+            segments.push((range.1, right.y * yscale));
         }
 
         let view = view.add(Plot::new(segments).line_style(LineStyle::new().colour("#3749e6")));
