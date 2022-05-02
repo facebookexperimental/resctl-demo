@@ -649,7 +649,7 @@ impl Bench {
     fn time_hash(size: usize, params: &Params, tf: &TestFiles) -> f64 {
         let mut hasher = hasher::Hasher::new(1.0, 0.0);
         let chunk_size = params.chunk_pages * *PAGE_SIZE;
-        let chunks_per_unit = (tf.unit_size as usize).div_ceil(&chunk_size);
+        let chunks_per_unit = Integer::div_ceil(&(tf.unit_size as usize), &chunk_size);
 
         let started_at = Instant::now();
 
