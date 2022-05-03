@@ -575,6 +575,23 @@ impl QoSTarget {
         }
     }
 
+    fn x_with_infl_margin(dl: &DataLines, idx: usize, infl_margin: f64) -> f64 {
+        let pts = &dl.points;
+        let (mut x, y) = (pts[idx].x, pts[idx].y);
+
+        // If an internal point and one side is slope while the
+        // other flat, shift towards the flat line by @infl_margin
+        // to avoid sitting right at the tip of a steep slope.
+        if infl_margin != 0.0 && idx > 0 && idx < pts.len() - 1 {
+            if pts[idx - 1].y != y && pts[idx + 1].y == y {
+                x = (x * (1.0 + infl_margin)).min(dl.range.1);
+            } else if pts[idx - 1].y == y && pts[idx + 1].y != y {
+                x = (x * (1.0 - infl_margin)).max(dl.range.0);
+            }
+        }
+        x
+    }
+
     /// Find the minimum vrate with the maximum value.
     fn find_min_vrate_at_max_val(
         ds: &DataSeries,
@@ -582,17 +599,20 @@ impl QoSTarget {
         infl_margin: f64,
         no_sig_vrate: Option<f64>,
     ) -> Option<f64> {
-        ds.lines.clamped(range).ok().map(|dl| {
-            let (left, right) = (dl.left.unwrap(), dl.right.unwrap());
-
-            if left.y < right.y {
-                (right.x * (1.0 + infl_margin)).min(range.1)
-            } else {
+        let dl = ds.lines.clamped(range).ok()?;
+        let (min, max) = dl.min_max();
+        if min == max {
+            return Some(
                 no_sig_vrate
                     .unwrap_or(dl.range.0)
-                    .clamp(dl.range.0, dl.range.1)
-            }
-        })
+                    .clamp(dl.range.0, dl.range.1),
+            );
+        }
+
+        // Find the leftmost max point.
+        let pts = &dl.points;
+        let idx = pts.iter().take_while(|pt| pt.y != max).count();
+        Some(Self::x_with_infl_margin(&dl, idx, infl_margin))
     }
 
     /// Find the maximum vrate with the minimum value.
@@ -601,15 +621,16 @@ impl QoSTarget {
         range: (f64, f64),
         infl_margin: f64,
     ) -> Option<f64> {
-        ds.lines.clamped(range).ok().map(|dl| {
-            let (left, right) = (dl.left.unwrap(), dl.right.unwrap());
+        let dl = ds.lines.clamped(range).ok()?;
+        let (min, max) = dl.min_max();
+        if min == max {
+            return Some(dl.range.1);
+        }
 
-            if left.y < right.y {
-                (left.x * (1.0 - infl_margin)).max(range.0)
-            } else {
-                dl.range.1
-            }
-        })
+        // Find the rightmost min point.
+        let pts = &dl.points;
+        let idx = pts.len() - 1 - pts.iter().rev().take_while(|pt| pt.y != min).count();
+        Some(Self::x_with_infl_margin(&dl, idx, infl_margin))
     }
 
     fn solve_vrate_range(
@@ -725,12 +746,20 @@ impl QoSTarget {
                 ),
                 None => None,
             };
-            Ok(Self::find_min_vrate_at_max_val(
+            let sol = Self::find_min_vrate_at_max_val(
                 ds(sel)?,
                 (scale_min, scale_max),
                 infl_offset(),
                 no_sig_vrate,
-            ))
+            );
+            trace!(
+                "solve_max sel={:?} no_sig_sel={:?} no_sig_vrate={:?} sol={:?}",
+                sel,
+                no_sig_sel,
+                no_sig_vrate,
+                sol
+            );
+            Ok(sol)
         };
 
         // Find the max vrate at min val.
@@ -744,11 +773,15 @@ impl QoSTarget {
 
         // Find the rightmost valid vrate.
         let solve_max_vrate = |sel| -> Result<Option<f64>> {
-            Ok(ds(sel)?
-                .lines
-                .clamped((scale_min, scale_max))
-                .ok()
-                .map(|dl| dl.range.1))
+            let clamped = ds(sel)?.lines.clamped((scale_min, scale_max))?;
+            trace!(
+                "solve_max_vrate({:?}) clamped[{}:{}]={:?}",
+                &sel,
+                scale_min,
+                scale_max,
+                &clamped
+            );
+            Ok(Some(clamped.range.1))
         };
 
         Ok(match self {
@@ -1110,9 +1143,9 @@ impl DataLines {
         })
     }
 
-    /// Determine the Y value at X of @x. @x doesn't have to be inside the
-    /// range of the data lines.
-    fn eval(&self, x: f64) -> f64 {
+    /// Determine the Y value at X of @x. If @x is outside range, the
+    /// nearest line is extrapolated.
+    fn eval_extrapolate(&self, x: f64) -> f64 {
         let mut seg = None;
         for pair in self.points.windows(2) {
             seg = Some((pair[0], pair[1]));
@@ -1136,15 +1169,21 @@ impl DataLines {
         }
     }
 
+    /// Determine the Y value at X of @x. If @x is outside range, the
+    /// closest value is taken.
+    fn eval(&self, x: f64) -> f64 {
+        self.eval_extrapolate(x.clamp(self.range.0, self.range.1))
+    }
+
     /// Create a new DataLines which is based on @self but with X range
     /// adjusted to @range. @range can stretch outside @self's range.
-    fn clamped(&self, range: (f64, f64)) -> Result<Self> {
+    fn with_range(&self, range: (f64, f64)) -> Result<Self> {
         if range.0 > range.1 {
             bail!("invalid range [{}, {}]", range.0, range.1);
         }
 
         match self.points.len() {
-            0 => bail!("no data to be clamped"),
+            0 => bail!("no data to update range for"),
             1 => {
                 return Self::new(&[
                     DataPoint::new(range.0, self.points[0].y),
@@ -1154,7 +1193,10 @@ impl DataLines {
             _ => {}
         }
 
-        let (start_y, end_y) = (self.eval(range.0), self.eval(range.1));
+        let (start_y, end_y) = (
+            self.eval_extrapolate(range.0),
+            self.eval_extrapolate(range.1),
+        );
         let mut pts = VecDeque::from(self.points.clone());
 
         // The start and end points are gonna be replaced with points at
@@ -1181,30 +1223,41 @@ impl DataLines {
         }
         pts.push_back(DataPoint::new(range.1, end_y));
 
-        let clamped = Self::new(&Vec::from(pts))?;
+        let updated = Self::new(&Vec::from(pts))?;
 
-        if self.slope.is_some() && clamped.slope.is_none() {
+        if self.slope.is_some() && updated.slope.is_none() {
             panic!(
-                "Clamped {:?} to {:?} and lost slope {:?}",
-                self, range, &clamped
+                "Updated {:?} to {:?} and lost slope {:?}",
+                self, range, &updated
             );
         }
 
-        Ok(clamped)
+        Ok(updated)
+    }
+
+    /// Similar to with_range() but can only reduce the range.
+    fn clamped(&self, mut range: (f64, f64)) -> Result<Self> {
+        range.0 = range.0.max(self.range.0);
+        range.1 = range.1.min(self.range.1);
+        self.with_range(range)
     }
 
     fn min_max(&self) -> (f64, f64) {
-        self.points
-            .iter()
-            .fold((std::f64::MAX, std::f64::MIN), |mut min_max, pt| {
-                if pt.y < min_max.0 {
-                    min_max.0 = pt.y;
-                }
-                if pt.y > min_max.1 {
-                    min_max.1 = pt.y;
-                }
-                min_max
-            })
+        if self.points.is_empty() {
+            (0.0, 0.0)
+        } else {
+            self.points
+                .iter()
+                .fold((std::f64::MAX, std::f64::MIN), |mut min_max, pt| {
+                    if pt.y < min_max.0 {
+                        min_max.0 = pt.y;
+                    }
+                    if pt.y > min_max.1 {
+                        min_max.1 = pt.y;
+                    }
+                    min_max
+                })
+        }
     }
 }
 
@@ -1701,7 +1754,7 @@ impl IoCostTuneJob {
         if let Some(fill_upto) = fill_upto {
             series.lines = series
                 .lines
-                .clamped((series.lines.range.0, fill_upto))
+                .with_range((series.lines.range.0, fill_upto))
                 .unwrap();
         }
 
@@ -1716,7 +1769,7 @@ impl IoCostTuneJob {
             );
             let range = series.lines.range;
             series.fit_lines(self.gran, dir)?;
-            series.lines = series.lines.clamped(range).unwrap();
+            series.lines = series.lines.with_range(range).unwrap();
         }
 
         // For some data series, we fit the lines excluding the outliers
@@ -1754,28 +1807,30 @@ impl IoCostTuneJob {
             _ => return vec![format!("Insufficient {} latencies data.", rw_str)],
         };
 
-        if lat_50_mean_lines.left.unwrap().y == lat_50_mean_lines.right.unwrap().y
-            && lat_99_mean_lines.left.unwrap().y == lat_99_mean_lines.right.unwrap().y
-        {
+        let (lat_50_mean_min, lat_50_mean_max) = lat_50_mean_lines.min_max();
+        let (lat_99_mean_min, lat_99_mean_max) = lat_99_mean_lines.min_max();
+        if lat_50_mean_min == lat_50_mean_max && lat_99_mean_min == lat_99_mean_max {
             remarks.push(format!(
                 "Mean {} latencies cannot be modulated with throttling.",
                 rw_str
             ));
         }
 
-        if lat_99_99_lines.left.unwrap().y >= 500.0 * MSEC {
+        let lat_99_99_min = lat_99_99_lines.min_max().0;
+        if lat_99_99_min >= 500.0 * MSEC {
             remarks.push(format!(
                 "Minimum p99 {} latencies spike above {} every 100s.",
                 rw_str,
-                format_duration(lat_99_99_lines.left.unwrap().y)
+                format_duration(lat_99_99_min)
             ));
         }
 
-        if lat_100_100_lines.left.unwrap().y >= 1000.0 * MSEC {
+        let lat_100_100_min = lat_100_100_lines.min_max().0;
+        if lat_100_100_min >= 1000.0 * MSEC {
             remarks.push(format!(
                 "Minimum {} tail latencies spike above {}.",
                 rw_str,
-                format_duration(lat_100_100_lines.left.unwrap().y)
+                format_duration(lat_100_100_min)
             ));
         }
 
@@ -2161,6 +2216,7 @@ impl Job for IoCostTuneJob {
         }
 
         for rule in self.rules.iter() {
+            trace!("solving {:?}", &rule);
             let solution = match rule
                 .target
                 .solve(&res.data, (self.scale_min, self.scale_max))
@@ -2268,7 +2324,7 @@ impl Job for IoCostTuneJob {
 
 #[cfg(test)]
 mod tests {
-    use super::{DataLines, DataPoint, DataSel};
+    use super::{DataLines, DataPoint, DataSel, DataSeries, QoSTarget};
 
     #[test]
     fn test_bench_iocost_tune_datasel_sort_and_group() {
@@ -2415,5 +2471,58 @@ mod tests {
         assert_eq!(dl.eval(3.5), 2.0);
         assert_eq!(dl.eval(4.0), 2.0);
         assert_eq!(dl.eval(4.5), 2.0);
+    }
+
+    #[test]
+    fn test_qos_target_solvers() {
+        let ds = DataSeries {
+            lines: DataLines::new(&[
+                DataPoint::new(1.0, 1.0),
+                DataPoint::new(2.0, 1.0),
+                DataPoint::new(3.0, 2.0),
+                DataPoint::new(4.0, 2.0),
+            ])
+            .unwrap(),
+            ..Default::default()
+        };
+
+        for (vmax, (sol_min, sol_max)) in &[
+            (4.5, (3.25, 3.35)),
+            (4.0, (3.25, 3.35)),
+            (3.5, (3.25, 3.35)),
+            (3.0, (3.0, 3.0)),
+            (2.5, (2.5, 2.5)),
+            (2.0, (0.5, 0.5)),
+            (1.5, (0.5, 0.5)),
+        ] {
+            let sol =
+                QoSTarget::find_min_vrate_at_max_val(&ds, (0.5, *vmax), 0.1, Some(0.5)).unwrap();
+            println!(
+                "vmax={:.1} sol_min={:.2} sol_max={:.2} sol={}",
+                vmax, sol_min, sol_max, sol
+            );
+            assert!(sol >= *sol_min);
+            assert!(sol <= *sol_max);
+        }
+
+        for (vmin, (sol_min, sol_max)) in &[
+            (0.5, (1.75, 1.85)),
+            (1.0, (1.75, 1.85)),
+            (1.5, (1.75, 1.85)),
+            (2.0, (2.0, 2.0)),
+            (2.5, (2.5, 2.5)),
+            (3.0, (4.5, 4.5)),
+            (3.5, (4.5, 4.5)),
+            (4.0, (4.5, 4.5)),
+            (4.5, (4.5, 4.5)),
+        ] {
+            let sol = QoSTarget::find_max_vrate_at_min_val(&ds, (*vmin, 4.5), 0.1).unwrap();
+            println!(
+                "vmin={:.1} sol_min={:.2} sol_max={:.2} sol={}",
+                vmin, sol_min, sol_max, sol
+            );
+            assert!(sol >= *sol_min);
+            assert!(sol <= *sol_max);
+        }
     }
 }

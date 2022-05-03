@@ -153,7 +153,7 @@ impl<'a, 'b> Grapher<'a, 'b> {
         extra_info: &str,
     ) -> Result<()> {
         const SIZE: (u32, u32) = (576, 468);
-        let (view, yscale) = Self::setup_view(
+        let (mut view, yscale) = Self::setup_view(
             self.vrate_range,
             sel,
             series,
@@ -167,7 +167,7 @@ impl<'a, 'b> Grapher<'a, 'b> {
             .iter()
             .map(|p| (p.x, p.y * yscale))
             .collect();
-        let view = view.add(
+        view = view.add(
             Plot::new(points).point_style(
                 PointStyle::new()
                     .marker(PointMarker::Cross)
@@ -176,7 +176,7 @@ impl<'a, 'b> Grapher<'a, 'b> {
         );
 
         let points = series.points.iter().map(|p| (p.x, p.y * yscale)).collect();
-        let view = view.add(
+        view = view.add(
             Plot::new(points).point_style(
                 PointStyle::new()
                     .marker(PointMarker::Circle)
@@ -190,10 +190,11 @@ impl<'a, 'b> Grapher<'a, 'b> {
             .iter()
             .map(|pt| (pt.x, pt.y * yscale))
             .collect();
+        if !segments.is_empty() {
+            view = view.add(Plot::new(segments).line_style(LineStyle::new().colour("#3749e6")));
+        }
 
-        let view = view.add(Plot::new(segments).line_style(LineStyle::new().colour("#3749e6")));
-
-        let view = view.x_max_ticks(10).y_max_ticks(10);
+        view = view.x_max_ticks(10).y_max_ticks(10);
 
         let mut path = PathBuf::from(dir);
         path.push(format!("iocost-tune-{}.svg", sel));
