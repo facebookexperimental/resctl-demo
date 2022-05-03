@@ -30,7 +30,7 @@ impl<'a, 'b> Grapher<'a, 'b> {
         extra_info: Option<&str>,
     ) -> (ContinuousView, f64) {
         let (val_min, val_max) = series
-            .points
+            .data
             .iter()
             .chain(series.outliers.iter())
             .fold((std::f64::MAX, 0.0_f64), |acc, point| {
@@ -134,7 +134,7 @@ impl<'a, 'b> Grapher<'a, 'b> {
         let view =
             view.add(Plot::new(outliers).point_style(PointStyle::new().marker(PointMarker::Cross)));
 
-        let points = series.points.iter().map(|p| (p.x, p.y * yscale)).collect();
+        let points = series.data.iter().map(|p| (p.x, p.y * yscale)).collect();
         let view =
             view.add(Plot::new(points).point_style(PointStyle::new().marker(PointMarker::Circle)));
 
@@ -175,7 +175,7 @@ impl<'a, 'b> Grapher<'a, 'b> {
             ),
         );
 
-        let points = series.points.iter().map(|p| (p.x, p.y * yscale)).collect();
+        let points = series.data.iter().map(|p| (p.x, p.y * yscale)).collect();
         view = view.add(
             Plot::new(points).point_style(
                 PointStyle::new()

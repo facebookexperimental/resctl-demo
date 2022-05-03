@@ -1262,7 +1262,7 @@ impl DataLines {
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 struct DataSeries {
-    points: Vec<DataPoint>,
+    data: Vec<DataPoint>,
     outliers: Vec<DataPoint>,
     lines: DataLines,
     error: f64,
@@ -1270,12 +1270,12 @@ struct DataSeries {
 
 impl DataSeries {
     fn reset(&mut self) {
-        let mut points = vec![];
-        points.append(&mut self.points);
-        points.append(&mut self.outliers);
-        points.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        let mut data = vec![];
+        data.append(&mut self.data);
+        data.append(&mut self.outliers);
+        data.sort_by(|a, b| a.partial_cmp(b).unwrap());
         *self = DataSeries {
-            points,
+            data,
             ..Default::default()
         };
     }
@@ -1406,12 +1406,12 @@ impl DataSeries {
     }
 
     fn fit_lines(&mut self, gran: f64, shape: DataShape) -> Result<()> {
-        if self.points.len() == 0 {
+        if self.data.len() == 0 {
             return Ok(());
         }
 
-        let start = self.points.iter().next().unwrap().x;
-        let end = self.points.iter().last().unwrap().x;
+        let start = self.data.iter().next().unwrap().x;
+        let end = self.data.iter().last().unwrap().x;
         let intvs = ((end - start) / gran).ceil() as u32 + 1;
         if intvs <= 1 {
             return Ok(());
@@ -1425,13 +1425,13 @@ impl DataSeries {
         const MIN_SEG_DIST: f64 = 10.0;
 
         // Start with mean flat line which is acceptable for both dirs.
-        let mean = statistical::mean(&self.points.iter().map(|p| p.y).collect::<Vec<f64>>());
-        let range = Self::range(&self.points);
+        let mean = statistical::mean(&self.data.iter().map(|p| p.y).collect::<Vec<f64>>());
+        let range = Self::range(&self.data);
         let mut best_lines =
             DataLines::new(&[DataPoint::new(range.0, mean), DataPoint::new(range.1, mean)])
                 .unwrap();
 
-        let mut best_error = Self::calc_error(self.points.iter(), &best_lines);
+        let mut best_error = Self::calc_error(self.data.iter(), &best_lines);
 
         let mut try_and_pick = |fit: &(dyn Fn() -> Option<DataLines>)| -> Result<bool> {
             if prog_exiting() {
@@ -1465,7 +1465,7 @@ impl DataSeries {
                     }
                 }
 
-                let mut error = Self::calc_error(self.points.iter(), &lines);
+                let mut error = Self::calc_error(self.data.iter(), &lines);
                 error *= ERROR_MULTIPLIER.powi(lines.points.len() as i32 - 1);
                 if error < best_error {
                     trace!(
@@ -1484,8 +1484,8 @@ impl DataSeries {
         };
 
         // Try simple linear regression.
-        if self.points.len() > 3 {
-            try_and_pick(&|| Some(Self::fit_line(&self.points)))?;
+        if self.data.len() > 3 {
+            try_and_pick(&|| Some(Self::fit_line(&self.data)))?;
         }
 
         // Try one flat line and one slope.
@@ -1494,8 +1494,8 @@ impl DataSeries {
             if infl < start + MIN_SEG_DIST || infl > end - MIN_SEG_DIST {
                 continue;
             }
-            try_and_pick(&|| Self::fit_slope_with_left(&self.points, infl))?;
-            try_and_pick(&|| Self::fit_slope_with_right(&self.points, infl))?;
+            try_and_pick(&|| Self::fit_slope_with_left(&self.data, infl))?;
+            try_and_pick(&|| Self::fit_slope_with_right(&self.data, infl))?;
         }
 
         // Try two flat lines connected with a slope.
@@ -1509,7 +1509,7 @@ impl DataSeries {
                 if right - left < MIN_SEG_DIST || right > end - MIN_SEG_DIST {
                     continue;
                 }
-                try_and_pick(&|| Self::fit_slope_with_left_and_right(&self.points, left, right))?;
+                try_and_pick(&|| Self::fit_slope_with_left_and_right(&self.data, left, right))?;
             }
         }
 
@@ -1519,10 +1519,10 @@ impl DataSeries {
 
     fn filter_beyond(&mut self, vrate_thr: f64) {
         let mut points = vec![];
-        points.append(&mut self.points);
+        points.append(&mut self.data);
         for point in points.into_iter() {
             if point.x <= vrate_thr {
-                self.points.push(point);
+                self.data.push(point);
             } else {
                 self.outliers.push(point);
             }
@@ -1534,16 +1534,16 @@ impl DataSeries {
     }
 
     fn filter_outliers(&mut self) {
-        if self.points.len() < 2 {
+        if self.data.len() < 2 {
             return;
         }
 
-        let mut points = vec![];
-        points.append(&mut self.points);
+        let mut data = vec![];
+        data.append(&mut self.data);
 
         let lines = &self.lines;
-        let nr_points = points.len() as f64;
-        let errors: Vec<f64> = points
+        let nr_data = data.len() as f64;
+        let errors: Vec<f64> = data
             .iter()
             .map(|p| (p.y - lines.eval(p.x)).powi(2))
             .collect();
@@ -1551,21 +1551,21 @@ impl DataSeries {
         let stdev = statistical::standard_deviation(&errors, None);
 
         if let Ok(dist) = Normal::new(mean, stdev) {
-            for (point, error) in points.into_iter().zip(errors.iter()) {
+            for (point, error) in data.into_iter().zip(errors.iter()) {
                 // Apply Chauvenet's criterion on the error of each data point
                 // to detect and reject outliers.
-                if (1.0 - dist.cdf(*error)) * nr_points >= 0.5 {
-                    self.points.push(point);
+                if (1.0 - dist.cdf(*error)) * nr_data >= 0.5 {
+                    self.data.push(point);
                 } else {
                     self.outliers.push(point);
                 }
             }
 
-            // self.points start sorted but outliers may go out of order if this
-            // function is called more than once. Sort just in case.
+            // self.data start sorted but outliers may go out of order if
+            // this function is called more than once. Sort just in case.
             self.outliers.sort_by(|a, b| a.partial_cmp(b).unwrap());
         } else {
-            self.points = points;
+            self.data = data;
         }
     }
 }
@@ -1705,10 +1705,10 @@ impl IoCostTuneJob {
                 _ => continue,
             };
             if let Some(val) = sel.select(qrecr, qresr, &isol_pct) {
-                series.points.push(DataPoint::new(vrate, val));
+                series.data.push(DataPoint::new(vrate, val));
             }
         }
-        series.points.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        series.data.sort_by(|a, b| a.partial_cmp(b).unwrap());
         Ok(series)
     }
 
@@ -1721,9 +1721,9 @@ impl IoCostTuneJob {
     ) -> Result<()> {
         let (shape, filter_outliers, filter_by_isol) = sel.fit_lines_opts();
         trace!(
-            "fitting {:?} points={} shape={:?} filter_outliers={} filter_by_isol={}",
+            "fitting {:?} data={} shape={:?} filter_outliers={} filter_by_isol={}",
             &sel,
-            series.points.len(),
+            series.data.len(),
             &shape,
             filter_outliers,
             filter_by_isol
@@ -1771,9 +1771,9 @@ impl IoCostTuneJob {
         if filter_outliers {
             series.filter_outliers();
             trace!(
-                "fitting {:?} points={} outliers={} shape={:?}",
+                "fitting {:?} data={} outliers={} shape={:?}",
                 &sel,
-                series.points.len(),
+                series.data.len(),
                 series.outliers.len(),
                 &shape
             );
@@ -1788,7 +1788,7 @@ impl IoCostTuneJob {
         // outliers when reporting error so that the users can gauge the
         // flakiness of the device.
         series.error = DataSeries::calc_error(
-            series.points.iter().chain(series.outliers.iter()),
+            series.data.iter().chain(series.outliers.iter()),
             &series.lines,
         );
 

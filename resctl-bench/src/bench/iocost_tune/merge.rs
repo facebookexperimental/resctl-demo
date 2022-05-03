@@ -148,7 +148,7 @@ pub fn merge(srcs: &mut Vec<MergeSrc>) -> Result<JobData> {
                     data.get_mut(&sel).unwrap()
                 }
             };
-            dst_ds.points.append(&mut src_ds.points);
+            dst_ds.data.append(&mut src_ds.data);
             dst_ds.outliers.append(&mut src_ds.outliers);
         }
     }
