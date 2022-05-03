@@ -621,19 +621,13 @@ impl QoSTarget {
     ) -> Option<f64> {
         let dl = ds.lines.clamped(range).ok()?;
         let (min, max) = dl.min_max();
-        if min == max {
-            return Some(
-                no_sig_vrate
-                    .unwrap_or(dl.range.0)
-                    .clamp(dl.range.0, dl.range.1),
-            );
-        }
-
-        Some(Self::x_with_infl_margin(
-            &dl,
-            Self::find_min_idx_for_y(&dl, max)?,
-            infl_margin,
-        ))
+        Some(if min == max {
+            no_sig_vrate
+                .unwrap_or(dl.range.0)
+                .clamp(dl.range.0, dl.range.1)
+        } else {
+            Self::x_with_infl_margin(&dl, Self::find_min_idx_for_y(&dl, max)?, infl_margin)
+        })
     }
 
     /// Find the maximum vrate with the minimum value.
@@ -644,15 +638,11 @@ impl QoSTarget {
     ) -> Option<f64> {
         let dl = ds.lines.clamped(range).ok()?;
         let (min, max) = dl.min_max();
-        if min == max {
-            return Some(dl.range.1);
-        }
-
-        Some(Self::x_with_infl_margin(
-            &dl,
-            Self::find_max_idx_for_y(&dl, min)?,
-            infl_margin,
-        ))
+        Some(if min == max {
+            dl.range.1
+        } else {
+            Self::x_with_infl_margin(&dl, Self::find_max_idx_for_y(&dl, min)?, infl_margin)
+        })
     }
 
     /// Find the minimum vrate with the minimum value.
@@ -663,15 +653,11 @@ impl QoSTarget {
     ) -> Option<f64> {
         let dl = ds.lines.clamped(range).ok()?;
         let (min, max) = dl.min_max();
-        if min == max {
-            return Some(dl.range.1);
-        }
-
-        Some(Self::x_with_infl_margin(
-            &dl,
-            Self::find_min_idx_for_y(&dl, min)?,
-            infl_margin,
-        ))
+        Some(if min == max {
+            dl.range.1
+        } else {
+            Self::x_with_infl_margin(&dl, Self::find_min_idx_for_y(&dl, min)?, infl_margin)
+        })
     }
 
     /// Find the maximum vrate with the maximum value.
@@ -682,15 +668,11 @@ impl QoSTarget {
     ) -> Option<f64> {
         let dl = ds.lines.clamped(range).ok()?;
         let (min, max) = dl.min_max();
-        if min == max {
-            return Some(dl.range.1);
-        }
-
-        Some(Self::x_with_infl_margin(
-            &dl,
-            Self::find_max_idx_for_y(&dl, max)?,
-            infl_margin,
-        ))
+        Some(if min == max {
+            dl.range.1
+        } else {
+            Self::x_with_infl_margin(&dl, Self::find_max_idx_for_y(&dl, max)?, infl_margin)
+        })
     }
 
     fn solve_vrate_range(
@@ -1129,12 +1111,7 @@ impl DataPoint {
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
 struct DataLines {
     points: Vec<DataPoint>,
-
-    // for compatibility
     range: (f64, f64),
-    left: Option<DataPoint>,
-    right: Option<DataPoint>,
-    slope: Option<f64>,
 }
 
 impl DataLines {
@@ -1164,54 +1141,7 @@ impl DataLines {
             input.last().map(|p| p.x).unwrap_or(0.0),
         );
 
-        // DataLines used to be composed of X range and the left and right
-        // data points which can represent either a dot, a slope, a flat
-        // line and a slope, or a slope surrounded by tw flat lines. Emulate
-        // the old data format to ease transition.
-        let with_slope = |left, right, points| Self {
-            points,
-            range,
-            left: Some(left),
-            right: Some(right),
-            slope: Some(if left.x != right.x && left.y != right.y {
-                (right.y - left.y) / (right.x - left.x)
-            } else {
-                0.0
-            }),
-        };
-
-        match points.len() {
-            // A dot or slope.
-            1 | 2 => {
-                return Ok(with_slope(
-                    *points.first().unwrap(),
-                    *points.last().unwrap(),
-                    points,
-                ));
-            }
-            // A flat line and a slope.
-            3 => {
-                if points[0].y == points[1].y {
-                    return Ok(with_slope(points[1], points[2], points));
-                } else if points[1].y == points[2].y {
-                    return Ok(with_slope(points[0], points[1], points));
-                }
-            }
-            // A slope surrounded by two flat lines.
-            4 => {
-                if points[0].y == points[1].y && points[2].y == points[3].y {
-                    return Ok(with_slope(points[1], points[2], points));
-                }
-            }
-            _ => {}
-        }
-
-        // No left/right representation possible.
-        Ok(Self {
-            points,
-            range,
-            ..Default::default()
-        })
+        Ok(Self { points, range })
     }
 
     /// Determine the Y value at X of @x. If @x is outside range, the
@@ -1294,16 +1224,7 @@ impl DataLines {
         }
         pts.push_back(DataPoint::new(range.1, end_y));
 
-        let updated = Self::new(&Vec::from(pts))?;
-
-        if self.slope.is_some() && updated.slope.is_none() {
-            panic!(
-                "Updated {:?} to {:?} and lost slope {:?}",
-                self, range, &updated
-            );
-        }
-
-        Ok(updated)
+        Self::new(&Vec::from(pts))
     }
 
     /// Similar to with_range() but can only reduce the range.
@@ -2497,9 +2418,6 @@ mod tests {
         println!("dl_vleft={:#?}", &dl);
 
         assert_eq!(dl.range, (1.0, 3.0));
-        assert_eq!(dl.left, Some(DataPoint::new(2.0, 1.0)));
-        assert_eq!(dl.right, Some(DataPoint::new(3.0, 2.0)));
-        assert_eq!(dl.slope, Some(1.0));
 
         assert_eq!(dl.eval(0.5), 1.0);
         assert_eq!(dl.eval(1.0), 1.0);
@@ -2507,7 +2425,7 @@ mod tests {
         assert_eq!(dl.eval(2.0), 1.0);
         assert_eq!(dl.eval(2.5), 1.5);
         assert_eq!(dl.eval(3.0), 2.0);
-        assert_eq!(dl.eval(3.5), 2.5);
+        assert_eq!(dl.eval(3.5), 2.0);
     }
 
     #[test]
@@ -2522,11 +2440,8 @@ mod tests {
         println!("dl_vright={:#?}", &dl);
 
         assert_eq!(dl.range, (2.0, 4.0));
-        assert_eq!(dl.left, Some(DataPoint::new(2.0, 1.0)));
-        assert_eq!(dl.right, Some(DataPoint::new(3.0, 2.0)));
-        assert_eq!(dl.slope, Some(1.0));
 
-        assert_eq!(dl.eval(1.5), 0.5);
+        assert_eq!(dl.eval(1.5), 1.0);
         assert_eq!(dl.eval(2.0), 1.0);
         assert_eq!(dl.eval(2.5), 1.5);
         assert_eq!(dl.eval(3.0), 2.0);
@@ -2548,9 +2463,6 @@ mod tests {
         println!("dl_vleft_vright={:#?}", &dl);
 
         assert_eq!(dl.range, (1.0, 4.0));
-        assert_eq!(dl.left, Some(DataPoint::new(2.0, 1.0)));
-        assert_eq!(dl.right, Some(DataPoint::new(3.0, 2.0)));
-        assert_eq!(dl.slope, Some(1.0));
 
         assert_eq!(dl.eval(0.5), 1.0);
         assert_eq!(dl.eval(1.0), 1.0);
@@ -2582,11 +2494,11 @@ mod tests {
             (3.5, (3.25, 3.35)),
             (3.0, (3.0, 3.0)),
             (2.5, (2.5, 2.5)),
-            (2.0, (0.5, 0.5)),
-            (1.5, (0.5, 0.5)),
+            (2.0, (1.5, 1.5)),
+            (1.5, (1.5, 1.5)),
         ] {
             let sol =
-                QoSTarget::find_min_vrate_at_max_val(&ds, (0.5, *vmax), 0.1, Some(0.5)).unwrap();
+                QoSTarget::find_min_vrate_at_max_val(&ds, (0.5, *vmax), 0.1, Some(1.5)).unwrap();
             println!(
                 "vmax={:.1} sol_min={:.2} sol_max={:.2} sol={}",
                 vmax, sol_min, sol_max, sol
@@ -2601,12 +2513,10 @@ mod tests {
             (1.5, (1.75, 1.85)),
             (2.0, (2.0, 2.0)),
             (2.5, (2.5, 2.5)),
-            (3.0, (4.5, 4.5)),
-            (3.5, (4.5, 4.5)),
-            (4.0, (4.5, 4.5)),
-            (4.5, (4.5, 4.5)),
+            (3.0, (3.5, 3.5)),
+            (3.5, (3.5, 3.5)),
         ] {
-            let sol = QoSTarget::find_max_vrate_at_min_val(&ds, (*vmin, 4.5), 0.1).unwrap();
+            let sol = QoSTarget::find_max_vrate_at_min_val(&ds, (*vmin, 3.5), 0.1).unwrap();
             println!(
                 "vmin={:.1} sol_min={:.2} sol_max={:.2} sol={}",
                 vmin, sol_min, sol_max, sol
