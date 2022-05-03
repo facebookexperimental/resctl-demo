@@ -1412,11 +1412,11 @@ impl DataSeries {
 
         let start = self.data.iter().next().unwrap().x;
         let end = self.data.iter().last().unwrap().x;
-        let intvs = ((end - start) / gran).ceil() as u32 + 1;
-        if intvs <= 1 {
+        let nr_intvs = ((end - start) / gran).ceil() as usize + 1;
+        if nr_intvs <= 1 {
             return Ok(());
         }
-        let gran = (end - start) / (intvs - 1) as f64;
+        let gran = (end - start) / (nr_intvs - 1) as f64;
 
         // We want to prefer line fittings with fewer components. Amplify
         // error based on the number of line segments. Also, make sure each
@@ -1424,13 +1424,14 @@ impl DataSeries {
         const ERROR_MULTIPLIER: f64 = 1.025;
         const MIN_SEG_DIST: f64 = 10.0;
 
+        let min_seg_intvs = (MIN_SEG_DIST / gran).ceil() as usize;
+
         // Start with mean flat line which is acceptable for both dirs.
         let mean = statistical::mean(&self.data.iter().map(|p| p.y).collect::<Vec<f64>>());
         let range = Self::range(&self.data);
         let mut best_lines =
             DataLines::new(&[DataPoint::new(range.0, mean), DataPoint::new(range.1, mean)])
                 .unwrap();
-
         let mut best_error = Self::calc_error(self.data.iter(), &best_lines);
 
         let mut try_and_pick = |fit: &(dyn Fn() -> Option<DataLines>)| -> Result<bool> {
@@ -1483,33 +1484,38 @@ impl DataSeries {
             Ok(false)
         };
 
+        let idx_to_vrate = |idx| -> f64 { start + idx as f64 * gran };
+
         // Try simple linear regression.
         if self.data.len() > 3 {
             try_and_pick(&|| Some(Self::fit_line(&self.data)))?;
         }
 
         // Try one flat line and one slope.
-        for i in 0..intvs {
-            let infl = start + i as f64 * gran;
-            if infl < start + MIN_SEG_DIST || infl > end - MIN_SEG_DIST {
+        for i in 0..nr_intvs {
+            if i < min_seg_intvs || i >= nr_intvs - min_seg_intvs {
                 continue;
             }
-            try_and_pick(&|| Self::fit_slope_with_left(&self.data, infl))?;
-            try_and_pick(&|| Self::fit_slope_with_right(&self.data, infl))?;
+            try_and_pick(&|| Self::fit_slope_with_left(&self.data, idx_to_vrate(i)))?;
+            try_and_pick(&|| Self::fit_slope_with_right(&self.data, idx_to_vrate(i)))?;
         }
 
         // Try two flat lines connected with a slope.
-        for i in 0..intvs - 1 {
-            let left = start + i as f64 * gran;
-            if left < start + MIN_SEG_DIST {
+        for i in 0..nr_intvs - 1 {
+            if i < min_seg_intvs {
                 continue;
             }
-            for j in i..intvs {
-                let right = start + j as f64 * gran;
-                if right - left < MIN_SEG_DIST || right > end - MIN_SEG_DIST {
+            for j in i..nr_intvs {
+                if j - i < min_seg_intvs || j >= nr_intvs - min_seg_intvs {
                     continue;
                 }
-                try_and_pick(&|| Self::fit_slope_with_left_and_right(&self.data, left, right))?;
+                try_and_pick(&|| {
+                    Self::fit_slope_with_left_and_right(
+                        &self.data,
+                        idx_to_vrate(i),
+                        idx_to_vrate(j),
+                    )
+                })?;
             }
         }
 
