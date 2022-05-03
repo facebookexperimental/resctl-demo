@@ -659,29 +659,33 @@ impl QoSTarget {
 
     fn solve_lat_range(
         ds: &DataSeries,
-        (rel_min, rel_max): (f64, f64),
-        (scale_min, scale_max): (f64, f64),
+        rel_range: (f64, f64),
+        scale_range: (f64, f64),
     ) -> Option<(u64, (f64, f64))> {
-        let dl = ds.lines.clamped((scale_min, scale_max)).ok()?;
-        let (left, right) = (dl.left.unwrap(), dl.right.unwrap());
+        if let (Some(left), Some(right)) = (
+            Self::find_max_vrate_at_min_val(ds, scale_range, 0.0),
+            Self::find_min_vrate_at_max_val(ds, scale_range, 0.0, None),
+        ) {
+            if left >= right {
+                return None;
+            }
 
-        // Any slope left?
-        if left.y == right.y {
-            return None;
+            let dist = right - left;
+            let vrate_range = (
+                left + dist * rel_range.0,
+                if rel_range.1 < 1.0 {
+                    left + dist * rel_range.1
+                } else {
+                    scale_range.1
+                },
+            );
+
+            let lat_target = ds.lines.eval(vrate_range.1);
+
+            Some(((lat_target * 1_000_000.0).round() as u64, vrate_range))
+        } else {
+            None
         }
-
-        let dist = right.x - left.x;
-        let vrate_range = (
-            left.x + dist * rel_min,
-            if rel_max < 1.0 {
-                left.x + dist * rel_max
-            } else {
-                scale_max
-            },
-        );
-        let lat_target = dl.eval(vrate_range.1);
-
-        Some(((lat_target * 1_000_000.0).round() as u64, vrate_range))
     }
 
     fn solve(
@@ -1440,35 +1444,41 @@ impl DataSeries {
                 bail!("Program exiting");
             }
             if let Some(lines) = fit() {
-                let (left, right) = (lines.left.unwrap(), lines.right.unwrap());
-                if left.y <= 0.0 || right.y <= 0.0 {
+                let (min, _) = lines.min_max();
+                if min <= 0.0 {
                     return Ok(false);
                 }
+
                 match dir {
                     DataShape::Any => {}
                     DataShape::Inc => {
-                        if left.y > right.y {
-                            return Ok(false);
+                        let mut last = std::f64::MIN;
+                        for pt in &lines.points {
+                            if pt.y < last {
+                                return Ok(false);
+                            }
+                            last = pt.y;
                         }
                     }
                     DataShape::Dec => {
-                        if left.y < right.y {
-                            return Ok(false);
+                        let mut last = std::f64::MAX;
+                        for pt in &lines.points {
+                            if pt.y > last {
+                                return Ok(false);
+                            }
+                            last = pt.y;
                         }
                     }
                 }
+
                 let error = Self::calc_error(self.points.iter(), &lines);
                 if error < *best_error.borrow() {
                     trace!(
-                        "fit-best: ({:.3}, {:.3}) - ({:.3}, {:.3}) \
-                         start={:.3} end={:.3} MIN_SEG_DIST={:.3}",
-                        left.x,
-                        left.y,
-                        right.x,
-                        right.y,
+                        "fit-best: start={:.3} end={:.3} MIN_SEG_DIST={:.3} points={:?}",
                         start,
                         end,
-                        MIN_SEG_DIST
+                        MIN_SEG_DIST,
+                        &lines.points,
                     );
                     best_lines = lines;
                     best_error.replace(error);
