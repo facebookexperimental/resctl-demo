@@ -7,7 +7,6 @@ use super::protection::MemHog;
 use super::*;
 use log::debug;
 use statrs::distribution::{ContinuousCDF, Normal};
-use std::cell::RefCell;
 use std::cmp::{Ordering, PartialOrd};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::io::Write as IoWrite;
@@ -1419,10 +1418,10 @@ impl DataSeries {
         }
         let gran = (end - start) / (intvs - 1) as f64;
 
-        // We want to prefer line fittings with fewer components. Discount
-        // error from the previous stage. Also, make sure each line segment
-        // is at least 10% of the vrate range.
-        const ERROR_DISCOUNT: f64 = 0.975;
+        // We want to prefer line fittings with fewer components. Amplify
+        // error based on the number of line segments. Also, make sure each
+        // line segment is at least 10% of the vrate range.
+        const ERROR_MULTIPLIER: f64 = 1.025;
         const MIN_SEG_DIST: f64 = 10.0;
 
         // Start with mean flat line which is acceptable for both dirs.
@@ -1432,8 +1431,7 @@ impl DataSeries {
             DataLines::new(&[DataPoint::new(range.0, mean), DataPoint::new(range.1, mean)])
                 .unwrap();
 
-        let best_error =
-            RefCell::new(Self::calc_error(self.points.iter(), &best_lines) * ERROR_DISCOUNT);
+        let mut best_error = Self::calc_error(self.points.iter(), &best_lines);
 
         let mut try_and_pick = |fit: &(dyn Fn() -> Option<DataLines>)| -> Result<bool> {
             if prog_exiting() {
@@ -1467,8 +1465,9 @@ impl DataSeries {
                     }
                 }
 
-                let error = Self::calc_error(self.points.iter(), &lines);
-                if error < *best_error.borrow() {
+                let mut error = Self::calc_error(self.points.iter(), &lines);
+                error *= ERROR_MULTIPLIER.powi(lines.points.len() as i32 - 1);
+                if error < best_error {
                     trace!(
                         "fit-best: start={:.3} end={:.3} MIN_SEG_DIST={:.3} points={:?}",
                         start,
@@ -1477,7 +1476,7 @@ impl DataSeries {
                         &lines.points,
                     );
                     best_lines = lines;
-                    best_error.replace(error);
+                    best_error = error;
                     return Ok(true);
                 }
             }
@@ -1485,24 +1484,18 @@ impl DataSeries {
         };
 
         // Try simple linear regression.
-        if self.points.len() > 3 && try_and_pick(&|| Some(Self::fit_line(&self.points)))? {
-            let be = *best_error.borrow();
-            best_error.replace(be * ERROR_DISCOUNT);
+        if self.points.len() > 3 {
+            try_and_pick(&|| Some(Self::fit_line(&self.points)))?;
         }
 
         // Try one flat line and one slope.
-        let mut updated = false;
         for i in 0..intvs {
             let infl = start + i as f64 * gran;
             if infl < start + MIN_SEG_DIST || infl > end - MIN_SEG_DIST {
                 continue;
             }
-            updated |= try_and_pick(&|| Self::fit_slope_with_left(&self.points, infl))?;
-            updated |= try_and_pick(&|| Self::fit_slope_with_right(&self.points, infl))?;
-        }
-        if updated {
-            let be = *best_error.borrow();
-            best_error.replace(be * ERROR_DISCOUNT);
+            try_and_pick(&|| Self::fit_slope_with_left(&self.points, infl))?;
+            try_and_pick(&|| Self::fit_slope_with_right(&self.points, infl))?;
         }
 
         // Try two flat lines connected with a slope.
