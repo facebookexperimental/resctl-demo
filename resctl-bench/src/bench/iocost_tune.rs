@@ -619,7 +619,7 @@ impl QoSTarget {
         infl_margin: f64,
         no_sig_vrate: Option<f64>,
     ) -> Option<f64> {
-        let dl = ds.lines.clamped(range).ok()?;
+        let dl = ds.lines.clamped(range).ok()??;
         let (min, max) = dl.min_max();
         Some(if min == max {
             no_sig_vrate
@@ -636,7 +636,7 @@ impl QoSTarget {
         range: (f64, f64),
         infl_margin: f64,
     ) -> Option<f64> {
-        let dl = ds.lines.clamped(range).ok()?;
+        let dl = ds.lines.clamped(range).ok()??;
         let (min, max) = dl.min_max();
         Some(if min == max {
             dl.range.1
@@ -651,7 +651,7 @@ impl QoSTarget {
         range: (f64, f64),
         infl_margin: f64,
     ) -> Option<f64> {
-        let dl = ds.lines.clamped(range).ok()?;
+        let dl = ds.lines.clamped(range).ok()??;
         let (min, max) = dl.min_max();
         Some(if min == max {
             dl.range.1
@@ -666,7 +666,7 @@ impl QoSTarget {
         range: (f64, f64),
         infl_margin: f64,
     ) -> Option<f64> {
-        let dl = ds.lines.clamped(range).ok()?;
+        let dl = ds.lines.clamped(range).ok()??;
         let (min, max) = dl.min_max();
         Some(if min == max {
             dl.range.1
@@ -826,15 +826,18 @@ impl QoSTarget {
 
         // Find the rightmost valid vrate.
         let solve_max_vrate = |sel| -> Result<Option<f64>> {
-            let clamped = ds(sel)?.lines.clamped((scale_min, scale_max))?;
-            trace!(
-                "solve_max_vrate({:?}) clamped[{}:{}]={:?}",
-                &sel,
-                scale_min,
-                scale_max,
-                &clamped
-            );
-            Ok(Some(clamped.range.1))
+            if let Some(clamped) = ds(sel)?.lines.clamped((scale_min, scale_max))? {
+                trace!(
+                    "solve_max_vrate({:?}) clamped[{}:{}]={:?}",
+                    &sel,
+                    scale_min,
+                    scale_max,
+                    &clamped
+                );
+                Ok(Some(clamped.range.1))
+            } else {
+                Ok(None)
+            }
         };
 
         Ok(match self {
@@ -1228,10 +1231,15 @@ impl DataLines {
     }
 
     /// Similar to with_range() but can only reduce the range.
-    fn clamped(&self, mut range: (f64, f64)) -> Result<Self> {
+    fn clamped(&self, mut range: (f64, f64)) -> Result<Option<Self>> {
         range.0 = range.0.max(self.range.0);
         range.1 = range.1.min(self.range.1);
-        self.with_range(range)
+        if range.0 <= range.1 {
+            let clamped = self.with_range(range)?;
+            Ok(Some(clamped))
+        } else {
+            Ok(None)
+        }
     }
 
     fn min_max(&self) -> (f64, f64) {
@@ -1814,7 +1822,7 @@ impl IoCostTuneJob {
             lat_99_99.lines.clamped(range),
             lat_100_100.lines.clamped(range),
         ) {
-            (Ok(v0), Ok(v1), Ok(v2), Ok(v3)) => (v0, v1, v2, v3),
+            (Ok(Some(v0)), Ok(Some(v1)), Ok(Some(v2)), Ok(Some(v3))) => (v0, v1, v2, v3),
             _ => return vec![format!("Insufficient {} latencies data.", rw_str)],
         };
 
@@ -2227,7 +2235,12 @@ impl Job for IoCostTuneJob {
         }
 
         for rule in self.rules.iter() {
-            trace!("solving {:?}", &rule);
+            trace!(
+                "solving {:?} scale_range=({}, {})",
+                &rule,
+                self.scale_min,
+                self.scale_max
+            );
             let solution = match rule
                 .target
                 .solve(&res.data, (self.scale_min, self.scale_max))
