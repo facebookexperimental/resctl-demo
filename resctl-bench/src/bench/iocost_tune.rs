@@ -592,6 +592,26 @@ impl QoSTarget {
         x
     }
 
+    fn find_min_idx_for_y(dl: &DataLines, y: f64) -> Option<usize> {
+        let pts = &dl.points;
+        let idx = pts.iter().take_while(|pt| pt.y != y).count();
+        if idx < pts.len() {
+            Some(idx)
+        } else {
+            None
+        }
+    }
+
+    fn find_max_idx_for_y(dl: &DataLines, y: f64) -> Option<usize> {
+        let pts = &dl.points;
+        let idx = pts.iter().rev().take_while(|pt| pt.y != y).count();
+        if idx < pts.len() {
+            Some(pts.len() - 1 - idx)
+        } else {
+            None
+        }
+    }
+
     /// Find the minimum vrate with the maximum value.
     fn find_min_vrate_at_max_val(
         ds: &DataSeries,
@@ -609,10 +629,11 @@ impl QoSTarget {
             );
         }
 
-        // Find the leftmost max point.
-        let pts = &dl.points;
-        let idx = pts.iter().take_while(|pt| pt.y != max).count();
-        Some(Self::x_with_infl_margin(&dl, idx, infl_margin))
+        Some(Self::x_with_infl_margin(
+            &dl,
+            Self::find_min_idx_for_y(&dl, max)?,
+            infl_margin,
+        ))
     }
 
     /// Find the maximum vrate with the minimum value.
@@ -627,10 +648,49 @@ impl QoSTarget {
             return Some(dl.range.1);
         }
 
-        // Find the rightmost min point.
-        let pts = &dl.points;
-        let idx = pts.len() - 1 - pts.iter().rev().take_while(|pt| pt.y != min).count();
-        Some(Self::x_with_infl_margin(&dl, idx, infl_margin))
+        Some(Self::x_with_infl_margin(
+            &dl,
+            Self::find_max_idx_for_y(&dl, min)?,
+            infl_margin,
+        ))
+    }
+
+    /// Find the minimum vrate with the minimum value.
+    fn find_min_vrate_at_min_val(
+        ds: &DataSeries,
+        range: (f64, f64),
+        infl_margin: f64,
+    ) -> Option<f64> {
+        let dl = ds.lines.clamped(range).ok()?;
+        let (min, max) = dl.min_max();
+        if min == max {
+            return Some(dl.range.1);
+        }
+
+        Some(Self::x_with_infl_margin(
+            &dl,
+            Self::find_min_idx_for_y(&dl, min)?,
+            infl_margin,
+        ))
+    }
+
+    /// Find the maximum vrate with the maximum value.
+    fn find_max_vrate_at_max_val(
+        ds: &DataSeries,
+        range: (f64, f64),
+        infl_margin: f64,
+    ) -> Option<f64> {
+        let dl = ds.lines.clamped(range).ok()?;
+        let (min, max) = dl.min_max();
+        if min == max {
+            return Some(dl.range.1);
+        }
+
+        Some(Self::x_with_infl_margin(
+            &dl,
+            Self::find_max_idx_for_y(&dl, max)?,
+            infl_margin,
+        ))
     }
 
     fn solve_vrate_range(
@@ -709,12 +769,19 @@ impl QoSTarget {
         // offset amount.
         let mof_ds = ds(&DataSel::MOF)?;
         let infl_offset = || {
-            let (slope, right) = (mof_ds.lines.slope.unwrap(), mof_ds.lines.right.unwrap());
-            let mof_max = right.y;
-            if mof_max == 0.0 {
-                0.0
+            if let (Some(min_x), Some(max_x)) = (
+                Self::find_max_vrate_at_min_val(mof_ds, mof_ds.lines.range, 0.0),
+                Self::find_min_vrate_at_max_val(mof_ds, mof_ds.lines.range, 0.0, None),
+            ) {
+                if min_x == max_x {
+                    0.0
+                } else {
+                    let (min_y, max_y) = (mof_ds.lines.eval(min_x), mof_ds.lines.eval(max_x));
+                    let slope = (max_y - min_y) / (max_x - min_x);
+                    (slope * (mof_ds.error / max_y) * 800.0).min(0.1)
+                }
             } else {
-                (slope * (mof_ds.error / right.y) * 800.0).min(0.1)
+                0.0
             }
         };
 
@@ -1744,16 +1811,29 @@ impl IoCostTuneJob {
 
         let mut fill_upto = None;
         if filter_by_isol {
-            let dl = &isol_series
-                .expect(&format!(
-                    "iocost-tune: Solving {:?} requires {:?} which isn't available",
-                    &sel,
-                    &DataSel::Isol
-                ))
-                .lines;
-            let (slope, right) = (dl.slope.unwrap(), dl.right.unwrap());
-            if slope != 0.0 && right.y < isol_thr {
-                let intcp = (right.x - (right.y - isol_thr) / slope).clamp(dl.range.0, dl.range.1);
+            let ds = &isol_series.expect(&format!(
+                "iocost-tune: Solving {:?} requires {:?} which isn't available",
+                &sel,
+                &DataSel::Isol
+            ));
+
+            let (left_x, right_x) = (
+                QoSTarget::find_max_vrate_at_max_val(ds, ds.lines.range, 0.0)
+                    .ok_or(anyhow!("failed to find isol left point"))?,
+                QoSTarget::find_min_vrate_at_min_val(ds, ds.lines.range, 0.0)
+                    .ok_or(anyhow!("failed to find isol right point"))?,
+            );
+            let (left_y, right_y) = (ds.lines.eval(left_x), ds.lines.eval(right_x));
+
+            let slope = if left_x < right_x {
+                (right_y - left_y) / (right_x - left_x)
+            } else {
+                0.0
+            };
+
+            if slope != 0.0 && right_y < isol_thr {
+                let intcp = (right_x - (right_y - isol_thr) / slope)
+                    .clamp(ds.lines.range.0, ds.lines.range.1);
                 series.filter_beyond(intcp);
                 fill_upto = Some(intcp);
             }
