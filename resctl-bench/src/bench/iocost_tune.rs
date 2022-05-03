@@ -50,8 +50,8 @@ enum DataSel {
 #[derive(Debug, Clone, Copy)]
 enum DataShape {
     Any,
-    Inc,
-    Dec,
+    Inc, // Monotonously increasing
+    Dec, // Monotonously decreasing
 }
 
 impl DataSel {
@@ -1337,10 +1337,10 @@ impl DataSeries {
         top / bot
     }
 
-    fn fit_slope_with_vleft(points: &[DataPoint], vleft: f64) -> Option<DataLines> {
-        let (left, right) = Self::split_at(points, vleft);
-        let left = DataPoint::new(vleft, Self::calc_height(left));
-        let slope = Self::calc_slope(right, &left);
+    fn fit_slope_with_left(points: &[DataPoint], left: f64) -> Option<DataLines> {
+        let (pleft, pright) = Self::split_at(points, left);
+        let left = DataPoint::new(left, Self::calc_height(pleft));
+        let slope = Self::calc_slope(pright, &left);
         if slope == 0.0 {
             return None;
         }
@@ -1354,10 +1354,10 @@ impl DataSeries {
         .ok()
     }
 
-    fn fit_slope_with_vright(points: &[DataPoint], vright: f64) -> Option<DataLines> {
-        let (left, right) = Self::split_at(points, vright);
-        let right = DataPoint::new(vright, Self::calc_height(right));
-        let slope = Self::calc_slope(left, &right);
+    fn fit_slope_with_right(points: &[DataPoint], right: f64) -> Option<DataLines> {
+        let (pleft, pright) = Self::split_at(points, right);
+        let right = DataPoint::new(right, Self::calc_height(pright));
+        let slope = Self::calc_slope(pleft, &right);
         if slope == 0.0 {
             return None;
         }
@@ -1371,16 +1371,16 @@ impl DataSeries {
         .ok()
     }
 
-    fn fit_slope_with_vleft_and_vright(
+    fn fit_slope_with_left_and_right(
         points: &[DataPoint],
-        vleft: f64,
-        vright: f64,
+        left: f64,
+        right: f64,
     ) -> Option<DataLines> {
-        let (left, center) = Self::split_at(points, vleft);
-        let (_, right) = Self::split_at(center, vright);
+        let (pleft, pmid) = Self::split_at(points, left);
+        let (_, pright) = Self::split_at(pmid, right);
 
-        let left = DataPoint::new(vleft, Self::calc_height(left));
-        let right = DataPoint::new(vright, Self::calc_height(right));
+        let left = DataPoint::new(left, Self::calc_height(pleft));
+        let right = DataPoint::new(right, Self::calc_height(pright));
 
         let range = Self::range(points);
         DataLines::new(&[
@@ -1406,7 +1406,7 @@ impl DataSeries {
         }
     }
 
-    fn fit_lines(&mut self, gran: f64, dir: DataShape) -> Result<()> {
+    fn fit_lines(&mut self, gran: f64, shape: DataShape) -> Result<()> {
         if self.points.len() == 0 {
             return Ok(());
         }
@@ -1445,7 +1445,7 @@ impl DataSeries {
                     return Ok(false);
                 }
 
-                match dir {
+                match shape {
                     DataShape::Any => {}
                     DataShape::Inc => {
                         let mut last = std::f64::MIN;
@@ -1497,8 +1497,8 @@ impl DataSeries {
             if infl < start + MIN_SEG_DIST || infl > end - MIN_SEG_DIST {
                 continue;
             }
-            updated |= try_and_pick(&|| Self::fit_slope_with_vleft(&self.points, infl))?;
-            updated |= try_and_pick(&|| Self::fit_slope_with_vright(&self.points, infl))?;
+            updated |= try_and_pick(&|| Self::fit_slope_with_left(&self.points, infl))?;
+            updated |= try_and_pick(&|| Self::fit_slope_with_right(&self.points, infl))?;
         }
         if updated {
             let be = *best_error.borrow();
@@ -1507,18 +1507,16 @@ impl DataSeries {
 
         // Try two flat lines connected with a slope.
         for i in 0..intvs - 1 {
-            let vleft = start + i as f64 * gran;
-            if vleft < start + MIN_SEG_DIST {
+            let left = start + i as f64 * gran;
+            if left < start + MIN_SEG_DIST {
                 continue;
             }
             for j in i..intvs {
-                let vright = start + j as f64 * gran;
-                if vright - vleft < MIN_SEG_DIST || vright > end - MIN_SEG_DIST {
+                let right = start + j as f64 * gran;
+                if right - left < MIN_SEG_DIST || right > end - MIN_SEG_DIST {
                     continue;
                 }
-                try_and_pick(&|| {
-                    Self::fit_slope_with_vleft_and_vright(&self.points, vleft, vright)
-                })?;
+                try_and_pick(&|| Self::fit_slope_with_left_and_right(&self.points, left, right))?;
             }
         }
 
@@ -1728,12 +1726,12 @@ impl IoCostTuneJob {
         isol_series: Option<&DataSeries>,
         isol_thr: f64,
     ) -> Result<()> {
-        let (dir, filter_outliers, filter_by_isol) = sel.fit_lines_opts();
+        let (shape, filter_outliers, filter_by_isol) = sel.fit_lines_opts();
         trace!(
-            "fitting {:?} points={} dir={:?} filter_outliers={} filter_by_isol={}",
+            "fitting {:?} points={} shape={:?} filter_outliers={} filter_by_isol={}",
             &sel,
             series.points.len(),
-            &dir,
+            &shape,
             filter_outliers,
             filter_by_isol
         );
@@ -1768,7 +1766,7 @@ impl IoCostTuneJob {
             }
         }
 
-        series.fit_lines(self.gran, dir)?;
+        series.fit_lines(self.gran, shape)?;
 
         if let Some(fill_upto) = fill_upto {
             series.lines = series
@@ -1780,14 +1778,14 @@ impl IoCostTuneJob {
         if filter_outliers {
             series.filter_outliers();
             trace!(
-                "fitting {:?} points={} outliers={} dir={:?}",
+                "fitting {:?} points={} outliers={} shape={:?}",
                 &sel,
                 series.points.len(),
                 series.outliers.len(),
-                &dir
+                &shape
             );
             let range = series.lines.range;
-            series.fit_lines(self.gran, dir)?;
+            series.fit_lines(self.gran, shape)?;
             series.lines = series.lines.with_range(range).unwrap();
         }
 
@@ -2420,7 +2418,7 @@ mod tests {
     }
 
     #[test]
-    fn test_data_lines_vleft() {
+    fn test_data_lines_left() {
         let dl = DataLines::new(&[
             DataPoint::new(1.0, 1.0),
             DataPoint::new(2.0, 1.0),
@@ -2428,7 +2426,7 @@ mod tests {
         ])
         .unwrap();
 
-        println!("dl_vleft={:#?}", &dl);
+        println!("dl_left={:#?}", &dl);
 
         assert_eq!(dl.range, (1.0, 3.0));
 
@@ -2442,7 +2440,7 @@ mod tests {
     }
 
     #[test]
-    fn test_data_lines_vright() {
+    fn test_data_lines_right() {
         let dl = DataLines::new(&[
             DataPoint::new(2.0, 1.0),
             DataPoint::new(3.0, 2.0),
@@ -2450,7 +2448,7 @@ mod tests {
         ])
         .unwrap();
 
-        println!("dl_vright={:#?}", &dl);
+        println!("dl_right={:#?}", &dl);
 
         assert_eq!(dl.range, (2.0, 4.0));
 
@@ -2464,7 +2462,7 @@ mod tests {
     }
 
     #[test]
-    fn test_data_lines_vleft_vright() {
+    fn test_data_lines_left_right() {
         let dl = DataLines::new(&[
             DataPoint::new(1.0, 1.0),
             DataPoint::new(2.0, 1.0),
@@ -2473,7 +2471,7 @@ mod tests {
         ])
         .unwrap();
 
-        println!("dl_vleft_vright={:#?}", &dl);
+        println!("dl_left_right={:#?}", &dl);
 
         assert_eq!(dl.range, (1.0, 4.0));
 
