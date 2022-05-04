@@ -5,7 +5,8 @@ use super::iocost_qos::{
 use super::protection::mem_hog_tune::{DFL_ISOL_PCT, DFL_ISOL_THR};
 use super::protection::MemHog;
 use super::*;
-use log::debug;
+use log::{debug, error};
+use scan_fmt::scan_fmt;
 use statrs::distribution::{ContinuousCDF, Normal};
 use std::cmp::{Ordering, PartialOrd};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
@@ -1288,10 +1289,10 @@ impl DataSeries {
     /// Splitting self.data[] at @idx. Determine the inbetween X value. If
     /// @idx is at the beginning or end, return the X value on the point.
     fn idx_to_div(&self, idx: usize) -> f64 {
-        if idx > 0 && idx < self.data.len() - 1 {
+        if idx > 0 && idx < self.data.len() {
             (self.data[idx - 1].x + self.data[idx].x) / 2.0
         } else {
-            self.data[idx].x
+            self.data[idx.clamp(0, self.data.len() - 1)].x
         }
     }
 
@@ -1385,14 +1386,190 @@ impl DataSeries {
         .ok()
     }
 
-    fn fit_two_slopes(
+    fn fit_single_peak(
         &self,
         llidx: usize,
         lidx: usize,
         ridx: usize,
         rridx: usize,
+        debug: bool,
     ) -> Option<DataLines> {
-        None
+        let indices: [usize; 4] = [llidx, lidx, ridx, rridx];
+        let mut points: [Option<DataPoint>; 4] = [None; 4];
+
+        if debug {
+            debug!(
+                "fit_single_peak: {} points {:.3}-{:.3} indices={:?}",
+                self.data.len(),
+                self.data.first().unwrap().x,
+                self.data.last().unwrap().x,
+                &indices
+            );
+        }
+
+        let set_point = |idx: usize, y: f64, points: &mut [Option<DataPoint>; 4]| {
+            for i in 0..indices.len() {
+                if indices[idx] == indices[i] {
+                    points[i] = Some(DataPoint::new(self.idx_to_div(indices[idx]), y));
+                }
+            }
+        };
+
+        // Fit all the flat components.
+        if llidx > 0 {
+            set_point(0, Self::calc_height(&self.data[..llidx]), &mut points);
+        }
+
+        if rridx < self.data.len() {
+            set_point(3, Self::calc_height(&self.data[rridx..]), &mut points);
+        }
+
+        if lidx < ridx {
+            let height = Self::calc_height(&self.data[lidx..ridx]);
+            set_point(1, height, &mut points);
+            set_point(2, height, &mut points);
+        }
+
+        if debug {
+            debug!("fit_single_peak: After fitting flat lines {:?}", &points);
+        }
+
+        // Fit the slopes if there's an anchor point.
+        let mut fit_slope_with_anchor = |li, ri| match (points[li], points[ri]) {
+            (Some(left), None) => {
+                let slope = Self::calc_slope(&self.data[li..ri], &left);
+                set_point(
+                    ri,
+                    left.y + slope * (self.idx_to_div(ri) - left.x),
+                    &mut points,
+                );
+            }
+            (None, Some(right)) => {
+                let slope = Self::calc_slope(&self.data[li..ri], &right);
+                set_point(
+                    li,
+                    right.y - slope * (right.x - self.idx_to_div(li)),
+                    &mut points,
+                );
+            }
+            _ => {}
+        };
+
+        // We try to fit, the left slope, then right and left again because
+        // fitting the right slope may create an anchor point for the left
+        // slope.
+        fit_slope_with_anchor(0, 1);
+        fit_slope_with_anchor(2, 3);
+        fit_slope_with_anchor(0, 1);
+
+        if debug {
+            debug!(
+                "fit_single_peak: After fitting anchored slopes {:?}",
+                &points
+            );
+        }
+
+        // We should either have full or none fitting at this point. The latter is
+        // possible iff there's no flat component (ie. two slopes only).
+        match points.iter().filter(|x| x.is_some()).count() {
+            0 => {
+                if llidx != 0 || lidx != ridx || rridx != self.data.len() {
+                    error!("fit_two_slopes: Unexpected none fitting ({:?})", &indices);
+                    return None;
+                }
+
+                // We don't have any anchors. Do linear regression on the
+                // two parts and find the intersection. Note that the
+                // intersection is likely to differ from the X value at
+                // lidx. The fitted lines in this case will deviate from the
+                // requested X position.
+                let (a_slope, a_y_intcp): (f64, f64) = linreg::linear_regression_of(
+                    &self.data[..lidx]
+                        .iter()
+                        .map(|d| (d.x, d.y))
+                        .collect::<Vec<(f64, f64)>>(),
+                )
+                .ok()?;
+                let (b_slope, b_y_intcp): (f64, f64) = linreg::linear_regression_of(
+                    &self.data[lidx..]
+                        .iter()
+                        .map(|d| (d.x, d.y))
+                        .collect::<Vec<(f64, f64)>>(),
+                )
+                .ok()?;
+
+                if debug {
+                    debug!(
+                        "fit_single_peak: two slopes ({}, {}), ({}, {})",
+                        a_slope, a_y_intcp, b_slope, b_y_intcp
+                    );
+                }
+
+                if a_slope == b_slope {
+                    return None;
+                }
+                let int_x = (b_y_intcp - a_y_intcp) / (a_slope - b_slope);
+                let int_y = (a_slope * b_y_intcp - b_slope * a_y_intcp) / (a_slope - b_slope);
+
+                if debug {
+                    debug!("fit_single_peak: intersecting at ({}, {})", int_x, int_y);
+                }
+
+                if int_x < self.data.first().unwrap().x || int_x > self.data.last().unwrap().x {
+                    return None;
+                }
+
+                let lleft_x = self.idx_to_div(llidx);
+                let rright_x = self.idx_to_div(rridx);
+
+                points = [
+                    Some(DataPoint::new(lleft_x, a_slope * lleft_x + a_y_intcp)),
+                    Some(DataPoint::new(int_x, int_y)),
+                    Some(DataPoint::new(int_x, int_y)),
+                    Some(DataPoint::new(rright_x, b_slope * rright_x + b_y_intcp)),
+                ];
+            }
+            4 => {}
+            _ => {
+                error!(
+                    "fit_two_lines: Unexpected partial fitting ({:?} {:?})",
+                    &indices, &points
+                );
+                return None;
+            }
+        }
+
+        if debug {
+            debug!("fit_single_peak: After fitting two slopes {:?}", &points);
+        }
+
+        // Add the end points and filter out duplicates.
+        let mut result = vec![];
+
+        if points[0].unwrap().x != self.idx_to_div(0) {
+            result.push(DataPoint::new(self.idx_to_div(0), points[0].unwrap().y));
+        }
+        result.push(points[0].unwrap());
+
+        for i in 1..points.len() {
+            let point = points[i].unwrap();
+            if result.last().unwrap().x != point.x {
+                result.push(point);
+            }
+        }
+
+        if points[3].unwrap().x != self.idx_to_div(self.data.len()) {
+            result.push(DataPoint::new(
+                self.idx_to_div(self.data.len()),
+                points[3].unwrap().y,
+            ));
+        }
+
+        if debug {
+            debug!("fit_single_peak: After finalization {:?}", &result);
+        }
+
+        DataLines::new(&result).ok()
     }
 
     fn calc_error<'a, I>(data: I, lines: &DataLines) -> f64
@@ -1499,65 +1676,31 @@ impl DataSeries {
             Ok(false)
         };
 
-        // Try simple linear regression.
-        if self.data.len() > 3 {
-            try_and_pick(&|| Some(self.fit_line()))?;
-        }
-
-        // Try one flat line and one slope.
-        let mut last_div = std::f64::MIN;
-        for i in 0..self.data.len() {
-            let div = self.idx_to_div(i);
-            if div < last_div + MIN_DIV_DIST
-                || div < start + MIN_SEG_DIST
-                || div > end - MIN_SEG_DIST
-            {
-                continue;
-            }
-            last_div = div;
-
-            try_and_pick(&|| self.fit_slope_with_left(i))?;
-            try_and_pick(&|| self.fit_slope_with_right(i))?;
-        }
-
-        // Try two flat lines connected with a slope.
-        let mut last_ldiv = std::f64::MIN;
-        for lidx in 0..self.data.len() {
-            let ldiv = self.idx_to_div(lidx);
-            if ldiv < last_ldiv + MIN_DIV_DIST || ldiv < start + MIN_SEG_DIST {
-                continue;
-            }
-            last_ldiv = ldiv;
-
-            let mut last_rdiv = std::f64::MIN;
-            for ridx in lidx..self.data.len() {
-                let rdiv = self.idx_to_div(ridx);
-                if rdiv < last_rdiv + MIN_DIV_DIST
-                    || rdiv - ldiv < MIN_SEG_DIST
-                    || rdiv > end - MIN_SEG_DIST
-                {
-                    continue;
+        if shape == DataShape::SinglePeak && self.data.len() > 3 {
+            // Two slopes forming one peak or valley. Any component can be
+            // omitted. It's likely that we can handle Inc/Dec line fitting
+            // with this too but leave that for future.
+            //
+            //        *---*
+            //       /.   .\
+            //    --* .   . \
+            //      . .   .  *---
+            //  llidx . ridx .
+            //       lidx   rridx
+            let mut debug_tuple = None;
+            for (key, val) in std::env::vars() {
+                if key == "IOCOST_TUNE_SINGLE_PEAK_DEBUG_TUPLE" {
+                    match scan_fmt!(&val, "{}:{}:{}:{}", usize, usize, usize, usize) {
+                        Ok(tuple) => debug_tuple = Some(tuple),
+                        Err(e) => {
+                            warn!("iocost-tune: Failed to parse {}={} ({:?})", &key, &val, &e)
+                        }
+                    }
                 }
-                last_rdiv = rdiv;
-
-                try_and_pick(&|| self.fit_slope_with_left_and_right(lidx, ridx))?;
             }
-        }
 
-        // Two slopes forming one peak or valley. Flat components can be
-        // omitted - ie. lleft can be zero, left can equal right, rright can
-        // be data.len() - 1.
-        //
-        //        *---*
-        //       /.   .\
-        //    --* .   . \
-        //      . .   .  *---
-        //  llidx . ridx .
-        //       lidx   rridx
-        //
-        if shape == DataShape::SinglePeak {
             let mut last_lldiv = std::f64::MIN;
-            for llidx in 0..self.data.len() {
+            for llidx in 0..self.data.len() + 1 {
                 let lldiv = self.idx_to_div(llidx);
                 if llidx > 0 && (lldiv < last_lldiv + MIN_DIV_DIST || lldiv < start + MIN_SEG_DIST)
                 {
@@ -1566,17 +1709,19 @@ impl DataSeries {
                 last_lldiv = lldiv;
 
                 let mut last_ldiv = std::f64::MIN;
-                for lidx in llidx..self.data.len() {
+                for lidx in llidx..self.data.len() + 1 {
                     let ldiv = self.idx_to_div(lidx);
-                    if ldiv < last_ldiv + MIN_DIV_DIST || ldiv - lldiv < MIN_SEG_DIST {
+                    if lidx > llidx
+                        && (ldiv < last_ldiv + MIN_DIV_DIST || ldiv - lldiv < MIN_SEG_DIST)
+                    {
                         continue;
                     }
                     last_ldiv = ldiv;
 
                     let mut last_rdiv = std::f64::MIN;
-                    for ridx in lidx..self.data.len() {
+                    for ridx in lidx..self.data.len() + 1 {
                         let rdiv = self.idx_to_div(ridx);
-                        if ridx != lidx
+                        if ridx > lidx
                             && (rdiv < last_rdiv + MIN_DIV_DIST || rdiv - ldiv < MIN_SEG_DIST)
                         {
                             continue;
@@ -1584,20 +1729,78 @@ impl DataSeries {
                         last_rdiv = rdiv;
 
                         let mut last_rrdiv = std::f64::MIN;
-                        for rridx in ridx..self.data.len() {
+                        for rridx in ridx..self.data.len() + 1 {
                             let rrdiv = self.idx_to_div(rridx);
-                            if rrdiv - rdiv < MIN_SEG_DIST
-                                || (rridx < self.data.len() - 1
-                                    && (rrdiv < last_rrdiv + MIN_DIV_DIST
-                                        || rrdiv > end - MIN_SEG_DIST))
+                            if rridx > ridx
+                                && (rrdiv - rdiv < MIN_SEG_DIST
+                                    || (rridx < self.data.len() - 1
+                                        && (rrdiv < last_rrdiv + MIN_DIV_DIST
+                                            || rrdiv > end - MIN_SEG_DIST)))
                             {
                                 continue;
                             }
                             last_rrdiv = rrdiv;
 
-                            try_and_pick(&|| self.fit_two_slopes(llidx, lidx, ridx, rridx))?;
+                            let debug = match debug_tuple {
+                                Some(tuple) => {
+                                    llidx == tuple.0
+                                        && lidx == tuple.1
+                                        && ridx == tuple.2
+                                        && rridx == tuple.3
+                                }
+                                _ => false,
+                            };
+
+                            try_and_pick(&|| {
+                                self.fit_single_peak(llidx, lidx, ridx, rridx, debug)
+                            })?;
                         }
                     }
+                }
+            }
+        } else {
+            // Try simple linear regression.
+            if self.data.len() > 3 {
+                try_and_pick(&|| Some(self.fit_line()))?;
+            }
+
+            // Try one flat line and one slope.
+            let mut last_div = std::f64::MIN;
+            for i in 0..self.data.len() {
+                let div = self.idx_to_div(i);
+                if div < last_div + MIN_DIV_DIST
+                    || div < start + MIN_SEG_DIST
+                    || div > end - MIN_SEG_DIST
+                {
+                    continue;
+                }
+                last_div = div;
+
+                try_and_pick(&|| self.fit_slope_with_left(i))?;
+                try_and_pick(&|| self.fit_slope_with_right(i))?;
+            }
+
+            // Try two flat lines connected with a slope.
+            let mut last_ldiv = std::f64::MIN;
+            for lidx in 0..self.data.len() {
+                let ldiv = self.idx_to_div(lidx);
+                if ldiv < last_ldiv + MIN_DIV_DIST || ldiv < start + MIN_SEG_DIST {
+                    continue;
+                }
+                last_ldiv = ldiv;
+
+                let mut last_rdiv = std::f64::MIN;
+                for ridx in lidx..self.data.len() {
+                    let rdiv = self.idx_to_div(ridx);
+                    if rdiv < last_rdiv + MIN_DIV_DIST
+                        || rdiv - ldiv < MIN_SEG_DIST
+                        || rdiv > end - MIN_SEG_DIST
+                    {
+                        continue;
+                    }
+                    last_rdiv = rdiv;
+
+                    try_and_pick(&|| self.fit_slope_with_left_and_right(lidx, ridx))?;
                 }
             }
         }
