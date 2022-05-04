@@ -1478,56 +1478,67 @@ impl DataSeries {
                     return None;
                 }
 
-                // We don't have any anchors. Do linear regression on the
-                // two parts and find the intersection. Note that the
-                // intersection is likely to differ from the X value at
-                // lidx. The fitted lines in this case will deviate from the
-                // requested X position.
-                let (a_slope, a_y_intcp): (f64, f64) = linreg::linear_regression_of(
-                    &self.data[..lidx]
-                        .iter()
-                        .map(|d| (d.x, d.y))
-                        .collect::<Vec<(f64, f64)>>(),
-                )
-                .ok()?;
-                let (b_slope, b_y_intcp): (f64, f64) = linreg::linear_regression_of(
-                    &self.data[lidx..]
-                        .iter()
-                        .map(|d| (d.x, d.y))
-                        .collect::<Vec<(f64, f64)>>(),
-                )
-                .ok()?;
+                if lidx == 0 || lidx == self.data.len() {
+                    // We only have one slope. Do a simple linear regression.
+                    let dl = self.fit_line();
+                    points = [
+                        Some(dl.points[0]),
+                        Some(dl.points[1]),
+                        Some(dl.points[1]),
+                        Some(dl.points[1]),
+                    ];
+                } else {
+                    // We don't have any anchors. Do linear regression on the
+                    // two parts and find the intersection. Note that the
+                    // intersection is likely to differ from the X value at
+                    // lidx. The fitted lines in this case will deviate from the
+                    // requested X position.
+                    let (a_slope, a_y_intcp): (f64, f64) = linreg::linear_regression_of(
+                        &self.data[..lidx]
+                            .iter()
+                            .map(|d| (d.x, d.y))
+                            .collect::<Vec<(f64, f64)>>(),
+                    )
+                    .ok()?;
+                    let (b_slope, b_y_intcp): (f64, f64) = linreg::linear_regression_of(
+                        &self.data[lidx..]
+                            .iter()
+                            .map(|d| (d.x, d.y))
+                            .collect::<Vec<(f64, f64)>>(),
+                    )
+                    .ok()?;
 
-                if debug {
-                    debug!(
-                        "fit_single_peak: two slopes ({}, {}), ({}, {})",
-                        a_slope, a_y_intcp, b_slope, b_y_intcp
-                    );
+                    if debug {
+                        debug!(
+                            "fit_single_peak: two slopes ({}, {}), ({}, {})",
+                            a_slope, a_y_intcp, b_slope, b_y_intcp
+                        );
+                    }
+
+                    if a_slope == b_slope {
+                        return None;
+                    }
+                    let int_x = (b_y_intcp - a_y_intcp) / (a_slope - b_slope);
+                    let int_y = (a_slope * b_y_intcp - b_slope * a_y_intcp) / (a_slope - b_slope);
+
+                    if debug {
+                        debug!("fit_single_peak: intersecting at ({}, {})", int_x, int_y);
+                    }
+
+                    if int_x < self.data.first().unwrap().x || int_x > self.data.last().unwrap().x {
+                        return None;
+                    }
+
+                    let lleft_x = self.idx_to_div(llidx);
+                    let rright_x = self.idx_to_div(rridx);
+
+                    points = [
+                        Some(DataPoint::new(lleft_x, a_slope * lleft_x + a_y_intcp)),
+                        Some(DataPoint::new(int_x, int_y)),
+                        Some(DataPoint::new(int_x, int_y)),
+                        Some(DataPoint::new(rright_x, b_slope * rright_x + b_y_intcp)),
+                    ];
                 }
-
-                if a_slope == b_slope {
-                    return None;
-                }
-                let int_x = (b_y_intcp - a_y_intcp) / (a_slope - b_slope);
-                let int_y = (a_slope * b_y_intcp - b_slope * a_y_intcp) / (a_slope - b_slope);
-
-                if debug {
-                    debug!("fit_single_peak: intersecting at ({}, {})", int_x, int_y);
-                }
-
-                if int_x < self.data.first().unwrap().x || int_x > self.data.last().unwrap().x {
-                    return None;
-                }
-
-                let lleft_x = self.idx_to_div(llidx);
-                let rright_x = self.idx_to_div(rridx);
-
-                points = [
-                    Some(DataPoint::new(lleft_x, a_slope * lleft_x + a_y_intcp)),
-                    Some(DataPoint::new(int_x, int_y)),
-                    Some(DataPoint::new(int_x, int_y)),
-                    Some(DataPoint::new(rright_x, b_slope * rright_x + b_y_intcp)),
-                ];
             }
             4 => {}
             _ => {
