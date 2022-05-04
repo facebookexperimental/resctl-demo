@@ -259,11 +259,6 @@ Properties
 First group properties (applies to all sub-runs)
 ------------------------------------------------
 
-#### `gran` (float, default: 0.1)
-
-The granularity used when fitting lines to data points. The finer the
-granularity, the more cycles are needed.
-
 #### `scale-min` (fraction, default: 0.01)
 
 The minimum scale factor. No solution will scale below. See `scale-max`.

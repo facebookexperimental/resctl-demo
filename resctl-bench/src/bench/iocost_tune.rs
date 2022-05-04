@@ -18,7 +18,6 @@ mod merge;
 
 const DFL_IOCOST_QOS_VRATE_MAX: f64 = 125.0;
 const DFL_IOCOST_QOS_VRATE_INTVS: u32 = 25;
-const DFL_GRAN: f64 = 0.1;
 const DFL_SCALE_MIN: f64 = 1.0;
 const DFL_SCALE_MAX: f64 = 100.0;
 
@@ -49,8 +48,8 @@ enum DataSel {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum DataShape {
     Any,
-    Inc,        // Monotonously increasing
-    Dec,        // Monotonously decreasing
+    Inc, // Monotonously increasing
+    Dec, // Monotonously decreasing
 }
 
 impl DataSel {
@@ -930,7 +929,6 @@ struct QoSRule {
 #[derive(Debug)]
 struct IoCostTuneJob {
     qos_data: Option<JobData>,
-    gran: f64,
     scale_min: f64,
     scale_max: f64,
     sels: BTreeSet<DataSel>,
@@ -941,7 +939,6 @@ impl Default for IoCostTuneJob {
     fn default() -> Self {
         Self {
             qos_data: None,
-            gran: DFL_GRAN,
             scale_min: DFL_SCALE_MIN,
             scale_max: DFL_SCALE_MAX,
             sels: Default::default(),
@@ -995,7 +992,6 @@ impl Bench for IoCostTuneBench {
 
         for (k, v) in spec.props[0].iter() {
             match k.as_str() {
-                "gran" => job.gran = v.parse::<f64>()?,
                 "scale-min" => job.scale_min = parse_frac(v)? * 100.0,
                 "scale-max" => job.scale_max = parse_frac(v)? * 100.0,
                 k => {
@@ -1012,8 +1008,8 @@ impl Bench for IoCostTuneBench {
             }
         }
 
-        if job.gran <= 0.0 || job.scale_min <= 0.0 || job.scale_min >= job.scale_max {
-            bail!("`gran`, `scale_min` and/or `scale_max` invalid");
+        if job.scale_min <= 0.0 || job.scale_min >= job.scale_max {
+            bail!("`scale_min` and/or `scale_max` invalid");
         }
 
         if prop_groups.len() == 0 {
@@ -1281,17 +1277,6 @@ impl DataSeries {
         };
     }
 
-    fn split_at<'a>(data: &'a [DataPoint], at: f64) -> (&'a [DataPoint], &'a [DataPoint]) {
-        let mut idx = 0;
-        for (i, datum) in data.iter().enumerate() {
-            if datum.x > at {
-                idx = i;
-                break;
-            }
-        }
-        (&data[0..idx], &data[idx..])
-    }
-
     fn range(data: &[DataPoint]) -> (f64, f64) {
         (
             data.iter().next().unwrap_or(&DataPoint::new(0.0, 0.0)).x,
@@ -1299,15 +1284,26 @@ impl DataSeries {
         )
     }
 
-    fn fit_line(data: &[DataPoint]) -> DataLines {
+    /// Splitting self.data[] at @idx. Determine the inbetween X value. If
+    /// @idx is at the beginning or end, return the X value on the point.
+    fn idx_to_div(&self, idx: usize) -> f64 {
+        if idx > 0 && idx < self.data.len() - 1 {
+            (self.data[idx - 1].x + self.data[idx].x) / 2.0
+        } else {
+            self.data[idx].x
+        }
+    }
+
+    fn fit_line(&self) -> DataLines {
         let (slope, y_intcp): (f64, f64) = linreg::linear_regression_of(
-            &data
+            &self
+                .data
                 .iter()
                 .map(|p| (p.x, p.y))
                 .collect::<Vec<(f64, f64)>>(),
         )
         .unwrap();
-        let range = Self::range(data);
+        let range = Self::range(&self.data);
         DataLines::new(&[
             DataPoint::new(range.0, slope * range.0 + y_intcp),
             DataPoint::new(range.1, slope * range.1 + y_intcp),
@@ -1337,15 +1333,15 @@ impl DataSeries {
         top / bot
     }
 
-    fn fit_slope_with_left(data: &[DataPoint], left_div: f64) -> Option<DataLines> {
-        let (pleft, pright) = Self::split_at(data, left_div);
-        let left = DataPoint::new(left_div, Self::calc_height(pleft));
+    fn fit_slope_with_left(&self, lidx: usize) -> Option<DataLines> {
+        let (pleft, pright) = self.data.split_at(lidx);
+        let left = DataPoint::new(self.idx_to_div(lidx), Self::calc_height(pleft));
         let slope = Self::calc_slope(pright, &left);
         if slope == 0.0 {
             return None;
         }
 
-        let range = Self::range(data);
+        let range = Self::range(&self.data);
         DataLines::new(&[
             DataPoint::new(range.0, left.y),
             left,
@@ -1354,15 +1350,15 @@ impl DataSeries {
         .ok()
     }
 
-    fn fit_slope_with_right(data: &[DataPoint], right_div: f64) -> Option<DataLines> {
-        let (pleft, pright) = Self::split_at(data, right_div);
-        let right = DataPoint::new(right_div, Self::calc_height(pright));
+    fn fit_slope_with_right(&self, ridx: usize) -> Option<DataLines> {
+        let (pleft, pright) = self.data.split_at(ridx);
+        let right = DataPoint::new(self.idx_to_div(ridx), Self::calc_height(pright));
         let slope = Self::calc_slope(pleft, &right);
         if slope == 0.0 {
             return None;
         }
 
-        let range = Self::range(data);
+        let range = Self::range(&self.data);
         DataLines::new(&[
             DataPoint::new(range.0, right.y - slope * (right.x - range.0)),
             right,
@@ -1371,18 +1367,14 @@ impl DataSeries {
         .ok()
     }
 
-    fn fit_slope_with_left_and_right(
-        data: &[DataPoint],
-        left_div: f64,
-        right_div: f64,
-    ) -> Option<DataLines> {
-        let (pleft, pmid) = Self::split_at(data, left_div);
-        let (_, pright) = Self::split_at(pmid, right_div);
+    fn fit_slope_with_left_and_right(&self, lidx: usize, ridx: usize) -> Option<DataLines> {
+        let (pleft, pmid) = self.data.split_at(lidx);
+        let (_, pright) = pmid.split_at(ridx - lidx);
 
-        let left = DataPoint::new(left_div, Self::calc_height(pleft));
-        let right = DataPoint::new(right_div, Self::calc_height(pright));
+        let left = DataPoint::new(self.idx_to_div(lidx), Self::calc_height(pleft));
+        let right = DataPoint::new(self.idx_to_div(ridx), Self::calc_height(pright));
 
-        let range = Self::range(data);
+        let range = Self::range(&self.data);
         DataLines::new(&[
             DataPoint::new(range.0, left.y),
             left,
@@ -1406,26 +1398,19 @@ impl DataSeries {
         }
     }
 
-    fn fit_lines(&mut self, gran: f64, shape: DataShape) -> Result<()> {
+    fn fit_lines(&mut self, shape: DataShape) -> Result<()> {
         if self.data.len() == 0 {
             return Ok(());
         }
 
         let start = self.data.iter().next().unwrap().x;
         let end = self.data.iter().last().unwrap().x;
-        let nr_intvs = ((end - start) / gran).ceil() as usize + 1;
-        if nr_intvs <= 1 {
-            return Ok(());
-        }
-        let gran = (end - start) / (nr_intvs - 1) as f64;
 
         // We want to prefer line fittings with fewer components. Amplify
         // error based on the number of line segments. Also, make sure each
         // line segment is at least 10% of the vrate range.
         const ERROR_MULTIPLIER: f64 = 1.025;
         const MIN_SEG_DIST: f64 = 10.0;
-
-        let min_seg_intvs = (MIN_SEG_DIST / gran).ceil() as usize;
 
         // Start with mean flat line which is acceptable for both dirs.
         let mean = statistical::mean(&self.data.iter().map(|p| p.y).collect::<Vec<f64>>());
@@ -1485,38 +1470,33 @@ impl DataSeries {
             Ok(false)
         };
 
-        let idx_to_vrate = |idx| -> f64 { start + idx as f64 * gran };
-
         // Try simple linear regression.
         if self.data.len() > 3 {
-            try_and_pick(&|| Some(Self::fit_line(&self.data)))?;
+            try_and_pick(&|| Some(self.fit_line()))?;
         }
 
         // Try one flat line and one slope.
-        for i in 0..nr_intvs {
-            if i < min_seg_intvs || i >= nr_intvs - min_seg_intvs {
+        for i in 0..self.data.len() {
+            let div = self.idx_to_div(i);
+            if div < start + MIN_SEG_DIST || div > end - MIN_SEG_DIST {
                 continue;
             }
-            try_and_pick(&|| Self::fit_slope_with_left(&self.data, idx_to_vrate(i)))?;
-            try_and_pick(&|| Self::fit_slope_with_right(&self.data, idx_to_vrate(i)))?;
+            try_and_pick(&|| self.fit_slope_with_left(i))?;
+            try_and_pick(&|| self.fit_slope_with_right(i))?;
         }
 
         // Try two flat lines connected with a slope.
-        for i in 0..nr_intvs - 1 {
-            if i < min_seg_intvs {
+        for i in 0..self.data.len() {
+            let ldiv = self.idx_to_div(i);
+            if ldiv < start + MIN_SEG_DIST {
                 continue;
             }
-            for j in i..nr_intvs {
-                if j - i < min_seg_intvs || j >= nr_intvs - min_seg_intvs {
+            for j in i..self.data.len() {
+                let rdiv = self.idx_to_div(j);
+                if rdiv - ldiv < MIN_SEG_DIST || rdiv > end - MIN_SEG_DIST {
                     continue;
                 }
-                try_and_pick(&|| {
-                    Self::fit_slope_with_left_and_right(
-                        &self.data,
-                        idx_to_vrate(i),
-                        idx_to_vrate(j),
-                    )
-                })?;
+                try_and_pick(&|| self.fit_slope_with_left_and_right(i, j))?;
             }
         }
 
@@ -1766,7 +1746,7 @@ impl IoCostTuneJob {
             }
         }
 
-        series.fit_lines(self.gran, shape)?;
+        series.fit_lines(shape)?;
 
         if let Some(fill_upto) = fill_upto {
             series.lines = series
@@ -1785,7 +1765,7 @@ impl IoCostTuneJob {
                 &shape
             );
             let range = series.lines.range;
-            series.fit_lines(self.gran, shape)?;
+            series.fit_lines(shape)?;
             series.lines = series.lines.with_range(range).unwrap();
         }
 
