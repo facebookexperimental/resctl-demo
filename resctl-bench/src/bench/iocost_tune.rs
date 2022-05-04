@@ -46,11 +46,11 @@ enum DataSel {
     WLat(String, String), // IO Write latency
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum DataShape {
     Any,
-    Inc, // Monotonously increasing
-    Dec, // Monotonously decreasing
+    Inc,        // Monotonously increasing
+    Dec,        // Monotonously decreasing
 }
 
 impl DataSel {
@@ -58,7 +58,8 @@ impl DataSel {
     fn fit_lines_opts(&self) -> (DataShape, bool, bool) {
         match self {
             Self::MOF => (DataShape::Inc, false, false),
-            Self::AMOF | Self::AMOFDelta => (DataShape::Inc, false, true),
+            Self::AMOF => (DataShape::Inc, false, true),
+            Self::AMOFDelta => (DataShape::Inc, false, true),
             Self::Isol | Self::IsolPct(_) | Self::IsolMean => (DataShape::Dec, false, false),
             Self::LatImp => (DataShape::Inc, false, false),
             Self::WorkCsv => (DataShape::Any, false, false),
@@ -1280,33 +1281,33 @@ impl DataSeries {
         };
     }
 
-    fn split_at<'a>(points: &'a [DataPoint], at: f64) -> (&'a [DataPoint], &'a [DataPoint]) {
+    fn split_at<'a>(data: &'a [DataPoint], at: f64) -> (&'a [DataPoint], &'a [DataPoint]) {
         let mut idx = 0;
-        for (i, point) in points.iter().enumerate() {
-            if point.x > at {
+        for (i, datum) in data.iter().enumerate() {
+            if datum.x > at {
                 idx = i;
                 break;
             }
         }
-        (&points[0..idx], &points[idx..])
+        (&data[0..idx], &data[idx..])
     }
 
-    fn range(points: &[DataPoint]) -> (f64, f64) {
+    fn range(data: &[DataPoint]) -> (f64, f64) {
         (
-            points.iter().next().unwrap_or(&DataPoint::new(0.0, 0.0)).x,
-            points.iter().last().unwrap_or(&DataPoint::new(0.0, 0.0)).x,
+            data.iter().next().unwrap_or(&DataPoint::new(0.0, 0.0)).x,
+            data.iter().last().unwrap_or(&DataPoint::new(0.0, 0.0)).x,
         )
     }
 
-    fn fit_line(points: &[DataPoint]) -> DataLines {
+    fn fit_line(data: &[DataPoint]) -> DataLines {
         let (slope, y_intcp): (f64, f64) = linreg::linear_regression_of(
-            &points
+            &data
                 .iter()
                 .map(|p| (p.x, p.y))
                 .collect::<Vec<(f64, f64)>>(),
         )
         .unwrap();
-        let range = Self::range(points);
+        let range = Self::range(data);
         DataLines::new(&[
             DataPoint::new(range.0, slope * range.0 + y_intcp),
             DataPoint::new(range.1, slope * range.1 + y_intcp),
@@ -1318,33 +1319,33 @@ impl DataSeries {
     /// n*y^2 - 2y1*y - 2y2*y - ...
     /// derivative is 2*n*y - 2y1 - 2y2 - ...
     /// local maxima at y = (y1+y2+...)/n, basic average
-    fn calc_height(points: &[DataPoint]) -> f64 {
-        points.iter().fold(0.0, |acc, point| acc + point.y) / points.len() as f64
+    fn calc_height(data: &[DataPoint]) -> f64 {
+        data.iter().fold(0.0, |acc, point| acc + point.y) / data.len() as f64
     }
 
     /// Find slope m s.t. minimize (m*(x1-X)-(y1-H))^2 ...
     /// m^2*(x1-X)^2 - 2*(m*(x1-X)*(y1-H)) - ...
     /// derivative is 2*m*(x1-X)^2 - 2*(x1-X)*(y1-H) - ...
     /// local maxima at m = ((x1-X)*(y1-H) + (x2-X)*(y2-H) + ...)/((x1-X)^2+(x2-X)^2)
-    fn calc_slope(points: &[DataPoint], hinge: &DataPoint) -> f64 {
-        let top = points.iter().fold(0.0, |acc, point| {
+    fn calc_slope(data: &[DataPoint], hinge: &DataPoint) -> f64 {
+        let top = data.iter().fold(0.0, |acc, point| {
             acc + (point.x - hinge.x) * (point.y - hinge.y)
         });
-        let bot = points
+        let bot = data
             .iter()
             .fold(0.0, |acc, point| acc + (point.x - hinge.x).powi(2));
         top / bot
     }
 
-    fn fit_slope_with_left(points: &[DataPoint], left: f64) -> Option<DataLines> {
-        let (pleft, pright) = Self::split_at(points, left);
-        let left = DataPoint::new(left, Self::calc_height(pleft));
+    fn fit_slope_with_left(data: &[DataPoint], left_div: f64) -> Option<DataLines> {
+        let (pleft, pright) = Self::split_at(data, left_div);
+        let left = DataPoint::new(left_div, Self::calc_height(pleft));
         let slope = Self::calc_slope(pright, &left);
         if slope == 0.0 {
             return None;
         }
 
-        let range = Self::range(points);
+        let range = Self::range(data);
         DataLines::new(&[
             DataPoint::new(range.0, left.y),
             left,
@@ -1353,15 +1354,15 @@ impl DataSeries {
         .ok()
     }
 
-    fn fit_slope_with_right(points: &[DataPoint], right: f64) -> Option<DataLines> {
-        let (pleft, pright) = Self::split_at(points, right);
-        let right = DataPoint::new(right, Self::calc_height(pright));
+    fn fit_slope_with_right(data: &[DataPoint], right_div: f64) -> Option<DataLines> {
+        let (pleft, pright) = Self::split_at(data, right_div);
+        let right = DataPoint::new(right_div, Self::calc_height(pright));
         let slope = Self::calc_slope(pleft, &right);
         if slope == 0.0 {
             return None;
         }
 
-        let range = Self::range(points);
+        let range = Self::range(data);
         DataLines::new(&[
             DataPoint::new(range.0, right.y - slope * (right.x - range.0)),
             right,
@@ -1371,17 +1372,17 @@ impl DataSeries {
     }
 
     fn fit_slope_with_left_and_right(
-        points: &[DataPoint],
-        left: f64,
-        right: f64,
+        data: &[DataPoint],
+        left_div: f64,
+        right_div: f64,
     ) -> Option<DataLines> {
-        let (pleft, pmid) = Self::split_at(points, left);
-        let (_, pright) = Self::split_at(pmid, right);
+        let (pleft, pmid) = Self::split_at(data, left_div);
+        let (_, pright) = Self::split_at(pmid, right_div);
 
-        let left = DataPoint::new(left, Self::calc_height(pleft));
-        let right = DataPoint::new(right, Self::calc_height(pright));
+        let left = DataPoint::new(left_div, Self::calc_height(pleft));
+        let right = DataPoint::new(right_div, Self::calc_height(pright));
 
-        let range = Self::range(points);
+        let range = Self::range(data);
         DataLines::new(&[
             DataPoint::new(range.0, left.y),
             left,
@@ -1391,11 +1392,11 @@ impl DataSeries {
         .ok()
     }
 
-    fn calc_error<'a, I>(points: I, lines: &DataLines) -> f64
+    fn calc_error<'a, I>(data: I, lines: &DataLines) -> f64
     where
         I: Iterator<Item = &'a DataPoint>,
     {
-        let (err_sum, cnt) = points.fold((0.0, 0), |(err_sum, cnt), point| {
+        let (err_sum, cnt) = data.fold((0.0, 0), |(err_sum, cnt), point| {
             (err_sum + (point.y - lines.eval(point.x)).powi(2), cnt + 1)
         });
         if cnt > 0 {
@@ -1524,9 +1525,9 @@ impl DataSeries {
     }
 
     fn filter_beyond(&mut self, vrate_thr: f64) {
-        let mut points = vec![];
-        points.append(&mut self.data);
-        for point in points.into_iter() {
+        let mut data = vec![];
+        data.append(&mut self.data);
+        for point in data.into_iter() {
             if point.x <= vrate_thr {
                 self.data.push(point);
             } else {
@@ -1534,7 +1535,7 @@ impl DataSeries {
             }
         }
 
-        // self.points start sorted but outliers may go out of order if this
+        // self.data start sorted but outliers may go out of order if this
         // function is called more than once. Sort just in case.
         self.outliers.sort_by(|a, b| a.partial_cmp(b).unwrap());
     }
