@@ -1407,9 +1407,12 @@ impl DataSeries {
         let end = self.data.iter().last().unwrap().x;
 
         // We want to prefer line fittings with fewer components. Amplify
-        // error based on the number of line segments. Also, make sure each
-        // line segment is at least 10% of the vrate range.
+        // error based on the number of line segments.
         const ERROR_MULTIPLIER: f64 = 1.025;
+        // When stepping through the data mid points, skip the ones which
+        // are too close.
+        const MIN_DIV_DIST: f64 = 0.25;
+        // Make sure each line segment is at least 10% of the vrate range.
         const MIN_SEG_DIST: f64 = 10.0;
 
         // Start with mean flat line which is acceptable for both dirs.
@@ -1476,26 +1479,41 @@ impl DataSeries {
         }
 
         // Try one flat line and one slope.
+        let mut last_div = std::f64::MIN;
         for i in 0..self.data.len() {
             let div = self.idx_to_div(i);
-            if div < start + MIN_SEG_DIST || div > end - MIN_SEG_DIST {
+            if div < last_div + MIN_DIV_DIST
+                || div < start + MIN_SEG_DIST
+                || div > end - MIN_SEG_DIST
+            {
                 continue;
             }
+            last_div = div;
+
             try_and_pick(&|| self.fit_slope_with_left(i))?;
             try_and_pick(&|| self.fit_slope_with_right(i))?;
         }
 
         // Try two flat lines connected with a slope.
+        let mut last_ldiv = std::f64::MIN;
         for i in 0..self.data.len() {
             let ldiv = self.idx_to_div(i);
-            if ldiv < start + MIN_SEG_DIST {
+            if ldiv < last_ldiv + MIN_DIV_DIST || ldiv < start + MIN_SEG_DIST {
                 continue;
             }
+            last_ldiv = ldiv;
+
+            let mut last_rdiv = std::f64::MIN;
             for j in i..self.data.len() {
                 let rdiv = self.idx_to_div(j);
-                if rdiv - ldiv < MIN_SEG_DIST || rdiv > end - MIN_SEG_DIST {
+                if rdiv < last_rdiv + MIN_DIV_DIST
+                    || rdiv - ldiv < MIN_SEG_DIST
+                    || rdiv > end - MIN_SEG_DIST
+                {
                     continue;
                 }
+                last_rdiv = rdiv;
+
                 try_and_pick(&|| self.fit_slope_with_left_and_right(i, j))?;
             }
         }
