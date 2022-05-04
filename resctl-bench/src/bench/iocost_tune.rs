@@ -48,8 +48,9 @@ enum DataSel {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum DataShape {
     Any,
-    Inc, // Monotonously increasing
-    Dec, // Monotonously decreasing
+    Inc,        // Monotonously increasing
+    Dec,        // Monotonously decreasing
+    SinglePeak, // Monotonously increasing and then decreasing
 }
 
 impl DataSel {
@@ -57,7 +58,7 @@ impl DataSel {
     fn fit_lines_opts(&self) -> (DataShape, bool, bool) {
         match self {
             Self::MOF => (DataShape::Inc, false, false),
-            Self::AMOF => (DataShape::Inc, false, true),
+            Self::AMOF => (DataShape::SinglePeak, false, true),
             Self::AMOFDelta => (DataShape::Inc, false, true),
             Self::Isol | Self::IsolPct(_) | Self::IsolMean => (DataShape::Dec, false, false),
             Self::LatImp => (DataShape::Inc, false, false),
@@ -1384,6 +1385,16 @@ impl DataSeries {
         .ok()
     }
 
+    fn fit_two_slopes(
+        &self,
+        llidx: usize,
+        lidx: usize,
+        ridx: usize,
+        rridx: usize,
+    ) -> Option<DataLines> {
+        None
+    }
+
     fn calc_error<'a, I>(data: I, lines: &DataLines) -> f64
     where
         I: Iterator<Item = &'a DataPoint>,
@@ -1453,6 +1464,21 @@ impl DataSeries {
                             last = pt.y;
                         }
                     }
+                    DataShape::SinglePeak => {
+                        let mut rising = true;
+                        for pair in lines.points.windows(2) {
+                            let (a, b) = (pair[0], pair[1]);
+                            if rising {
+                                if a > b {
+                                    rising = false;
+                                }
+                            } else {
+                                if a < b {
+                                    return Ok(false);
+                                }
+                            }
+                        }
+                    }
                 }
 
                 let mut error = Self::calc_error(self.data.iter(), &lines);
@@ -1496,16 +1522,16 @@ impl DataSeries {
 
         // Try two flat lines connected with a slope.
         let mut last_ldiv = std::f64::MIN;
-        for i in 0..self.data.len() {
-            let ldiv = self.idx_to_div(i);
+        for lidx in 0..self.data.len() {
+            let ldiv = self.idx_to_div(lidx);
             if ldiv < last_ldiv + MIN_DIV_DIST || ldiv < start + MIN_SEG_DIST {
                 continue;
             }
             last_ldiv = ldiv;
 
             let mut last_rdiv = std::f64::MIN;
-            for j in i..self.data.len() {
-                let rdiv = self.idx_to_div(j);
+            for ridx in lidx..self.data.len() {
+                let rdiv = self.idx_to_div(ridx);
                 if rdiv < last_rdiv + MIN_DIV_DIST
                     || rdiv - ldiv < MIN_SEG_DIST
                     || rdiv > end - MIN_SEG_DIST
@@ -1514,7 +1540,65 @@ impl DataSeries {
                 }
                 last_rdiv = rdiv;
 
-                try_and_pick(&|| self.fit_slope_with_left_and_right(i, j))?;
+                try_and_pick(&|| self.fit_slope_with_left_and_right(lidx, ridx))?;
+            }
+        }
+
+        // Two slopes forming one peak or valley. Flat components can be
+        // omitted - ie. lleft can be zero, left can equal right, rright can
+        // be data.len() - 1.
+        //
+        //        *---*
+        //       /.   .\
+        //    --* .   . \
+        //      . .   .  *---
+        //  llidx . ridx .
+        //       lidx   rridx
+        //
+        if shape == DataShape::SinglePeak {
+            let mut last_lldiv = std::f64::MIN;
+            for llidx in 0..self.data.len() {
+                let lldiv = self.idx_to_div(llidx);
+                if llidx > 0 && (lldiv < last_lldiv + MIN_DIV_DIST || lldiv < start + MIN_SEG_DIST)
+                {
+                    continue;
+                }
+                last_lldiv = lldiv;
+
+                let mut last_ldiv = std::f64::MIN;
+                for lidx in llidx..self.data.len() {
+                    let ldiv = self.idx_to_div(lidx);
+                    if ldiv < last_ldiv + MIN_DIV_DIST || ldiv - lldiv < MIN_SEG_DIST {
+                        continue;
+                    }
+                    last_ldiv = ldiv;
+
+                    let mut last_rdiv = std::f64::MIN;
+                    for ridx in lidx..self.data.len() {
+                        let rdiv = self.idx_to_div(ridx);
+                        if ridx != lidx
+                            && (rdiv < last_rdiv + MIN_DIV_DIST || rdiv - ldiv < MIN_SEG_DIST)
+                        {
+                            continue;
+                        }
+                        last_rdiv = rdiv;
+
+                        let mut last_rrdiv = std::f64::MIN;
+                        for rridx in ridx..self.data.len() {
+                            let rrdiv = self.idx_to_div(rridx);
+                            if rrdiv - rdiv < MIN_SEG_DIST
+                                || (rridx < self.data.len() - 1
+                                    && (rrdiv < last_rrdiv + MIN_DIV_DIST
+                                        || rrdiv > end - MIN_SEG_DIST))
+                            {
+                                continue;
+                            }
+                            last_rrdiv = rrdiv;
+
+                            try_and_pick(&|| self.fit_two_slopes(llidx, lidx, ridx, rridx))?;
+                        }
+                    }
+                }
             }
         }
 
