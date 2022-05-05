@@ -96,9 +96,10 @@ isolation.
 
 #### `isolated-bandwidth` 
 
-This targets the maximum vrate which provides the lowest latency impact,
-clamped between the `isolation` and `bandwidth` solutions. This is the vrate
-below which the isolation quality doesn't improve.
+This targets the maximum vrate at which `rd-hashd`'s isolatable memory
+footprint is the biggest clamped between the `isolation` and `bandwidth`
+solutions. This is the vrate at which the biggest memory footprint can be
+isolated.
 
 #### `isolation`
 

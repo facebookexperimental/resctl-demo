@@ -422,7 +422,7 @@ impl std::fmt::Display for QoSTarget {
             Self::AMOFMaxVrate => write!(f, "aMOF=max-vrate").unwrap(),
             Self::AMOFDeltaMin => write!(f, "aMOF-delta=min").unwrap(),
             Self::IsolatedBandwidth => {
-                write!(f, "(lat-imp=min).clamp(isolation, bandwidth)").unwrap()
+                write!(f, "(aMOF=right-max).clamp(isolation, bandwidth)").unwrap()
             }
             Self::LatRange(sel, (low, high)) => match sel {
                 DataSel::RLat(lat_pct, _) => {
@@ -816,6 +816,17 @@ impl QoSTarget {
             Ok(sol)
         };
 
+        // Find the max vrate at max val.
+        let solve_right_max = |sel| -> Result<Option<f64>> {
+            let sol = Self::find_max_vrate_at_max_val(
+                ds(sel)?,
+                (scale_min, scale_max),
+                infl_offset(),
+            );
+            trace!("solve_max_right sel={:?} sol={:?}", sel, sol);
+            Ok(sol)
+        };
+
         // Find the max vrate at min val.
         let solve_min = |sel| -> Result<Option<f64>> {
             Ok(Self::find_max_vrate_at_min_val(
@@ -863,8 +874,8 @@ impl QoSTarget {
             // LatImp.
             Self::MOFMax => solve_max(&DataSel::MOF, Some(&DataSel::LatImp))?.map(params_at_vrate),
 
-            // Min vrate still at max aMOF. If MOF is flat, max vrate at min
-            // LatImp.
+            // Min vrate still at max aMOF. If aMOF is flat, max vrate at
+            // min LatImp.
             Self::AMOFMax => {
                 solve_max(&DataSel::AMOF, Some(&DataSel::LatImp))?.map(params_at_vrate)
             }
@@ -872,13 +883,13 @@ impl QoSTarget {
             // Rightmost vrate with valid aMOF.
             Self::AMOFMaxVrate => solve_max_vrate(&DataSel::AMOF)?.map(params_at_vrate),
 
-            // clamp(max vrate at min LatImp, isolation, bandwidth)
+            // clamp(aMOF=max, isolation, bandwidth)
             Self::IsolatedBandwidth => match (
                 solve_min(&DataSel::AMOFDelta)?,
                 solve_max_vrate(&DataSel::AMOF)?,
             ) {
                 (Some(min), Some(max)) => {
-                    solve_min(&DataSel::LatImp)?.map(|v| params_at_vrate(v.clamp(min, max)))
+                    solve_right_max(&DataSel::AMOF)?.map(|v| params_at_vrate(v.clamp(min, max)))
                 }
                 _ => None,
             },
