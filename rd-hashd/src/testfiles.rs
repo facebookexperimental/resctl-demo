@@ -35,7 +35,7 @@ impl TestFiles {
             base_path: PathBuf::from(base_path.as_ref()),
             unit_size,
             size,
-            nr_files: size.div_ceil(&unit_size),
+            nr_files: Integer::div_ceil(&size, &unit_size),
             comp,
             prefix: String::from(DFL_PREFIX),
         }

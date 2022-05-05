@@ -96,9 +96,10 @@ isolation.
 
 #### `isolated-bandwidth` 
 
-This targets the maximum vrate which provides the lowest latency impact,
-clamped between the `isolation` and `bandwidth` solutions. This is the vrate
-below which the isolation quality doesn't improve.
+This targets the maximum vrate at which `rd-hashd`'s isolatable memory
+footprint is the biggest clamped between the `isolation` and `bandwidth`
+solutions. This is the vrate at which the biggest memory footprint can be
+isolated.
 
 #### `isolation`
 
@@ -196,7 +197,7 @@ scales the model parameters so that the QoS `max` always ends up 100%.
 `iocost-tune` can also generate a pdf file containing all the results:
 
 ```
-   $ resctl-bench -r result.json format iocost-tune:pdf=result.pdf
+   $ resctl-bench -r result.json format iocost-tune:pdf
 ```
 
 
@@ -258,11 +259,6 @@ Properties
 
 First group properties (applies to all sub-runs)
 ------------------------------------------------
-
-#### `gran` (float, default: 0.1)
-
-The granularity used when fitting lines to data points. The finer the
-granularity, the more cycles are needed.
 
 #### `scale-min` (fraction, default: 0.01)
 
@@ -352,3 +348,13 @@ The minimum vrate point where the specified MOF is at maximum.
 
 Solves for the `isolated bandwidth` and `isolation` solution described above
 respectively.
+
+
+Format properties
+-----------------
+
+#### `pdf` (String)
+
+Generate a pdf file containing the result summary and graphs. If no value is
+specified, `RESULT_PATH_STEM.pdf` is used where `RESULT_PATH_STEM` is the
+file stem of the global `--result` path.

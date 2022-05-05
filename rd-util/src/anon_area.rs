@@ -61,7 +61,7 @@ impl AnonArea {
 
     pub fn resize(&mut self, mut size: usize) {
         size = size.max(Self::UNIT_SIZE);
-        let nr = size.div_ceil(&Self::UNIT_SIZE);
+        let nr = Integer::div_ceil(&size, &Self::UNIT_SIZE);
 
         self.units.truncate(nr);
         self.units.reserve(nr);

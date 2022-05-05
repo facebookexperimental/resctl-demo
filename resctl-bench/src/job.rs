@@ -19,9 +19,10 @@ use rd_util::*;
 use resctl_bench_intf::{JobProps, JobSpec, Mode};
 
 #[derive(Debug, Clone)]
-pub struct FormatOpts {
+pub struct FormatOpts<'a> {
     pub full: bool,
     pub rstat: u32,
+    pub result_path: &'a str,
 }
 
 pub trait Job {

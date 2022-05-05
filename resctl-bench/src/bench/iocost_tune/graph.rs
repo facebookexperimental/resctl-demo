@@ -30,7 +30,7 @@ impl<'a, 'b> Grapher<'a, 'b> {
         extra_info: Option<&str>,
     ) -> (ContinuousView, f64) {
         let (val_min, val_max) = series
-            .points
+            .data
             .iter()
             .chain(series.outliers.iter())
             .fold((std::f64::MAX, 0.0_f64), |acc, point| {
@@ -66,27 +66,25 @@ impl<'a, 'b> Grapher<'a, 'b> {
         };
         let ymax = (val_max * 1.1).max((ymin) + 0.000001);
 
-        let lines = &series.lines;
-        let mut xlabel = format!(
-            "vrate {:.1}-{:.1} (",
-            series.lines.range.0, series.lines.range.1
-        );
-        if lines.left.y == lines.right.y {
-            xlabel += &format!("mean={:.3} ", lines.left.y * yscale)
+        let range = series.lines.range;
+        let mut xlabel = format!("vrate {:.1}-{:.1} (", range.0, range.1);
+
+        let (min, max) = series.lines.min_max();
+        if min == max {
+            xlabel += &format!("mean={:.3}", min * yscale);
         } else {
-            xlabel += &format!(
-                "min={:.3} max={:.3} ",
-                lines.left.y.min(lines.right.y) * yscale,
-                lines.left.y.max(lines.right.y) * yscale
-            )
+            xlabel += &format!("min={:.3} max={:.3}", min * yscale, max * yscale);
         }
-        if lines.left.x > series.lines.range.0 {
-            xlabel += &format!("L-infl={:.1} ", lines.left.x);
+
+        let points = &series.lines.points;
+        if points.len() > 2 {
+            xlabel += " infls=";
+            for i in 1..points.len() - 1 {
+                xlabel += &format!("{:.1},", points[i].x);
+            }
+            xlabel.pop();
         }
-        if lines.right.x < series.lines.range.1 {
-            xlabel += &format!("R-infl={:.1} ", lines.right.x);
-        }
-        xlabel += &format!("err={:.3})", series.error * yscale);
+        xlabel += &format!(" err={:.3})", series.error * yscale);
 
         let mut ylabel = match sel {
             DataSel::MOF | DataSel::AMOF | DataSel::AMOFDelta => format!("{}@{}", sel, mem_profile),
@@ -136,7 +134,7 @@ impl<'a, 'b> Grapher<'a, 'b> {
         let view =
             view.add(Plot::new(outliers).point_style(PointStyle::new().marker(PointMarker::Cross)));
 
-        let points = series.points.iter().map(|p| (p.x, p.y * yscale)).collect();
+        let points = series.data.iter().map(|p| (p.x, p.y * yscale)).collect();
         let view =
             view.add(Plot::new(points).point_style(PointStyle::new().marker(PointMarker::Circle)));
 
@@ -155,7 +153,7 @@ impl<'a, 'b> Grapher<'a, 'b> {
         extra_info: &str,
     ) -> Result<()> {
         const SIZE: (u32, u32) = (576, 468);
-        let (view, yscale) = Self::setup_view(
+        let (mut view, yscale) = Self::setup_view(
             self.vrate_range,
             sel,
             series,
@@ -169,7 +167,7 @@ impl<'a, 'b> Grapher<'a, 'b> {
             .iter()
             .map(|p| (p.x, p.y * yscale))
             .collect();
-        let view = view.add(
+        view = view.add(
             Plot::new(points).point_style(
                 PointStyle::new()
                     .marker(PointMarker::Cross)
@@ -177,8 +175,8 @@ impl<'a, 'b> Grapher<'a, 'b> {
             ),
         );
 
-        let points = series.points.iter().map(|p| (p.x, p.y * yscale)).collect();
-        let view = view.add(
+        let points = series.data.iter().map(|p| (p.x, p.y * yscale)).collect();
+        view = view.add(
             Plot::new(points).point_style(
                 PointStyle::new()
                     .marker(PointMarker::Circle)
@@ -186,20 +184,17 @@ impl<'a, 'b> Grapher<'a, 'b> {
             ),
         );
 
-        let lines = &series.lines;
-        let mut segments = vec![];
-        if series.lines.range.0 < lines.left.x {
-            segments.push((series.lines.range.0, lines.left.y * yscale));
-        }
-        segments.push((lines.left.x, lines.left.y * yscale));
-        segments.push((lines.right.x, lines.right.y * yscale));
-        if series.lines.range.1 > lines.right.x {
-            segments.push((series.lines.range.1, lines.right.y * yscale));
+        let segments: Vec<(f64, f64)> = series
+            .lines
+            .points
+            .iter()
+            .map(|pt| (pt.x, pt.y * yscale))
+            .collect();
+        if !segments.is_empty() {
+            view = view.add(Plot::new(segments).line_style(LineStyle::new().colour("#3749e6")));
         }
 
-        let view = view.add(Plot::new(segments).line_style(LineStyle::new().colour("#3749e6")));
-
-        let view = view.x_max_ticks(10).y_max_ticks(10);
+        view = view.x_max_ticks(10).y_max_ticks(10);
 
         let mut path = PathBuf::from(dir);
         path.push(format!("iocost-tune-{}.svg", sel));

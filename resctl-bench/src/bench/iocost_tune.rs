@@ -2,12 +2,14 @@
 use super::iocost_qos::{
     IoCostQoSJob, IoCostQoSRecord, IoCostQoSRecordRun, IoCostQoSResult, IoCostQoSResultRun,
 };
+use super::protection::mem_hog_tune::{DFL_ISOL_PCT, DFL_ISOL_THR};
 use super::protection::MemHog;
 use super::*;
+use log::{debug, error};
+use scan_fmt::scan_fmt;
 use statrs::distribution::{ContinuousCDF, Normal};
-use std::cell::RefCell;
 use std::cmp::{Ordering, PartialOrd};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::io::Write as IoWrite;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -17,7 +19,6 @@ mod merge;
 
 const DFL_IOCOST_QOS_VRATE_MAX: f64 = 125.0;
 const DFL_IOCOST_QOS_VRATE_INTVS: u32 = 25;
-const DFL_GRAN: f64 = 0.1;
 const DFL_SCALE_MIN: f64 = 1.0;
 const DFL_SCALE_MAX: f64 = 100.0;
 
@@ -45,11 +46,12 @@ enum DataSel {
     WLat(String, String), // IO Write latency
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum DataShape {
     Any,
-    Inc,
-    Dec,
+    Inc,        // Monotonously increasing
+    Dec,        // Monotonously decreasing
+    SinglePeak, // Monotonously increasing and then decreasing
 }
 
 impl DataSel {
@@ -57,7 +59,8 @@ impl DataSel {
     fn fit_lines_opts(&self) -> (DataShape, bool, bool) {
         match self {
             Self::MOF => (DataShape::Inc, false, false),
-            Self::AMOF | Self::AMOFDelta => (DataShape::Inc, false, true),
+            Self::AMOF => (DataShape::SinglePeak, false, true),
+            Self::AMOFDelta => (DataShape::Inc, false, true),
             Self::Isol | Self::IsolPct(_) | Self::IsolMean => (DataShape::Dec, false, false),
             Self::LatImp => (DataShape::Inc, false, false),
             Self::WorkCsv => (DataShape::Any, false, false),
@@ -419,7 +422,7 @@ impl std::fmt::Display for QoSTarget {
             Self::AMOFMaxVrate => write!(f, "aMOF=max-vrate").unwrap(),
             Self::AMOFDeltaMin => write!(f, "aMOF-delta=min").unwrap(),
             Self::IsolatedBandwidth => {
-                write!(f, "(lat-imp=min).clamp(isolation, bandwidth)").unwrap()
+                write!(f, "(aMOF=right-max).clamp(isolation, bandwidth)").unwrap()
             }
             Self::LatRange(sel, (low, high)) => match sel {
                 DataSel::RLat(lat_pct, _) => {
@@ -573,6 +576,43 @@ impl QoSTarget {
         }
     }
 
+    fn x_with_infl_margin(dl: &DataLines, idx: usize, infl_margin: f64) -> f64 {
+        let pts = &dl.points;
+        let (mut x, y) = (pts[idx].x, pts[idx].y);
+
+        // If an internal point and one side is slope while the
+        // other flat, shift towards the flat line by @infl_margin
+        // to avoid sitting right at the tip of a steep slope.
+        if infl_margin != 0.0 && idx > 0 && idx < pts.len() - 1 {
+            if pts[idx - 1].y != y && pts[idx + 1].y == y {
+                x = (x * (1.0 + infl_margin)).min(dl.range.1);
+            } else if pts[idx - 1].y == y && pts[idx + 1].y != y {
+                x = (x * (1.0 - infl_margin)).max(dl.range.0);
+            }
+        }
+        x
+    }
+
+    fn find_min_idx_for_y(dl: &DataLines, y: f64) -> Option<usize> {
+        let pts = &dl.points;
+        let idx = pts.iter().take_while(|pt| pt.y != y).count();
+        if idx < pts.len() {
+            Some(idx)
+        } else {
+            None
+        }
+    }
+
+    fn find_max_idx_for_y(dl: &DataLines, y: f64) -> Option<usize> {
+        let pts = &dl.points;
+        let idx = pts.iter().rev().take_while(|pt| pt.y != y).count();
+        if idx < pts.len() {
+            Some(pts.len() - 1 - idx)
+        } else {
+            None
+        }
+    }
+
     /// Find the minimum vrate with the maximum value.
     fn find_min_vrate_at_max_val(
         ds: &DataSeries,
@@ -580,17 +620,14 @@ impl QoSTarget {
         infl_margin: f64,
         no_sig_vrate: Option<f64>,
     ) -> Option<f64> {
-        ds.lines.clamped(range.0, range.1).map(|dl| {
-            let left = &dl.left;
-            let right = &dl.right;
-
-            if left.y < right.y {
-                (right.x * (1.0 + infl_margin)).min(range.1)
-            } else {
-                no_sig_vrate
-                    .unwrap_or(dl.range.0)
-                    .clamp(dl.range.0, dl.range.1)
-            }
+        let dl = ds.lines.clamped(range).ok()??;
+        let (min, max) = dl.min_max();
+        Some(if min == max {
+            no_sig_vrate
+                .unwrap_or(dl.range.0)
+                .clamp(dl.range.0, dl.range.1)
+        } else {
+            Self::x_with_infl_margin(&dl, Self::find_min_idx_for_y(&dl, max)?, infl_margin)
         })
     }
 
@@ -600,15 +637,42 @@ impl QoSTarget {
         range: (f64, f64),
         infl_margin: f64,
     ) -> Option<f64> {
-        ds.lines.clamped(range.0, range.1).map(|dl| {
-            let left = &dl.left;
-            let right = &dl.right;
+        let dl = ds.lines.clamped(range).ok()??;
+        let (min, max) = dl.min_max();
+        Some(if min == max {
+            dl.range.1
+        } else {
+            Self::x_with_infl_margin(&dl, Self::find_max_idx_for_y(&dl, min)?, infl_margin)
+        })
+    }
 
-            if left.y < right.y {
-                (left.x * (1.0 - infl_margin)).max(range.0)
-            } else {
-                dl.range.1
-            }
+    /// Find the minimum vrate with the minimum value.
+    fn find_min_vrate_at_min_val(
+        ds: &DataSeries,
+        range: (f64, f64),
+        infl_margin: f64,
+    ) -> Option<f64> {
+        let dl = ds.lines.clamped(range).ok()??;
+        let (min, max) = dl.min_max();
+        Some(if min == max {
+            dl.range.1
+        } else {
+            Self::x_with_infl_margin(&dl, Self::find_min_idx_for_y(&dl, min)?, infl_margin)
+        })
+    }
+
+    /// Find the maximum vrate with the maximum value.
+    fn find_max_vrate_at_max_val(
+        ds: &DataSeries,
+        range: (f64, f64),
+        infl_margin: f64,
+    ) -> Option<f64> {
+        let dl = ds.lines.clamped(range).ok()??;
+        let (min, max) = dl.min_max();
+        Some(if min == max {
+            dl.range.1
+        } else {
+            Self::x_with_infl_margin(&dl, Self::find_max_idx_for_y(&dl, max)?, infl_margin)
         })
     }
 
@@ -638,29 +702,33 @@ impl QoSTarget {
 
     fn solve_lat_range(
         ds: &DataSeries,
-        (rel_min, rel_max): (f64, f64),
-        (scale_min, scale_max): (f64, f64),
+        rel_range: (f64, f64),
+        scale_range: (f64, f64),
     ) -> Option<(u64, (f64, f64))> {
-        let dl = ds.lines.clamped(scale_min, scale_max)?;
-        let (left, right) = (&dl.left, &dl.right);
+        if let (Some(left), Some(right)) = (
+            Self::find_max_vrate_at_min_val(ds, scale_range, 0.0),
+            Self::find_min_vrate_at_max_val(ds, scale_range, 0.0, None),
+        ) {
+            if left >= right {
+                return None;
+            }
 
-        // Any slope left?
-        if left.y == right.y {
-            return None;
+            let dist = right - left;
+            let vrate_range = (
+                left + dist * rel_range.0,
+                if rel_range.1 < 1.0 {
+                    left + dist * rel_range.1
+                } else {
+                    scale_range.1
+                },
+            );
+
+            let lat_target = ds.lines.eval(vrate_range.1);
+
+            Some(((lat_target * 1_000_000.0).round() as u64, vrate_range))
+        } else {
+            None
         }
-
-        let dist = right.x - left.x;
-        let vrate_range = (
-            left.x + dist * rel_min,
-            if rel_max < 1.0 {
-                left.x + dist * rel_max
-            } else {
-                scale_max
-            },
-        );
-        let lat_target = dl.eval(vrate_range.1);
-
-        Some(((lat_target * 1_000_000.0).round() as u64, vrate_range))
     }
 
     fn solve(
@@ -684,11 +752,19 @@ impl QoSTarget {
         // offset amount.
         let mof_ds = ds(&DataSel::MOF)?;
         let infl_offset = || {
-            let mof_max = mof_ds.lines.right.y;
-            if mof_max == 0.0 {
-                0.0
+            if let (Some(min_x), Some(max_x)) = (
+                Self::find_max_vrate_at_min_val(mof_ds, mof_ds.lines.range, 0.0),
+                Self::find_min_vrate_at_max_val(mof_ds, mof_ds.lines.range, 0.0, None),
+            ) {
+                if min_x == max_x {
+                    0.0
+                } else {
+                    let (min_y, max_y) = (mof_ds.lines.eval(min_x), mof_ds.lines.eval(max_x));
+                    let slope = (max_y - min_y) / (max_x - min_x);
+                    (slope * (mof_ds.error / max_y) * 800.0).min(0.1)
+                }
             } else {
-                (mof_ds.lines.slope() * (mof_ds.error / mof_ds.lines.right.y) * 800.0).min(0.1)
+                0.0
             }
         };
 
@@ -724,12 +800,31 @@ impl QoSTarget {
                 ),
                 None => None,
             };
-            Ok(Self::find_min_vrate_at_max_val(
+            let sol = Self::find_min_vrate_at_max_val(
                 ds(sel)?,
                 (scale_min, scale_max),
                 infl_offset(),
                 no_sig_vrate,
-            ))
+            );
+            trace!(
+                "solve_max sel={:?} no_sig_sel={:?} no_sig_vrate={:?} sol={:?}",
+                sel,
+                no_sig_sel,
+                no_sig_vrate,
+                sol
+            );
+            Ok(sol)
+        };
+
+        // Find the max vrate at max val.
+        let solve_right_max = |sel| -> Result<Option<f64>> {
+            let sol = Self::find_max_vrate_at_max_val(
+                ds(sel)?,
+                (scale_min, scale_max),
+                infl_offset(),
+            );
+            trace!("solve_max_right sel={:?} sol={:?}", sel, sol);
+            Ok(sol)
         };
 
         // Find the max vrate at min val.
@@ -743,10 +838,18 @@ impl QoSTarget {
 
         // Find the rightmost valid vrate.
         let solve_max_vrate = |sel| -> Result<Option<f64>> {
-            Ok(ds(sel)?
-                .lines
-                .clamped(scale_min, scale_max)
-                .map(|dl| dl.range.1))
+            if let Some(clamped) = ds(sel)?.lines.clamped((scale_min, scale_max))? {
+                trace!(
+                    "solve_max_vrate({:?}) clamped[{}:{}]={:?}",
+                    &sel,
+                    scale_min,
+                    scale_max,
+                    &clamped
+                );
+                Ok(Some(clamped.range.1))
+            } else {
+                Ok(None)
+            }
         };
 
         Ok(match self {
@@ -771,8 +874,8 @@ impl QoSTarget {
             // LatImp.
             Self::MOFMax => solve_max(&DataSel::MOF, Some(&DataSel::LatImp))?.map(params_at_vrate),
 
-            // Min vrate still at max aMOF. If MOF is flat, max vrate at min
-            // LatImp.
+            // Min vrate still at max aMOF. If aMOF is flat, max vrate at
+            // min LatImp.
             Self::AMOFMax => {
                 solve_max(&DataSel::AMOF, Some(&DataSel::LatImp))?.map(params_at_vrate)
             }
@@ -780,13 +883,13 @@ impl QoSTarget {
             // Rightmost vrate with valid aMOF.
             Self::AMOFMaxVrate => solve_max_vrate(&DataSel::AMOF)?.map(params_at_vrate),
 
-            // clamp(max vrate at min LatImp, isolation, bandwidth)
+            // clamp(aMOF=max, isolation, bandwidth)
             Self::IsolatedBandwidth => match (
                 solve_min(&DataSel::AMOFDelta)?,
                 solve_max_vrate(&DataSel::AMOF)?,
             ) {
                 (Some(min), Some(max)) => {
-                    solve_min(&DataSel::LatImp)?.map(|v| params_at_vrate(v.clamp(min, max)))
+                    solve_right_max(&DataSel::AMOF)?.map(|v| params_at_vrate(v.clamp(min, max)))
                 }
                 _ => None,
             },
@@ -839,7 +942,6 @@ struct QoSRule {
 #[derive(Debug)]
 struct IoCostTuneJob {
     qos_data: Option<JobData>,
-    gran: f64,
     scale_min: f64,
     scale_max: f64,
     sels: BTreeSet<DataSel>,
@@ -850,7 +952,6 @@ impl Default for IoCostTuneJob {
     fn default() -> Self {
         Self {
             qos_data: None,
-            gran: DFL_GRAN,
             scale_min: DFL_SCALE_MIN,
             scale_max: DFL_SCALE_MAX,
             sels: Default::default(),
@@ -904,7 +1005,6 @@ impl Bench for IoCostTuneBench {
 
         for (k, v) in spec.props[0].iter() {
             match k.as_str() {
-                "gran" => job.gran = v.parse::<f64>()?,
                 "scale-min" => job.scale_min = parse_frac(v)? * 100.0,
                 "scale-max" => job.scale_max = parse_frac(v)? * 100.0,
                 k => {
@@ -921,8 +1021,8 @@ impl Bench for IoCostTuneBench {
             }
         }
 
-        if job.gran <= 0.0 || job.scale_min <= 0.0 || job.scale_min >= job.scale_max {
-            bail!("`gran`, `scale_min` and/or `scale_max` invalid");
+        if job.scale_min <= 0.0 || job.scale_min >= job.scale_max {
+            bail!("`scale_min` and/or `scale_max` invalid");
         }
 
         if prop_groups.len() == 0 {
@@ -1004,79 +1104,175 @@ impl DataPoint {
 }
 
 //
-//       val
-//        ^
-//        |
-// dright +.................------
-//        |                /.
-//        |              /  .
-//        |      slope /    .
-//        |          /      .
-//  dleft +--------/        .
-//        |        .        .
-//        +--------+--------+------> vrate
-//              vleft    vright
+//    Y
+//    ^
+//    |
+//    |                         *
+//    |                        /. \
+//    |                       / .   \
+//    |                      /  .     *
+//    |                     /   .     .
+//    |                    *    .     .
+//    |                 /  .    .     .
+//    |              /     .    .     .
+//    |    *-------*       .    .     .
+//    |    .       .       .    .     .
+//    +----+-------+-------+----+-----+----> X
+//      points[0] [1]     [2]  [3]   [4]
 //
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
 struct DataLines {
+    points: Vec<DataPoint>,
     range: (f64, f64),
-    left: DataPoint,
-    right: DataPoint,
 }
 
 impl DataLines {
-    fn slope(&self) -> f64 {
-        if self.left.x != self.right.x {
-            (self.right.y - self.left.y) / (self.right.x - self.left.x)
-        } else {
-            0.0
-        }
-    }
-
-    fn eval(&self, vrate: f64) -> f64 {
-        if vrate < self.left.x {
-            self.left.y
-        } else if vrate > self.right.x {
-            self.right.y
-        } else {
-            self.left.y + self.slope() * (vrate - self.left.x)
-        }
-    }
-
-    fn clamped(&self, vmin: f64, vmax: f64) -> Option<Self> {
-        let vmin = vmin.max(self.range.0);
-        let vmax = vmax.min(self.range.1);
-        if vmin > vmax {
-            return None;
+    fn new(input: &[DataPoint]) -> Result<Self> {
+        if input.is_empty() {
+            return Ok(Default::default());
         }
 
-        let at_vmin = DataPoint::new(vmin, self.eval(vmin));
-        let at_vmax = DataPoint::new(vmax, self.eval(vmax));
-        let (mut left, mut right) = (self.left, self.right);
-
-        if left.x > vmax || right.x < vmin {
-            left = at_vmin;
-            right = at_vmax;
-        } else {
-            if left.x < vmin {
-                left = at_vmin;
-            }
-            if right.x > vmax {
-                right = at_vmax;
+        let mut points = vec![];
+        match input.len() {
+            0 => {}
+            1 => points.push(input[0]),
+            len => {
+                points.push(input[0]);
+                for i in 0..(len - 1) {
+                    let (a, b) = (input[i], input[i + 1]);
+                    if a.x >= b.x {
+                        bail!("invalid input order ({:?}, {:?})", a, b);
+                    }
+                    points.push(b);
+                }
             }
         }
 
-        Some(Self {
-            range: (vmin, vmax),
-            left,
-            right,
-        })
+        let range = (
+            input.first().map(|p| p.x).unwrap_or(0.0),
+            input.last().map(|p| p.x).unwrap_or(0.0),
+        );
+
+        Ok(Self { points, range })
+    }
+
+    /// Determine the Y value at X of @x. If @x is outside range, the
+    /// nearest line is extrapolated.
+    fn eval_extrapolate(&self, x: f64) -> f64 {
+        let mut seg = None;
+        for pair in self.points.windows(2) {
+            seg = Some((pair[0], pair[1]));
+            if x <= pair[1].x {
+                break;
+            }
+        }
+
+        if let Some((a, b)) = seg {
+            // We use equality tests to detect flat lines. Preserve values
+            // on exact matches.
+            if x == a.x || a.y == b.y {
+                return a.y;
+            }
+            if x == b.x {
+                return b.y;
+            }
+            a.y + (x - a.x) * (b.y - a.y) / (b.x - a.x)
+        } else {
+            self.points.first().map(|pt| pt.y).unwrap_or(0.0)
+        }
+    }
+
+    /// Determine the Y value at X of @x. If @x is outside range, the
+    /// closest value is taken.
+    fn eval(&self, x: f64) -> f64 {
+        self.eval_extrapolate(x.clamp(self.range.0, self.range.1))
+    }
+
+    /// Create a new DataLines which is based on @self but with X range
+    /// adjusted to @range. @range can stretch outside @self's range.
+    fn with_range(&self, range: (f64, f64)) -> Result<Self> {
+        if range.0 > range.1 {
+            bail!("invalid range [{}, {}]", range.0, range.1);
+        }
+
+        match self.points.len() {
+            0 => bail!("no data to update range for"),
+            1 => {
+                return Self::new(&[
+                    DataPoint::new(range.0, self.points[0].y),
+                    DataPoint::new(range.1, self.points[0].y),
+                ])
+            }
+            _ => {}
+        }
+
+        let (start_y, end_y) = (
+            self.eval_extrapolate(range.0),
+            self.eval_extrapolate(range.1),
+        );
+        let mut pts = VecDeque::from(self.points.clone());
+
+        // The start and end points are gonna be replaced with points at
+        // range.0 and range.1 respectively. Pop them off.
+        pts.pop_front();
+        pts.pop_back();
+
+        // Remove all points which are at or before range.0 and then insert
+        // (range.0, start_y) at the front.
+        while let Some(pt) = pts.front() {
+            if pt.x > range.0 {
+                break;
+            }
+            pts.pop_front();
+        }
+        pts.push_front(DataPoint::new(range.0, start_y));
+
+        // Do the equivalent from the back.
+        while let Some(pt) = pts.back() {
+            if pt.x < range.1 {
+                break;
+            }
+            pts.pop_back();
+        }
+        pts.push_back(DataPoint::new(range.1, end_y));
+
+        Self::new(&Vec::from(pts))
+    }
+
+    /// Similar to with_range() but can only reduce the range.
+    fn clamped(&self, mut range: (f64, f64)) -> Result<Option<Self>> {
+        range.0 = range.0.max(self.range.0);
+        range.1 = range.1.min(self.range.1);
+        if range.0 <= range.1 {
+            let clamped = self.with_range(range)?;
+            Ok(Some(clamped))
+        } else {
+            Ok(None)
+        }
+    }
+
+    fn min_max(&self) -> (f64, f64) {
+        if self.points.is_empty() {
+            (0.0, 0.0)
+        } else {
+            self.points
+                .iter()
+                .fold((std::f64::MAX, std::f64::MIN), |mut min_max, pt| {
+                    if pt.y < min_max.0 {
+                        min_max.0 = pt.y;
+                    }
+                    if pt.y > min_max.1 {
+                        min_max.1 = pt.y;
+                    }
+                    min_max
+                })
+        }
     }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 struct DataSeries {
-    points: Vec<DataPoint>,
+    data: Vec<DataPoint>,
     outliers: Vec<DataPoint>,
     lines: DataLines,
     error: f64,
@@ -1084,124 +1280,325 @@ struct DataSeries {
 
 impl DataSeries {
     fn reset(&mut self) {
-        let mut points = vec![];
-        points.append(&mut self.points);
-        points.append(&mut self.outliers);
-        points.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        let mut data = vec![];
+        data.append(&mut self.data);
+        data.append(&mut self.outliers);
+        data.sort_by(|a, b| a.partial_cmp(b).unwrap());
         *self = DataSeries {
-            points,
+            data,
             ..Default::default()
         };
     }
 
-    fn split_at<'a>(points: &'a [DataPoint], at: f64) -> (&'a [DataPoint], &'a [DataPoint]) {
-        let mut idx = 0;
-        for (i, point) in points.iter().enumerate() {
-            if point.x > at {
-                idx = i;
-                break;
-            }
-        }
-        (&points[0..idx], &points[idx..])
-    }
-
-    fn vrange(points: &[DataPoint]) -> (f64, f64) {
+    fn range(data: &[DataPoint]) -> (f64, f64) {
         (
-            points.iter().next().unwrap_or(&DataPoint::new(0.0, 0.0)).x,
-            points.iter().last().unwrap_or(&DataPoint::new(0.0, 0.0)).x,
+            data.iter().next().unwrap_or(&DataPoint::new(0.0, 0.0)).x,
+            data.iter().last().unwrap_or(&DataPoint::new(0.0, 0.0)).x,
         )
     }
 
-    fn fit_line(points: &[DataPoint]) -> DataLines {
+    /// Splitting self.data[] at @idx. Determine the inbetween X value. If
+    /// @idx is at the beginning or end, return the X value on the point.
+    fn idx_to_div(&self, idx: usize) -> f64 {
+        if idx > 0 && idx < self.data.len() {
+            (self.data[idx - 1].x + self.data[idx].x) / 2.0
+        } else {
+            self.data[idx.clamp(0, self.data.len() - 1)].x
+        }
+    }
+
+    fn fit_line(&self) -> DataLines {
         let (slope, y_intcp): (f64, f64) = linreg::linear_regression_of(
-            &points
+            &self
+                .data
                 .iter()
                 .map(|p| (p.x, p.y))
                 .collect::<Vec<(f64, f64)>>(),
         )
         .unwrap();
-        let range = Self::vrange(points);
-        DataLines {
-            range,
-            left: DataPoint::new(range.0, slope * range.0 + y_intcp),
-            right: DataPoint::new(range.1, slope * range.1 + y_intcp),
-        }
+        let range = Self::range(&self.data);
+        DataLines::new(&[
+            DataPoint::new(range.0, slope * range.0 + y_intcp),
+            DataPoint::new(range.1, slope * range.1 + y_intcp),
+        ])
+        .unwrap()
     }
 
     /// Find y s.t. minimize (y1-y)^2 + (y2-y)^2 + ...
     /// n*y^2 - 2y1*y - 2y2*y - ...
     /// derivative is 2*n*y - 2y1 - 2y2 - ...
     /// local maxima at y = (y1+y2+...)/n, basic average
-    fn calc_height(points: &[DataPoint]) -> f64 {
-        points.iter().fold(0.0, |acc, point| acc + point.y) / points.len() as f64
+    fn calc_height(data: &[DataPoint]) -> f64 {
+        data.iter().fold(0.0, |acc, point| acc + point.y) / data.len() as f64
     }
 
     /// Find slope m s.t. minimize (m*(x1-X)-(y1-H))^2 ...
     /// m^2*(x1-X)^2 - 2*(m*(x1-X)*(y1-H)) - ...
     /// derivative is 2*m*(x1-X)^2 - 2*(x1-X)*(y1-H) - ...
     /// local maxima at m = ((x1-X)*(y1-H) + (x2-X)*(y2-H) + ...)/((x1-X)^2+(x2-X)^2)
-    fn calc_slope(points: &[DataPoint], hinge: &DataPoint) -> f64 {
-        let top = points.iter().fold(0.0, |acc, point| {
+    fn calc_slope(data: &[DataPoint], hinge: &DataPoint) -> f64 {
+        let top = data.iter().fold(0.0, |acc, point| {
             acc + (point.x - hinge.x) * (point.y - hinge.y)
         });
-        let bot = points
+        let bot = data
             .iter()
             .fold(0.0, |acc, point| acc + (point.x - hinge.x).powi(2));
         top / bot
     }
 
-    fn fit_slope_with_vleft(points: &[DataPoint], vleft: f64) -> Option<DataLines> {
-        let (left, right) = Self::split_at(points, vleft);
-        let left = DataPoint::new(vleft, Self::calc_height(left));
-        let slope = Self::calc_slope(right, &left);
+    fn fit_slope_with_left(&self, lidx: usize) -> Option<DataLines> {
+        let (pleft, pright) = self.data.split_at(lidx);
+        let left = DataPoint::new(self.idx_to_div(lidx), Self::calc_height(pleft));
+        let slope = Self::calc_slope(pright, &left);
         if slope == 0.0 {
             return None;
         }
 
-        let range = Self::vrange(points);
-        Some(DataLines {
-            range,
+        let range = Self::range(&self.data);
+        DataLines::new(&[
+            DataPoint::new(range.0, left.y),
             left,
-            right: DataPoint::new(range.1, left.y + slope * (range.1 - left.x)),
-        })
+            DataPoint::new(range.1, left.y + slope * (range.1 - left.x)),
+        ])
+        .ok()
     }
 
-    fn fit_slope_with_vright(points: &[DataPoint], vright: f64) -> Option<DataLines> {
-        let (left, right) = Self::split_at(points, vright);
-        let right = DataPoint::new(vright, Self::calc_height(right));
-        let slope = Self::calc_slope(left, &right);
+    fn fit_slope_with_right(&self, ridx: usize) -> Option<DataLines> {
+        let (pleft, pright) = self.data.split_at(ridx);
+        let right = DataPoint::new(self.idx_to_div(ridx), Self::calc_height(pright));
+        let slope = Self::calc_slope(pleft, &right);
         if slope == 0.0 {
             return None;
         }
 
-        let range = Self::vrange(points);
-        Some(DataLines {
-            range,
-            left: DataPoint::new(range.0, right.y - slope * (right.x - range.0)),
+        let range = Self::range(&self.data);
+        DataLines::new(&[
+            DataPoint::new(range.0, right.y - slope * (right.x - range.0)),
             right,
-        })
+            DataPoint::new(range.1, right.y),
+        ])
+        .ok()
     }
 
-    fn fit_slope_with_vleft_and_vright(
-        points: &[DataPoint],
-        vleft: f64,
-        vright: f64,
+    fn fit_slope_with_left_and_right(&self, lidx: usize, ridx: usize) -> Option<DataLines> {
+        let (pleft, pmid) = self.data.split_at(lidx);
+        let (_, pright) = pmid.split_at(ridx - lidx);
+
+        let left = DataPoint::new(self.idx_to_div(lidx), Self::calc_height(pleft));
+        let right = DataPoint::new(self.idx_to_div(ridx), Self::calc_height(pright));
+
+        let range = Self::range(&self.data);
+        DataLines::new(&[
+            DataPoint::new(range.0, left.y),
+            left,
+            right,
+            DataPoint::new(range.1, right.y),
+        ])
+        .ok()
+    }
+
+    fn fit_single_peak(
+        &self,
+        llidx: usize,
+        lidx: usize,
+        ridx: usize,
+        rridx: usize,
+        debug: bool,
     ) -> Option<DataLines> {
-        let (left, center) = Self::split_at(points, vleft);
-        let (_, right) = Self::split_at(center, vright);
+        let indices: [usize; 4] = [llidx, lidx, ridx, rridx];
+        let mut points: [Option<DataPoint>; 4] = [None; 4];
 
-        Some(DataLines {
-            range: Self::vrange(points),
-            left: DataPoint::new(vleft, Self::calc_height(left)),
-            right: DataPoint::new(vright, Self::calc_height(right)),
-        })
+        if debug {
+            debug!(
+                "fit_single_peak: {} points {:.3}-{:.3} indices={:?}",
+                self.data.len(),
+                self.data.first().unwrap().x,
+                self.data.last().unwrap().x,
+                &indices
+            );
+        }
+
+        let set_point = |idx: usize, y: f64, points: &mut [Option<DataPoint>; 4]| {
+            for i in 0..indices.len() {
+                if indices[idx] == indices[i] {
+                    points[i] = Some(DataPoint::new(self.idx_to_div(indices[idx]), y));
+                }
+            }
+        };
+
+        // Fit all the flat components.
+        if llidx > 0 {
+            set_point(0, Self::calc_height(&self.data[..llidx]), &mut points);
+        }
+
+        if rridx < self.data.len() {
+            set_point(3, Self::calc_height(&self.data[rridx..]), &mut points);
+        }
+
+        if lidx < ridx {
+            let height = Self::calc_height(&self.data[lidx..ridx]);
+            set_point(1, height, &mut points);
+            set_point(2, height, &mut points);
+        }
+
+        if debug {
+            debug!("fit_single_peak: After fitting flat lines {:?}", &points);
+        }
+
+        // Fit the slopes if there's an anchor point.
+        let mut fit_slope_with_anchor = |li, ri| match (points[li], points[ri]) {
+            (Some(left), None) => {
+                let slope = Self::calc_slope(&self.data[li..ri], &left);
+                set_point(
+                    ri,
+                    left.y + slope * (self.idx_to_div(ri) - left.x),
+                    &mut points,
+                );
+            }
+            (None, Some(right)) => {
+                let slope = Self::calc_slope(&self.data[li..ri], &right);
+                set_point(
+                    li,
+                    right.y - slope * (right.x - self.idx_to_div(li)),
+                    &mut points,
+                );
+            }
+            _ => {}
+        };
+
+        // We try to fit, the left slope, then right and left again because
+        // fitting the right slope may create an anchor point for the left
+        // slope.
+        fit_slope_with_anchor(0, 1);
+        fit_slope_with_anchor(2, 3);
+        fit_slope_with_anchor(0, 1);
+
+        if debug {
+            debug!(
+                "fit_single_peak: After fitting anchored slopes {:?}",
+                &points
+            );
+        }
+
+        // We should either have full or none fitting at this point. The latter is
+        // possible iff there's no flat component (ie. two slopes only).
+        match points.iter().filter(|x| x.is_some()).count() {
+            0 => {
+                if llidx != 0 || lidx != ridx || rridx != self.data.len() {
+                    error!("fit_two_slopes: Unexpected none fitting ({:?})", &indices);
+                    return None;
+                }
+
+                if lidx == 0 || lidx == self.data.len() {
+                    // We only have one slope. Do a simple linear regression.
+                    let dl = self.fit_line();
+                    points = [
+                        Some(dl.points[0]),
+                        Some(dl.points[1]),
+                        Some(dl.points[1]),
+                        Some(dl.points[1]),
+                    ];
+                } else {
+                    // We don't have any anchors. Do linear regression on the
+                    // two parts and find the intersection. Note that the
+                    // intersection is likely to differ from the X value at
+                    // lidx. The fitted lines in this case will deviate from the
+                    // requested X position.
+                    let (a_slope, a_y_intcp): (f64, f64) = linreg::linear_regression_of(
+                        &self.data[..lidx]
+                            .iter()
+                            .map(|d| (d.x, d.y))
+                            .collect::<Vec<(f64, f64)>>(),
+                    )
+                    .ok()?;
+                    let (b_slope, b_y_intcp): (f64, f64) = linreg::linear_regression_of(
+                        &self.data[lidx..]
+                            .iter()
+                            .map(|d| (d.x, d.y))
+                            .collect::<Vec<(f64, f64)>>(),
+                    )
+                    .ok()?;
+
+                    if debug {
+                        debug!(
+                            "fit_single_peak: two slopes ({}, {}), ({}, {})",
+                            a_slope, a_y_intcp, b_slope, b_y_intcp
+                        );
+                    }
+
+                    if a_slope == b_slope {
+                        return None;
+                    }
+                    let int_x = (b_y_intcp - a_y_intcp) / (a_slope - b_slope);
+                    let int_y = (a_slope * b_y_intcp - b_slope * a_y_intcp) / (a_slope - b_slope);
+
+                    if debug {
+                        debug!("fit_single_peak: intersecting at ({}, {})", int_x, int_y);
+                    }
+
+                    if int_x < self.data.first().unwrap().x || int_x > self.data.last().unwrap().x {
+                        return None;
+                    }
+
+                    let lleft_x = self.idx_to_div(llidx);
+                    let rright_x = self.idx_to_div(rridx);
+
+                    points = [
+                        Some(DataPoint::new(lleft_x, a_slope * lleft_x + a_y_intcp)),
+                        Some(DataPoint::new(int_x, int_y)),
+                        Some(DataPoint::new(int_x, int_y)),
+                        Some(DataPoint::new(rright_x, b_slope * rright_x + b_y_intcp)),
+                    ];
+                }
+            }
+            4 => {}
+            _ => {
+                error!(
+                    "fit_two_lines: Unexpected partial fitting ({:?} {:?})",
+                    &indices, &points
+                );
+                return None;
+            }
+        }
+
+        if debug {
+            debug!("fit_single_peak: After fitting two slopes {:?}", &points);
+        }
+
+        // Add the end points and filter out duplicates.
+        let mut result = vec![];
+
+        if points[0].unwrap().x != self.idx_to_div(0) {
+            result.push(DataPoint::new(self.idx_to_div(0), points[0].unwrap().y));
+        }
+        result.push(points[0].unwrap());
+
+        for i in 1..points.len() {
+            let point = points[i].unwrap();
+            if result.last().unwrap().x != point.x {
+                result.push(point);
+            }
+        }
+
+        if points[3].unwrap().x != self.idx_to_div(self.data.len()) {
+            result.push(DataPoint::new(
+                self.idx_to_div(self.data.len()),
+                points[3].unwrap().y,
+            ));
+        }
+
+        if debug {
+            debug!("fit_single_peak: After finalization {:?}", &result);
+        }
+
+        DataLines::new(&result).ok()
     }
 
-    fn calc_error<'a, I>(points: I, lines: &DataLines) -> f64
+    fn calc_error<'a, I>(data: I, lines: &DataLines) -> f64
     where
         I: Iterator<Item = &'a DataPoint>,
     {
-        let (err_sum, cnt) = points.fold((0.0, 0), |(err_sum, cnt), point| {
+        let (err_sum, cnt) = data.fold((0.0, 0), |(err_sum, cnt), point| {
             (err_sum + (point.y - lines.eval(point.x)).powi(2), cnt + 1)
         });
         if cnt > 0 {
@@ -1211,114 +1608,222 @@ impl DataSeries {
         }
     }
 
-    fn fit_lines(&mut self, gran: f64, dir: DataShape) -> Result<()> {
-        if self.points.len() == 0 {
+    fn fit_lines(&mut self, shape: DataShape) -> Result<()> {
+        if self.data.len() == 0 {
             return Ok(());
         }
 
-        let start = self.points.iter().next().unwrap().x;
-        let end = self.points.iter().last().unwrap().x;
-        let intvs = ((end - start) / gran).ceil() as u32 + 1;
-        if intvs <= 1 {
-            return Ok(());
-        }
-        let gran = (end - start) / (intvs - 1) as f64;
+        let start = self.data.iter().next().unwrap().x;
+        let end = self.data.iter().last().unwrap().x;
 
-        // We want to prefer line fittings with fewer components. Discount
-        // error from the previous stage. Also, make sure each line segment
-        // is at least 10% of the vrate range.
-        const ERROR_DISCOUNT: f64 = 0.975;
+        // We want to prefer line fittings with fewer components. Amplify
+        // error based on the number of line segments.
+        const ERROR_MULTIPLIER: f64 = 1.025;
+        // When stepping through the data mid points, skip the ones which
+        // are too close.
+        const MIN_DIV_DIST: f64 = 0.25;
+        // Make sure each line segment is at least 10% of the vrate range.
         const MIN_SEG_DIST: f64 = 10.0;
 
         // Start with mean flat line which is acceptable for both dirs.
-        let mean = statistical::mean(&self.points.iter().map(|p| p.y).collect::<Vec<f64>>());
-        let range = Self::vrange(&self.points);
-        let mut best_lines = DataLines {
-            range,
-            left: DataPoint::new(range.0, mean),
-            right: DataPoint::new(range.1, mean),
-        };
-
-        let best_error =
-            RefCell::new(Self::calc_error(self.points.iter(), &best_lines) * ERROR_DISCOUNT);
+        let mean = statistical::mean(&self.data.iter().map(|p| p.y).collect::<Vec<f64>>());
+        let range = Self::range(&self.data);
+        let mut best_lines =
+            DataLines::new(&[DataPoint::new(range.0, mean), DataPoint::new(range.1, mean)])
+                .unwrap();
+        let mut best_error = Self::calc_error(self.data.iter(), &best_lines);
 
         let mut try_and_pick = |fit: &(dyn Fn() -> Option<DataLines>)| -> Result<bool> {
             if prog_exiting() {
                 bail!("Program exiting");
             }
             if let Some(lines) = fit() {
-                if lines.left.y <= 0.0 || lines.right.y <= 0.0 {
+                let (min, _) = lines.min_max();
+                if min <= 0.0 {
                     return Ok(false);
                 }
-                match dir {
+
+                match shape {
                     DataShape::Any => {}
                     DataShape::Inc => {
-                        if lines.left.y > lines.right.y {
-                            return Ok(false);
+                        let mut last = std::f64::MIN;
+                        for pt in &lines.points {
+                            if pt.y < last {
+                                return Ok(false);
+                            }
+                            last = pt.y;
                         }
                     }
                     DataShape::Dec => {
-                        if lines.left.y < lines.right.y {
-                            return Ok(false);
+                        let mut last = std::f64::MAX;
+                        for pt in &lines.points {
+                            if pt.y > last {
+                                return Ok(false);
+                            }
+                            last = pt.y;
+                        }
+                    }
+                    DataShape::SinglePeak => {
+                        let mut rising = true;
+                        for pair in lines.points.windows(2) {
+                            let (a, b) = (pair[0], pair[1]);
+                            if rising {
+                                if a > b {
+                                    rising = false;
+                                }
+                            } else {
+                                if a < b {
+                                    return Ok(false);
+                                }
+                            }
                         }
                     }
                 }
-                let error = Self::calc_error(self.points.iter(), &lines);
-                if error < *best_error.borrow() {
+
+                let mut error = Self::calc_error(self.data.iter(), &lines);
+                error *= ERROR_MULTIPLIER.powi(lines.points.len() as i32 - 1);
+                if error < best_error {
                     trace!(
-                        "fit-best: ({:.3}, {:.3}) - ({:.3}, {:.3}) \
-                         start={:.3} end={:.3} MIN_SEG_DIST={:.3}",
-                        lines.left.x,
-                        lines.left.y,
-                        lines.right.x,
-                        lines.right.y,
+                        "fit-best: start={:.3} end={:.3} MIN_SEG_DIST={:.3} points={:?}",
                         start,
                         end,
-                        MIN_SEG_DIST
+                        MIN_SEG_DIST,
+                        &lines.points,
                     );
                     best_lines = lines;
-                    best_error.replace(error);
+                    best_error = error;
                     return Ok(true);
                 }
             }
             Ok(false)
         };
 
-        // Try simple linear regression.
-        if self.points.len() > 3 && try_and_pick(&|| Some(Self::fit_line(&self.points)))? {
-            let be = *best_error.borrow();
-            best_error.replace(be * ERROR_DISCOUNT);
-        }
-
-        // Try one flat line and one slope.
-        let mut updated = false;
-        for i in 0..intvs {
-            let infl = start + i as f64 * gran;
-            if infl < start + MIN_SEG_DIST || infl > end - MIN_SEG_DIST {
-                continue;
+        if shape == DataShape::SinglePeak && self.data.len() > 3 {
+            // Two slopes forming one peak or valley. Any component can be
+            // omitted. It's likely that we can handle Inc/Dec line fitting
+            // with this too but leave that for future.
+            //
+            //        *---*
+            //       /.   .\
+            //    --* .   . \
+            //      . .   .  *---
+            //  llidx . ridx .
+            //       lidx   rridx
+            let mut debug_tuple = None;
+            for (key, val) in std::env::vars() {
+                if key == "IOCOST_TUNE_SINGLE_PEAK_DEBUG_TUPLE" {
+                    match scan_fmt!(&val, "{}:{}:{}:{}", usize, usize, usize, usize) {
+                        Ok(tuple) => debug_tuple = Some(tuple),
+                        Err(e) => {
+                            warn!("iocost-tune: Failed to parse {}={} ({:?})", &key, &val, &e)
+                        }
+                    }
+                }
             }
-            updated |= try_and_pick(&|| Self::fit_slope_with_vleft(&self.points, infl))?;
-            updated |= try_and_pick(&|| Self::fit_slope_with_vright(&self.points, infl))?;
-        }
-        if updated {
-            let be = *best_error.borrow();
-            best_error.replace(be * ERROR_DISCOUNT);
-        }
 
-        // Try two flat lines connected with a slope.
-        for i in 0..intvs - 1 {
-            let vleft = start + i as f64 * gran;
-            if vleft < start + MIN_SEG_DIST {
-                continue;
-            }
-            for j in i..intvs {
-                let vright = start + j as f64 * gran;
-                if vright - vleft < MIN_SEG_DIST || vright > end - MIN_SEG_DIST {
+            let mut last_lldiv = std::f64::MIN;
+            for llidx in 0..self.data.len() + 1 {
+                let lldiv = self.idx_to_div(llidx);
+                if llidx > 0 && (lldiv < last_lldiv + MIN_DIV_DIST || lldiv < start + MIN_SEG_DIST)
+                {
                     continue;
                 }
-                try_and_pick(&|| {
-                    Self::fit_slope_with_vleft_and_vright(&self.points, vleft, vright)
-                })?;
+                last_lldiv = lldiv;
+
+                let mut last_ldiv = std::f64::MIN;
+                for lidx in llidx..self.data.len() + 1 {
+                    let ldiv = self.idx_to_div(lidx);
+                    if lidx > llidx
+                        && (ldiv < last_ldiv + MIN_DIV_DIST || ldiv - lldiv < MIN_SEG_DIST)
+                    {
+                        continue;
+                    }
+                    last_ldiv = ldiv;
+
+                    let mut last_rdiv = std::f64::MIN;
+                    for ridx in lidx..self.data.len() + 1 {
+                        let rdiv = self.idx_to_div(ridx);
+                        if ridx > lidx
+                            && (rdiv < last_rdiv + MIN_DIV_DIST || rdiv - ldiv < MIN_SEG_DIST)
+                        {
+                            continue;
+                        }
+                        last_rdiv = rdiv;
+
+                        let mut last_rrdiv = std::f64::MIN;
+                        for rridx in ridx..self.data.len() + 1 {
+                            let rrdiv = self.idx_to_div(rridx);
+                            if rridx > ridx
+                                && (rrdiv - rdiv < MIN_SEG_DIST
+                                    || (rridx < self.data.len() - 1
+                                        && (rrdiv < last_rrdiv + MIN_DIV_DIST
+                                            || rrdiv > end - MIN_SEG_DIST)))
+                            {
+                                continue;
+                            }
+                            last_rrdiv = rrdiv;
+
+                            let debug = match debug_tuple {
+                                Some(tuple) => {
+                                    llidx == tuple.0
+                                        && lidx == tuple.1
+                                        && ridx == tuple.2
+                                        && rridx == tuple.3
+                                }
+                                _ => false,
+                            };
+
+                            try_and_pick(&|| {
+                                self.fit_single_peak(llidx, lidx, ridx, rridx, debug)
+                            })?;
+                        }
+                    }
+                }
+            }
+        } else {
+            // Try simple linear regression.
+            if self.data.len() > 3 {
+                try_and_pick(&|| Some(self.fit_line()))?;
+            }
+
+            // Try one flat line and one slope.
+            let mut last_div = std::f64::MIN;
+            for i in 0..self.data.len() {
+                let div = self.idx_to_div(i);
+                if div < last_div + MIN_DIV_DIST
+                    || div < start + MIN_SEG_DIST
+                    || div > end - MIN_SEG_DIST
+                {
+                    continue;
+                }
+                last_div = div;
+
+                try_and_pick(&|| self.fit_slope_with_left(i))?;
+                try_and_pick(&|| self.fit_slope_with_right(i))?;
+            }
+
+            // Try two flat lines connected with a slope.
+            let mut last_ldiv = std::f64::MIN;
+            for lidx in 0..self.data.len() {
+                let ldiv = self.idx_to_div(lidx);
+                if ldiv < last_ldiv + MIN_DIV_DIST || ldiv < start + MIN_SEG_DIST {
+                    continue;
+                }
+                last_ldiv = ldiv;
+
+                let mut last_rdiv = std::f64::MIN;
+                for ridx in lidx..self.data.len() {
+                    let rdiv = self.idx_to_div(ridx);
+                    if rdiv < last_rdiv + MIN_DIV_DIST
+                        || rdiv - ldiv < MIN_SEG_DIST
+                        || rdiv > end - MIN_SEG_DIST
+                    {
+                        continue;
+                    }
+                    last_rdiv = rdiv;
+
+                    try_and_pick(&|| self.fit_slope_with_left_and_right(lidx, ridx))?;
+                }
             }
         }
 
@@ -1327,32 +1832,32 @@ impl DataSeries {
     }
 
     fn filter_beyond(&mut self, vrate_thr: f64) {
-        let mut points = vec![];
-        points.append(&mut self.points);
-        for point in points.into_iter() {
+        let mut data = vec![];
+        data.append(&mut self.data);
+        for point in data.into_iter() {
             if point.x <= vrate_thr {
-                self.points.push(point);
+                self.data.push(point);
             } else {
                 self.outliers.push(point);
             }
         }
 
-        // self.points start sorted but outliers may go out of order if this
+        // self.data start sorted but outliers may go out of order if this
         // function is called more than once. Sort just in case.
         self.outliers.sort_by(|a, b| a.partial_cmp(b).unwrap());
     }
 
     fn filter_outliers(&mut self) {
-        if self.points.len() < 2 {
+        if self.data.len() < 2 {
             return;
         }
 
-        let mut points = vec![];
-        points.append(&mut self.points);
+        let mut data = vec![];
+        data.append(&mut self.data);
 
         let lines = &self.lines;
-        let nr_points = points.len() as f64;
-        let errors: Vec<f64> = points
+        let nr_data = data.len() as f64;
+        let errors: Vec<f64> = data
             .iter()
             .map(|p| (p.y - lines.eval(p.x)).powi(2))
             .collect();
@@ -1360,39 +1865,22 @@ impl DataSeries {
         let stdev = statistical::standard_deviation(&errors, None);
 
         if let Ok(dist) = Normal::new(mean, stdev) {
-            for (point, error) in points.into_iter().zip(errors.iter()) {
+            for (point, error) in data.into_iter().zip(errors.iter()) {
                 // Apply Chauvenet's criterion on the error of each data point
                 // to detect and reject outliers.
-                if (1.0 - dist.cdf(*error)) * nr_points >= 0.5 {
-                    self.points.push(point);
+                if (1.0 - dist.cdf(*error)) * nr_data >= 0.5 {
+                    self.data.push(point);
                 } else {
                     self.outliers.push(point);
                 }
             }
 
-            // self.points start sorted but outliers may go out of order if this
-            // function is called more than once. Sort just in case.
+            // self.data start sorted but outliers may go out of order if
+            // this function is called more than once. Sort just in case.
             self.outliers.sort_by(|a, b| a.partial_cmp(b).unwrap());
         } else {
-            self.points = points;
+            self.data = data;
         }
-    }
-
-    fn fill_vrate_range(&mut self, range: (f64, f64)) {
-        if self.lines == Default::default() {
-            return;
-        }
-        let (vmin, vmax) = Self::vrange(&self.points);
-        let slope = self.lines.slope();
-        if self.lines.left.x == vmin && vmin > range.0 {
-            self.lines.left.y -= slope * (vmin - range.0);
-            self.lines.left.x = range.0;
-        }
-        if self.lines.right.x == vmax && vmax < range.1 {
-            self.lines.right.y += slope * (range.1 - vmax);
-            self.lines.right.x = range.1;
-        }
-        self.lines.range = range;
     }
 }
 
@@ -1531,10 +2019,10 @@ impl IoCostTuneJob {
                 _ => continue,
             };
             if let Some(val) = sel.select(qrecr, qresr, &isol_pct) {
-                series.points.push(DataPoint::new(vrate, val));
+                series.data.push(DataPoint::new(vrate, val));
             }
         }
-        series.points.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        series.data.sort_by(|a, b| a.partial_cmp(b).unwrap());
         Ok(series)
     }
 
@@ -1545,52 +2033,67 @@ impl IoCostTuneJob {
         isol_series: Option<&DataSeries>,
         isol_thr: f64,
     ) -> Result<()> {
-        let (dir, filter_outliers, filter_by_isol) = sel.fit_lines_opts();
+        let (shape, filter_outliers, filter_by_isol) = sel.fit_lines_opts();
         trace!(
-            "fitting {:?} points={} dir={:?} filter_outliers={} filter_by_isol={}",
+            "fitting {:?} data={} shape={:?} filter_outliers={} filter_by_isol={}",
             &sel,
-            series.points.len(),
-            &dir,
+            series.data.len(),
+            &shape,
             filter_outliers,
             filter_by_isol
         );
 
         let mut fill_upto = None;
         if filter_by_isol {
-            let dl = &isol_series
-                .expect(&format!(
-                    "iocost-tune: Solving {:?} requires {:?} which isn't available",
-                    &sel,
-                    &DataSel::Isol
-                ))
-                .lines;
-            let slope = dl.slope();
-            if slope != 0.0 && dl.right.y < isol_thr {
-                let intcp =
-                    (dl.right.x - (dl.right.y - isol_thr) / slope).clamp(dl.range.0, dl.range.1);
+            let ds = &isol_series.expect(&format!(
+                "iocost-tune: Solving {:?} requires {:?} which isn't available",
+                &sel,
+                &DataSel::Isol
+            ));
+
+            let (left_x, right_x) = (
+                QoSTarget::find_max_vrate_at_max_val(ds, ds.lines.range, 0.0)
+                    .ok_or(anyhow!("failed to find isol left point"))?,
+                QoSTarget::find_min_vrate_at_min_val(ds, ds.lines.range, 0.0)
+                    .ok_or(anyhow!("failed to find isol right point"))?,
+            );
+            let (left_y, right_y) = (ds.lines.eval(left_x), ds.lines.eval(right_x));
+
+            let slope = if left_x < right_x {
+                (right_y - left_y) / (right_x - left_x)
+            } else {
+                0.0
+            };
+
+            if slope != 0.0 && right_y < isol_thr {
+                let intcp = (right_x - (right_y - isol_thr) / slope)
+                    .clamp(ds.lines.range.0, ds.lines.range.1);
                 series.filter_beyond(intcp);
                 fill_upto = Some(intcp);
             }
         }
 
-        series.fit_lines(self.gran, dir)?;
+        series.fit_lines(shape)?;
 
         if let Some(fill_upto) = fill_upto {
-            series.fill_vrate_range((series.lines.range.0, fill_upto));
+            series.lines = series
+                .lines
+                .with_range((series.lines.range.0, fill_upto))
+                .unwrap();
         }
 
         if filter_outliers {
             series.filter_outliers();
             trace!(
-                "fitting {:?} points={} outliers={} dir={:?}",
+                "fitting {:?} data={} outliers={} shape={:?}",
                 &sel,
-                series.points.len(),
+                series.data.len(),
                 series.outliers.len(),
-                &dir
+                &shape
             );
             let range = series.lines.range;
-            series.fit_lines(self.gran, dir)?;
-            series.fill_vrate_range(range);
+            series.fit_lines(shape)?;
+            series.lines = series.lines.with_range(range).unwrap();
         }
 
         // For some data series, we fit the lines excluding the outliers
@@ -1599,7 +2102,7 @@ impl IoCostTuneJob {
         // outliers when reporting error so that the users can gauge the
         // flakiness of the device.
         series.error = DataSeries::calc_error(
-            series.points.iter().chain(series.outliers.iter()),
+            series.data.iter().chain(series.outliers.iter()),
             &series.lines,
         );
 
@@ -1617,38 +2120,41 @@ impl IoCostTuneJob {
         let mut remarks = vec![];
         let rw_str = if rw == READ { "read" } else { "write" };
 
+        let range = (self.scale_min, self.scale_max);
         let (lat_50_mean_lines, lat_99_mean_lines, lat_99_99_lines, lat_100_100_lines) = match (
-            lat_50_mean.lines.clamped(self.scale_min, self.scale_max),
-            lat_99_mean.lines.clamped(self.scale_min, self.scale_max),
-            lat_99_99.lines.clamped(self.scale_min, self.scale_max),
-            lat_100_100.lines.clamped(self.scale_min, self.scale_max),
+            lat_50_mean.lines.clamped(range),
+            lat_99_mean.lines.clamped(range),
+            lat_99_99.lines.clamped(range),
+            lat_100_100.lines.clamped(range),
         ) {
-            (Some(v0), Some(v1), Some(v2), Some(v3)) => (v0, v1, v2, v3),
+            (Ok(Some(v0)), Ok(Some(v1)), Ok(Some(v2)), Ok(Some(v3))) => (v0, v1, v2, v3),
             _ => return vec![format!("Insufficient {} latencies data.", rw_str)],
         };
 
-        if lat_50_mean_lines.left.y == lat_50_mean_lines.right.y
-            && lat_99_mean_lines.left.y == lat_99_mean_lines.right.y
-        {
+        let (lat_50_mean_min, lat_50_mean_max) = lat_50_mean_lines.min_max();
+        let (lat_99_mean_min, lat_99_mean_max) = lat_99_mean_lines.min_max();
+        if lat_50_mean_min == lat_50_mean_max && lat_99_mean_min == lat_99_mean_max {
             remarks.push(format!(
                 "Mean {} latencies cannot be modulated with throttling.",
                 rw_str
             ));
         }
 
-        if lat_99_99_lines.left.y >= 500.0 * MSEC {
+        let lat_99_99_min = lat_99_99_lines.min_max().0;
+        if lat_99_99_min >= 500.0 * MSEC {
             remarks.push(format!(
                 "Minimum p99 {} latencies spike above {} every 100s.",
                 rw_str,
-                format_duration(lat_99_99_lines.left.y)
+                format_duration(lat_99_99_min)
             ));
         }
 
-        if lat_100_100_lines.left.y >= 1000.0 * MSEC {
+        let lat_100_100_min = lat_100_100_lines.min_max().0;
+        if lat_100_100_min >= 1000.0 * MSEC {
             remarks.push(format!(
                 "Minimum {} tail latencies spike above {}.",
                 rw_str,
-                format_duration(lat_100_100_lines.left.y)
+                format_duration(lat_100_100_min)
             ));
         }
 
@@ -1977,7 +2483,7 @@ impl Job for IoCostTuneJob {
                 let tune = recr.prot.scenarios[0].as_mem_hog_tune().unwrap();
                 (tune.isol_pct.clone(), tune.isol_thr)
             }
-            _ => ("01".to_string(), 0.9),
+            _ => (DFL_ISOL_PCT.to_string(), DFL_ISOL_THR),
         };
 
         for sel in self.sels.iter() {
@@ -2034,6 +2540,12 @@ impl Job for IoCostTuneJob {
         }
 
         for rule in self.rules.iter() {
+            trace!(
+                "solving {:?} scale_range=({}, {})",
+                &rule,
+                self.scale_min,
+                self.scale_max
+            );
             let solution = match rule
                 .target
                 .solve(&res.data, (self.scale_min, self.scale_max))
@@ -2088,9 +2600,16 @@ impl Job for IoCostTuneJob {
         for (k, v) in props[0].iter() {
             match k.as_ref() {
                 "pdf" => {
-                    if v.len() > 0 {
-                        pdf_path = Some(v.to_owned());
-                    }
+                    pdf_path = Some(if v.len() > 0 {
+                        v.to_owned()
+                    } else {
+                        Path::new(opts.result_path)
+                            .file_stem()
+                            .unwrap()
+                            .to_string_lossy()
+                            .to_string()
+                            + ".pdf"
+                    });
                 }
                 "pdf-keep" => pdf_keep = v.len() == 0 || v.parse::<bool>()?,
                 k => bail!("unknown format parameter {:?}", k),
@@ -2134,7 +2653,7 @@ impl Job for IoCostTuneJob {
 
 #[cfg(test)]
 mod tests {
-    use super::DataSel;
+    use super::{DataLines, DataPoint, DataSel, DataSeries, QoSTarget};
 
     #[test]
     fn test_bench_iocost_tune_datasel_sort_and_group() {
@@ -2203,5 +2722,125 @@ mod tests {
                 vec![DataSel::WLat("99".to_owned(), "99".to_owned()),],
             ]
         );
+    }
+
+    #[test]
+    fn test_data_lines_left() {
+        let dl = DataLines::new(&[
+            DataPoint::new(1.0, 1.0),
+            DataPoint::new(2.0, 1.0),
+            DataPoint::new(3.0, 2.0),
+        ])
+        .unwrap();
+
+        println!("dl_left={:#?}", &dl);
+
+        assert_eq!(dl.range, (1.0, 3.0));
+
+        assert_eq!(dl.eval(0.5), 1.0);
+        assert_eq!(dl.eval(1.0), 1.0);
+        assert_eq!(dl.eval(1.5), 1.0);
+        assert_eq!(dl.eval(2.0), 1.0);
+        assert_eq!(dl.eval(2.5), 1.5);
+        assert_eq!(dl.eval(3.0), 2.0);
+        assert_eq!(dl.eval(3.5), 2.0);
+    }
+
+    #[test]
+    fn test_data_lines_right() {
+        let dl = DataLines::new(&[
+            DataPoint::new(2.0, 1.0),
+            DataPoint::new(3.0, 2.0),
+            DataPoint::new(4.0, 2.0),
+        ])
+        .unwrap();
+
+        println!("dl_right={:#?}", &dl);
+
+        assert_eq!(dl.range, (2.0, 4.0));
+
+        assert_eq!(dl.eval(1.5), 1.0);
+        assert_eq!(dl.eval(2.0), 1.0);
+        assert_eq!(dl.eval(2.5), 1.5);
+        assert_eq!(dl.eval(3.0), 2.0);
+        assert_eq!(dl.eval(3.5), 2.0);
+        assert_eq!(dl.eval(4.0), 2.0);
+        assert_eq!(dl.eval(4.5), 2.0);
+    }
+
+    #[test]
+    fn test_data_lines_left_right() {
+        let dl = DataLines::new(&[
+            DataPoint::new(1.0, 1.0),
+            DataPoint::new(2.0, 1.0),
+            DataPoint::new(3.0, 2.0),
+            DataPoint::new(4.0, 2.0),
+        ])
+        .unwrap();
+
+        println!("dl_left_right={:#?}", &dl);
+
+        assert_eq!(dl.range, (1.0, 4.0));
+
+        assert_eq!(dl.eval(0.5), 1.0);
+        assert_eq!(dl.eval(1.0), 1.0);
+        assert_eq!(dl.eval(1.5), 1.0);
+        assert_eq!(dl.eval(2.0), 1.0);
+        assert_eq!(dl.eval(2.5), 1.5);
+        assert_eq!(dl.eval(3.0), 2.0);
+        assert_eq!(dl.eval(3.5), 2.0);
+        assert_eq!(dl.eval(4.0), 2.0);
+        assert_eq!(dl.eval(4.5), 2.0);
+    }
+
+    #[test]
+    fn test_qos_target_solvers() {
+        let ds = DataSeries {
+            lines: DataLines::new(&[
+                DataPoint::new(1.0, 1.0),
+                DataPoint::new(2.0, 1.0),
+                DataPoint::new(3.0, 2.0),
+                DataPoint::new(4.0, 2.0),
+            ])
+            .unwrap(),
+            ..Default::default()
+        };
+
+        for (vmax, (sol_min, sol_max)) in &[
+            (4.5, (3.25, 3.35)),
+            (4.0, (3.25, 3.35)),
+            (3.5, (3.25, 3.35)),
+            (3.0, (3.0, 3.0)),
+            (2.5, (2.5, 2.5)),
+            (2.0, (1.5, 1.5)),
+            (1.5, (1.5, 1.5)),
+        ] {
+            let sol =
+                QoSTarget::find_min_vrate_at_max_val(&ds, (0.5, *vmax), 0.1, Some(1.5)).unwrap();
+            println!(
+                "vmax={:.1} sol_min={:.2} sol_max={:.2} sol={}",
+                vmax, sol_min, sol_max, sol
+            );
+            assert!(sol >= *sol_min);
+            assert!(sol <= *sol_max);
+        }
+
+        for (vmin, (sol_min, sol_max)) in &[
+            (0.5, (1.75, 1.85)),
+            (1.0, (1.75, 1.85)),
+            (1.5, (1.75, 1.85)),
+            (2.0, (2.0, 2.0)),
+            (2.5, (2.5, 2.5)),
+            (3.0, (3.5, 3.5)),
+            (3.5, (3.5, 3.5)),
+        ] {
+            let sol = QoSTarget::find_max_vrate_at_min_val(&ds, (*vmin, 3.5), 0.1).unwrap();
+            println!(
+                "vmin={:.1} sol_min={:.2} sol_max={:.2} sol={}",
+                vmin, sol_min, sol_max, sol
+            );
+            assert!(sol >= *sol_min);
+            assert!(sol <= *sol_max);
+        }
     }
 }

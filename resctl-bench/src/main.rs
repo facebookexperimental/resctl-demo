@@ -469,12 +469,18 @@ impl Program {
         }
 
         let rstat = args.rstat;
+        let result_path = args.result.clone();
         match args.mode {
             Mode::Run | Mode::Study | Mode::Solve => self.do_run(),
-            Mode::Format => self.do_format(&FormatOpts { full: true, rstat }),
+            Mode::Format => self.do_format(&FormatOpts {
+                full: true,
+                rstat,
+                result_path: &result_path,
+            }),
             Mode::Summary => self.do_format(&FormatOpts {
                 full: false,
                 rstat: 0,
+                result_path: &result_path,
             }),
             #[cfg(feature = "lambda")]
             Mode::Lambda => lambda::run().unwrap(),

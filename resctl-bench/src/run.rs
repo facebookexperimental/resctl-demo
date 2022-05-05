@@ -1251,6 +1251,7 @@ impl<'a, 'b> RunCtx<'a, 'b> {
             &FormatOpts {
                 full: false,
                 rstat: 0,
+                result_path: &self.args.result,
             },
             &vec![Default::default()],
         )
