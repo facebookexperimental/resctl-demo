@@ -751,16 +751,16 @@ impl Config {
             }
         }
 
-        // mq-deadline scheduler
+        // none scheduler
         if self.enforce.io {
             if let Ok(v) = read_iosched(&self.scr_dev) {
                 self.sr_iosched = Some(v);
             }
-            if let Err(e) = set_iosched(&self.scr_dev, "mq-deadline") {
+            if let Err(e) = set_iosched(&self.scr_dev, "none") {
                 self.sr_failed.add(
                     SysReq::IoSched,
                     &format!(
-                        "Failed to set mq-deadline iosched on {:?} ({})",
+                        "Failed to set none iosched on {:?} ({})",
                         &self.scr_dev, &e
                     ),
                 );
@@ -769,11 +769,11 @@ impl Config {
 
         let scr_dev_iosched = match read_iosched(&self.scr_dev) {
             Ok(v) => {
-                if v != "mq-deadline" {
+                if v != "none" {
                     self.sr_failed.add(
                         SysReq::IoSched,
                         &format!(
-                            "cfg: iosched on {:?} is {} instead of mq-deadline",
+                            "cfg: iosched on {:?} is {} instead of none",
                             &self.scr_dev, v
                         ),
                     );

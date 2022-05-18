@@ -90,7 +90,7 @@ Let's look at the result of the first benchmark - `hashd-params`.
                 passive=io
 
    IO info: dev=nvme0n1(259:0) model="WDC CL SN720 SDAQNTW-512G-1020" size=477G
-            iosched=mq-deadline wbt=off iocost=off other=off
+            iosched=none wbt=off iocost=off other=off
 
    Params: log_bps=1.0M
 
@@ -118,7 +118,7 @@ Let's now take a look at the first next result. Partial header:
    [protection result] "iocost-off" 2021-06-22 19:13:37 - 19:30:25
    ...
    IO info: dev=nvme0n1(259:0) model="WDC CL SN720 SDAQNTW-512G-1020" size=477G
-            iosched=mq-deadline wbt=off iocost=off other=off
+            iosched=none wbt=off iocost=off other=off
 ```
 
 shows that this is `protection` result with ID `iocost-off`. Skipping over
@@ -171,7 +171,7 @@ Let's see whether the `protection` result is any better with `iocost` on:
    [protection result] "iocost-on" 2021-06-22 19:38:53 - 20:02:27
    ...
    IO info: dev=nvme0n1(259:0) model="WDC CL SN720 SDAQNTW-512G-1020" size=477G
-            iosched=mq-deadline wbt=off iocost=on other=off
+            iosched=none wbt=off iocost=on other=off
             iocost model: rbps=1348822120 rseqiops=235687 rrandiops=218614
                           wbps=601694170 wseqiops=133453 wrandiops=69308
             iocost QoS: rpct=95.00 rlat=19562 wpct=95.00 wlat=65667 min=60.00 max=100.00
