@@ -472,14 +472,10 @@ impl Runner {
                 }
 
                 if data.cfg.enforce.io {
-                    let iosched = match data.state {
-                        BenchIoCost => "none",
-                        _ => "mq-deadline",
-                    };
-                    if let Err(e) = super::set_iosched(&data.cfg.scr_dev, iosched) {
+                    if let Err(e) = super::set_iosched(&data.cfg.scr_dev, "none") {
                         error!(
-                            "cfg: Failed to set {:?} iosched on {:?} ({})",
-                            iosched, &data.cfg.scr_dev, &e
+                            "cfg: Failed to set none iosched on {:?} ({})",
+                            &data.cfg.scr_dev, &e
                         );
                     }
                 }

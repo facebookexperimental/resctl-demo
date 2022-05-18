@@ -94,11 +94,11 @@ it's currently unmet:
   The filesystem must be on a physical device.
 
 * %SysReq::IoSched%: bfq IO scheduler's implementation of proportional IO
-  control conflicts with blk-iocost and breaks IO isolation. Use
-  mq-deadline.
+  control conflicts with blk-iocost and breaks IO isolation. Use none.
 
-  IO scheduler can be selected by writing to /sys/block/$DEV/queue/scheduler.
-  resctl-demo automatically switches to mq-deadline if available.
+  IO scheduler can be selected by writing to
+  /sys/block/$DEV/queue/scheduler. resctl-demo automatically switches to
+  none.
 
 * %SysReq::NoWbt%: Write-Back-Throttling is a block layer mechanism to prevent
   writebacks from overwhelming IO devices. This may interfere with IO control

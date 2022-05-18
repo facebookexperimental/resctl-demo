@@ -441,7 +441,7 @@ the following:
                 mem_profile=16 (avail=30.1G share=12.0G target=11.0G)
 
    IO info: dev=nvme0n1(259:5) model="Samsung SSD 970 PRO 512GB" size=477G
-            iosched=mq-deadline wbt=off iocost=on other=off
+            iosched=none wbt=off iocost=on other=off
             iocost model: rbps=2992129542 rseqiops=337745 rrandiops=370705
                           wbps=2232405244 wseqiops=260917 wrandiops=256225
             iocost QoS: rpct=95.00 rlat=11649 wpct=95.00 wlat=12681 min=8.83 max=8.83
