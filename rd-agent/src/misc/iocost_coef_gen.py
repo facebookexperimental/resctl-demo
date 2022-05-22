@@ -274,7 +274,7 @@ if args.testdev:
     info(f'Test target: {devname}({devnr})')
     if not args.no_trim:
         info(f'Trimming...')
-        subprocess.check_call(f'blkdiscard -f /dev/{devname}', shell=True)
+        subprocess.call(f'blkdiscard -f /dev/{devname}', shell=True)
 else:
     if args.testfile_dev:
         devname = os.path.basename(args.testfile_dev)
@@ -296,7 +296,7 @@ else:
 
     if not args.no_trim:
         info(f'Trimming...')
-        subprocess.check_call(f'fstrim -v $(findmnt -n -o TARGET --target .)', shell=True)
+        subprocess.call(f'fstrim -v $(findmnt -n -o TARGET --target .)', shell=True)
 
 dev_path = f'/sys/block/{devname}'
 elevator_path = f'{dev_path}/queue/scheduler'
