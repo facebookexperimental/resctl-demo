@@ -58,6 +58,8 @@ parser.add_argument('--rand-depth', type=int, metavar='DEPTH', default=256,
                     help='Random test queue depth (default: %(default)s)')
 parser.add_argument('--numjobs', type=int, metavar='JOBS', default=8,
                     help='Number of parallel fio jobs to run on SSD (default: %(default)s)')
+parser.add_argument('--no-trim', action='store_true',
+                    help='Do not trim the target device or filesystem at startup')
 parser.add_argument('--json', metavar='FILE',
                     help='Store the results to the specified json file')
 parser.add_argument('--model-override', metavar='"rbps=XXX rseqiops=XXX..."',
@@ -257,7 +259,7 @@ signal.signal(signal.SIGINT, sig_handler)
 args = parser.parse_args()
 
 missing = False
-for cmd in [ 'findmnt', 'dd', 'fio', 'stdbuf' ]:
+for cmd in [ 'findmnt', 'dd', 'fio', 'stdbuf', 'fstrim', 'blkdiscard' ]:
     if not shutil.which(cmd):
         err(f'Required command "{cmd}" is missing')
         missing = True
@@ -270,6 +272,9 @@ if args.testdev:
     devnr = f'{os.major(rdev)}:{os.minor(rdev)}'
     testfile = f'/dev/{devname}'
     info(f'Test target: {devname}({devnr})')
+    if not args.no_trim:
+        info(f'Trimming...')
+        subprocess.check_call(f'blkdiscard -f /dev/{devname}', shell=True)
 else:
     if args.testfile_dev:
         devname = os.path.basename(args.testfile_dev)
@@ -288,6 +293,10 @@ else:
     testfile_size = int(args.testfile_size_gb * 2 ** 30)
     create_testfile(testfile, testfile_size)
     info(f'Test target: {testfile} on {devname}({devnr})')
+
+    if not args.no_trim:
+        info(f'Trimming...')
+        subprocess.check_call(f'fstrim -v $(findmnt -n -o TARGET --target .)', shell=True)
 
 dev_path = f'/sys/block/{devname}'
 elevator_path = f'{dev_path}/queue/scheduler'

@@ -1196,7 +1196,7 @@ impl DataLines {
         }
 
         match self.points.len() {
-            0 => bail!("no data to update range for"),
+            0 => return Self::new(&[]),
             1 => {
                 return Self::new(&[
                     DataPoint::new(range.0, self.points[0].y),
