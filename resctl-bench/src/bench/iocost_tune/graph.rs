@@ -21,6 +21,21 @@ impl<'a, 'b> Grapher<'a, 'b> {
         }
     }
 
+    fn escape_xml(input: &str) -> String {
+        let mut escaped = String::new();
+        for ch in input.chars() {
+            match ch {
+                '<' => escaped += "&lt;",
+                '>' => escaped += "&gt;",
+                '&' => escaped += "&#38;",
+                '\'' => escaped += "&#39;",
+                '"' => escaped += "&#34;",
+                ch => escaped.push(ch),
+            }
+        }
+        escaped
+    }
+
     fn setup_view(
         vrate_range: (f64, f64),
         sel: &DataSel,
@@ -98,8 +113,8 @@ impl<'a, 'b> Grapher<'a, 'b> {
         let view = ContinuousView::new()
             .x_range(0.0, (vrate_range.1 * 1.1).max(0.000001))
             .y_range(ymin * yscale, ymax * yscale)
-            .x_label(xlabel)
-            .y_label(ylabel);
+            .x_label(Self::escape_xml(&xlabel))
+            .y_label(Self::escape_xml(&ylabel));
 
         (view, yscale)
     }
