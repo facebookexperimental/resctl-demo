@@ -165,7 +165,7 @@ impl LambdaHelper {
         let issue = octocrab::OctocrabBuilder::new()
             .personal_token(token)
             .build()?
-            .issues("kov", "iocost-benchmarks")
+            .issues("iocost-benchmark", "iocost-benchmarks")
             .create(title)
             .body(body)
             .send()
