@@ -208,7 +208,9 @@ impl LambdaHelper {
     pub fn format_summary(&self, jctxs: &JobCtxs) -> Result<String> {
         let format_opts = FormatOpts {
             full: false,
+            merge_only: false,
             rstat: 0,
+            result_path: RESULT_PATH,
         };
         let empty_props = vec![Default::default()];
 
