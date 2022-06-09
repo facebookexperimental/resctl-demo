@@ -973,6 +973,7 @@ impl Bench for IoCostTuneBench {
         .incremental()
         .mergeable()
         .merge_needs_storage_model()
+        .merge_needs_storage_fwver()
     }
 
     fn parse(&self, spec: &JobSpec, _prev_data: Option<&JobData>) -> Result<Box<dyn Job>> {

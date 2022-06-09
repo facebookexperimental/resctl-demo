@@ -153,6 +153,7 @@ pub struct BenchDesc {
 
     pub mergeable: bool,
     pub merge_by_storage_model: bool,
+    pub merge_by_storage_fwver: bool,
 }
 
 #[allow(dead_code)]
@@ -204,6 +205,11 @@ impl BenchDesc {
 
     pub fn merge_needs_storage_model(mut self) -> Self {
         self.merge_by_storage_model = true;
+        self
+    }
+
+    pub fn merge_needs_storage_fwver(mut self) -> Self {
+        self.merge_by_storage_fwver = true;
         self
     }
 }

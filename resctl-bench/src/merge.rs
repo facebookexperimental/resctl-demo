@@ -19,6 +19,7 @@ pub struct MergeId {
     pub versions: Option<(String, String, String)>,
     pub mem_profile: u32,
     pub storage_model: Option<String>,
+    pub storage_fwver: Option<String>,
     pub classifier: Option<String>,
 }
 
@@ -72,6 +73,10 @@ impl MergeSrc {
             mem_profile: si.mem.profile,
             storage_model: match desc.merge_by_storage_model {
                 true => Some(srep.scr_dev_model.clone()),
+                false => None,
+            },
+            storage_fwver: match desc.merge_by_storage_fwver {
+                true => Some(srep.scr_dev_fwrev.clone()),
                 false => None,
             },
             classifier: self.bench.merge_classifier(&self.data),
