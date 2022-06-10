@@ -759,10 +759,7 @@ impl Config {
             if let Err(e) = set_iosched(&self.scr_dev, "none") {
                 self.sr_failed.add(
                     SysReq::IoSched,
-                    &format!(
-                        "Failed to set none iosched on {:?} ({})",
-                        &self.scr_dev, &e
-                    ),
+                    &format!("Failed to set none iosched on {:?} ({})", &self.scr_dev, &e),
                 );
             }
         }

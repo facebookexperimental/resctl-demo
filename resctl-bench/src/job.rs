@@ -476,7 +476,20 @@ impl JobCtx {
         let mut buf = String::new();
         let mut out = Box::new(&mut buf) as Box<dyn Write>;
 
-        self.data.format_header(&mut out);
+        let mut is_high_level = false;
+        for map in props.iter() {
+            if let Some(v) = map.get("high-level") {
+                is_high_level = v.len() > 0 || v.parse::<bool>().unwrap_or(false);
+                break;
+            }
+        }
+
+        // For high level summaries we don't want to add a lot of boiler plate.
+        // Let the job itself decide everything that should be printed.
+        if !is_high_level {
+            self.data.format_header(&mut out);
+        }
+
         self.job
             .as_ref()
             .unwrap()

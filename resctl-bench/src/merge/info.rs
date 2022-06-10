@@ -89,6 +89,9 @@ impl MergeEntry {
         if let Some(storage) = self.mid.storage_model.as_ref() {
             writeln!(out, "  storage: {}", storage).unwrap();
         }
+        if let Some(fwver) = self.mid.storage_fwver.as_ref() {
+            writeln!(out, "  fwver: {}", fwver).unwrap();
+        }
         if let Some(cl) = self.mid.classifier.as_ref() {
             writeln!(out, "  classifier: {}", &cl).unwrap();
         }

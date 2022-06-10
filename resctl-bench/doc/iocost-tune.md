@@ -358,3 +358,9 @@ Format properties
 Generate a pdf file containing the result summary and graphs. If no value is
 specified, `RESULT_PATH_STEM.pdf` is used where `RESULT_PATH_STEM` is the
 file stem of the global `--result` path.
+
+#### `high-level` (bool)
+
+Asks for a very high level summary of the results. This is especially useful
+hen deciding from many sets of merged results (see Merging above) which one
+has more reliable parameters.

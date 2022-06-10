@@ -165,7 +165,7 @@ impl LambdaHelper {
         let issue = octocrab::OctocrabBuilder::new()
             .personal_token(token)
             .build()?
-            .issues("kov", "iocost-benchmarks")
+            .issues("iocost-benchmark", "iocost-benchmarks")
             .create(title)
             .body(body)
             .send()
@@ -208,7 +208,9 @@ impl LambdaHelper {
     pub fn format_summary(&self, jctxs: &JobCtxs) -> Result<String> {
         let format_opts = FormatOpts {
             full: false,
+            merge_only: false,
             rstat: 0,
+            result_path: RESULT_PATH,
         };
         let empty_props = vec![Default::default()];
 

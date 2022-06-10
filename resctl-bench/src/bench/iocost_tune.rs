@@ -818,11 +818,8 @@ impl QoSTarget {
 
         // Find the max vrate at max val.
         let solve_right_max = |sel| -> Result<Option<f64>> {
-            let sol = Self::find_max_vrate_at_max_val(
-                ds(sel)?,
-                (scale_min, scale_max),
-                infl_offset(),
-            );
+            let sol =
+                Self::find_max_vrate_at_max_val(ds(sel)?, (scale_min, scale_max), infl_offset());
             trace!("solve_max_right sel={:?} sol={:?}", sel, sol);
             Ok(sol)
         };
@@ -973,6 +970,7 @@ impl Bench for IoCostTuneBench {
         .incremental()
         .mergeable()
         .merge_needs_storage_model()
+        .merge_needs_storage_fwver()
     }
 
     fn parse(&self, spec: &JobSpec, _prev_data: Option<&JobData>) -> Result<Box<dyn Job>> {
@@ -1970,6 +1968,18 @@ impl QoSSolution {
             ..other.clone()
         }
     }
+
+    fn cmp_mof<'r, 's>(a: &'r &&QoSSolution, b: &'s &&QoSSolution) -> Ordering {
+        a.mem_offload_factor
+            .partial_cmp(&b.mem_offload_factor)
+            .unwrap()
+    }
+
+    fn cmp_amof<'r, 's>(a: &'r &&QoSSolution, b: &'s &&QoSSolution) -> Ordering {
+        a.adjusted_mem_offload_factor
+            .partial_cmp(&b.adjusted_mem_offload_factor)
+            .unwrap()
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Default, Debug)]
@@ -2227,6 +2237,65 @@ impl IoCostTuneJob {
         }
 
         remarks
+    }
+
+    fn format_high_level<'a>(&self, out: &mut Box<dyn Write + 'a>, res: &IoCostTuneResult) {
+        writeln!(out, "[iocost-tune result]\n").unwrap();
+
+        let reference = res.data.get(&DataSel::MOF).unwrap();
+        let num_points = reference.data.len() + reference.outliers.len();
+        let solutions: Vec<&QoSSolution> = res.solutions.values().collect();
+        writeln!(
+            out,
+            "{} points, MOF=[{:.3},{:.3}], aMOF=[{:.3},{:.3}]",
+            num_points,
+            solutions
+                .iter()
+                .min_by(QoSSolution::cmp_mof)
+                .unwrap()
+                .mem_offload_factor,
+            solutions
+                .iter()
+                .max_by(QoSSolution::cmp_mof)
+                .unwrap()
+                .mem_offload_factor,
+            solutions
+                .iter()
+                .min_by(QoSSolution::cmp_amof)
+                .unwrap()
+                .adjusted_mem_offload_factor,
+            solutions
+                .iter()
+                .max_by(QoSSolution::cmp_amof)
+                .unwrap()
+                .adjusted_mem_offload_factor
+        )
+        .unwrap();
+
+        let model = &res.base_model;
+
+        writeln!(
+            out,
+            "base model: rbps={:.1} rseqiops={} rrandiops={} wbps={:.1} wseqiops={} wrandiops={}",
+            format_size(model.rbps),
+            format_size(model.rseqiops),
+            format_size(model.rrandiops),
+            format_size(model.wbps),
+            format_size(model.wseqiops),
+            format_size(model.wrandiops)
+        )
+        .unwrap();
+
+        // Use rule names to index solutions so we get the same order as the used in
+        // iocost-tune results full form format.
+        let mut solutions = vec![];
+        for rule in self.rules.iter() {
+            let sol = res.solutions.get(&rule.name).unwrap();
+            solutions.push(format!("{}={}%", &rule.name, format_pct(sol.scale_factor)));
+        }
+
+        writeln!(out, "solutions : {}", &solutions[0..4].join(" ")).unwrap();
+        writeln!(out, "            {}", &solutions[4..].join(" ")).unwrap();
     }
 
     fn format_rules<'a>(out: &mut Box<dyn Write + 'a>, rules: &[&QoSRule]) {
@@ -2595,8 +2664,11 @@ impl Job for IoCostTuneJob {
         opts: &FormatOpts,
         props: &JobProps,
     ) -> Result<()> {
+        let res: IoCostTuneResult = data.parse_result()?;
+
         let mut pdf_path = None;
         let mut pdf_keep = false;
+        let mut high_level = false;
         for (k, v) in props[0].iter() {
             match k.as_ref() {
                 "pdf" => {
@@ -2612,11 +2684,19 @@ impl Job for IoCostTuneJob {
                     });
                 }
                 "pdf-keep" => pdf_keep = v.len() == 0 || v.parse::<bool>()?,
+                "high-level" => high_level = v.len() == 0 || v.parse::<bool>()?,
                 k => bail!("unknown format parameter {:?}", k),
             }
         }
 
-        let res: IoCostTuneResult = data.parse_result()?;
+        if pdf_path.is_some() && high_level {
+            bail!("format parameter merge-info is incompatible with pdf")
+        }
+
+        if high_level {
+            self.format_high_level(out, &res);
+            return Ok(());
+        }
 
         let vrate_range = res
             .data
