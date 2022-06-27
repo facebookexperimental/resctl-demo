@@ -1607,7 +1607,9 @@ impl DataSeries {
     }
 
     fn fit_lines(&mut self, shape: DataShape) -> Result<()> {
-        if self.data.len() == 0 {
+	// Having a single datapoint causes Datalines invalid input
+	// order exception.
+        if self.data.len() <= 1 {
             return Ok(());
         }
 
