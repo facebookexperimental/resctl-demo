@@ -1607,9 +1607,7 @@ impl DataSeries {
     }
 
     fn fit_lines(&mut self, shape: DataShape) -> Result<()> {
-	// Having a single datapoint causes Datalines invalid input
-	// order exception.
-        if self.data.len() <= 1 {
+        if self.data.len() == 0 {
             return Ok(());
         }
 
@@ -1628,6 +1626,12 @@ impl DataSeries {
         // Start with mean flat line which is acceptable for both dirs.
         let mean = statistical::mean(&self.data.iter().map(|p| p.y).collect::<Vec<f64>>());
         let range = Self::range(&self.data);
+        // The correct output on a single datapoint is mean flat line going
+        // through the single data point.
+        if self.data.len() == 1 {
+            self.lines = DataLines::new(&[DataPoint::new(range.0, mean)]).unwrap();
+            return Ok(());
+        }
         let mut best_lines =
             DataLines::new(&[DataPoint::new(range.0, mean), DataPoint::new(range.1, mean)])
                 .unwrap();
