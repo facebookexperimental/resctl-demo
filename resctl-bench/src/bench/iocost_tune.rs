@@ -2296,12 +2296,22 @@ impl IoCostTuneJob {
         // iocost-tune results full form format.
         let mut solutions = vec![];
         for rule in self.rules.iter() {
-            let sol = res.solutions.get(&rule.name).unwrap();
+            let sol = match res.solutions.get(&rule.name) {
+                Some(sol) => sol,
+                None => {
+                    println!("Solution {} not found...", rule.name);
+                    break;
+                }
+            };
             solutions.push(format!("{}={}%", &rule.name, format_pct(sol.scale_factor)));
         }
 
-        writeln!(out, "solutions : {}", &solutions[0..4].join(" ")).unwrap();
-        writeln!(out, "            {}", &solutions[4..].join(" ")).unwrap();
+        if solutions.len() < 4 {
+            writeln!(out, "solutions : {}", &solutions.join(" ")).unwrap();
+        } else {
+            writeln!(out, "solutions : {}", &solutions[0..4].join(" ")).unwrap();
+            writeln!(out, "            {}", &solutions[4..].join(" ")).unwrap();
+        }
     }
 
     fn format_rules<'a>(out: &mut Box<dyn Write + 'a>, rules: &[&QoSRule]) {
