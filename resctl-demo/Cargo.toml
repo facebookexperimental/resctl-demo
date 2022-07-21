@@ -1,7 +1,7 @@
 # Copyright (c) Facebook, Inc. and its affiliates
 [package]
 name = "resctl-demo"
-version = "2.2.3"
+version = "2.2.4"
 authors = ["Tejun Heo <tj@kernel.org>"]
 edition = "2018"
 license = "Apache-2.0"
@@ -12,9 +12,9 @@ readme = "README.md"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-rd-util = { path = "../rd-util", version = "2.2.3" }
-rd-hashd-intf = { path = "../rd-hashd-intf", version = "2.2.3" }
-rd-agent-intf = { path = "../rd-agent-intf", version = "2.2.3" }
+rd-util = { path = "../rd-util", version = "2.2.4" }
+rd-hashd-intf = { path = "../rd-hashd-intf", version = "2.2.4" }
+rd-agent-intf = { path = "../rd-agent-intf", version = "2.2.4" }
 
 anyhow = "^1.0"
 chrono = { version = "^0.4", features = ["serde"] }
