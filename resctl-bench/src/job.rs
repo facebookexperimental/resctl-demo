@@ -21,6 +21,7 @@ use resctl_bench_intf::{JobProps, JobSpec, Mode};
 #[derive(Debug, Clone)]
 pub struct FormatOpts<'a> {
     pub full: bool,
+    pub undecorated: bool,
     pub rstat: u32,
     pub result_path: &'a str,
 }
@@ -482,17 +483,7 @@ impl JobCtx {
         let mut buf = String::new();
         let mut out = Box::new(&mut buf) as Box<dyn Write>;
 
-        let mut is_high_level = false;
-        for map in props.iter() {
-            if let Some(v) = map.get("high-level") {
-                is_high_level = v.len() > 0 || v.parse::<bool>().unwrap_or(false);
-                break;
-            }
-        }
-
-        // For high level summaries we don't want to add a lot of boiler plate.
-        // Let the job itself decide everything that should be printed.
-        if !is_high_level {
+        if !opts.undecorated {
             self.data.format_header(&mut out);
         }
 
@@ -507,7 +498,10 @@ impl JobCtx {
     pub fn print(&self, opts: &FormatOpts, props: &JobProps) -> Result<()> {
         // Format only the completed jobs.
         if self.data.result.is_some() {
-            println!("{}\n\n{}", "=".repeat(90), &self.format(opts, props)?);
+            if !opts.undecorated {
+                print!("{}\n\n", "=".repeat(90));
+            }
+            println!("{}", &self.format(opts, props)?);
         }
         Ok(())
     }

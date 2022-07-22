@@ -29,6 +29,7 @@ lazy_static::lazy_static! {
     );
     static ref DFL_QOS_SPEC: JobSpec =
         resctl_bench_intf::Args::parse_job_spec(&DFL_QOS_SPEC_STR).unwrap();
+    static ref DEFAULT_HWDB_MODELS: &'static [&'static str] = &["isolation", "isolated-bandwidth", "bandwidth", "naive"];
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -2245,9 +2246,7 @@ impl IoCostTuneJob {
         remarks
     }
 
-    fn format_high_level<'a>(&self, out: &mut Box<dyn Write + 'a>, res: &IoCostTuneResult) {
-        writeln!(out, "[iocost-tune result]\n").unwrap();
-
+    fn format_datapoints_summary<'a>(&self, out: &mut Box<dyn Write + 'a>, res: &IoCostTuneResult) {
         let reference = res.data.get(&DataSel::MOF).unwrap();
         let num_points = reference.data.len() + reference.outliers.len();
         let solutions: Vec<&QoSSolution> = res.solutions.values().collect();
@@ -2277,6 +2276,12 @@ impl IoCostTuneJob {
                 .adjusted_mem_offload_factor
         )
         .unwrap();
+    }
+
+    fn format_high_level<'a>(&self, out: &mut Box<dyn Write + 'a>, res: &IoCostTuneResult) {
+        writeln!(out, "[iocost-tune result]\n").unwrap();
+
+        self.format_datapoints_summary(out, res);
 
         let model = &res.base_model;
 
@@ -2311,6 +2316,71 @@ impl IoCostTuneJob {
         } else {
             writeln!(out, "solutions : {}", &solutions[0..4].join(" ")).unwrap();
             writeln!(out, "            {}", &solutions[4..].join(" ")).unwrap();
+        }
+    }
+
+    fn format_hwdb<'a>(
+        &self,
+        out: &mut Box<dyn Write + 'a>,
+        data: &JobData,
+        res: &IoCostTuneResult,
+    ) {
+        write!(out, "# ").unwrap();
+
+        self.format_datapoints_summary(out, res);
+
+        let sysrep = data.sysinfo.sysreqs_report.as_ref().unwrap();
+        writeln!(out, "block:*:name:{}:", sysrep.scr_dev_model).unwrap();
+
+        // Merge files may be missing some solutions, so try defaults in order.
+        let available_solutions: Vec<(&str, &QoSSolution)> = (*DEFAULT_HWDB_MODELS)
+            .iter()
+            .map(|name| {
+                res.solutions
+                    .get(*name)
+                    .and_then(|s| Some((name.clone(), s)))
+            })
+            .filter_map(|s| s)
+            .collect();
+
+        write!(
+            out,
+            "  IOCOST_SOLUTIONS={}",
+            available_solutions
+                .iter()
+                .map(|s| s.0)
+                .collect::<Vec<&str>>()
+                .join(" ")
+        )
+        .unwrap();
+
+        for solution in available_solutions {
+            writeln!(
+                out,
+                "\n  IOCOST_MODEL_{}=rbps={} rseqiops={} rrandiops={} wbps={} wseqiops={} wrandiops={}",
+                solution.0.to_uppercase(),
+                solution.1.model.rbps,
+                solution.1.model.rseqiops,
+                solution.1.model.rrandiops,
+                solution.1.model.wbps,
+                solution.1.model.wseqiops,
+                solution.1.model.wrandiops,
+            )
+            .unwrap();
+
+            // A newline is added for us at the end, so avoid it here to keep it as compact as possible.
+            write!(
+                out,
+                "  IOCOST_QOS_{}=rpct={:.2} rlat={} wpct={:.2} wlat={} min={:.2} max={:.2}",
+                solution.0.to_uppercase(),
+                solution.1.qos.rpct,
+                solution.1.qos.rlat,
+                solution.1.qos.wpct,
+                solution.1.qos.wlat,
+                solution.1.qos.min,
+                solution.1.qos.max,
+            )
+            .unwrap();
         }
     }
 
@@ -2685,6 +2755,7 @@ impl Job for IoCostTuneJob {
         let mut pdf_path = None;
         let mut pdf_keep = false;
         let mut high_level = false;
+        let mut hwdb = false;
         for (k, v) in props[0].iter() {
             match k.as_ref() {
                 "pdf" => {
@@ -2701,12 +2772,20 @@ impl Job for IoCostTuneJob {
                 }
                 "pdf-keep" => pdf_keep = v.len() == 0 || v.parse::<bool>()?,
                 "high-level" => high_level = v.len() == 0 || v.parse::<bool>()?,
+                "hwdb" => hwdb = v.len() == 0 || v.parse::<bool>()?,
                 k => bail!("unknown format parameter {:?}", k),
             }
         }
 
-        if pdf_path.is_some() && high_level {
-            bail!("format parameter merge-info is incompatible with pdf")
+        if pdf_path.is_some() && (high_level || hwdb) {
+            bail!("format parameters are incompatible with each other")
+        }
+
+        // hwdb and high level are special and do not want the default headers to
+        // be printed, so short-circuit them
+        if hwdb {
+            self.format_hwdb(out, &data, &res);
+            return Ok(());
         }
 
         if high_level {

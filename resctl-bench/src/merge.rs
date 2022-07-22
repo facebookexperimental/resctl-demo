@@ -214,6 +214,7 @@ pub fn merge(args: &Args) -> Result<()> {
         .print(
             &FormatOpts {
                 full: true,
+                undecorated: false,
                 rstat: 0,
                 result_path: &args.result,
             },
