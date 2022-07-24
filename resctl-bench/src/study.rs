@@ -215,7 +215,7 @@ where
         pcts.iter()
             .map(|pct| {
                 let val = match *pct {
-                    "mean" => match self.data_len() {
+                    "mean" => match self.data.len() {
                         0 => 0.0,
                         _ => statistical::mean(&self.data),
                     },
