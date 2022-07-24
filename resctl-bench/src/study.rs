@@ -127,16 +127,23 @@ where
     F: FnMut(&SelArg) -> Vec<T>,
 {
     fn result(&self) -> (f64, f64, f64, f64) {
-        let mean = statistical::mean(&self.data);
-        let stdev = match self.data.len() {
-            1 => 0.0,
-            _ => statistical::standard_deviation(&self.data, None),
+        let (mean, stdev) = match self.data.len() {
+            0 => (0.0, 0.0),
+            1 => (self.data[0], 0.0),
+            _ => (
+                statistical::mean(&self.data),
+                statistical::standard_deviation(&self.data, None),
+            ),
         };
+
         let mut min = std::f64::MAX;
         let mut max = std::f64::MIN;
         for v in self.data.iter() {
             min = min.min(*v);
             max = max.max(*v);
+        }
+        if min > max {
+            (min, max) = (0.0, 0.0);
         }
 
         (mean, stdev, min, max)
@@ -208,7 +215,10 @@ where
         pcts.iter()
             .map(|pct| {
                 let val = match *pct {
-                    "mean" => statistical::mean(&self.data),
+                    "mean" => match self.data_len() {
+                        0 => 0.0,
+                        _ => statistical::mean(&self.data),
+                    },
                     "stdev" => {
                         if self.data.len() <= 1 {
                             0.0
