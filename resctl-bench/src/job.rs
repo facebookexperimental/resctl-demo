@@ -126,7 +126,13 @@ impl JobData {
     }
 
     pub fn format_header<'a>(&self, out: &mut Box<dyn Write + 'a>) {
-        write!(out, "[{} result] ", self.spec.kind).unwrap();
+        write!(
+            out,
+            "[{} {} result] ",
+            self.spec.kind,
+            env!("CARGO_PKG_VERSION")
+        )
+        .unwrap();
         if let Some(id) = self.spec.id.as_ref() {
             write!(out, "\"{}\" ", id).unwrap();
         }
