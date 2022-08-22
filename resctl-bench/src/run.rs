@@ -1250,6 +1250,7 @@ impl<'a, 'b> RunCtx<'a, 'b> {
         jctx.print(
             &FormatOpts {
                 full: false,
+                undecorated: false,
                 rstat: 0,
                 result_path: &self.args.result,
             },

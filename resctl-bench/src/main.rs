@@ -223,7 +223,23 @@ impl Program {
         }
 
         for (jctx, props) in to_format.iter() {
-            if let Err(e) = jctx.print(opts, props) {
+            let mut is_high_level = false;
+            let mut is_hwdb = false;
+            for map in props.iter() {
+                if let Some(v) = map.get("high-level") {
+                    is_high_level = v.len() == 0 || v.parse::<bool>().unwrap_or(false);
+                }
+                if let Some(v) = map.get("hwdb") {
+                    is_hwdb = v.len() == 0 || v.parse::<bool>().unwrap_or(false);
+                }
+            }
+
+            // For high level summaries and hwdb we don't want to add a lot of boiler plate.
+            // Let the job itself decide everything that should be printed.
+            let mut job_opts = opts.clone();
+            job_opts.undecorated = is_high_level || is_hwdb;
+
+            if let Err(e) = jctx.print(&job_opts, props) {
                 error!("Failed to format {}: {:#}", &jctx.data.spec, &e);
                 panic!();
             }
@@ -474,11 +490,13 @@ impl Program {
             Mode::Run | Mode::Study | Mode::Solve => self.do_run(),
             Mode::Format => self.do_format(&FormatOpts {
                 full: true,
+                undecorated: false,
                 rstat,
                 result_path: &result_path,
             }),
             Mode::Summary => self.do_format(&FormatOpts {
                 full: false,
+                undecorated: false,
                 rstat: 0,
                 result_path: &result_path,
             }),
