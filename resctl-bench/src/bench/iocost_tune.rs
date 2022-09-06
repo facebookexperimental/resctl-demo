@@ -2355,10 +2355,12 @@ impl IoCostTuneJob {
         .unwrap();
 
         for solution in available_solutions {
+            let normalized_name = solution.0.to_uppercase().replace("-", "_");
+
             writeln!(
                 out,
                 "\n  IOCOST_MODEL_{}=rbps={} rseqiops={} rrandiops={} wbps={} wseqiops={} wrandiops={}",
-                solution.0.to_uppercase(),
+                normalized_name,
                 solution.1.model.rbps,
                 solution.1.model.rseqiops,
                 solution.1.model.rrandiops,
@@ -2372,7 +2374,7 @@ impl IoCostTuneJob {
             write!(
                 out,
                 "  IOCOST_QOS_{}=rpct={:.2} rlat={} wpct={:.2} wlat={} min={:.2} max={:.2}",
-                solution.0.to_uppercase(),
+                normalized_name,
                 solution.1.qos.rpct,
                 solution.1.qos.rlat,
                 solution.1.qos.wpct,
