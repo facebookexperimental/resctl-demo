@@ -2333,7 +2333,7 @@ impl IoCostTuneJob {
         writeln!(out, "block:*:name:{}:", sysrep.scr_dev_model).unwrap();
 
         // Merge files may be missing some solutions, so try defaults in order.
-        let available_solutions: Vec<(&str, &QoSSolution)> = (*DEFAULT_HWDB_MODELS)
+        let mut available_solutions: Vec<(&str, &QoSSolution)> = (*DEFAULT_HWDB_MODELS)
             .iter()
             .map(|name| {
                 res.solutions
@@ -2354,11 +2354,23 @@ impl IoCostTuneJob {
         )
         .unwrap();
 
+        // Now add the rlat solutions, they should not be present in the list of defaults
+        // but should be included in the file.
+        for (name, solution) in res.solutions.iter() {
+            if !name.starts_with("rlat") {
+                continue;
+            }
+
+            available_solutions.push((name, solution));
+        }
+
         for solution in available_solutions {
+            let normalized_name = solution.0.to_uppercase().replace("-", "_");
+
             writeln!(
                 out,
                 "\n  IOCOST_MODEL_{}=rbps={} rseqiops={} rrandiops={} wbps={} wseqiops={} wrandiops={}",
-                solution.0.to_uppercase(),
+                normalized_name,
                 solution.1.model.rbps,
                 solution.1.model.rseqiops,
                 solution.1.model.rrandiops,
@@ -2372,7 +2384,7 @@ impl IoCostTuneJob {
             write!(
                 out,
                 "  IOCOST_QOS_{}=rpct={:.2} rlat={} wpct={:.2} wlat={} min={:.2} max={:.2}",
-                solution.0.to_uppercase(),
+                normalized_name,
                 solution.1.qos.rpct,
                 solution.1.qos.rlat,
                 solution.1.qos.wpct,
