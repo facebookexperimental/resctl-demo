@@ -2324,13 +2324,24 @@ impl IoCostTuneJob {
         out: &mut Box<dyn Write + 'a>,
         data: &JobData,
         res: &IoCostTuneResult,
+        single_fwrev: bool,
     ) {
         write!(out, "# ").unwrap();
 
         self.format_datapoints_summary(out, res);
 
         let sysrep = data.sysinfo.sysreqs_report.as_ref().unwrap();
-        writeln!(out, "block:*:name:{}:", sysrep.scr_dev_model).unwrap();
+        writeln!(
+            out,
+            "block:*:name:{}:fwrev:{}:",
+            sysrep.scr_dev_model,
+            if single_fwrev {
+                &sysrep.scr_dev_fwrev
+            } else {
+                "*"
+            }
+        )
+        .unwrap();
 
         // Merge files may be missing some solutions, so try defaults in order.
         let mut available_solutions: Vec<(&str, &QoSSolution)> = (*DEFAULT_HWDB_MODELS)
@@ -2768,6 +2779,7 @@ impl Job for IoCostTuneJob {
         let mut pdf_keep = false;
         let mut high_level = false;
         let mut hwdb = false;
+        let mut hwdb_fwrev = false;
         for (k, v) in props[0].iter() {
             match k.as_ref() {
                 "pdf" => {
@@ -2785,6 +2797,7 @@ impl Job for IoCostTuneJob {
                 "pdf-keep" => pdf_keep = v.len() == 0 || v.parse::<bool>()?,
                 "high-level" => high_level = v.len() == 0 || v.parse::<bool>()?,
                 "hwdb" => hwdb = v.len() == 0 || v.parse::<bool>()?,
+                "hwdb-fwrev" => hwdb_fwrev = v.len() == 0 || v.parse::<bool>()?,
                 k => bail!("unknown format parameter {:?}", k),
             }
         }
@@ -2795,8 +2808,8 @@ impl Job for IoCostTuneJob {
 
         // hwdb and high level are special and do not want the default headers to
         // be printed, so short-circuit them
-        if hwdb {
-            self.format_hwdb(out, &data, &res);
+        if hwdb || hwdb_fwrev {
+            self.format_hwdb(out, &data, &res, hwdb_fwrev);
             return Ok(());
         }
 

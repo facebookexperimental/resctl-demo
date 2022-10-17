@@ -232,6 +232,9 @@ impl Program {
                 if let Some(v) = map.get("hwdb") {
                     is_hwdb = v.len() == 0 || v.parse::<bool>().unwrap_or(false);
                 }
+                if let Some(v) = map.get("hwdb-fwrev") {
+                    is_hwdb = v.len() == 0 || v.parse::<bool>().unwrap_or(false);
+                }
             }
 
             // For high level summaries and hwdb we don't want to add a lot of boiler plate.
