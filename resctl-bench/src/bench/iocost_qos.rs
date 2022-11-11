@@ -205,11 +205,13 @@ impl IoCostQoSJob {
             if dither {
                 if dither_dist.is_none() {
                     if let Some(pd) = prev_data.as_ref() {
-                        // If prev has dither_dist set, use the prev dither_dist
-                        // so that we can use results from it.
-                        let prec: IoCostQoSRecord = pd.parse_record()?;
-                        if let Some(pdd) = prec.dither_dist.as_ref() {
-                            dither_dist = Some(*pdd);
+                        if pd.record.is_some() {
+                            // If prev has dither_dist set, use the prev dither_dist
+                            // so that we can use results from it.
+                            let prec: IoCostQoSRecord = pd.parse_record()?;
+                            if let Some(pdd) = prec.dither_dist.as_ref() {
+                                dither_dist = Some(*pdd);
+                            }
                         }
                     }
                 }
