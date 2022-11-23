@@ -1197,10 +1197,14 @@ impl DataLines {
         match self.points.len() {
             0 => return Self::new(&[]),
             1 => {
+                if range.0 == range.1 {
+                    return Self::new(&[DataPoint::new(range.0, self.points[0].y)]);
+                }
+
                 return Self::new(&[
                     DataPoint::new(range.0, self.points[0].y),
                     DataPoint::new(range.1, self.points[0].y),
-                ])
+                ]);
             }
             _ => {}
         }
@@ -2068,25 +2072,26 @@ impl IoCostTuneJob {
                 &DataSel::Isol
             ));
 
-            let (left_x, right_x) = (
-                QoSTarget::find_max_vrate_at_max_val(ds, ds.lines.range, 0.0)
-                    .ok_or(anyhow!("failed to find isol left point"))?,
-                QoSTarget::find_min_vrate_at_min_val(ds, ds.lines.range, 0.0)
-                    .ok_or(anyhow!("failed to find isol right point"))?,
+            let (left_x_maybe, right_x_maybe) = (
+                QoSTarget::find_max_vrate_at_max_val(ds, ds.lines.range, 0.0),
+                QoSTarget::find_min_vrate_at_min_val(ds, ds.lines.range, 0.0),
             );
-            let (left_y, right_y) = (ds.lines.eval(left_x), ds.lines.eval(right_x));
+            if left_x_maybe.is_some() && right_x_maybe.is_some() {
+                let (left_x, right_x) = (left_x_maybe.unwrap(), right_x_maybe.unwrap());
+                let (left_y, right_y) = (ds.lines.eval(left_x), ds.lines.eval(right_x));
 
-            let slope = if left_x < right_x {
-                (right_y - left_y) / (right_x - left_x)
-            } else {
-                0.0
-            };
+                let slope = if left_x < right_x {
+                    (right_y - left_y) / (right_x - left_x)
+                } else {
+                    0.0
+                };
 
-            if slope != 0.0 && right_y < isol_thr {
-                let intcp = (right_x - (right_y - isol_thr) / slope)
-                    .clamp(ds.lines.range.0, ds.lines.range.1);
-                series.filter_beyond(intcp);
-                fill_upto = Some(intcp);
+                if slope != 0.0 && right_y < isol_thr {
+                    let intcp = (right_x - (right_y - isol_thr) / slope)
+                        .clamp(ds.lines.range.0, ds.lines.range.1);
+                    series.filter_beyond(intcp);
+                    fill_upto = Some(intcp);
+                }
             }
         }
 
