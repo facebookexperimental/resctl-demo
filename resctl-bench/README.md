@@ -89,7 +89,7 @@ Let's look at the result of the first benchmark - `hashd-params`.
                 mem_profile=16 (avail=57.4G share=12.0G target=11.0G)
                 passive=io
 
-   IO info: dev=nvme0n1(259:0) model="WDC CL SN720 SDAQNTW-512G-1020" size=477G
+   IO info: dev=nvme0n1(259:0) model="WDC CL SN720 SDAQNTW-512G-1020" firmware="10105120" size=477G
             iosched=none wbt=off iocost=off other=off
 
    Params: log_bps=1.0M
@@ -117,7 +117,7 @@ Let's now take a look at the first next result. Partial header:
 ```
    [protection result] "iocost-off" 2021-06-22 19:13:37 - 19:30:25
    ...
-   IO info: dev=nvme0n1(259:0) model="WDC CL SN720 SDAQNTW-512G-1020" size=477G
+   IO info: dev=nvme0n1(259:0) model="WDC CL SN720 SDAQNTW-512G-1020" firmware="10105120" size=477G
             iosched=none wbt=off iocost=off other=off
 ```
 
@@ -170,7 +170,7 @@ Let's see whether the `protection` result is any better with `iocost` on:
 ```
    [protection result] "iocost-on" 2021-06-22 19:38:53 - 20:02:27
    ...
-   IO info: dev=nvme0n1(259:0) model="WDC CL SN720 SDAQNTW-512G-1020" size=477G
+   IO info: dev=nvme0n1(259:0) model="WDC CL SN720 SDAQNTW-512G-1020" firmware="10105120" size=477G
             iosched=none wbt=off iocost=on other=off
             iocost model: rbps=1348822120 rseqiops=235687 rrandiops=218614
                           wbps=601694170 wseqiops=133453 wrandiops=69308

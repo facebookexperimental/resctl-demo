@@ -440,7 +440,7 @@ the following:
                 nr_cpus=16 memory=32.0G swap=16.4G swappiness=60
                 mem_profile=16 (avail=30.1G share=12.0G target=11.0G)
 
-   IO info: dev=nvme0n1(259:5) model="Samsung SSD 970 PRO 512GB" size=477G
+   IO info: dev=nvme0n1(259:5) model="Samsung SSD 970 PRO 512GB" firmware="1B2QEXP7" size=477G
             iosched=none wbt=off iocost=on other=off
             iocost model: rbps=2992129542 rseqiops=337745 rrandiops=370705
                           wbps=2232405244 wseqiops=260917 wrandiops=256225
