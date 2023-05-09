@@ -7,7 +7,7 @@ System info: kernel="5.6.13-0_fbk16_5756_gdcbe47195163"
              mem_profile=16 (avail=57.4G share=12.0G target=11.0G)
              passive=io
 
-IO info: dev=nvme0n1(259:0) model="WDC CL SN720 SDAQNTW-512G-1020" size=477G
+IO info: dev=nvme0n1(259:0) model="WDC CL SN720 SDAQNTW-512G-1020" firmware="10105120" size=477G
          iosched=mq-deadline wbt=off iocost=off other=off
 
 Params: log_bps=1.0M
@@ -23,7 +23,7 @@ System info: kernel="5.6.13-0_fbk16_5756_gdcbe47195163"
              mem_profile=16 (avail=58.3G share=12.0G target=11.0G)
              passive=io
 
-IO info: dev=nvme0n1(259:0) model="WDC CL SN720 SDAQNTW-512G-1020" size=477G
+IO info: dev=nvme0n1(259:0) model="WDC CL SN720 SDAQNTW-512G-1020" firmware="10105120" size=477G
          iosched=mq-deadline wbt=off iocost=off other=off
 
 hashd params: hash_size=1.2M rps_max=1029 mem_actual=16.1G chunk_pages=25
@@ -38,8 +38,8 @@ IO Latency: R p50=885u:3.7m/49.5m p90=4.7m:12.7m/150m p99=13.1m:25.1m/350m max=3
 Isolation and Request Latency Impact Distributions:
 
               min   p01   p05   p10   p25   p50   p75   p90   p95   p99   max  mean stdev
-isol%           0  0.49  1.65  2.24 13.12 50.90 72.52 82.12 88.56 100.0 100.0 45.50 30.72 
-lat-imp%        0     0     0     0  4.69 17.00 40.54 75.06 121.9 380.3 882.5 39.42 81.53 
+isol%           0  0.49  1.65  2.24 13.12 50.90 72.52 82.12 88.56 100.0 100.0 45.50 30.72
+lat-imp%        0     0     0     0  4.69 17.00 40.54 75.06 121.9 380.3 882.5 39.42 81.53
 
 Result: isol=45.50:30.72% lat_imp=39.42%:81.53 work_csv=100.0% missing=0.26%
 
@@ -51,7 +51,7 @@ System info: kernel="5.6.13-0_fbk16_5756_gdcbe47195163"
              nr_cpus=36 memory=63.9G swap=32.0G swappiness=60
              mem_profile=16 (avail=58.3G share=12.0G target=11.0G)
 
-IO info: dev=nvme0n1(259:0) model="WDC CL SN720 SDAQNTW-512G-1020" size=477G
+IO info: dev=nvme0n1(259:0) model="WDC CL SN720 SDAQNTW-512G-1020" firmware="10105120" size=477G
          iosched=mq-deadline wbt=off iocost=off other=off
 
 iocost model: rbps=1348822120 rseqiops=235687 rrandiops=218614
@@ -66,7 +66,7 @@ System info: kernel="5.6.13-0_fbk16_5756_gdcbe47195163"
              nr_cpus=36 memory=63.9G swap=32.0G swappiness=60
              mem_profile=16 (avail=58.3G share=12.0G target=11.0G)
 
-IO info: dev=nvme0n1(259:0) model="WDC CL SN720 SDAQNTW-512G-1020" size=477G
+IO info: dev=nvme0n1(259:0) model="WDC CL SN720 SDAQNTW-512G-1020" firmware="10105120" size=477G
          iosched=mq-deadline wbt=off iocost=on other=off
          iocost model: rbps=1348822120 rseqiops=235687 rrandiops=218614
                        wbps=601694170 wseqiops=133453 wrandiops=69308
@@ -84,8 +84,7 @@ IO Latency: R p50=164u:42.2u/415u p90=915u:827u/17.5m p99=3.4m:4.5m/97.5m max=8.
 Isolation and Request Latency Impact Distributions:
 
               min   p01   p05   p10   p25   p50   p75   p90   p95   p99   max  mean stdev
-isol%           0     0 88.34 90.57 93.78 97.30 100.0 100.0 100.0 100.0 100.0 95.18 11.06 
-lat-imp%        0     0  0.96  2.20  3.79  6.49 10.22 15.63 18.32 29.55 263.0  8.14  9.99 
+isol%           0     0 88.34 90.57 93.78 97.30 100.0 100.0 100.0 100.0 100.0 95.18 11.06
+lat-imp%        0     0  0.96  2.20  3.79  6.49 10.22 15.63 18.32 29.55 263.0  8.14  9.99
 
 Result: isol=95.18:11.06% lat_imp=8.14%:9.99 work_csv=42.89% missing=0.21%
-

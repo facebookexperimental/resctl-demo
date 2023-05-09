@@ -179,11 +179,12 @@ impl JobData {
 
             writeln!(
                 out,
-                "IO info: dev={}({}:{}) model=\"{}\" size={}",
+                "IO info: dev={}({}:{}) model=\"{}\" firmware =\"{}\" size={}",
                 &rep.scr_dev,
                 rep.scr_devnr.0,
                 rep.scr_devnr.1,
                 &rep.scr_dev_model,
+                &rep.scr_dev_fwrev,
                 format_size(rep.scr_dev_size)
             )
             .unwrap();
