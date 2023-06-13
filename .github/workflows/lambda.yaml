@@ -10,6 +10,9 @@ jobs:
   build-upload-lambda-function:
     name: Build and deploy
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
     steps:
       - name: Install Rust toolchain
         uses: actions-rs/toolchain@v1
@@ -52,11 +55,9 @@ jobs:
             bootstrap
 
       - name: Prepare AWS environment
-        uses: aws-actions/configure-aws-credentials@v1
+        uses: aws-actions/configure-aws-credentials@v2
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          role-to-assume: IoCostLambdaManager
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
           role-duration-seconds: 1200
           aws-region: ${{ secrets.AWS_REGION }}
 
