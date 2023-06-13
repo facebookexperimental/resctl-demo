@@ -37,7 +37,7 @@ jobs:
           CC_x86_64_unknown_linux_musl: musl-gcc
         run: >
           cd ${GITHUB_WORKSPACE}/resctl-demo &&
-          cargo build --release --all-features --target x86_64-unknown-linux-musl
+          cargo build --release --features lambda --target x86_64-unknown-linux-musl
 
       - name: Package for AWS lambda
         run: >
