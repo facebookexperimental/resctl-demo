@@ -24,7 +24,7 @@ jobs:
         run: cargo fmt -- --check
 
       - name: Cargo build
-        run: cargo build
+        run: cargo build --all-features
 
       - name: Cargo test
         run: cargo test

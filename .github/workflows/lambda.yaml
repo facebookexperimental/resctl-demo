@@ -1,0 +1,66 @@
+name: Build and deploy lambda function
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+    - 'v*'
+
+jobs:
+  build-upload-lambda-function:
+    name: Build and deploy
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: Install Rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+
+      - name: Checkout resctl-demo repository
+        uses: actions/checkout@v2
+        with:
+          path: 'resctl-demo'
+
+      - name: Install musl toolchain
+        run: sudo apt install -y musl-tools
+
+      - name: Add musl target
+        run: rustup target add x86_64-unknown-linux-musl
+
+      - name: Build with all features
+        env:
+          CC_x86_64_unknown_linux_musl: musl-gcc
+        run: >
+          cd ${GITHUB_WORKSPACE}/resctl-demo &&
+          cargo build --release --features lambda --target x86_64-unknown-linux-musl
+
+      - name: Package for AWS lambda
+        run: >
+          find ;
+          cp resctl-demo/target/x86_64-unknown-linux-musl/release/resctl-bench ./bootstrap &&
+          zip -j resctl-bench-lambda.zip bootstrap
+
+      - name: Publish artifact
+        uses: actions/upload-artifact@v2
+        with:
+          name: resctl-bench-lambda
+          retention-days: 14
+          if-no-files-found: error
+          path: |
+            bootstrap
+
+      - name: Prepare AWS environment
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          role-duration-seconds: 1200
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Update lambda function
+        run: >
+          aws lambda update-function-code --function-name "iocost-submit" --zip-file fileb://resctl-bench-lambda.zip
