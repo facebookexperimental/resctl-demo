@@ -128,6 +128,7 @@ impl Program {
     }
 
     fn do_run(&mut self) {
+        verify_agent_and_hashd(&FULL_VERSION);
         let mut base = match self.args_file.data.mode {
             Mode::Study | Mode::Solve => base::Base::dummy(&self.args_file.data),
             _ => base::Base::new(&self.args_file.data),
@@ -545,8 +546,6 @@ fn main() {
         error!("Failed to process args file ({})", &e);
         panic!();
     });
-
-    verify_agent_and_hashd(&FULL_VERSION);
 
     if args_file.data.test {
         warn!("Test mode enabled, results will be bogus");
