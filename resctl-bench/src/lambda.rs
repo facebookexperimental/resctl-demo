@@ -1,10 +1,9 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
 // Copyright (c) Collabora Ltd.
 use anyhow::{anyhow, Context, Error, Result};
-use aws_sdk_s3::{
-    error::{GetObjectError, GetObjectErrorKind},
-    SdkError,
-};
+use aws_lambda_events::event::lambda_function_urls::LambdaFunctionUrlRequest;
+use aws_sdk_s3::error::SdkError;
+use lambda_runtime::{service_fn, LambdaEvent};
 use log::error;
 use std::io::{Cursor, Read, Write};
 use std::os::unix::process::CommandExt;
@@ -17,6 +16,8 @@ use crate::job::{FormatOpts, JobCtxs};
 // The hard-coded file name is safe because the lambda function runs single-threaded
 // and isolated - each concurrent instance runs on its own environment.
 const RESULT_PATH: &'static str = "/tmp/result.json.gz";
+const IOCOST_BUCKET: &'static str = "iocost-submit";
+const IOCOST_BUCKET_REGION: &'static str = "eu-west-1";
 
 pub fn init_lambda() {
     let executable_path = std::env::current_exe().expect("Failed to get executable path");
@@ -38,8 +39,9 @@ pub fn init_lambda() {
 
 #[tokio::main]
 pub async fn run() -> Result<()> {
-    let handler = |request: Request, _| async move {
+    let handler = |event: LambdaEvent<LambdaFunctionUrlRequest>| async move {
         let helper = LambdaHelper::new().await;
+        let request: Request = serde_json::from_str(event.payload.body.as_ref().unwrap().as_str())?;
 
         // Unpack the base64 encoded gz-compressed file. This is safe because Lambda has a hard
         // limit on the size of the requests (6MB at the moment).
@@ -81,7 +83,7 @@ pub async fn run() -> Result<()> {
         })
     };
 
-    lambda_runtime::run(lambda_runtime::handler_fn(handler))
+    lambda_runtime::run(service_fn(handler))
         .await
         .map_err(|e| anyhow!(e))?;
     Ok(())
@@ -114,38 +116,31 @@ impl LambdaHelper {
         let output = self
             .s3
             .get_object()
-            .bucket("iocost-submit")
+            .bucket(IOCOST_BUCKET)
             .key(object_name)
             .send()
             .await;
 
         match output {
             Ok(_) => Ok(true),
-            Err(SdkError::ServiceError {
-                err:
-                    GetObjectError {
-                        kind: GetObjectErrorKind::NoSuchKey(..),
-                        ..
-                    },
-                ..
-            }) => Ok(false),
+            Err(SdkError::ServiceError(err)) if err.err().is_no_such_key() => Ok(false),
             Err(e) => Err(anyhow!(e)),
         }
     }
 
     pub async fn save_to_s3(&self, object_name: &str) -> Result<String> {
-        let body = aws_sdk_s3::ByteStream::from_path(Path::new(RESULT_PATH)).await?;
+        let body = aws_sdk_s3::primitives::ByteStream::from_path(Path::new(RESULT_PATH)).await?;
         self.s3
             .put_object()
-            .bucket("iocost-submit")
+            .bucket(IOCOST_BUCKET)
             .key(object_name)
             .body(body)
             .send()
             .await?;
 
         Ok(format!(
-            "https://iocost-submit.s3.eu-west-1.amazonaws.com/{}",
-            object_name
+            "https://{}.s3.{}.amazonaws.com/{}",
+            IOCOST_BUCKET, IOCOST_BUCKET_REGION, object_name
         ))
     }
 
