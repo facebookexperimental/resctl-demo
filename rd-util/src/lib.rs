@@ -746,16 +746,31 @@ pub fn init_logging(verbosity: u32) {
             .set_location_level(sl::LevelFilter::Off)
             .set_target_level(sl::LevelFilter::Off)
             .set_thread_level(sl::LevelFilter::Off);
-        if !console::user_attended_stderr()
-            || sl::TermLogger::init(
-                sl_level,
-                lcfg.build(),
-                sl::TerminalMode::Stderr,
-                sl::ColorChoice::Auto,
-            )
-            .is_err()
-        {
-            sl::WriteLogger::init(sl_level, lcfg.build(), std::io::stderr()).unwrap();
+
+        if !std::env::var("LOG_DUMP_FILE").is_ok() {
+            if !console::user_attended_stderr()
+                || sl::TermLogger::init(
+                    sl_level,
+                    lcfg.build(),
+                    sl::TerminalMode::Stderr,
+                    sl::ColorChoice::Auto,
+                    ).is_err()
+            {
+                sl::WriteLogger::init(sl_level, lcfg.build(), std::io::stderr()).unwrap();
+            }
+        } else {
+            if !console::user_attended_stderr() {
+                sl::WriteLogger::init(sl_level, lcfg.build(), std::io::stderr()).unwrap();
+            } else {
+                let logfile = std::env::var("LOG_DUMP_FILE").unwrap();
+                sl::CombinedLogger::init(
+                    vec![
+                        sl::TermLogger::new(sl_level, lcfg.build(), sl::TerminalMode::Stderr, sl::ColorChoice::Auto),
+                        sl::WriteLogger::new(sl_level, lcfg.build(), std::fs::File::create(logfile).unwrap()),
+                    ]
+                ).unwrap();
+
+            }
         }
     }
 }
