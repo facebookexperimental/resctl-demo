@@ -732,7 +732,7 @@ pub fn format_period(per: (u64, u64)) -> String {
     )
 }
 
-pub fn init_logging(verbosity: u32) {
+pub fn init_logging(verbosity: u32, logfile: String) {
     if std::env::var("RUST_LOG").is_ok() {
         env_logger::init();
     } else {
@@ -747,30 +747,40 @@ pub fn init_logging(verbosity: u32) {
             .set_target_level(sl::LevelFilter::Off)
             .set_thread_level(sl::LevelFilter::Off);
 
-        if !std::env::var("LOG_DUMP_FILE").is_ok() {
+        if logfile.is_empty() {
             if !console::user_attended_stderr()
                 || sl::TermLogger::init(
                     sl_level,
                     lcfg.build(),
                     sl::TerminalMode::Stderr,
                     sl::ColorChoice::Auto,
-                    ).is_err()
+                )
+                .is_err()
             {
                 sl::WriteLogger::init(sl_level, lcfg.build(), std::io::stderr()).unwrap();
             }
         } else {
-            if !console::user_attended_stderr() {
-                sl::WriteLogger::init(sl_level, lcfg.build(), std::io::stderr()).unwrap();
+            let termlogger: Box<dyn sl::SharedLogger>;
+            if console::user_attended_stderr() {
+                termlogger = sl::TermLogger::new(
+                    sl_level,
+                    lcfg.build(),
+                    sl::TerminalMode::Stderr,
+                    sl::ColorChoice::Auto,
+                );
             } else {
-                let logfile = std::env::var("LOG_DUMP_FILE").unwrap();
-                sl::CombinedLogger::init(
-                    vec![
-                        sl::TermLogger::new(sl_level, lcfg.build(), sl::TerminalMode::Stderr, sl::ColorChoice::Auto),
-                        sl::WriteLogger::new(sl_level, lcfg.build(), std::fs::File::create(logfile).unwrap()),
-                    ]
-                ).unwrap();
-
+                termlogger = sl::WriteLogger::new(sl_level, lcfg.build(), std::io::stderr());
             }
+
+            sl::CombinedLogger::init(vec![
+                termlogger,
+                sl::WriteLogger::new(
+                    sl::LevelFilter::Debug,
+                    lcfg.build(),
+                    std::fs::File::create(logfile).unwrap(),
+                ),
+            ])
+            .unwrap();
         }
     }
 }

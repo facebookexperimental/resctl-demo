@@ -25,7 +25,8 @@ lazy_static::lazy_static! {
              --reset            'Reset all states except for bench results, linux.tar and testfiles'
              --keep-reports     'Don't delete expired report files, also affects --reset'
              --bypass           'Skip startup and periodic health checks'
-         -v...                  'Sets the level of verbosity'",
+         -v...                  'Sets the level of verbosity'
+             --logfile=[FILE]   'Specify file to dump logs'",
         dfl_dir = Args::default().dir,
         dfl_rep_ret = Args::default().rep_retention as f64 / 3600.0,
         dfl_rep_1m_ret = Args::default().rep_1min_retention as f64 / 3600.0,
@@ -198,6 +199,8 @@ pub struct Args {
     pub bypass: bool,
     #[serde(skip)]
     pub verbosity: u32,
+    #[serde(skip)]
+    pub logfile: Option<String>,
 
     pub bandit: Option<Bandit>,
 }
@@ -222,6 +225,7 @@ impl Default for Args {
             keep_reports: false,
             bypass: false,
             verbosity: 0,
+            logfile: None,
             bandit: None,
         }
     }
@@ -300,6 +304,13 @@ impl JsonArgs for Args {
         matches.occurrences_of("v") as u32
     }
 
+    fn log_file(matches: &clap::ArgMatches) -> String {
+        match matches.value_of("logfile") {
+            Some(v) => v.to_string(),
+            None => "".to_string(),
+        }
+    }
+
     fn process_cmdline(&mut self, matches: &clap::ArgMatches) -> bool {
         let dfl = Args::default();
         let mut updated_base = false;
@@ -365,6 +376,7 @@ impl JsonArgs for Args {
         self.reset = matches.is_present("reset");
         self.keep_reports = matches.is_present("keep-reports");
         self.verbosity = Self::verbosity(&matches);
+        self.logfile = matches.value_of("logfile").map(|x| x.to_string());
         self.bypass = matches.is_present("bypass");
 
         match matches.value_of("passive") {

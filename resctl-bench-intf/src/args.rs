@@ -40,7 +40,8 @@ lazy_static::lazy_static! {
                  --force-shadow-inode-prot-test 'Force shadow inode protection test'
                  --skip-shadow-inode-prot-test 'Assume shadow inodes are protected without testing'
                  --test                   'Test mode for development'
-             -v...                        'Sets the level of verbosity'",
+             -v...                        'Sets the level of verbosity'
+                 --logfile=[FILE]         'Specify file to dump logs'",
             dfl_dir = dfl_args.dir,
             dfl_rep_ret = dfl_args.rep_retention,
             dfl_mem_prof = dfl_args.mem_profile.unwrap(),
@@ -161,6 +162,8 @@ pub struct Args {
     #[serde(skip)]
     pub verbosity: u32,
     #[serde(skip)]
+    pub logfile: Option<String>,
+    #[serde(skip)]
     pub rstat: u32,
     #[serde(skip)]
     pub merge_srcs: Vec<String>,
@@ -209,6 +212,7 @@ impl Default for Args {
             skip_shadow_inode_prot_test: false,
             test: false,
             verbosity: 0,
+            logfile: None,
             rstat: 0,
             merge_srcs: vec![],
             merge_by_id: false,
@@ -535,6 +539,13 @@ impl JsonArgs for Args {
         matches.occurrences_of("v") as u32
     }
 
+    fn log_file(matches: &clap::ArgMatches) -> String {
+        match matches.value_of("logfile") {
+            Some(v) => v.to_string(),
+            None => "".to_string(),
+        }
+    }
+
     fn process_cmdline(&mut self, matches: &clap::ArgMatches) -> bool {
         let dfl = Args::default();
         let mut updated = false;
@@ -654,6 +665,7 @@ impl JsonArgs for Args {
         self.skip_shadow_inode_prot_test = matches.is_present("skip-shadow-inode-prot-test");
         self.test = matches.is_present("test");
         self.verbosity = Self::verbosity(matches);
+        self.logfile = matches.value_of("logfile").map(|x| x.to_string());
 
         updated |= match matches.subcommand() {
             ("run", Some(subm)) => self.process_subcommand(Mode::Run, subm),

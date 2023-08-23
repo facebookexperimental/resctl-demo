@@ -522,7 +522,7 @@ fn main() {
     ARGS.lock().unwrap().replace(args);
 
     if std::env::var("RUST_LOG").is_ok() {
-        init_logging(0);
+        init_logging(0, "".to_string());
     } else {
         logger::init();
     }
