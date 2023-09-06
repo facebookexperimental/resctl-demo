@@ -41,7 +41,9 @@ lazy_static::lazy_static! {
                  --total-memory=[SIZE]     'Override total memory detection'
                  --total-swap=[SIZE]       'Override total swap space detection'
                  --nr-cpus=[NR]            'Override cpu count detection'
-             -v...                         'Sets the level of verbosity'",
+             -v...                         'Sets the level of verbosity'
+
+                 --logfile=[FILE]          'Specify file to dump trace logs'",
             dfl_size=to_gb(dfl_args.size),
             dfl_file_max_frac=dfl_args.file_max_frac,
             dfl_log_size=to_gb(dfl_args.log_size),
@@ -111,6 +113,8 @@ pub struct Args {
     bench_preload_cache: Option<usize>,
     #[serde(skip)]
     pub verbosity: u32,
+    #[serde(skip)]
+    pub logfile: Option<String>,
 }
 
 impl Args {
@@ -151,6 +155,7 @@ impl Args {
             bench_log_bps: dfl_params.log_bps,
             bench_file_frac: None,
             verbosity: 0,
+            logfile: None,
         }
     }
 
@@ -201,6 +206,13 @@ impl JsonArgs for Args {
 
     fn verbosity(matches: &ArgMatches) -> u32 {
         matches.occurrences_of("v") as u32
+    }
+
+    fn log_file(matches: &clap::ArgMatches) -> String {
+        match matches.value_of("logfile") {
+            Some(v) => v.to_string(),
+            None => "".to_string(),
+        }
     }
 
     fn system_configuration_overrides(
@@ -378,6 +390,7 @@ impl JsonArgs for Args {
         }
 
         self.verbosity = Self::verbosity(matches);
+        self.logfile = matches.value_of("logfile").map(|x| x.to_string());
 
         updated_base
     }

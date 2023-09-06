@@ -210,6 +210,7 @@ where
 {
     fn match_cmdline() -> clap::ArgMatches<'static>;
     fn verbosity(matches: &clap::ArgMatches) -> u32;
+    fn log_file(matches: &clap::ArgMatches) -> String;
     fn system_configuration_overrides(
         _matches: &clap::ArgMatches,
     ) -> (Option<usize>, Option<usize>, Option<usize>) {
@@ -233,7 +234,7 @@ where
 {
     fn init_args_and_logging_nosave() -> Result<(JsonConfigFile<T>, bool)> {
         let matches = T::match_cmdline();
-        super::init_logging(T::verbosity(&matches));
+        super::init_logging(T::verbosity(&matches), T::log_file(&matches));
         let overrides = T::system_configuration_overrides(&matches);
         super::override_system_configuration(overrides.0, overrides.1, overrides.2);
 
