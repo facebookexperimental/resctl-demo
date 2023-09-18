@@ -2351,11 +2351,7 @@ impl IoCostTuneJob {
         // Merge files may be missing some solutions, so try defaults in order.
         let mut available_solutions: Vec<(&str, &QoSSolution)> = (*DEFAULT_HWDB_MODELS)
             .iter()
-            .map(|name| {
-                res.solutions
-                    .get(*name)
-                    .and_then(|s| Some((*name, s)))
-            })
+            .map(|name| res.solutions.get(*name).and_then(|s| Some((*name, s))))
             .filter_map(|s| s)
             .collect();
 
