@@ -16,17 +16,17 @@ rd-util = { path = "../rd-util", version = "2.2.4" }
 rd-hashd-intf = { path = "../rd-hashd-intf", version = "2.2.4" }
 rd-agent-intf = { path = "../rd-agent-intf", version = "2.2.4" }
 
-anyhow = "^1.0"
-chrono = { version = "^0.4", features = ["serde"] }
-clap = "^2.33"
-crossbeam = "^0.8"
-cursive = { version = "^0.16", default-features = false, features = ["termion"] }
-cursive_buffered_backend = "^0.5"
-cursive-tabs = "^0.6"
-enum-iterator = "^0.7"
-env_logger = "^0.9"
-lazy_static = "^1.4"
-libc = "^0.2"
-log = "^0.4"
-tempfile = "^3.3"
-term_size = "^0.3"
+anyhow = "1.0"
+chrono = { version = "0.4", features = ["serde"] }
+clap = "2.33"
+crossbeam = "0.8"
+cursive = { version = "0.16", default-features = false, features = ["termion"] }
+cursive_buffered_backend = "0.5"
+cursive-tabs = "0.6"
+enum-iterator = "0.7"
+env_logger = "0.9"
+lazy_static = "1.4"
+libc = "0.2"
+log = "0.4"
+tempfile = "3.3"
+term_size = "0.3"

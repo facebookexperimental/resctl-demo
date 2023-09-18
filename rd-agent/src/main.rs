@@ -208,7 +208,7 @@ impl Config {
     fn sgid_top<P: AsRef<Path>>(top_path: &str, args_path: Option<&P>) -> Result<()> {
         let mut group = None;
         for name in ["wheel", "sudo", "adm"].iter() {
-            group = users::get_group_by_name(name);
+            group = uzers::get_group_by_name(name);
             if group.is_some() {
                 break;
             }
