@@ -16,22 +16,22 @@ rd-util = { path = "../rd-util", version = "2.2.4" }
 rd-hashd-intf = { path = "../rd-hashd-intf", version = "2.2.4" }
 rd-agent-intf = { path = "../rd-agent-intf", version = "2.2.4" }
 
-anyhow = "^1.0"
-chrono = { version = "^0.4", features = ["serde"] }
-crossbeam = "^0.8"
-enum-iterator = "^0.7"
-glob = "^0.3"
-json = "^0.12"
-lazy_static = "^1.4"
-libc = "^0.2"
-linux_proc = "^0.1"
-log = "^0.4"
-nix = "^0.23"
-procfs = "^0.12"
-proc-mounts = "^0.2"
-regex = "^1.5"
-scan_fmt = "^0.2"
-serde = { version = "^1.0", features = ["derive"] }
-serde_json = "^1.0"
-sysinfo = "^0.23"
-uzers = "^0.11"
+anyhow = "1.0"
+chrono = { version = "0.4", features = ["serde"] }
+crossbeam = "0.8"
+enum-iterator = "0.7"
+glob = "0.3"
+json = "0.12"
+lazy_static = "1.4"
+libc = "0.2"
+linux_proc = "0.1"
+log = "0.4"
+nix = "0.23"
+procfs = "0.12"
+proc-mounts = "0.2"
+regex = "1.5"
+scan_fmt = "0.2"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sysinfo = "0.23"
+uzers = "0.11"
