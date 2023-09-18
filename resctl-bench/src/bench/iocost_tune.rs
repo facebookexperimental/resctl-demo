@@ -2354,7 +2354,7 @@ impl IoCostTuneJob {
             .map(|name| {
                 res.solutions
                     .get(*name)
-                    .and_then(|s| Some((name.clone(), s)))
+                    .and_then(|s| Some((*name, s)))
             })
             .filter_map(|s| s)
             .collect();

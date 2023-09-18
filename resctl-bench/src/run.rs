@@ -447,7 +447,7 @@ impl<'a, 'b> RunCtx<'a, 'b> {
 
     pub fn update_incremental_record(&mut self, record: serde_json::Value) {
         let mut jobs = self.jobs.lock().unwrap();
-        let mut prev = jobs.by_uid_mut(self.uid).unwrap();
+        let prev = jobs.by_uid_mut(self.uid).unwrap();
         if prev.data.period.0 == 0 {
             prev.data.period.0 = self.run_started_at;
         }

@@ -166,7 +166,7 @@ impl Hashd {
     }
 
     fn update_resctl(&mut self, mem_low: u64, frac: f64) -> Result<()> {
-        let mut svc = self.svc.as_mut().unwrap();
+        let svc = self.svc.as_mut().unwrap();
 
         svc.unit.resctl = systemd::UnitResCtl {
             cpu_weight: Some((100.0 * frac).ceil() as u64),
