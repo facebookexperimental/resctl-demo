@@ -17,7 +17,7 @@ use crate::job::{FormatOpts, JobCtxs};
 // and isolated - each concurrent instance runs on its own environment.
 const RESULT_PATH: &'static str = "/tmp/result.json.gz";
 const IOCOST_BUCKET: &'static str = "iocost-submit";
-const IOCOST_BUCKET_REGION: &'static str = "eu-west-1";
+const IOCOST_BUCKET_REGION: &'static str = "us-east-1";
 
 pub fn init_lambda() {
     let executable_path = std::env::current_exe().expect("Failed to get executable path");
@@ -139,8 +139,8 @@ impl LambdaHelper {
             .await?;
 
         Ok(format!(
-            "https://{}.s3.{}.amazonaws.com/{}",
-            IOCOST_BUCKET, IOCOST_BUCKET_REGION, object_name
+            "https://{}-{}.s3.{}.amazonaws.com/{}",
+            IOCOST_BUCKET, IOCOST_BUCKET_REGION, IOCOST_BUCKET_REGION, object_name
         ))
     }
 
