@@ -512,6 +512,8 @@ impl Balloon {
         )?;
 
         svc.set_slice(Slice::Sys.name())
+            // Make sure memory allocation completed once started
+            .add_prop("Type".into(), systemd::Prop::String("notify".into()))
             .add_prop("MemorySwapMax".into(), systemd::Prop::U64(0))
             .add_prop(
                 "Slice".into(),
