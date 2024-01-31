@@ -5,6 +5,9 @@ use aws_lambda_events::event::lambda_function_urls::LambdaFunctionUrlRequest;
 use aws_sdk_s3::error::SdkError;
 use lambda_runtime::{service_fn, LambdaEvent};
 use log::error;
+use octocrab::models::InstallationToken;
+use octocrab::params::apps::CreateInstallationAccessToken;
+use octocrab::Octocrab;
 use std::io::{Cursor, Read, Write};
 use std::os::unix::process::CommandExt;
 use std::path::Path;
@@ -145,10 +148,10 @@ impl LambdaHelper {
     }
 
     pub async fn create_github_issue(&self, title: &str, body: &str) -> Result<String> {
-        let token = self
+        let app_id = self
             .ssm
             .get_parameter()
-            .set_name(Some("/iocost-bot/token".to_string()))
+            .set_name(Some("/iocost-bot/appid".to_string()))
             .send()
             .await
             .expect("Failed to query parameter")
@@ -157,8 +160,47 @@ impl LambdaHelper {
             .value
             .expect("Parameter value is None");
 
+        let pem = self
+            .ssm
+            .get_parameter()
+            .set_name(Some("/iocost-bot/privatekey".to_string()))
+            .send()
+            .await
+            .expect("Failed to query parameter")
+            .parameter
+            .expect("Could not find parameter")
+            .value
+            .expect("Parameter value is None");
+
+        let token = octocrab::auth::create_jwt(
+            app_id.parse::<u64>().unwrap().into(),
+            &jsonwebtoken::EncodingKey::from_rsa_pem(pem.as_bytes()).unwrap(),
+        )
+        .unwrap();
+
+        let octocrab = Octocrab::builder().personal_token(token).build()?;
+
+        let installations = octocrab
+            .apps()
+            .installations()
+            .send()
+            .await
+            .unwrap()
+            .take_items();
+
+        let mut create_access_token = CreateInstallationAccessToken::default();
+        create_access_token.repositories = vec!["iocost-benchmarks".to_string()];
+
+        let access: InstallationToken = octocrab
+            .post(
+                installations[0].access_tokens_url.as_ref().unwrap(),
+                Some(&create_access_token),
+            )
+            .await
+            .unwrap();
+
         let issue = octocrab::OctocrabBuilder::new()
-            .personal_token(token)
+            .personal_token(access.token)
             .build()?
             .issues("iocost-benchmark", "iocost-benchmarks")
             .create(title)

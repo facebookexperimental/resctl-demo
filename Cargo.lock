@@ -2762,6 +2762,7 @@ dependencies = [
  "console",
  "env_logger",
  "indicatif",
+ "jsonwebtoken",
  "lambda_runtime",
  "lazy_static",
  "libc",
