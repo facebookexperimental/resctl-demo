@@ -87,6 +87,32 @@ We still need to configure our S3 bucket to allow public read only access, so th
 }
 ```
 
+
+We also store the credential parameters required to file a github issue in AWS Systems Manager -> parameter store.
+We use github app `iocost-issue-creater` to file a github issue, thus it's credentials information `App Id` and 
+`Private Key` are stored in parameter store.  
+```
+{
+    /iocost-bot/appid : "xxxx"
+    /iocost-bot/privatekey : "PEM format key"
+}
+```
+
+AWS lambda flow
+===============
+1. User generates the benchmark result on their device.  
+`$ resctl-bench -r "$RESULT_JSON" --logfile=$LOG_FILE run iocost-tun`
+2. User uploads the result to aws lambda function url as:  
+`resctl-bench -r <RESULT_JSON>   upload --upload-url  <AWS lambda function URL>`  
+e.g  
+`$resctl-bench --result resctl-bench-result_2022_07_01-00_26_40.json.gz upload --upload-url https://ygvr6jnjckwamfao5xztg6idiu0ukjeb.lambda-url.eu-west-1.on.aws`
+
+3. Lamda is tiggered automatically in AWS.
+     - It saves the benchmark result to S3 bucket.
+     - Then create a issue in iocost-benchmark/iocost-benchmarks project using `iocost-issue-creater` github app.
+     - Issue contain a link to benchmark result stored in s3 bucket.
+
+
 Deploying
 =========
 
