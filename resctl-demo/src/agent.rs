@@ -394,7 +394,7 @@ pub fn layout_factory() -> Box<impl View> {
                 ),
         )
         .child(DummyView)
-        .child(TextView::new(HELP_LINUX_TAR.clone()))
+        .child(TextView::new(HELP_LINUX_TAR))
         .child(DummyView)
         .child(
             LinearLayout::horizontal()
