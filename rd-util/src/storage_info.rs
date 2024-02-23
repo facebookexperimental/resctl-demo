@@ -52,7 +52,7 @@ fn match_devnr<P: AsRef<Path>>(path_in: P, devnr: u64) -> bool {
         }
     };
 
-    if devnr == unsafe { libc::makedev(maj, min) } {
+    if devnr == libc::makedev(maj, min) {
         trace!("matched {:?}", &path);
         return true;
     }

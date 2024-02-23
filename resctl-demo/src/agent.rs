@@ -203,7 +203,7 @@ impl AgentMinder {
             };
             if running {
                 let ts = AGENT_FILES.files.lock().unwrap().report.data.timestamp;
-                let updated_at = UNIX_EPOCH + Duration::from_nanos(ts.timestamp_nanos() as u64);
+                let updated_at = UNIX_EPOCH + Duration::from_nanos(ts.timestamp_nanos_opt().unwrap() as u64);
 
                 if updated_at > self.started_at {
                     self.update_state(true, cb_sink);
@@ -393,7 +393,7 @@ pub fn layout_factory() -> Box<impl View> {
                 ),
         )
         .child(DummyView)
-        .child(TextView::new(HELP_LINUX_TAR.clone()))
+        .child(TextView::new(HELP_LINUX_TAR))
         .child(DummyView)
         .child(
             LinearLayout::horizontal()

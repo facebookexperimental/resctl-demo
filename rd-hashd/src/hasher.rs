@@ -580,9 +580,9 @@ impl DispatchThread {
             // determined by each hash worker to avoid overloading the
             // dispatch thread.
             let file_size = self.file_size_normal.sample(&mut rng).round() as usize;
-            let file_nr_chunks = file_size.div_ceil(&chunk_size).max(1);
+            let file_nr_chunks = Integer::div_ceil(&file_size, &chunk_size).max(1);
             let anon_size = self.anon_size_normal.sample(&mut rng).round() as usize;
-            let anon_nr_chunks = anon_size.div_ceil(&chunk_size);
+            let anon_nr_chunks = Integer::div_ceil(&anon_size, &chunk_size);
 
             let hasher_thread = HasherThread {
                 tf: self.tf.clone(),

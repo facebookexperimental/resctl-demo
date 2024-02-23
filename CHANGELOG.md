@@ -1,5 +1,8 @@
 # Change Log
 
+## [2.1.3] - 2024-02-21
+- Fix build issue with rustc version > 1.75
+
 ## [2.1.2] - 2021-09-10
 - Fix bench merge mode rejecting sources spuriously on ignored sysreqs.
 - Improve visibility on merge fails.
