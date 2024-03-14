@@ -10,9 +10,15 @@ use std::fs;
 use std::io::Read;
 use std::os::linux::fs::MetadataExt;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 lazy_static::lazy_static! {
     static ref MOUNT_LIST: Result<MountList> = Ok(MountList::new()?);
+    static ref FINDMNT_BIN: String = super::find_bin("findmnt", Option::<&str>::None)
+        .expect("Failed to find findmnt bin")
+        .to_str()
+        .unwrap()
+        .to_owned();
 }
 
 /// Given a path, find out the containing mountpoint.
@@ -98,7 +104,27 @@ pub fn devname_to_devnr<D: AsRef<OsStr>>(name_in: D) -> Result<(u32, u32)> {
 
 /// Given a path, find the underlying device.
 pub fn path_to_devname<P: AsRef<Path>>(path: P) -> Result<OsString> {
-    devnr_to_devname(fs::metadata(&path_to_mountpoint(path.as_ref())?.source)?.st_rdev())
+    let mtp = path_to_mountpoint(path.as_ref())?;
+
+    // Ideally, mtp.source should point to the device node which can be
+    // canonicalized by reading its devnr and mapping that to devname.
+    // Unfortunately, determining the device for a filesystem, especially
+    // root, is not trivial. For example, $mtp.source might point to
+    // "/dev/root" which doesn't exist. `findmnt` has a bunch of heuristics
+    // to map mount point to device. Let's use that instead.
+    let output = Command::new(&*FINDMNT_BIN)
+        .arg("-no")
+        .arg("SOURCE")
+        .arg(&mtp.dest)
+        .output()?;
+
+    if !output.status.success() {
+        bail!("findmnt on {:?} failed with {:?}", &mtp.dest, &output);
+    }
+
+    let source = String::from_utf8(output.stdout).unwrap();
+    trace!("path_to_devname path={:?} source={:?}", path.as_ref(), source.trim());
+    devnr_to_devname(fs::metadata(source.trim())?.st_rdev())
 }
 
 fn read_model(dev_path: &Path) -> Result<String> {
