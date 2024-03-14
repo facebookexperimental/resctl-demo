@@ -123,7 +123,11 @@ pub fn path_to_devname<P: AsRef<Path>>(path: P) -> Result<OsString> {
     }
 
     let source = String::from_utf8(output.stdout).unwrap();
-    trace!("path_to_devname path={:?} source={:?}", path.as_ref(), source.trim());
+    trace!(
+        "path_to_devname path={:?} source={:?}",
+        path.as_ref(),
+        source.trim()
+    );
     devnr_to_devname(fs::metadata(source.trim())?.st_rdev())
 }
 
