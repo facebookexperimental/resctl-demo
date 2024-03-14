@@ -2582,7 +2582,7 @@ dependencies = [
 
 [[package]]
 name = "rd-agent"
-version = "2.2.5"
+version = "2.2.6"
 dependencies = [
  "anyhow",
  "chrono",
@@ -2610,7 +2610,7 @@ dependencies = [
 
 [[package]]
 name = "rd-agent-intf"
-version = "2.2.5"
+version = "2.2.6"
 dependencies = [
  "anyhow",
  "chrono",
@@ -2626,7 +2626,7 @@ dependencies = [
 
 [[package]]
 name = "rd-hashd"
-version = "2.2.5"
+version = "2.2.6"
 dependencies = [
  "anyhow",
  "chrono",
@@ -2652,7 +2652,7 @@ dependencies = [
 
 [[package]]
 name = "rd-hashd-intf"
-version = "2.2.5"
+version = "2.2.6"
 dependencies = [
  "anyhow",
  "chrono",
@@ -2664,7 +2664,7 @@ dependencies = [
 
 [[package]]
 name = "rd-util"
-version = "2.2.5"
+version = "2.2.6"
 dependencies = [
  "anyhow",
  "chrono",
@@ -2756,7 +2756,7 @@ checksum = "c08c74e62047bb2de4ff487b251e4a92e24f48745648451635cec7d591162d9f"
 
 [[package]]
 name = "resctl-bench"
-version = "2.2.5"
+version = "2.2.6"
 dependencies = [
  "anyhow",
  "aws-config",
@@ -2801,7 +2801,7 @@ dependencies = [
 
 [[package]]
 name = "resctl-bench-intf"
-version = "2.2.5"
+version = "2.2.6"
 dependencies = [
  "anyhow",
  "clap",
@@ -2814,7 +2814,7 @@ dependencies = [
 
 [[package]]
 name = "resctl-demo"
-version = "2.2.5"
+version = "2.2.6"
 dependencies = [
  "anyhow",
  "chrono",
