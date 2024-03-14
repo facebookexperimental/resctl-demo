@@ -1,6 +1,6 @@
 [package]
 name = "resctl-bench"
-version = "2.2.5"
+version = "2.2.6"
 authors = ["Tejun Heo <tj@kernel.org>"]
 edition = "2018"
 license = "Apache-2.0"
@@ -13,10 +13,10 @@ description = "Whole system resource control benchmarks with realistic scenarios
 lambda = ["resctl-bench-intf/lambda", "aws-config", "aws-sdk-s3", "aws-sdk-ssm", "octocrab", "lambda_runtime", "md5", "tokio"]
 
 [dependencies]
-rd-util = { path = "../rd-util", version = "2.2.5" }
-rd-hashd-intf = { path = "../rd-hashd-intf", version = "2.2.5" }
-rd-agent-intf = { path = "../rd-agent-intf", version = "2.2.5" }
-resctl-bench-intf = { path = "../resctl-bench-intf", version = "2.2.5" }
+rd-util = { path = "../rd-util", version = "2.2.6" }
+rd-hashd-intf = { path = "../rd-hashd-intf", version = "2.2.6" }
+rd-agent-intf = { path = "../rd-agent-intf", version = "2.2.6" }
+resctl-bench-intf = { path = "../resctl-bench-intf", version = "2.2.6" }
 
 # For the lambda feature. We prefer rustls for all the crates we use to avoid incompatibilities.
 aws-config = { version = "0.55.3", optional = true, features = ["rustls", "rt-tokio"], default-features = false  }

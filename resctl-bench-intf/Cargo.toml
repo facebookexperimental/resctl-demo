@@ -1,7 +1,7 @@
 # Copyright (c) Facebook, Inc. and its affiliates
 [package]
 name = "resctl-bench-intf"
-version = "2.2.5"
+version = "2.2.6"
 authors = ["Tejun Heo <tj@kernel.org>"]
 edition = "2018"
 license = "Apache-2.0"
@@ -14,8 +14,8 @@ readme = "README.md"
 lambda = []
 
 [dependencies]
-rd-util = { path = "../rd-util", version = "2.2.5" }
-rd-agent-intf = { path = "../rd-agent-intf", version = "2.2.5" }
+rd-util = { path = "../rd-util", version = "2.2.6" }
+rd-agent-intf = { path = "../rd-agent-intf", version = "2.2.6" }
 
 anyhow = "1.0"
 clap = "2.33"
