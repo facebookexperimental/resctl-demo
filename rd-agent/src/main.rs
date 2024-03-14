@@ -12,7 +12,6 @@ use std::process::Command;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread::sleep;
 use std::time::Duration;
-use sysinfo::{ProcessExt, SystemExt};
 
 mod bandit;
 mod bench;
@@ -836,7 +835,7 @@ impl Config {
 
         // swap configuration check
         let swap_total = total_swap();
-        let swap_avail = swap_total - sys.used_swap() as usize * 1024;
+        let swap_avail = swap_total - sys.used_swap() as usize;
 
         if (swap_total as f64) < (total_memory() as f64 * 0.3) {
             self.sr_failed.add(
@@ -924,10 +923,12 @@ impl Config {
         for (pid, proc) in procs {
             let exe = proc
                 .exe()
+                .unwrap_or(Path::new(""))
                 .file_name()
                 .unwrap_or_default()
                 .to_str()
                 .unwrap_or_default();
+
             match exe {
                 "oomd" | "earlyoom" => {
                     self.sr_failed.add(
@@ -995,7 +996,8 @@ impl Config {
         SysReqsReport {
             satisfied: &*ALL_SYSREQS_SET ^ &self.sr_failed.map.keys().copied().collect(),
             missed: self.sr_failed.clone(),
-            kernel_version: sys.kernel_version().expect("Failed to read kernel version"),
+            kernel_version: sysinfo::System::kernel_version()
+                .expect("Failed to read kernel version"),
             agent_version: FULL_VERSION.to_string(),
             hashd_version,
             nr_cpus: nr_cpus(),

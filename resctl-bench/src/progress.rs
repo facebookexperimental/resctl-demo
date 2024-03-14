@@ -1,15 +1,13 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use log::info;
-use std::thread::{spawn, JoinHandle};
 
 use rd_util::JournalTailer;
 
 pub struct BenchProgress {
-    main: Option<MultiProgress>,
+    main: MultiProgress,
     bars: Vec<ProgressBar>,
     tailers: Vec<JournalTailer>,
-    main_jh: Option<JoinHandle<()>>,
     term_width: usize,
     intv_cnt: u32,
 }
@@ -21,14 +19,15 @@ impl BenchProgress {
         let main = MultiProgress::new();
         let first_bar = main.add(ProgressBar::new(0));
         first_bar.set_style(
-            ProgressStyle::default_bar().template("{spinner:.green} [{elapsed_precise}] {msg}"),
+            ProgressStyle::default_bar()
+                .template("{spinner:.green} [{elapsed_precise}] {msg}")
+                .unwrap(),
         );
         first_bar.tick();
         Self {
-            main: Some(main),
+            main,
             bars: vec![first_bar],
             tailers: vec![],
-            main_jh: None,
             term_width: term_size::dimensions_stderr().unwrap_or((80, 0)).0,
             intv_cnt: 0,
         }
@@ -39,10 +38,14 @@ impl BenchProgress {
             return self;
         }
 
-        let bar = self.main.as_ref().unwrap().add(ProgressBar::new(0));
+        let bar = self.main.add(ProgressBar::new(0));
         let prefix = unit.rsplitn(2, '.').last().unwrap();
         bar.set_prefix(prefix.to_string());
-        bar.set_style(ProgressStyle::default_bar().template("    {prefix:.green} {msg}"));
+        bar.set_style(
+            ProgressStyle::default_bar()
+                .template("    {prefix:.green} {msg}")
+                .unwrap(),
+        );
         bar.tick();
         self.bars.push(bar.clone());
 
@@ -61,28 +64,13 @@ impl BenchProgress {
     }
 
     pub fn set_status(&mut self, status: &str) {
-        if let Some(main) = self.main.take() {
-            self.main_jh = Some(spawn(move || {
-                main.join_and_clear().unwrap();
-            }));
-        }
         if console::user_attended_stderr() {
-            self.bars[0].set_message(status.to_string());
+            let _ = self.bars[0].set_message(status.to_string());
         } else {
             if self.intv_cnt % Self::LOG_INTV == 0 {
                 info!("{}", status);
             }
             self.intv_cnt += 1;
-        }
-    }
-}
-
-impl Drop for BenchProgress {
-    fn drop(&mut self) {
-        self.tailers.clear();
-        self.bars.clear();
-        if let Some(jh) = self.main_jh.take() {
-            jh.join().unwrap();
         }
     }
 }

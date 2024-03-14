@@ -9,7 +9,6 @@ use scan_fmt::scan_fmt;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
-use sysinfo::SystemExt;
 
 use super::bench::HashdFakeCpuBench;
 use super::iocost::IoCostQoSCfg;
@@ -428,9 +427,7 @@ impl<'a> Base<'a> {
     }
 
     fn kernel_version_has_shadow_inode_protection() -> bool {
-        let kver = sysinfo::System::new()
-            .kernel_version()
-            .expect("Failed to read kernel version");
+        let kver = sysinfo::System::kernel_version().expect("Failed to read kernel version");
 
         let ver = match kver.split_once("-") {
             Some((ver, tag)) => {

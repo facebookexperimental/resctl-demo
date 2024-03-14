@@ -9,8 +9,6 @@ repository = "https://github.com/facebookexperimental/resctl-demo"
 description = "Management agent for resctl-demo"
 readme = "README.md"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
 rd-util = { path = "../rd-util", version = "2.2.5" }
 rd-hashd-intf = { path = "../rd-hashd-intf", version = "2.2.5" }
@@ -26,12 +24,12 @@ lazy_static = "1.4"
 libc = "0.2"
 linux_proc = "0.1"
 log = "0.4"
-nix = "0.23"
-procfs = "0.12"
-proc-mounts = "0.2"
-regex = "1.5"
+nix = { version = "0.28", features = ["signal", "process"] }
+procfs = "0.16"
+proc-mounts = "0.3"
+regex = "1.10"
 scan_fmt = "0.2"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-sysinfo = "0.23"
+sysinfo = "0.30"
 uzers = "0.11"
