@@ -88,6 +88,7 @@ impl TestFilesProgressBar {
 
         tfbar.bar.set_style(ProgressStyle::default_bar()
                             .template("{spinner:.green} [{elapsed_precise}] [{wide_bar:.cyan/blue}] {bytes}/{total_bytes} ({eta})")
+			    .unwrap()
                             .progress_chars("#>-"));
         tfbar
     }

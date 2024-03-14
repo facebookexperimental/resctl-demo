@@ -1,5 +1,6 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
 use anyhow::{bail, Context, Error, Result};
+use base64::prelude::*;
 use indicatif::{ProgressBar, ProgressStyle};
 use log::{debug, error, info, warn};
 use std::fmt::Write;
@@ -275,7 +276,7 @@ impl Program {
         }
 
         let request = LambdaRequest {
-            data: base64::encode(&data),
+            data: BASE64_STANDARD.encode(&data),
             email: args.upload_email.clone(),
             github: args.upload_github.clone(),
         };
@@ -364,7 +365,8 @@ impl Program {
         let pgbar = ProgressBar::new(pers.iter().fold(0, |acc, per| acc + per.1 - per.0));
         pgbar.set_style(ProgressStyle::default_bar()
                         .template("{spinner:.green} [{elapsed_precise}] [{wide_bar:.cyan/blue}] {pos:>7}/{len:7} ({eta})")
-                            .progress_chars("#>-")
+			.unwrap()
+                        .progress_chars("#>-")
         );
 
         let mut nr_packed = 0;

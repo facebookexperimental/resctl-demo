@@ -25,7 +25,6 @@ use std::process::{self, Command};
 use std::sync::{atomic, Condvar, Mutex};
 use std::thread_local;
 use std::time::{Duration, UNIX_EPOCH};
-use sysinfo::{self, SystemExt};
 
 pub mod anon_area;
 pub mod iocost;
@@ -67,12 +66,12 @@ lazy_static::lazy_static! {
     pub static ref TOTAL_SYSTEM_MEMORY: usize = {
         let mut sys = sysinfo::System::new();
         sys.refresh_memory();
-        sys.total_memory() as usize * 1024
+        sys.total_memory() as usize
     };
     pub static ref TOTAL_SYSTEM_SWAP: usize = {
         let mut sys = sysinfo::System::new();
         sys.refresh_memory();
-        sys.total_swap() as usize * 1024
+        sys.total_swap() as usize
     };
     pub static ref NR_SYSTEM_CPUS: usize = ::num_cpus::get();
     static ref TOTAL_MEMORY: atomic::AtomicUsize = atomic::AtomicUsize::new(0);

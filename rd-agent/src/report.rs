@@ -6,6 +6,7 @@ use enum_iterator::IntoEnumIterator;
 use log::{debug, error, info, trace, warn};
 use nix::sys::signal::{kill, Signal};
 use nix::unistd::Pid;
+use procfs::prelude::*;
 use scan_fmt::scan_fmt;
 use std::collections::{BTreeMap, HashMap};
 use std::ffi::OsStr;
@@ -72,7 +73,7 @@ fn read_stat_file(path: &str) -> Result<StatMap> {
 }
 
 fn read_system_usage(devnr: (u32, u32)) -> Result<(Usage, f64)> {
-    let kstat = procfs::KernelStats::new()?;
+    let kstat = procfs::KernelStats::current()?;
     let cpu = &kstat.total;
     let mut cpu_total = cpu.user as f64
         + cpu.nice as f64
@@ -86,12 +87,12 @@ fn read_system_usage(devnr: (u32, u32)) -> Result<(Usage, f64)> {
         + cpu.guest_nice.unwrap() as f64;
     let mut cpu_busy = cpu_total - cpu.idle as f64 - cpu.iowait.unwrap() as f64;
 
-    let tps = procfs::ticks_per_second()? as f64;
+    let tps = procfs::ticks_per_second() as f64;
     let cpu_sys = cpu.system as f64 / tps;
     cpu_busy /= tps;
     cpu_total /= tps;
 
-    let mstat = procfs::Meminfo::new()?;
+    let mstat = procfs::Meminfo::current()?;
     let mem_bytes = mstat.mem_total - mstat.mem_free;
     let swap_bytes = mstat.swap_total - mstat.swap_free;
 
@@ -153,7 +154,7 @@ fn read_swap_free(cgrp: &str) -> Result<u64> {
     }
     // Walk up the hierarchy and take the min. We should expose this in
     // memory.stat from kernel side eventually.
-    let mut free = procfs::Meminfo::new()?.swap_free;
+    let mut free = procfs::Meminfo::current()?.swap_free;
     let mut path = std::path::PathBuf::from(cgrp);
     while path != std::path::Path::new("/sys/fs/cgroup") {
         path.push("memory.swap.max");
