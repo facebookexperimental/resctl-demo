@@ -1,6 +1,6 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
 use anyhow::Result;
-use enum_iterator::IntoEnumIterator;
+use enum_iterator::Sequence;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::ops::{Index, IndexMut};
@@ -26,7 +26,7 @@ const SLICE_DOC: &str = "\
 //
 ";
 
-#[derive(Debug, Copy, Clone, IntoEnumIterator, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, Sequence, PartialEq, Eq)]
 pub enum Slice {
     Init = 0,
     Host = 1,
@@ -181,7 +181,7 @@ pub struct SliceKnobs {
 impl Default for SliceKnobs {
     fn default() -> Self {
         let mut slices = BTreeMap::new();
-        for slc in Slice::into_enum_iter() {
+        for slc in enum_iterator::all::<Slice>() {
             slices.insert(slc.name().into(), SliceConfig::default(slc));
         }
         Self {

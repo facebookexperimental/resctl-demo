@@ -6,7 +6,7 @@ use cursive::view::{Nameable, Resizable, SizeConstraint, View};
 use cursive::views::{DummyView, LinearLayout, NamedView, Panel, ResizedView, TextView};
 use cursive::Cursive;
 use cursive_tabs::TabView;
-use enum_iterator::IntoEnumIterator;
+use enum_iterator::Sequence;
 use log::error;
 use std::collections::HashMap;
 use std::fmt;
@@ -693,7 +693,7 @@ fn plot_spec_factory(id: PlotId) -> PlotSpec {
     }
 }
 
-#[derive(Copy, Clone, Hash, PartialEq, Eq, Debug, IntoEnumIterator)]
+#[derive(Copy, Clone, Hash, PartialEq, Eq, Debug, Sequence)]
 pub enum GraphTag {
     HashdA,
     HashdB,

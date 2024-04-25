@@ -1,5 +1,5 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
-use enum_iterator::IntoEnumIterator;
+use enum_iterator::Sequence;
 use log::warn;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
@@ -21,21 +21,11 @@ const SYSREQ_DOC: &str = "\
 ";
 
 lazy_static::lazy_static! {
-    pub static ref ALL_SYSREQS_SET: BTreeSet<SysReq> = SysReq::into_enum_iter().collect();
+    pub static ref ALL_SYSREQS_SET: BTreeSet<SysReq> = enum_iterator::all::<SysReq>().collect();
 }
 
 #[derive(
-    Debug,
-    Clone,
-    Copy,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Hash,
-    IntoEnumIterator,
-    Serialize,
-    Deserialize,
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Sequence, Serialize, Deserialize,
 )]
 pub enum SysReq {
     Controllers,
