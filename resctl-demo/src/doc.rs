@@ -4,7 +4,6 @@ use cursive::utils::markup::StyledString;
 use cursive::view::{Nameable, Resizable, Scrollable, SizeConstraint, View};
 use cursive::views::{Button, Checkbox, Dialog, DummyView, LinearLayout, SliderView, TextView};
 use cursive::Cursive;
-use enum_iterator::IntoEnumIterator;
 use log::{error, info, warn};
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::sync::{Mutex, RwLock};
@@ -94,7 +93,7 @@ fn load_docs() -> BTreeMap<String, &'static str> {
 
     let mut nr_missing = 0;
 
-    let graph_tags: HashSet<String> = GraphTag::into_enum_iter()
+    let graph_tags: HashSet<String> = enum_iterator::all::<GraphTag>()
         .map(|x| format!("{:?}", x))
         .collect();
     for tag in graphs.iter() {
@@ -122,7 +121,7 @@ fn format_markup_tags(tag: &str) -> Option<StyledString> {
     let empty_some = Some(StyledString::plain(""));
 
     if tag.starts_with("SysReq::") {
-        for req in SysReq::into_enum_iter() {
+        for req in enum_iterator::all::<SysReq>() {
             if format!("{:?}", req) == tag[8..] {
                 if sysreqs.satisfied.contains(&req) {
                     return Some(StyledString::styled(tag, *COLOR_ACTIVE));
@@ -288,7 +287,7 @@ fn exec_one_cmd(siv: &mut Cursive, cmd: &RdCmd) {
         },
         RdCmd::Graph(tag_name) => {
             if tag_name.len() > 0 {
-                let tag = GraphTag::into_enum_iter()
+                let tag = enum_iterator::all::<GraphTag>()
                     .filter(|x| &format!("{:?}", x) == tag_name)
                     .next()
                     .unwrap();

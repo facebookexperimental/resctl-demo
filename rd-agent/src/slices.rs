@@ -1,6 +1,5 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
 use anyhow::{Context, Result};
-use enum_iterator::IntoEnumIterator;
 use glob::glob;
 use log::{debug, error, info, trace, warn};
 use scan_fmt::scan_fmt;
@@ -246,7 +245,7 @@ pub fn apply_slices(knobs: &mut SliceKnobs, hashd_mem_size: u64, cfg: &Config) -
     }
 
     let mut updated = false;
-    for slice in Slice::into_enum_iter() {
+    for slice in enum_iterator::all::<Slice>() {
         let enforce_mem = slice_enforce_mem(&cfg.enforce, slice);
 
         if !cfg.enforce.cpu && !enforce_mem && !cfg.enforce.io {
@@ -353,7 +352,7 @@ fn clear_one_slice(slice: Slice, ecfg: &EnforceConfig) -> Result<bool> {
 
 pub fn clear_slices(ecfg: &EnforceConfig) -> Result<()> {
     let mut updated = false;
-    for slice in Slice::into_enum_iter() {
+    for slice in enum_iterator::all::<Slice>() {
         let enforce_mem = slice_enforce_mem(ecfg, slice);
 
         if !ecfg.cpu && !enforce_mem && !ecfg.io {
@@ -597,7 +596,7 @@ pub fn verify_and_fix_slices(
 
     let recursive_mem_prot = cfg.memcg_recursive_prot();
 
-    for slice in Slice::into_enum_iter() {
+    for slice in enum_iterator::all::<Slice>() {
         let sk = knobs.slices.get(slice.name()).unwrap();
 
         let path = slice.cgrp();

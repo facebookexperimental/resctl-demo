@@ -2,7 +2,6 @@
 use anyhow::{anyhow, bail, Result};
 use chrono::prelude::*;
 use crossbeam::channel::{self, select, Receiver, Sender};
-use enum_iterator::IntoEnumIterator;
 use log::{debug, error, info, trace, warn};
 use nix::sys::signal::{kill, Signal};
 use nix::unistd::Pid;
@@ -266,7 +265,7 @@ impl UsageTracker {
         };
 
         us.usages.insert(ROOT_SLICE.into(), Default::default());
-        for slice in Slice::into_enum_iter() {
+        for slice in enum_iterator::all::<Slice>() {
             us.usages.insert(slice.name().into(), Default::default());
         }
 
@@ -281,7 +280,7 @@ impl UsageTracker {
 
         let (us, cpu_total) = read_system_usage(self.devnr)?;
         usages.insert(ROOT_SLICE.into(), us);
-        for slice in Slice::into_enum_iter() {
+        for slice in enum_iterator::all::<Slice>() {
             usages.insert(
                 slice.name().to_string(),
                 read_cgroup_usage(slice.cgrp(), self.devnr),
