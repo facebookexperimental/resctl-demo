@@ -10,7 +10,7 @@ description = "Whole system resource control benchmarks with realistic scenarios
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [features]
-lambda = ["resctl-bench-intf/lambda", "aws-config", "aws-sdk-s3", "aws-sdk-ssm", "octocrab", "lambda_runtime", "md5", "tokio"]
+lambda = ["resctl-bench-intf/lambda", "dep:aws-config", "dep:aws-sdk-s3", "dep:aws-sdk-ssm", "dep:aws_lambda_events", "dep:jsonwebtoken", "dep:lambda_runtime", "dep:md5", "dep:octocrab", "dep:tokio"]
 
 [dependencies]
 rd-util = { path = "../rd-util", version = "2.2.6" }
@@ -18,13 +18,13 @@ rd-hashd-intf = { path = "../rd-hashd-intf", version = "2.2.6" }
 rd-agent-intf = { path = "../rd-agent-intf", version = "2.2.6" }
 resctl-bench-intf = { path = "../resctl-bench-intf", version = "2.2.6" }
 
-# For the lambda feature. We prefer rustls for all the crates we use to avoid incompatibilities.
+# For the lambda feature. We prefer rustls for all the crates we use to
+# avoid incompatibilities.
 aws-config = { version = "0.55.3", optional = true, features = ["rustls", "rt-tokio"], default-features = false  }
 aws-sdk-s3 = { version = "0.28.0", optional = true, features = ["rustls", "rt-tokio"], default-features = false  }
 aws-sdk-ssm = { version = "0.28.0", optional = true, features = ["rustls", "rt-tokio"], default-features = false  }
-aws_lambda_events = "0.10.0"
-
-jsonwebtoken = "8.3.0"
+aws_lambda_events = { version = "0.10.0", optional = true }
+jsonwebtoken = { version = "8.3.0", optional = true }
 lambda_runtime = { version = "0.8.1", optional = true  }
 md5 = { version = "0.7", optional = true  }
 octocrab = { version = "0.28.0", optional = true, features = ["rustls"], default-features = false }
