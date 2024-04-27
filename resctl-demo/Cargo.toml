@@ -20,9 +20,9 @@ anyhow = "1.0"
 chrono = { version = "0.4", features = ["serde"] }
 clap = "2.33"
 crossbeam = "0.8"
-cursive = { version = "^0", default-features = false, features = ["termion"] }
-cursive_buffered_backend = "^0"
-cursive-tabs = "^0"
+cursive = { version = "0.20", default-features = false, features = ["termion"] }
+cursive_buffered_backend = "0.6"
+cursive-tabs = "0.7"
 enum-iterator = "2.0"
 env_logger = "0.11"
 lazy_static = "1.4"
