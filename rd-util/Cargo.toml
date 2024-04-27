@@ -38,4 +38,4 @@ sysinfo = "0.30"
 
 [build-dependencies]
 anyhow = "1.0"
-vergen = "7.0"
+vergen = { version = "8.3", features = ["git", "gitcl", "cargo"] }
