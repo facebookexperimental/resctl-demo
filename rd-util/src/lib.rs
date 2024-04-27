@@ -49,14 +49,19 @@ pub const READ: usize = 0;
 pub const WRITE: usize = 1;
 
 lazy_static::lazy_static! {
-    static ref GIT_VERSION: &'static str = {
-        match option_env!("VERGEN_GIT_SEMVER_LIGHTWEIGHT") {
-            Some(v) => split_git_version(v).1,
-            None => ""
+    static ref GIT_VERSION: String = {
+	let mut ver = String::new();
+        if let Some(v) = option_env!("VERGEN_GIT_SHA") {
+            ver += "g";
+	    ver += v;
+	    if let Some("true") = option_env!("VERGEN_GIT_DIRTY") {
+		ver += "-dirty";
+	    }
         }
+	ver
     };
     static ref BUILD_TAG: String = {
-        let mut tag = env!("VERGEN_RUSTC_HOST_TRIPLE").to_string();
+        let mut tag = env!("VERGEN_CARGO_TARGET_TRIPLE").to_string();
         if cfg!(debug_assertions) {
             write!(tag, "/debug").unwrap();
         }
