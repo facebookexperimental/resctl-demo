@@ -50,15 +50,15 @@ pub const WRITE: usize = 1;
 
 lazy_static::lazy_static! {
     static ref GIT_VERSION: String = {
-	let mut ver = String::new();
+        let mut ver = String::new();
         if let Some(v) = option_env!("VERGEN_GIT_SHA") {
             ver += "g";
-	    ver += v;
-	    if let Some("true") = option_env!("VERGEN_GIT_DIRTY") {
-		ver += "-dirty";
-	    }
+            ver += v;
+            if let Some("true") = option_env!("VERGEN_GIT_DIRTY") {
+                ver += "-dirty";
+            }
         }
-	ver
+        ver
     };
     static ref BUILD_TAG: String = {
         let mut tag = env!("VERGEN_CARGO_TARGET_TRIPLE").to_string();
