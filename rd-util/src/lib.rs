@@ -48,15 +48,19 @@ pub const MSEC: f64 = 1.0 / 1000.0;
 pub const READ: usize = 0;
 pub const WRITE: usize = 1;
 
+#[rustfmt::skip]
 lazy_static::lazy_static! {
     static ref GIT_VERSION: String = {
         let mut ver = String::new();
-        if let Some(v) = option_env!("VERGEN_GIT_SHA") {
-            ver += "g";
-            ver += v;
-            if let Some("true") = option_env!("VERGEN_GIT_DIRTY") {
-                ver += "-dirty";
+	match option_env!("VERGEN_GIT_SHA") {
+            Some(v) if v != "VERGEN_IDEMPOTENT_OUTPUT" => {
+		ver += "g";
+		ver += v;
+		if let Some("true") = option_env!("VERGEN_GIT_DIRTY") {
+                    ver += "-dirty";
+		}
             }
+	    _ => {}
         }
         ver
     };
