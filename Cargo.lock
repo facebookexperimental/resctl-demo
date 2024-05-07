@@ -2717,6 +2717,7 @@ dependencies = [
  "term_size",
  "thiserror",
  "tokio",
+ "url",
 ]
 
 [[package]]

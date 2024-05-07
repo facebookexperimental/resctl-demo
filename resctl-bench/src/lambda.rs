@@ -11,6 +11,7 @@ use octocrab::Octocrab;
 use std::io::{Cursor, Read, Write};
 use std::os::unix::process::CommandExt;
 use std::path::Path;
+use url::Url;
 
 use rd_util::{LambdaRequest as Request, LambdaResponse as Response};
 
@@ -19,6 +20,9 @@ use crate::job::{FormatOpts, JobCtxs};
 // The hard-coded file name is safe because the lambda function runs single-threaded
 // and isolated - each concurrent instance runs on its own environment.
 const RESULT_PATH: &'static str = "/tmp/result.json.gz";
+// For testing purpose.
+//const IOCOST_BUCKET: &'static str = "iocostbucket";
+//const IOCOST_BUCKET_REGION: &'static str = "eu-north-1";
 const IOCOST_BUCKET: &'static str = "iocost-submit";
 const IOCOST_BUCKET_REGION: &'static str = "us-east-1";
 
@@ -180,22 +184,19 @@ impl LambdaHelper {
 
         let octocrab = Octocrab::builder().personal_token(token).build()?;
 
-        let installations = octocrab
+        let installation = octocrab
             .apps()
-            .installations()
-            .send()
-            .await
-            .unwrap()
-            .take_items();
+            .get_repository_installation("iocost-benchmark", "iocost-benchmarks")
+            .await?;
 
         let mut create_access_token = CreateInstallationAccessToken::default();
         create_access_token.repositories = vec!["iocost-benchmarks".to_string()];
 
+        let access_token_url =
+            Url::parse(installation.access_tokens_url.as_ref().unwrap()).unwrap();
+
         let access: InstallationToken = octocrab
-            .post(
-                installations[0].access_tokens_url.as_ref().unwrap(),
-                Some(&create_access_token),
-            )
+            .post(access_token_url.path(), Some(&create_access_token))
             .await
             .unwrap();
 

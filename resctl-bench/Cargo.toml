@@ -25,6 +25,7 @@ aws-sdk-s3 = { version = "0.28.0", optional = true, features = ["rustls", "rt-to
 aws-sdk-ssm = { version = "0.28.0", optional = true, features = ["rustls", "rt-tokio"], default-features = false  }
 aws_lambda_events = { version = "0.10.0", optional = true }
 jsonwebtoken = { version = "8.3.0", optional = true }
+url = { version = "2.2.2", features = ["serde"] }
 lambda_runtime = { version = "0.8.1", optional = true  }
 md5 = { version = "0.7", optional = true  }
 octocrab = { version = "0.28.0", optional = true, features = ["rustls"], default-features = false }
