@@ -23,7 +23,7 @@ const RESULT_PATH: &'static str = "/tmp/result.json.gz";
 // For testing purpose.
 //const IOCOST_BUCKET: &'static str = "iocostbucket";
 //const IOCOST_BUCKET_REGION: &'static str = "eu-north-1";
-const IOCOST_BUCKET: &'static str = "iocost-submit";
+const IOCOST_BUCKET: &'static str = "iocost-submit-us-east-1";
 const IOCOST_BUCKET_REGION: &'static str = "us-east-1";
 
 pub fn init_lambda() {
