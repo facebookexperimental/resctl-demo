@@ -280,13 +280,15 @@ impl Program {
         let response = minreq::post(args.upload_url.as_ref().unwrap())
             .with_json(&request)?
             .send()?;
+        let response_body = response.as_str()?;
 
-        let response: LambdaResponse = serde_json::from_str(response.as_str()?)?;
+        let response: LambdaResponse = serde_json::from_str(response_body)?;
         if response.issue.is_none() {
             if let Some(error_message) = response.error_message {
                 error!("Failed to submit benchmark: {}", error_message);
             } else {
-                error!("Submission failed for an unknown reason...");
+                error!("Failed to submit benchmark: Unknown reason.");
+                error!("Lambda response: {}", response_body);
             }
             std::process::exit(1);
         }
