@@ -296,7 +296,7 @@ impl Program {
         }
 
         println!(
-            "Benchmark submitted successfuly!\nGitHub issue created: {}",
+            "Benchmark submitted successfully!\nGitHub issue created: {}",
             response.issue.as_ref().unwrap()
         );
         Ok(())
