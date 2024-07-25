@@ -255,11 +255,7 @@ impl Program {
 
     fn do_upload(&mut self) -> Result<()> {
         let args = &self.args_file.data;
-        let path = Path::new(&args.result)
-            .file_name()
-            .unwrap()
-            .to_string_lossy()
-            .to_string();
+        let path = std::fs::canonicalize(Path::new(&args.result))?;
 
         let mut data = Vec::<u8>::new();
         let mut f = std::fs::OpenOptions::new().read(true).open(&path)?;
@@ -284,19 +280,30 @@ impl Program {
         let response = minreq::post(args.upload_url.as_ref().unwrap())
             .with_json(&request)?
             .send()?;
+        let response_body = response.as_str()?;
 
-        let response: LambdaResponse = serde_json::from_str(response.as_str()?)?;
+        if response.status_code != 200 {
+            error!(
+                "Failed to submit benchmark: HTTP status code {} unexpected.",
+                response.status_code
+            );
+            error!("Lambda response: {}", response_body);
+            std::process::exit(1);
+        }
+
+        let response: LambdaResponse = serde_json::from_str(response_body)?;
         if response.issue.is_none() {
             if let Some(error_message) = response.error_message {
                 error!("Failed to submit benchmark: {}", error_message);
             } else {
-                error!("Submission failed for an unknown reason...");
+                error!("Failed to submit benchmark: Unknown reason.");
+                error!("Lambda response: {}", response_body);
             }
             std::process::exit(1);
         }
 
         println!(
-            "Benchmark submitted successfuly!\nGitHub issue created: {}",
+            "Benchmark submitted successfully!\nGitHub issue created: {}",
             response.issue.as_ref().unwrap()
         );
         Ok(())
