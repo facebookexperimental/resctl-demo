@@ -282,6 +282,15 @@ impl Program {
             .send()?;
         let response_body = response.as_str()?;
 
+        if response.status_code != 200 {
+            error!(
+                "Failed to submit benchmark: HTTP status code {} unexpected.",
+                response.status_code
+            );
+            error!("Lambda response: {}", response_body);
+            std::process::exit(1);
+        }
+
         let response: LambdaResponse = serde_json::from_str(response_body)?;
         if response.issue.is_none() {
             if let Some(error_message) = response.error_message {
