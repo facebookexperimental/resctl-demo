@@ -491,7 +491,7 @@ impl JsonArgs for Args {
                         .takes_value(true)
                         .number_of_values(1)
                         .env("RESCTL_BENCH_UPLOAD_URL")
-                        .required(true)
+                        .default_value("https://yxvf2x7zfkqga6sknkxgczwonq0yvkrm.lambda-url.us-east-1.on.aws")
                         .help("The URL where the lambda function is accessible")
                     )
                     .arg(
