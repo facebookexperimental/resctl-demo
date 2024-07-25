@@ -255,11 +255,7 @@ impl Program {
 
     fn do_upload(&mut self) -> Result<()> {
         let args = &self.args_file.data;
-        let path = Path::new(&args.result)
-            .file_name()
-            .unwrap()
-            .to_string_lossy()
-            .to_string();
+        let path = std::fs::canonicalize(Path::new(&args.result))?;
 
         let mut data = Vec::<u8>::new();
         let mut f = std::fs::OpenOptions::new().read(true).open(&path)?;
