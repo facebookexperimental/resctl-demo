@@ -177,10 +177,9 @@ impl LambdaHelper {
             .expect("Parameter value is None");
 
         let token = octocrab::auth::create_jwt(
-            app_id.parse::<u64>().unwrap().into(),
-            &jsonwebtoken::EncodingKey::from_rsa_pem(pem.as_bytes()).unwrap(),
-        )
-        .unwrap();
+            app_id.parse::<u64>()?.into(),
+            &jsonwebtoken::EncodingKey::from_rsa_pem(pem.as_bytes())?,
+        )?;
 
         let octocrab = Octocrab::builder().personal_token(token).build()?;
 
@@ -192,13 +191,11 @@ impl LambdaHelper {
         let mut create_access_token = CreateInstallationAccessToken::default();
         create_access_token.repositories = vec!["iocost-benchmarks".to_string()];
 
-        let access_token_url =
-            Url::parse(installation.access_tokens_url.as_ref().unwrap()).unwrap();
+        let access_token_url = Url::parse(installation.access_tokens_url.as_ref().unwrap())?;
 
         let access: InstallationToken = octocrab
             .post(access_token_url.path(), Some(&create_access_token))
-            .await
-            .unwrap();
+            .await?;
 
         let issue = octocrab::OctocrabBuilder::new()
             .personal_token(access.token)
