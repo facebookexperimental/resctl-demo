@@ -20,6 +20,10 @@ The benchmarks
 * [iocost-qos](iocost-qos.md): Benchmark IO isolation with different io.cost QoS configurations
 * [iocost-tune](iocost-tune.md): Benchmark storage device to determine io.cost QoS solutions
 
+AWS lambda workflow
+===================
+
+* [lambda](lambda.md): Lambda Result Upload overview, configuration and setup
 
 Other Notes
 ===========
