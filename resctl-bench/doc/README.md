@@ -23,7 +23,7 @@ The benchmarks
 AWS lambda workflow
 ===================
 
-* [lambda](lambda.md) : Lambda overview, configurations and setups
+* [lambda](lambda.md): Lambda Result Upload overview, configuration and setup
 
 Other Notes
 ===========
