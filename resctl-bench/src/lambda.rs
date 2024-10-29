@@ -82,6 +82,7 @@ pub async fn run() -> Result<()> {
         let object_name = helper.object_name_from_hash(&data)?;
 
         if helper.s3_object_exists(&object_name).await? {
+            error!("File {} has already been submitted", object_name);
             return Ok(Response {
                 issue: None,
                 error_type: Some(format!("Custom")),
