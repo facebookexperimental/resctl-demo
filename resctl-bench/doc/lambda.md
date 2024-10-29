@@ -98,6 +98,22 @@ We use github app `iocost-issue-creater` to file a github issue, thus it's crede
 }
 ```
 
+Now we need to grant permissions to the role for accessing these
+parameters:
+
+```
+{
+	"Version": "2012-10-17",
+	"Statement": [
+		{
+			"Effect": "Allow",
+			"Action": "ssm:GetParameter",
+			"Resource": "*"
+		}
+	]
+}
+```
+
 AWS lambda flow
 ===============
 1. User generates the benchmark result on their device.  
