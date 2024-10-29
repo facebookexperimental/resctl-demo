@@ -255,17 +255,10 @@ impl Program {
 
     fn do_upload(&mut self) -> Result<()> {
         let args = &self.args_file.data;
-        let path = Path::new(&args.result)
-            .file_name()
-            .unwrap()
-            .to_string_lossy()
-            .to_string();
+        let mut data: Vec<u8> = std::fs::read(&args.result)
+            .context(format!("Error opening or reading {}", &args.result))?;
 
-        let mut data = Vec::<u8>::new();
-        let mut f = std::fs::OpenOptions::new().read(true).open(&path)?;
-        f.read_to_end(&mut data)?;
-
-        if !path.ends_with(".gz") {
+        if !args.result.ends_with(".gz") {
             let deflated = std::mem::take(&mut data);
             let mut encoder = libflate::gzip::Encoder::new(&mut data)?;
             encoder.write_all(&deflated).context("Compressing file")?;
@@ -285,7 +278,13 @@ impl Program {
             .with_json(&request)?
             .send()?;
 
-        let response: LambdaResponse = serde_json::from_str(response.as_str()?)?;
+        let Ok(response) = serde_json::from_str::<LambdaResponse>(response.as_str()?) else {
+            error!(
+                "Failed to submit benchmark. Server response: {}",
+                response.as_str()?
+            );
+            std::process::exit(1);
+        };
         if response.issue.is_none() {
             if let Some(error_message) = response.error_message {
                 error!("Failed to submit benchmark: {}", error_message);
