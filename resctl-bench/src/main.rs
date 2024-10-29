@@ -278,7 +278,13 @@ impl Program {
             .with_json(&request)?
             .send()?;
 
-        let response: LambdaResponse = serde_json::from_str(response.as_str()?)?;
+        let Ok(response) = serde_json::from_str::<LambdaResponse>(response.as_str()?) else {
+            error!(
+                "Failed to submit benchmark. Server response: {}",
+                response.as_str()?
+            );
+            std::process::exit(1);
+        };
         if response.issue.is_none() {
             if let Some(error_message) = response.error_message {
                 error!("Failed to submit benchmark: {}", error_message);
