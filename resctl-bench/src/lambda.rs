@@ -48,8 +48,25 @@ pub fn init_lambda() {
 pub async fn run() -> Result<()> {
     let handler = |event: LambdaEvent<LambdaFunctionUrlRequest>| async move {
         let helper = LambdaHelper::new().await;
-        let request: Request = serde_json::from_str(event.payload.body.as_ref().unwrap().as_str())?;
-
+        let Some(event_body) = event.payload.body else {
+            error!("No body found in event payload: {:?}", event.payload);
+            return Ok(Response {
+                issue: None,
+                error_type: Some(format!("Custom")),
+                error_message: Some(format!("No body found in event payload.")),
+            });
+        };
+        let request: Request = match serde_json::from_str(event_body.as_str()) {
+            Ok(req) => req,
+            Err(e) => {
+                error!("Error parsing event body: {}", e);
+                return Ok(Response {
+                    issue: None,
+                    error_type: Some(format!("Custom")),
+                    error_message: Some(format!("Error parsing event body: {}", e)),
+                });
+            }
+        };
         // Unpack the base64 encoded gz-compressed file. This is safe because Lambda has a hard
         // limit on the size of the requests (6MB at the moment).
         let data = base64::decode(&request.data)?;
