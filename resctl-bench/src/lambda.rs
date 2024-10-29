@@ -99,10 +99,18 @@ pub async fn run() -> Result<()> {
                 &sysinfo,
                 &format!("{}\n\n{}```\n{}\n```", s3_url, identification, summary),
             )
-            .await?;
+            .await;
+        if let Err(e) = issue_url {
+            error!("Error creating Github issue: {:#}", e);
+            return Ok(Response {
+                issue: None,
+                error_type: Some(format!("Custom")),
+                error_message: Some(format!("Error creating Github issue: {}", e)),
+            });
+        }
 
         Ok::<_, Error>(Response {
-            issue: Some(issue_url),
+            issue: Some(issue_url.unwrap()),
             error_type: None,
             error_message: None,
         })
@@ -176,11 +184,11 @@ impl LambdaHelper {
             .set_name(Some("/iocost-bot/appid".to_string()))
             .send()
             .await
-            .expect("Failed to query parameter")
+            .context("Failed to query AWS parameter /iocost-bot/appid")?
             .parameter
-            .expect("Could not find parameter")
+            .context("Could not find AWS parameter /iocost-bot/appid")?
             .value
-            .expect("Parameter value is None");
+            .context("Value of parameter AWS /iocost-bot/appid is None")?;
 
         let pem = self
             .ssm
@@ -188,15 +196,16 @@ impl LambdaHelper {
             .set_name(Some("/iocost-bot/privatekey".to_string()))
             .send()
             .await
-            .expect("Failed to query parameter")
+            .context("Failed to query parameter AWS /iocost-bot/privatekey")?
             .parameter
-            .expect("Could not find parameter")
+            .context("Could not find parameter AWS /iocost-bot/privatekey")?
             .value
-            .expect("Parameter value is None");
+            .context("Value of parameter AWS /iocost-bot/privatekey is None")?;
 
         let token = octocrab::auth::create_jwt(
             app_id.parse::<u64>().unwrap().into(),
-            &jsonwebtoken::EncodingKey::from_rsa_pem(pem.as_bytes()).unwrap(),
+            &jsonwebtoken::EncodingKey::from_rsa_pem(pem.as_bytes())
+                .context("Couldn't create a JWT for Github authentication")?,
         )
         .unwrap();
 
