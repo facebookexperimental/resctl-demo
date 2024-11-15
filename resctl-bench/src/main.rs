@@ -4,7 +4,7 @@ use base64::prelude::*;
 use indicatif::{ProgressBar, ProgressStyle};
 use log::{debug, error, info, warn};
 use std::fmt::Write;
-use std::io::{Read, Write as IoWrite};
+use std::io::{Write as IoWrite};
 use std::path::Path;
 use std::process::{exit, Command};
 use std::sync::{Arc, Mutex};
