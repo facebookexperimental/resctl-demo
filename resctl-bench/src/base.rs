@@ -34,7 +34,6 @@ pub enum AllSysReqsState {
 }
 
 pub struct Base<'a> {
-    pub scr_devname: String,
     pub bench_knobs_path: String,
     pub demo_bench_knobs_path: String,
     pub saved_bench_knobs: BenchKnobs,
@@ -175,7 +174,6 @@ impl<'a> Base<'a> {
         };
 
         Self {
-            scr_devname,
             bench_knobs_path: args.bench_knobs_path(),
             demo_bench_knobs_path: args.demo_bench_knobs_path(),
             saved_bench_knobs: bench_knobs.clone(),
@@ -195,7 +193,6 @@ impl<'a> Base<'a> {
 
     pub fn dummy(args: &'a Args) -> Self {
         Self {
-            scr_devname: "".to_owned(),
             bench_knobs_path: "".to_owned(),
             demo_bench_knobs_path: "".to_owned(),
             saved_bench_knobs: Default::default(),
