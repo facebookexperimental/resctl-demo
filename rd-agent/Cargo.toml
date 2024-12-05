@@ -25,7 +25,7 @@ libc = "0.2"
 linux_proc = "0.1"
 log = "0.4"
 nix = { version = "0.28", features = ["signal", "process"] }
-procfs = "0.16"
+procfs = "0.17"
 proc-mounts = "0.3"
 regex = "1.10"
 scan_fmt = "0.2"
