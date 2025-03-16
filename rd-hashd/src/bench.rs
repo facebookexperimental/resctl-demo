@@ -741,16 +741,10 @@ impl Bench {
         params.file_size_mean = (params.file_size_mean as f64 * 1.05) as usize;
 
         let th = self.create_test_hasher(max_size, tf, &params, true);
-        let mut pid = Pid::new(
-            cfg.fsz_pid.kp,
-            cfg.fsz_pid.ki,
-            cfg.fsz_pid.kd,
-            1.0,
-            1.0,
-            1.0,
-            1.0,
-            1.0,
-        );
+        let mut pid = Pid::new(1.0, 1.0);
+        pid.p(cfg.fsz_pid.kp, 1.0);
+        pid.i(cfg.fsz_pid.ki,1.0);
+        pid.d(cfg.fsz_pid.kd, 1.0);
 
         // determine rps based on latency convergence
         while nr_rounds < cfg.rounds {
