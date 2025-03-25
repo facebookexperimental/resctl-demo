@@ -622,7 +622,7 @@ pub fn show_doc(siv: &mut Cursive, target: &str, jump: bool, back: bool) {
 
 fn create_button<F>(prompt: &str, cb: F) -> impl View
 where
-    F: 'static + Fn(&mut Cursive),
+    F: 'static + Fn(&mut Cursive) + std::marker::Sync + std::marker::Send,
 {
     let trimmed = prompt.trim_start();
     let indent = &prompt[0..prompt.len() - trimmed.len()];
