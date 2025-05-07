@@ -5,7 +5,6 @@ use rd_agent_intf::{
     HASHD_BENCH_SVC_NAME,
 };
 use resctl_bench_intf::Args;
-use scan_fmt::scan_fmt;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -443,24 +442,31 @@ impl<'a> Base<'a> {
             return true;
         }
 
-        if let Ok((ver, patch, _)) = scan_fmt!(&ver, "{}.{}.{}", u32, u32, u32) {
-            if ver > 5 || (ver == 5 && patch >= 15) {
+        let mut ver_parts = ver.split('.');
+        let ver_major = ver_parts.next().and_then(|s| s.parse::<u32>().ok());
+        let ver_minor = ver_parts.next().and_then(|s| s.parse::<u32>().ok());
+
+        match (ver_major, ver_minor) {
+            (Some(major), Some(minor)) if major > 5 || (major == 5 && minor >= 15) => {
                 debug!(
                     "base: kernel {}.{} >= 5.15, assuming shadow inode prot",
-                    ver, patch
+                    major, minor
                 );
                 true
-            } else {
+            },
+            (Some(major), Some(minor)) => {
                 info!(
                     "base: Kernel {}.{} (< 5.15) might not have shadow inode protection",
-                    ver, patch
+                    major, minor
                 );
                 false
+            },
+            _ =>  {
+                warn!("base: Failed to parse kernel version string {}", &kver);
+                return false
             }
-        } else {
-            warn!("base: Failed to parse kernel version string {}", &kver);
-            false
         }
+
     }
 
     pub fn test_inodesteal(&mut self) -> Result<()> {
