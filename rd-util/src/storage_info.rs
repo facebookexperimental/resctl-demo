@@ -99,7 +99,7 @@ pub fn devname_to_devnr<D: AsRef<OsStr>>(name_in: D) -> Result<(u32, u32)> {
     let mut path = PathBuf::from("/dev");
     path.push(name_in.as_ref());
     let rdev = fs::metadata(path)?.st_rdev();
-    Ok((unsafe { libc::major(rdev) }, unsafe { libc::minor(rdev) }))
+    Ok(({ libc::major(rdev) }, { libc::minor(rdev) }))
 }
 
 /// Given a path, find the underlying device.

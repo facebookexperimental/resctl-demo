@@ -497,7 +497,7 @@ impl<'a> Base<'a> {
             })?;
 
         let protected = rctx.access_agent_files(|af| {
-            match af.report.data.sysloads.get(INODESTEAL_TEST.into()) {
+            match af.report.data.sysloads.get(INODESTEAL_TEST) {
                 Some(rep) => Ok(rep.svc.state == SvcStateReport::Exited),
                 None => Err(anyhow!(
                     "base: Can't find {} service after testing",

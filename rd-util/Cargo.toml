@@ -29,12 +29,13 @@ num_cpus = "1.16"
 page_size = "0.6"
 proc-mounts = "0.3"
 rand = { version = "0.8", features = ["small_rng"] }
-rustbus = "0.17"
 scan_fmt = "0.2"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 simplelog = "0.12"
 sysinfo = "0.30"
+zbus = "5.7.1"
+zbus_macros = { version = "5.7.1", features = ["blocking-api", "gvariant"] }
 
 [build-dependencies]
 anyhow = "1.0"

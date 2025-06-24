@@ -1,10 +1,11 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
 use anyhow::{bail, Result};
 use log::{debug, info, trace, warn};
-use rustbus::{
-    message_builder::{self, MarshalledMessage},
-    params, signature, standard_messages, DuplexConn, MessageType, RpcConn,
-};
+
+use zbus::blocking::{Connection, Proxy};
+use zbus::proxy;
+use zbus::zvariant::{OwnedValue, Value};
+
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt;
@@ -21,10 +22,6 @@ std::thread_local!(pub static SYS_SD_BUS: RefCell<SystemdDbus> =
 std::thread_local!(pub static USR_SD_BUS: RefCell<SystemdDbus> =
                    RefCell::new(SystemdDbus::new(true).unwrap()));
 
-// The following and the explicit error wrappings can be removed once
-// rustbus error implements std::error::Error.
-type RbResult<T> = Result<T, rustbus::connection::Error>;
-
 lazy_static::lazy_static! {
     static ref SYSTEMD_TIMEOUT_MS: AtomicU64 =
         AtomicU64::new((SYSTEMD_DFL_TIMEOUT * 1000.0).round() as u64);
@@ -38,18 +35,7 @@ fn systemd_timeout() -> f64 {
     SYSTEMD_TIMEOUT_MS.load(Ordering::Relaxed) as f64 / 1000.0
 }
 
-fn systemd_conn_timeout() -> rustbus::connection::Timeout {
-    rustbus::connection::Timeout::Duration(Duration::from_secs_f64(systemd_timeout()))
-}
-
-fn wrap_rustbus_result<T>(r: RbResult<T>) -> Result<T> {
-    match r {
-        Ok(r) => Ok(r),
-        Err(e) => bail!("{:?}", &e),
-    }
-}
-
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Prop {
     U32(u32),
     U64(u64),
@@ -57,21 +43,15 @@ pub enum Prop {
     String(String),
 }
 
-// define the variant with a fitting marshal and unmarshal impl
-rustbus::dbus_variant_sig!(PropVariant,
-                           Bool => bool;
-                           U32 => u32;
-                           U64 => u64;
-                           String => String;
-                           StringList => Vec<String>;
-                           ExecStart => Vec<(String, Vec<String>, bool)>);
-
-fn dbus_sig(input: &str) -> signature::Type {
-    signature::Type::parse_description(input).as_ref().unwrap()[0].clone()
-}
-
-fn dbus_param_array<'a, 'e>(v: params::Array<'a, 'e>) -> params::Param<'a, 'e> {
-    params::Param::Container(params::Container::Array(v))
+impl<'a> From<Prop> for Value<'a> {
+    fn from(prop: Prop) -> Self {
+        match prop {
+            Prop::U32(v) => Value::U32(v),
+            Prop::U64(v) => Value::U64(v),
+            Prop::Bool(v) => Value::Bool(v),
+            Prop::String(s) => Value::Str(s.into()),
+        }
+    }
 }
 
 fn escape_name(name: &str) -> String {
@@ -92,170 +72,123 @@ fn escape_name(name: &str) -> String {
     escaped
 }
 
-fn systemd_unit_call(method: &str, intf: &str, name: &str) -> MarshalledMessage {
-    let path = SD1_PATH.to_string() + "/unit/" + &escape_name(&name);
-
-    message_builder::MessageBuilder::new()
-        .call(method)
-        .with_interface(intf)
-        .on(path)
-        .at(SD1_DST)
-        .build()
-}
-
-fn systemd_sd1_call(method: &str) -> MarshalledMessage {
-    message_builder::MessageBuilder::new()
-        .call(method)
-        .with_interface("org.freedesktop.systemd1.Manager")
-        .on(SD1_PATH)
-        .at(SD1_DST)
-        .build()
-}
-
-fn systemd_start_transient_svc_call(
-    name: String,
-    args: Vec<String>,
-    envs: Vec<String>,
-    extra_props: Vec<(String, PropVariant)>,
-) -> MarshalledMessage {
-    // NAME(s) JOB_MODE(s) PROPS(a(sv)) AUX_UNITS(a(s a(sv)))
-    //
-    // PROPS:
-    // ["Description"] = str,
-    // ["Slice"] = str,
-    // ["CPUWeight"] = num,
-    // ...
-    // ["Environment"] = ([ENV0]=str, [ENV1]=str...)
-    // ["ExecStart"] = (args[0], (args[0], args[1], ...), false)
-    let mut call = systemd_sd1_call("StartTransientUnit");
-
-    // name and job_mode
-    call.body.push_param2(&name, "fail").unwrap();
-
-    // desc string
-    let desc = args.iter().fold(name.clone(), |mut a, i| {
-        a += " ";
-        a += i;
-        a
-    });
-
-    let mut props = vec![
-        ("Description".to_owned(), PropVariant::String(desc)),
-        ("Environment".to_owned(), PropVariant::StringList(envs)),
-        (
-            "ExecStart".to_owned(),
-            PropVariant::ExecStart(vec![(args[0].clone(), args, false)]),
-        ),
-    ];
-
-    for prop in extra_props.into_iter() {
-        props.push(prop);
-    }
-
-    // assemble props
-    call.body.push_param(props).unwrap();
-
-    // no aux units
-    call.body
-        .push_old_param(&dbus_param_array(params::Array {
-            element_sig: dbus_sig("(sa(sv))"),
-            values: vec![],
-        }))
-        .unwrap();
-
-    call
+#[proxy(
+    interface = "org.freedesktop.systemd1.Manager",
+    default_service = "org.freedesktop.systemd1",
+    default_path = "/org/freedesktop/systemd1"
+)]
+trait SystemdManager {
+    fn reload(&self) -> Result<()>;
+    fn restart_unit(&self, name: &str, mode: &str) -> Result<zbus::zvariant::OwnedObjectPath>;
+    fn reset_failed_unit(&self, name: &str) -> Result<()>;
+    fn start_unit(&self, name: &str, mode: &str) -> Result<zbus::zvariant::OwnedObjectPath>;
+    fn stop_unit(&self, name: &str, mode: &str) -> Result<zbus::zvariant::OwnedObjectPath>;
+    fn set_unit_properties(
+        &self,
+        name: &str,
+        runtime: bool,
+        properties: Vec<(&str, Value<'_>)>,
+    ) -> Result<()>;
+    fn start_transient_unit(
+        &self,
+        name: &str,
+        mode: &str,
+        properties: Vec<(&str, Value<'_>)>,
+        aux: Vec<(&str, Vec<(&str, Value<'_>)>)>,
+    ) -> Result<zbus::zvariant::OwnedObjectPath>;
 }
 
 pub struct SystemdDbus {
-    pub rpc_conn: RpcConn,
+    connection: Connection,
 }
 
 impl SystemdDbus {
-    fn new_int(user: bool) -> RbResult<SystemdDbus> {
-        let mut rpc_conn = RpcConn::new(match user {
-            false => DuplexConn::connect_to_bus(rustbus::get_system_bus_path()?, true)?,
-            true => DuplexConn::connect_to_bus(rustbus::get_session_bus_path()?, true)?,
-        });
-
-        rpc_conn.set_filter(Box::new(|msg| match msg.typ {
-            MessageType::Error => true,
-            MessageType::Reply => true,
-            _ => false,
-        }));
-
-        let mut sysdbus = Self { rpc_conn };
-        sysdbus.send_msg_and_wait_int(&mut standard_messages::hello())?;
-        Ok(sysdbus)
+    fn manager_proxy(&self) -> zbus::Result<SystemdManagerProxyBlocking> {
+        SystemdManagerProxyBlocking::new(&self.connection)
     }
 
-    pub fn new(user: bool) -> Result<SystemdDbus> {
-        wrap_rustbus_result(Self::new_int(user))
-    }
-
-    fn send_msg_and_wait_int(
-        &mut self,
-        msg: &mut MarshalledMessage,
-    ) -> RbResult<MarshalledMessage> {
-        let msg_serial = self.rpc_conn.send_message(msg)?.write_all().unwrap();
-        self.rpc_conn
-            .wait_response(msg_serial, systemd_conn_timeout())
-    }
-
-    pub fn send_msg_and_wait(&mut self, msg: &mut MarshalledMessage) -> Result<MarshalledMessage> {
-        wrap_rustbus_result(self.send_msg_and_wait_int(msg))
-    }
-
-    pub fn daemon_reload(&mut self) -> Result<()> {
-        let mut msg = systemd_sd1_call("Reload");
-        self.send_msg_and_wait(&mut msg)?;
-        Ok(())
-    }
-
-    pub fn get_unit_props<'u>(&mut self, name: &str) -> Result<params::Param<'static, 'static>> {
-        let mut msg = systemd_unit_call("GetAll", "org.freedesktop.DBus.Properties", name);
-        msg.body.push_param("").unwrap();
-        let resp = match self.send_msg_and_wait(&mut msg)?.unmarshall_all() {
-            Ok(v) => v,
-            Err(e) => bail!("failed to unmarshall GetAll response ({:?})", &e),
+    fn new_int(user: bool) -> Result<Self> {
+        let connection = match user {
+            false => Connection::system()?,
+            true => Connection::session()?,
         };
-        match resp.params.into_iter().next() {
-            Some(props) => Ok(props),
-            None => bail!("GetAll response doesn't have any data"),
-        }
+
+        Ok(SystemdDbus { connection })
     }
 
-    pub fn set_unit_props(&mut self, name: &str, props: Vec<(String, PropVariant)>) -> Result<()> {
-        let mut msg = systemd_sd1_call("SetUnitProperties");
-        msg.body.push_param3(name, true, props).unwrap();
-        self.send_msg_and_wait(&mut msg)?;
+    pub fn new(user: bool) -> Result<Self> {
+        Self::new_int(user)
+    }
+
+    fn daemon_reload(&mut self) -> Result<()> {
+        self.manager_proxy().unwrap().reload()
+    }
+
+    pub fn get_unit_props<'u>(&mut self, name: &str) -> Result<HashMap<String, Prop>> {
+        let path = SD1_PATH.to_string() + "/unit/" + &escape_name(&name);
+
+        let proxy = Proxy::new(
+            &self.connection,
+            SD1_DST,
+            path,
+            "org.freedesktop.DBus.Properties",
+        )?;
+
+        let props_owned: HashMap<String, OwnedValue> = proxy.call("GetAll", &("",))?;
+
+        let mut props = HashMap::new();
+
+        /* prepare for usage later */
+        for (key, owned_value) in &props_owned {
+            match &**owned_value {
+                Value::Str(v) => {
+                    props.insert(key.into(), Prop::String(v.to_string()));
+                }
+                Value::U64(v) => {
+                    props.insert(key.into(), Prop::U64(*v));
+                }
+                Value::U32(v) => {
+                    props.insert(key.into(), Prop::U32(*v));
+                }
+                Value::Bool(v) => {
+                    props.insert(key.into(), Prop::Bool(*v));
+                }
+                _ => {}
+            }
+        }
+
+        Ok(props)
+    }
+
+    fn set_unit_props(&mut self, name: &str, props: Vec<(String, Prop)>) -> Result<()> {
+        let map_props: Vec<(&str, Value)> = props
+            .iter()
+            .map(|(k, v)| (k.as_str(), v.clone().into()))
+            .collect();
+
+        self.manager_proxy()
+            .unwrap()
+            .set_unit_properties(name, false, map_props)?;
         Ok(())
     }
 
     pub fn start_unit(&mut self, name: &str) -> Result<()> {
-        let mut msg = systemd_sd1_call("StartUnit");
-        msg.body.push_param2(&name, "fail").unwrap();
-        self.send_msg_and_wait(&mut msg)?;
+        self.manager_proxy().unwrap().start_unit(name, "fail")?;
         Ok(())
     }
 
     pub fn stop_unit(&mut self, name: &str) -> Result<()> {
-        let mut msg = systemd_sd1_call("StopUnit");
-        msg.body.push_param2(&name, "fail").unwrap();
-        self.send_msg_and_wait(&mut msg)?;
+        self.manager_proxy().unwrap().stop_unit(name, "fail")?;
         Ok(())
     }
 
     pub fn reset_failed_unit(&mut self, name: &str) -> Result<()> {
-        let mut msg = systemd_sd1_call("ResetFailedUnit");
-        msg.body.push_param(&name).unwrap();
-        self.send_msg_and_wait(&mut msg)?;
+        self.manager_proxy().unwrap().reset_failed_unit(name)?;
         Ok(())
     }
 
     pub fn restart_unit(&mut self, name: &str) -> Result<()> {
-        let mut msg = systemd_sd1_call("RestartUnit");
-        msg.body.push_param2(&name, "fail").unwrap();
-        self.send_msg_and_wait(&mut msg)?;
+        self.manager_proxy().unwrap().restart_unit(name, "fail")?;
         Ok(())
     }
 
@@ -264,10 +197,48 @@ impl SystemdDbus {
         name: String,
         args: Vec<String>,
         envs: Vec<String>,
-        extra_props: Vec<(String, PropVariant)>,
+        extra_props: Vec<(String, Prop)>,
     ) -> Result<()> {
-        let mut msg = systemd_start_transient_svc_call(name, args, envs, extra_props);
-        self.send_msg_and_wait(&mut msg)?;
+        // NAME(s) JOB_MODE(s) PROPS(a(sv)) AUX_UNITS(a(s a(sv)))
+        //
+        // PROPS:
+        // ["Description"] = str,
+        // ["Slice"] = str,
+        // ["CPUWeight"] = num,
+        // ...
+        // ["Environment"] = ([ENV0]=str, [ENV1]=str...)
+        // ["ExecStart"] = (args[0], (args[0], args[1], ...), false)
+
+        // desc string
+        let desc = args.iter().fold(name.clone(), |mut a, i| {
+            a += " ";
+            a += i;
+            a
+        });
+
+        let exec_start = Value::from(vec![(args[0].clone(), args, false)]);
+
+        let mut props: Vec<(&str, Value)> = vec![
+            ("Description", Value::from(desc)),
+            ("Environment", Value::from(envs)),
+            ("ExecStart", exec_start),
+        ];
+
+        let map_extra_props: Vec<(&str, Value)> = extra_props
+            .iter()
+            .map(|(k, v)| (k.as_str(), v.clone().into()))
+            .collect();
+
+        props.extend(map_extra_props);
+
+        let job = self.manager_proxy().unwrap().start_transient_unit(
+            name.as_str(),
+            "fail",
+            props,
+            vec![],
+        )?;
+        debug!("Started transient unit: {job}");
+
         Ok(())
     }
 }
@@ -301,38 +272,10 @@ pub struct UnitProps {
 }
 
 impl UnitProps {
-    fn new(dict: &params::Param) -> Result<Self> {
-        let dict = match dict {
-            params::Param::Container(params::Container::Dict(dict)) => dict,
-            _ => bail!("dict type mismatch"),
-        };
-
-        let mut props = HashMap::new();
-
-        for (k, v) in dict.map.iter() {
-            if let (
-                params::Base::String(key),
-                params::Param::Container(params::Container::Variant(boxed)),
-            ) = (k, v)
-            {
-                match &boxed.value {
-                    params::Param::Base(params::Base::String(v)) => {
-                        props.insert(key.into(), Prop::String(v.into()));
-                    }
-                    params::Param::Base(params::Base::Uint32(v)) => {
-                        props.insert(key.into(), Prop::U32(*v));
-                    }
-                    params::Param::Base(params::Base::Uint64(v)) => {
-                        props.insert(key.into(), Prop::U64(*v));
-                    }
-                    params::Param::Base(params::Base::Boolean(v)) => {
-                        props.insert(key.into(), Prop::Bool(*v));
-                    }
-                    _ => {}
-                }
-            }
-        }
-        Ok(Self { props })
+    fn new(init_props: &HashMap<String, Prop>) -> Result<Self> {
+        Ok(Self {
+            props: init_props.clone(),
+        })
     }
 
     pub fn string<'a>(&'a self, key: &str) -> Option<&'a str> {
@@ -511,31 +454,31 @@ impl Unit {
         self.resctl.mem_max = self.props.u64_dfl_max("MemoryMax");
     }
 
-    pub fn resctl_props(&self) -> Vec<(String, PropVariant)> {
+    pub fn resctl_props(&self) -> Vec<(String, Prop)> {
         vec![
             (
                 "CPUWeight".into(),
-                PropVariant::U64(self.resctl.cpu_weight.unwrap_or(u64::MAX)),
+                Prop::U64(self.resctl.cpu_weight.unwrap_or(u64::MAX)),
             ),
             (
                 "IOWeight".into(),
-                PropVariant::U64(self.resctl.io_weight.unwrap_or(u64::MAX)),
+                Prop::U64(self.resctl.io_weight.unwrap_or(u64::MAX)),
             ),
             (
                 "MemoryMin".into(),
-                PropVariant::U64(self.resctl.mem_min.unwrap_or(0)),
+                Prop::U64(self.resctl.mem_min.unwrap_or(0)),
             ),
             (
                 "MemoryLow".into(),
-                PropVariant::U64(self.resctl.mem_low.unwrap_or(0)),
+                Prop::U64(self.resctl.mem_low.unwrap_or(0)),
             ),
             (
                 "MemoryHigh".into(),
-                PropVariant::U64(self.resctl.mem_high.unwrap_or(std::u64::MAX)),
+                Prop::U64(self.resctl.mem_high.unwrap_or(std::u64::MAX)),
             ),
             (
                 "MemoryMax".into(),
-                PropVariant::U64(self.resctl.mem_max.unwrap_or(std::u64::MAX)),
+                Prop::U64(self.resctl.mem_max.unwrap_or(std::u64::MAX)),
             ),
         ]
     }
@@ -550,15 +493,9 @@ impl Unit {
     }
 
     pub fn set_prop(&mut self, key: &str, prop: Prop) -> Result<()> {
-        let props = match prop {
-            Prop::U32(v) => PropVariant::U32(v),
-            Prop::U64(v) => PropVariant::U64(v),
-            Prop::Bool(v) => PropVariant::Bool(v),
-            Prop::String(v) => PropVariant::String(v),
-        };
         self.sd_bus().with(|s| {
             s.borrow_mut()
-                .set_unit_props(&self.name, vec![(key.into(), props)])
+                .set_unit_props(&self.name, vec![(key.into(), prop)])
         })?;
         self.refresh()
     }
@@ -765,15 +702,7 @@ impl TransientService {
 
     fn try_start(&mut self) -> Result<bool> {
         let mut extra_props = self.unit.resctl_props();
-        for (k, v) in self.extra_props.iter() {
-            let variant = match v {
-                Prop::U32(v) => PropVariant::U32(*v),
-                Prop::U64(v) => PropVariant::U64(*v),
-                Prop::Bool(v) => PropVariant::Bool(*v),
-                Prop::String(v) => PropVariant::String(v.clone()),
-            };
-            extra_props.push((k.clone(), variant));
-        }
+        extra_props.extend(self.extra_props.clone());
 
         debug!(
             "svc: {:?} starting ({:?})",
