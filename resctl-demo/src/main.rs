@@ -81,7 +81,7 @@ lazy_static::lazy_static! {
     static ref LAYOUT: Mutex<Layout> = Mutex::new(Layout::new(Vec2::new(0, 0)));
     static ref ZOOMED_VIEW: Mutex<Vec<ZoomedView>> = Mutex::new(Vec::new());
     pub static ref STYLE_ALERT: Style = Style {
-        effects: Effect::Bold | Effect::Reverse,
+        effects: (Effect::Bold | Effect::Reverse).into(),
         color: (*COLOR_ALERT).into(),
     };
     pub static ref SVC_NAMES: Vec<String> = {
@@ -531,7 +531,7 @@ fn main() {
     info!("TEMP_DIR: {:?}", TEMP_DIR.path());
     touch_units();
 
-    let mut siv = Cursive::default();
+    let mut siv = cursive::default();
     set_cursive_theme(&mut siv);
 
     let _exit_guard = ExitGuard {};
@@ -612,14 +612,5 @@ fn main() {
     refresh_layout_and_kick(&mut siv);
     update_agent_zoomed_view(&mut siv);
 
-    // Run the event loop. Use the termion backend so that resctl-demo can
-    // be built without external dependencies. The buffered backend wrapping
-    // is necessary to avoid flickering, see
-    // https://github.com/gyscos/cursive/issues/525.
-    siv.run_with(|| {
-        let termion_backend = cursive::backends::termion::Backend::init().unwrap();
-        Box::new(cursive_buffered_backend::BufferedBackend::new(
-            termion_backend,
-        ))
-    })
+    siv.run()
 }
