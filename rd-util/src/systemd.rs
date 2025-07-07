@@ -2,9 +2,9 @@
 use anyhow::{bail, Result};
 use log::{debug, info, trace, warn};
 
-use zbus::blocking::{Connection, Proxy};
 use zbus::proxy;
 use zbus::zvariant::{OwnedValue, Value};
+use zbus::{Connection, Proxy};
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -100,20 +100,24 @@ trait SystemdManager {
 
 pub struct SystemdDbus {
     connection: Connection,
+    rt: tokio::runtime::Runtime,
 }
 
 impl SystemdDbus {
-    fn manager_proxy(&self) -> zbus::Result<SystemdManagerProxyBlocking> {
-        SystemdManagerProxyBlocking::new(&self.connection)
+    fn manager_proxy(&self) -> zbus::Result<SystemdManagerProxy> {
+        self.rt.block_on(SystemdManagerProxy::new(&self.connection))
     }
 
     fn new_int(user: bool) -> Result<Self> {
-        let connection = match user {
-            false => Connection::system()?,
-            true => Connection::session()?,
+        let rt = tokio::runtime::Runtime::new().unwrap();
+
+        let connection = if user {
+            rt.block_on(Connection::session())?
+        } else {
+            rt.block_on(Connection::system())?
         };
 
-        Ok(SystemdDbus { connection })
+        Ok(SystemdDbus { connection, rt })
     }
 
     pub fn new(user: bool) -> Result<Self> {
@@ -121,20 +125,21 @@ impl SystemdDbus {
     }
 
     fn daemon_reload(&mut self) -> Result<()> {
-        self.manager_proxy().unwrap().reload()
+        self.rt.block_on(self.manager_proxy().unwrap().reload())
     }
 
     pub fn get_unit_props<'u>(&mut self, name: &str) -> Result<HashMap<String, Prop>> {
         let path = SD1_PATH.to_string() + "/unit/" + &escape_name(&name);
 
-        let proxy = Proxy::new(
+        let proxy = self.rt.block_on(Proxy::new(
             &self.connection,
             SD1_DST,
             path,
             "org.freedesktop.DBus.Properties",
-        )?;
+        ))?;
 
-        let props_owned: HashMap<String, OwnedValue> = proxy.call("GetAll", &("",))?;
+        let props_owned: HashMap<String, OwnedValue> =
+            self.rt.block_on(proxy.call("GetAll", &("",)))?;
 
         let mut props = HashMap::new();
 
@@ -166,29 +171,35 @@ impl SystemdDbus {
             .map(|(k, v)| (k.as_str(), v.clone().into()))
             .collect();
 
-        self.manager_proxy()
-            .unwrap()
-            .set_unit_properties(name, false, map_props)?;
+        self.rt.block_on(
+            self.manager_proxy()
+                .unwrap()
+                .set_unit_properties(name, false, map_props),
+        )?;
         Ok(())
     }
 
     pub fn start_unit(&mut self, name: &str) -> Result<()> {
-        self.manager_proxy().unwrap().start_unit(name, "fail")?;
+        self.rt
+            .block_on(self.manager_proxy().unwrap().start_unit(name, "fail"))?;
         Ok(())
     }
 
     pub fn stop_unit(&mut self, name: &str) -> Result<()> {
-        self.manager_proxy().unwrap().stop_unit(name, "fail")?;
+        self.rt
+            .block_on(self.manager_proxy().unwrap().stop_unit(name, "fail"))?;
         Ok(())
     }
 
     pub fn reset_failed_unit(&mut self, name: &str) -> Result<()> {
-        self.manager_proxy().unwrap().reset_failed_unit(name)?;
+        self.rt
+            .block_on(self.manager_proxy().unwrap().reset_failed_unit(name))?;
         Ok(())
     }
 
     pub fn restart_unit(&mut self, name: &str) -> Result<()> {
-        self.manager_proxy().unwrap().restart_unit(name, "fail")?;
+        self.rt
+            .block_on(self.manager_proxy().unwrap().restart_unit(name, "fail"))?;
         Ok(())
     }
 
@@ -231,12 +242,14 @@ impl SystemdDbus {
 
         props.extend(map_extra_props);
 
-        let job = self.manager_proxy().unwrap().start_transient_unit(
-            name.as_str(),
-            "fail",
-            props,
-            vec![],
-        )?;
+        let job = self
+            .rt
+            .block_on(self.manager_proxy().unwrap().start_transient_unit(
+                name.as_str(),
+                "fail",
+                props,
+                vec![],
+            ))?;
         debug!("Started transient unit: {job}");
 
         Ok(())
