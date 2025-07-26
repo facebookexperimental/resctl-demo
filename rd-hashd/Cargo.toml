@@ -15,11 +15,11 @@ rd-hashd-intf = { path = "../rd-hashd-intf", version = "2.2.6" }
 
 anyhow = "1.0"
 chrono = { version = "0.4", features = ["serde"] }
-console = "0.15"
+console = "0.16"
 crossbeam = "0.8"
 env_logger = "0.11"
 glob = "0.3"
-indicatif = "0.17"
+indicatif = "0.18"
 lazy_static = "1.4"
 libc = "0.2"
 linreg = "0.2"
