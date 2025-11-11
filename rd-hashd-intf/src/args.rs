@@ -193,6 +193,7 @@ impl JsonSave for Args {
 }
 
 impl JsonArgs for Args {
+    #[allow(dangerous_implicit_autorefs)]
     fn match_cmdline() -> ArgMatches<'static> {
         App::new("rd-hashd")
             .version((*super::FULL_VERSION).as_str())
