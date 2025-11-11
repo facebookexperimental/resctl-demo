@@ -384,6 +384,7 @@ impl JsonLoad for Args {}
 impl JsonSave for Args {}
 
 impl JsonArgs for Args {
+    #[allow(dangerous_implicit_autorefs)]
     fn match_cmdline() -> clap::ArgMatches<'static> {
         let job_file_arg = clap::Arg::with_name("file")
             .long("file")

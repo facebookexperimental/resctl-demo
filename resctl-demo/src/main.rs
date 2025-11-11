@@ -490,6 +490,7 @@ fn touch_units() {
 }
 
 fn main() {
+    #[allow(dangerous_implicit_autorefs)]
     let matches = clap::App::new("resctl-demo")
         .version((*FULL_VERSION).as_str())
         .author(clap::crate_authors!("\n"))

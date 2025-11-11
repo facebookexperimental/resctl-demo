@@ -284,6 +284,7 @@ impl Args {
 }
 
 impl JsonArgs for Args {
+    #[allow(dangerous_implicit_autorefs)]
     fn match_cmdline() -> clap::ArgMatches<'static> {
         clap::App::new("rd-agent")
             .version((*super::FULL_VERSION).as_str())
