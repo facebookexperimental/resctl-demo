@@ -22,7 +22,7 @@ resctl-bench-intf = { path = "../resctl-bench-intf", version = "2.2.6" }
 # avoid incompatibilities.
 aws-config = { version = "0.55.3", optional = true, features = ["rustls", "rt-tokio"], default-features = false  }
 aws-sdk-s3 = { version = "0.28.0", optional = true, features = ["rustls", "rt-tokio"], default-features = false  }
-aws-sdk-ssm = { version = "0.28.0", optional = true, features = ["rustls", "rt-tokio"], default-features = false  }
+aws-sdk-ssm = { version = "1.99.0", optional = true, features = ["rustls", "rt-tokio"], default-features = false  }
 aws_lambda_events = { version = "0.10.0", optional = true }
 jsonwebtoken = { version = "8.3.0", optional = true }
 url = { version = "2.2.2", features = ["serde"] }
