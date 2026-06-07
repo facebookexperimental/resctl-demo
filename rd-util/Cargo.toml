@@ -40,4 +40,4 @@ zbus_macros = { version = "5.7.1", features = ["gvariant"] }
 
 [build-dependencies]
 anyhow = "1.0"
-vergen = { version = "8.3", features = ["git", "gitcl", "cargo"] }
+vergen-gitcl = { version = "9.1", features = ["cargo"] }
