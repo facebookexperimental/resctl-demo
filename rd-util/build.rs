@@ -1,8 +1,12 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
+use vergen_gitcl::{CargoBuilder, Emitter, GitclBuilder};
+
 fn main() -> anyhow::Result<()> {
-    vergen::EmitBuilder::builder()
-        .git_sha(true)
-        .git_dirty(true)
-        .cargo_target_triple()
+    let gitcl = GitclBuilder::default().sha(true).dirty(true).build()?;
+    let cargo = CargoBuilder::default().target_triple(true).build()?;
+
+    Emitter::default()
+        .add_instructions(&gitcl)?
+        .add_instructions(&cargo)?
         .emit()
 }
