@@ -27,7 +27,7 @@ depth = math.ceil(depth / jobs)
 print(f"Reading {size/1024}k with {depth} depth and {jobs} jobs from {dev}", flush=True)
 
 cmd = (
-    f"fio --direct=1 --ioengine=libaio --name=read-bomb "
+    f"fio --direct=1 --ioengine=io_uring --name=read-bomb "
     f"--filename={dev} --readwrite=randread --iodepth={depth} --blocksize={size} "
     f"--numjobs={jobs} --eta=always --eta-interval=1 | stdbuf -oL tr '\r' '\n'"
 )
