@@ -2539,7 +2539,7 @@ dependencies = [
  "num-complex 0.4.6",
  "num-rational 0.4.2",
  "num-traits",
- "rand 0.8.5",
+ "rand 0.8.6",
  "rand_distr",
  "simba",
  "typenum",
@@ -3093,9 +3093,9 @@ dependencies = [
 
 [[package]]
 name = "rand"
-version = "0.8.5"
+version = "0.8.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "34af8d1a0e25924bc5b7c43c079c942339d8f0a8b57c39049bef581b46327404"
+checksum = "5ca0ecfa931c29007047d1bc58e623ab12e5590e8c7cc53200d5202b69266d8a"
 dependencies = [
  "libc",
  "rand_chacha 0.3.1",
@@ -3153,7 +3153,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32cb0b9bc82b0a0876c2dd994a7e7a2683d3e7390ca40e6886785ef0c7e3ee31"
 dependencies = [
  "num-traits",
- "rand 0.8.5",
+ "rand 0.8.6",
 ]
 
 [[package]]
@@ -3306,7 +3306,7 @@ dependencies = [
  "num 0.4.3",
  "pid",
  "quantiles",
- "rand 0.8.5",
+ "rand 0.8.6",
  "rand_distr",
  "rd-hashd-intf",
  "rd-util",
@@ -3346,7 +3346,7 @@ dependencies = [
  "num_cpus",
  "page_size",
  "proc-mounts",
- "rand 0.8.5",
+ "rand 0.8.6",
  "scan_fmt",
  "serde",
  "serde_json",
@@ -3464,7 +3464,7 @@ dependencies = [
  "octocrab",
  "plotlib",
  "quantiles",
- "rand 0.8.5",
+ "rand 0.8.6",
  "rd-agent-intf",
  "rd-hashd-intf",
  "rd-util",
@@ -4093,7 +4093,7 @@ dependencies = [
  "lazy_static",
  "nalgebra",
  "num-traits",
- "rand 0.8.5",
+ "rand 0.8.6",
 ]
 
 [[package]]
