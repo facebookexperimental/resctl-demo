@@ -368,8 +368,9 @@ where
         format_size_helper(size, 10, "K")
             .or_else(|| format_size_helper(size, 20, "M"))
             .or_else(|| format_size_helper(size, 30, "G"))
-            .or_else(|| format_size_helper(size, 40, "P"))
-            .or_else(|| format_size_helper(size, 50, "E"))
+            .or_else(|| format_size_helper(size, 40, "T"))
+            .or_else(|| format_size_helper(size, 50, "P"))
+            .or_else(|| format_size_helper(size, 60, "E"))
             .unwrap_or_else(|| "INF".into())
     }
 }
@@ -418,8 +419,9 @@ where
         format_count_helper(count, 3, "k")
             .or_else(|| format_count_helper(count, 6, "m"))
             .or_else(|| format_count_helper(count, 9, "g"))
-            .or_else(|| format_count_helper(count, 12, "p"))
-            .or_else(|| format_count_helper(count, 15, "e"))
+            .or_else(|| format_count_helper(count, 12, "t"))
+            .or_else(|| format_count_helper(count, 15, "p"))
+            .or_else(|| format_count_helper(count, 18, "e"))
             .unwrap_or_else(|| "INF".into())
     }
 }
@@ -1007,6 +1009,41 @@ mod tests {
             let result = super::parse_duration(pair.1).unwrap();
             assert_eq!(pair.0, result);
             println!("{} -> {} ({})", pair.1, result, pair.0);
+        }
+    }
+
+    #[test]
+    fn test_format_size() {
+        for pair in &[
+            (4404019u64, "4.2M"),
+            (3 << 30, "3.0G"),
+            (2_000_398_934_016, "1.8T"),
+            (2 << 40, "2.0T"),
+            (3 << 50, "3.0P"),
+            (5 << 60, "5.0E"),
+        ] {
+            let result = super::format_size(pair.0);
+            assert_eq!(&result, pair.1);
+            assert_eq!(
+                super::format_size(super::parse_size(&result).unwrap()),
+                result
+            );
+            println!("{} -> {} ({})", pair.0, &result, pair.1);
+        }
+    }
+
+    #[test]
+    fn test_format_count() {
+        for pair in &[
+            (4_200_000u64, "4.2m"),
+            (3_000_000_000, "3.0g"),
+            (2_000_000_000_000, "2.0t"),
+            (3_000_000_000_000_000, "3.0p"),
+            (5_000_000_000_000_000_000, "5.0e"),
+        ] {
+            let result = super::format_count(pair.0);
+            assert_eq!(&result, pair.1);
+            println!("{} -> {} ({})", pair.0, &result, pair.1);
         }
     }
 
